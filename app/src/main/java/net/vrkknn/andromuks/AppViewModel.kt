@@ -10900,24 +10900,21 @@ class AppViewModel : ViewModel() {
                 }
                 
                 // Process read receipts from timeline response (in background to avoid blocking animation)
+                // PAGINATE IS AUTHORITATIVE: Accept receipts as-is from the server
                 val receipts = data.optJSONObject("receipts")
                 if (receipts != null) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts from timeline response for room: $roomId")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts from paginate response for room: $roomId")
                     // Process receipts in background to avoid blocking UI thread during bubble animation
                     viewModelScope.launch(Dispatchers.Default) {
                         try {
-                            val processedMovements = mutableMapOf<String, Triple<String?, String, Long>>()
                             var hasReceiptChanges = false
                             
                             synchronized(readReceiptsLock) {
-                                hasReceiptChanges = ReceiptFunctions.processReadReceipts(
+                                // Use processReadReceiptsFromPaginate - paginate responses are authoritative
+                                hasReceiptChanges = ReceiptFunctions.processReadReceiptsFromPaginate(
                                     receipts, 
                                     readReceipts, 
-                                    { }, // Update counter after processing (on main thread)
-                                    { userId, previousEventId, newEventId ->
-                                        // Track receipt movement for animation (collect in background)
-                                        processedMovements[userId] = Triple(previousEventId, newEventId, System.currentTimeMillis())
-                                    }
+                                    { } // Update counter after processing (on main thread)
                                 )
                                 
                                 // Update singleton cache after processing receipts
@@ -10925,19 +10922,11 @@ class AppViewModel : ViewModel() {
                             }
                             
                             // Apply updates on main thread after processing (only if there were changes)
-                            if (hasReceiptChanges || processedMovements.isNotEmpty()) {
+                            if (hasReceiptChanges) {
                                 withContext(Dispatchers.Main) {
                                     try {
-                                        if (processedMovements.isNotEmpty()) {
-                                            synchronized(readReceiptsLock) {
-                                                receiptMovements.putAll(processedMovements)
-                                            }
-                                            receiptAnimationTrigger = System.currentTimeMillis()
-                                        }
                                         // Single UI update after all processing
-                                        if (hasReceiptChanges) {
-                                            readReceiptsUpdateCounter++
-                                        }
+                                        readReceiptsUpdateCounter++
                                     } catch (e: Exception) {
                                         android.util.Log.e("Andromuks", "AppViewModel: Error updating receipt state on main thread", e)
                                     }
@@ -11995,12 +11984,13 @@ class AppViewModel : ViewModel() {
                         processSyncEventsArray(events, roomId)
                     }
                     
-                    // Process read receipts (optimized to only update UI if receipts actually changed)
+                    // Process read receipts from sync_complete (incremental updates - move receipts)
                     val receipts = roomData.optJSONObject("receipts")
                     if (receipts != null) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts for room: $roomId - found ${receipts.length()} event receipts")
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts from sync_complete for room: $roomId - found ${receipts.length()} event receipts")
                         synchronized(readReceiptsLock) {
-                            ReceiptFunctions.processReadReceipts(
+                            // Use processReadReceiptsFromSyncComplete - sync_complete moves receipts
+                            ReceiptFunctions.processReadReceiptsFromSyncComplete(
                                 receipts, 
                                 readReceipts, 
                                 { readReceiptsUpdateCounter++ },
@@ -12018,7 +12008,7 @@ class AppViewModel : ViewModel() {
                             ReadReceiptCache.setAll(readReceipts.mapValues { it.value.toList() })
                         }
                     } else {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No receipts found in sync for room: $roomId")
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No receipts found in sync_complete for room: $roomId")
                     }
                 }
             }

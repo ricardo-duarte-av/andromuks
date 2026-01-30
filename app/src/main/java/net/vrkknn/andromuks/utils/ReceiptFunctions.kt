@@ -69,35 +69,132 @@ import kotlinx.coroutines.launch
 object ReceiptFunctions {
     
     /**
-     * Processes read receipts from a JSON response.
+     * Processes read receipts from a pagination response (authoritative - accepts as-is).
      * 
-     * Read receipts represent "User has read the room up to event X", so when a user
-     * reads a newer message, we must remove their receipt from all older messages
-     * and only show it on the latest message they've read.
+     * Pagination responses are authoritative - whatever the server sends is the source of truth.
+     * If the server says event $123 has 10 receipts, we accept and display all 10.
      * 
-     * OPTIMIZED: Returns true if receipts were actually changed to allow selective UI updates.
+     * @param receiptsJson JSON object containing read receipts from pagination
+     * @param readReceiptsMap Mutable map to store the processed receipts (eventId -> list of receipts)
+     * @param updateCounter Counter to trigger UI updates (will be incremented only if changes occurred)
+     * @return true if receipts were modified, false otherwise
+     */
+    fun processReadReceiptsFromPaginate(
+        receiptsJson: JSONObject,
+        readReceiptsMap: MutableMap<String, MutableList<ReadReceipt>>,
+        updateCounter: () -> Unit
+    ): Boolean {
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ReceiptFunctions: processReadReceiptsFromPaginate called with ${receiptsJson.length()} event receipts")
+        val keys = receiptsJson.keys()
+        var totalReceipts = 0
+        var hasChanges = false
+        
+        // PAGINATE IS AUTHORITATIVE: Accept all receipts as-is from the server
+        // CRITICAL: Completely replace receipts for events in paginate response, ignoring any existing receipts
+        // This ensures paginate responses are always authoritative, even if sync_complete has moved receipts
+        while (keys.hasNext()) {
+            val eventId = keys.next()
+            val receiptsArray = receiptsJson.optJSONArray(eventId)
+            if (receiptsArray != null) {
+                // Build the authoritative list of receipts from the server response
+                val authoritativeReceipts = mutableListOf<ReadReceipt>()
+                
+                for (i in 0 until receiptsArray.length()) {
+                    val receiptJson = receiptsArray.optJSONObject(i)
+                    if (receiptJson != null) {
+                        val receipt = ReadReceipt(
+                            userId = receiptJson.optString("user_id", ""),
+                            eventId = receiptJson.optString("event_id", ""),
+                            timestamp = receiptJson.optLong("timestamp", 0),
+                            receiptType = receiptJson.optString("receipt_type", "")
+                        )
+                        
+                        // Validate receipt has required fields
+                        if (receipt.userId.isNotBlank() && receipt.eventId.isNotBlank()) {
+                            authoritativeReceipts.add(receipt)
+                            totalReceipts++
+                            
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "ReceiptFunctions: Adding receipt from paginate - eventId=$eventId, userId=${receipt.userId}, timestamp=${receipt.timestamp}")
+                        } else {
+                            if (BuildConfig.DEBUG) Log.w("Andromuks", "ReceiptFunctions: Skipping invalid receipt - eventId=$eventId, userId=${receipt.userId}, receiptEventId=${receipt.eventId}")
+                        }
+                    }
+                }
+                
+                // CRITICAL: Replace all receipts for this event with the authoritative list from paginate
+                // This ensures paginate responses are always the source of truth
+                val existingReceipts = readReceiptsMap[eventId]
+                val receiptsChanged = existingReceipts == null || 
+                    existingReceipts.size != authoritativeReceipts.size ||
+                    existingReceipts.any { existing ->
+                        !authoritativeReceipts.any { auth ->
+                            auth.userId == existing.userId && 
+                            auth.timestamp == existing.timestamp &&
+                            auth.eventId == existing.eventId
+                        }
+                    } ||
+                    authoritativeReceipts.any { auth ->
+                        !existingReceipts.any { existing ->
+                            existing.userId == auth.userId && 
+                            existing.timestamp == auth.timestamp &&
+                            existing.eventId == auth.eventId
+                        }
+                    }
+                
+                if (receiptsChanged) {
+                    if (authoritativeReceipts.isEmpty()) {
+                        // Server says no receipts for this event - remove it
+                        readReceiptsMap.remove(eventId)
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "ReceiptFunctions: Removed all receipts for eventId=$eventId (server says none)")
+                    } else {
+                        // Replace with authoritative list
+                        readReceiptsMap[eventId] = authoritativeReceipts.toMutableList()
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "ReceiptFunctions: Replaced receipts for eventId=$eventId with ${authoritativeReceipts.size} receipts from paginate")
+                    }
+                    hasChanges = true
+                } else {
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "ReceiptFunctions: Receipts for eventId=$eventId unchanged (${authoritativeReceipts.size} receipts)")
+                }
+            }
+        }
+        
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ReceiptFunctions: processReadReceiptsFromPaginate completed - processed $totalReceipts total receipts, hasChanges: $hasChanges")
+        
+        if (hasChanges) {
+            updateCounter()
+        }
+        
+        return hasChanges
+    }
+    
+    /**
+     * Processes read receipts from a sync_complete response (incremental updates - moves receipts).
      * 
-     * @param receiptsJson JSON object containing read receipts
+     * Sync_complete receipts are incremental updates. When we receive a receipt for a user,
+     * we must:
+     * 1. Find if that user already has a receipt on any other event in the timeline
+     * 2. If yes, remove the old receipt and add the new one
+     * 3. If no, just add the new receipt
+     * 
+     * @param receiptsJson JSON object containing read receipts from sync_complete
      * @param readReceiptsMap Mutable map to store the processed receipts (eventId -> list of receipts)
      * @param updateCounter Counter to trigger UI updates (will be incremented only if changes occurred)
      * @param onMovementDetected Optional callback to track receipt movements for animation (userId, previousEventId, newEventId)
      * @return true if receipts were modified, false otherwise
      */
-    fun processReadReceipts(
+    fun processReadReceiptsFromSyncComplete(
         receiptsJson: JSONObject,
         readReceiptsMap: MutableMap<String, MutableList<ReadReceipt>>,
         updateCounter: () -> Unit,
         onMovementDetected: ((String, String?, String) -> Unit)? = null
     ): Boolean {
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "ReceiptFunctions: processReadReceipts called with ${receiptsJson.length()} event receipts")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ReceiptFunctions: processReadReceiptsFromSyncComplete called with ${receiptsJson.length()} event receipts")
         val keys = receiptsJson.keys()
         var totalReceipts = 0
         var hasChanges = false
         
-        // Track the latest read receipt for each user
-        val userLatestReceipts = mutableMapOf<String, ReadReceipt>()
-        
-        // First pass: collect all receipts and find the latest for each user
+        // SYNC_COMPLETE: Process each receipt individually - remove old receipt for user, add new one
+        // For each event in the sync_complete response
         while (keys.hasNext()) {
             val eventId = keys.next()
             val receiptsArray = receiptsJson.optJSONArray(eventId)
@@ -112,76 +209,78 @@ object ReceiptFunctions {
                             receiptType = receiptJson.optString("receipt_type", "")
                         )
                         
-                        // Track the latest receipt for this user
-                        val existingLatest = userLatestReceipts[receipt.userId]
-                        if (existingLatest == null || receipt.timestamp > existingLatest.timestamp) {
-                            userLatestReceipts[receipt.userId] = receipt
+                        totalReceipts++
+                        
+                        // SYNC_COMPLETE LOGIC: Find if this user has a receipt on any other event
+                        var previousEventId: String? = null
+                        var previousReceipt: ReadReceipt? = null
+                        
+                        for ((existingEventId, receiptsList) in readReceiptsMap) {
+                            val existingReceipt = receiptsList.find { it.userId == receipt.userId }
+                            if (existingReceipt != null) {
+                                // Found existing receipt for this user
+                                if (existingEventId != receipt.eventId) {
+                                    // Different event - this is the old receipt we need to remove
+                                    previousEventId = existingEventId
+                                    previousReceipt = existingReceipt
+                                    break
+                                } else {
+                                    // Same event - check if timestamp changed
+                                    if (existingReceipt.timestamp != receipt.timestamp) {
+                                        previousReceipt = existingReceipt
+                                        break
+                                    }
+                                }
+                            }
                         }
                         
-                        totalReceipts++
+                        // Remove old receipt if found
+                        if (previousReceipt != null && previousEventId != null) {
+                            val oldReceiptsList = readReceiptsMap[previousEventId]
+                            if (oldReceiptsList != null) {
+                                oldReceiptsList.remove(previousReceipt)
+                                hasChanges = true
+                                
+                                // Remove event entry if no receipts remain
+                                if (oldReceiptsList.isEmpty()) {
+                                    readReceiptsMap.remove(previousEventId)
+                                }
+                                
+                                // Notify about movement for animation
+                                if (onMovementDetected != null && previousEventId != receipt.eventId) {
+                                    onMovementDetected(receipt.userId, previousEventId, receipt.eventId)
+                                }
+                            }
+                        } else if (previousReceipt != null) {
+                            // Same event, just updating timestamp
+                            val receiptsList = readReceiptsMap[receipt.eventId]
+                            if (receiptsList != null) {
+                                receiptsList.remove(previousReceipt)
+                                hasChanges = true
+                            }
+                        }
+                        
+                        // Add the new receipt to the target event
+                        val receiptsList = readReceiptsMap.getOrPut(receipt.eventId) { mutableListOf() }
+                        val existingReceiptOnEvent = receiptsList.find { it.userId == receipt.userId }
+                        
+                        if (existingReceiptOnEvent == null) {
+                            // No existing receipt on this event, add it
+                            receiptsList.add(receipt)
+                            hasChanges = true
+                        } else if (existingReceiptOnEvent.timestamp != receipt.timestamp) {
+                            // Receipt exists but timestamp changed, replace it
+                            receiptsList.remove(existingReceiptOnEvent)
+                            receiptsList.add(receipt)
+                            hasChanges = true
+                        }
+                        // If receipt already exists with same timestamp, no change needed
                     }
                 }
             }
         }
         
-        // Early return if no receipts to process
-        if (userLatestReceipts.isEmpty()) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "ReceiptFunctions: No receipts to process, skipping")
-            return false
-        }
-        
-        // Second pass: remove all existing receipts for users who have new receipts
-        val usersWithNewReceipts = userLatestReceipts.keys
-        for (eventId in readReceiptsMap.keys.toList()) {
-            val receiptsList = readReceiptsMap[eventId]
-            if (receiptsList != null) {
-                // Remove receipts for users who have new receipts
-                val filteredReceipts = receiptsList.filter { it.userId !in usersWithNewReceipts }
-                if (filteredReceipts.isEmpty()) {
-                    readReceiptsMap.remove(eventId)
-                    hasChanges = true
-                } else if (filteredReceipts.size != receiptsList.size) {
-                    readReceiptsMap[eventId] = filteredReceipts.toMutableList()
-                    hasChanges = true
-                }
-            }
-        }
-        
-        // Detect movements for animation before adding new receipts
-        if (onMovementDetected != null) {
-            for ((userId, latestReceipt) in userLatestReceipts) {
-                // Find the previous event ID where this user had a receipt
-                var previousEventId: String? = null
-                for ((eventId, receiptsList) in readReceiptsMap) {
-                    if (receiptsList.any { it.userId == userId } && eventId != latestReceipt.eventId) {
-                        previousEventId = eventId
-                        break
-                    }
-                }
-                
-                // If user moved to a different event, notify for animation
-                if (previousEventId != null && previousEventId != latestReceipt.eventId) {
-                    onMovementDetected(userId, previousEventId, latestReceipt.eventId)
-                }
-            }
-        }
-        
-        // Third pass: add the latest receipts to their respective events
-        for ((userId, latestReceipt) in userLatestReceipts) {
-            val eventId = latestReceipt.eventId
-            val receiptsList = readReceiptsMap.getOrPut(eventId) { mutableListOf() }
-            // Only add if not already present
-            val existingReceipt = receiptsList.find { it.userId == userId }
-            if (existingReceipt == null || existingReceipt.timestamp != latestReceipt.timestamp) {
-                if (existingReceipt != null) {
-                    receiptsList.remove(existingReceipt)
-                }
-                receiptsList.add(latestReceipt)
-                hasChanges = true
-            }
-        }
-        
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "ReceiptFunctions: processReadReceipts completed - processed $totalReceipts total receipts, ${userLatestReceipts.size} unique users, hasChanges: $hasChanges")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ReceiptFunctions: processReadReceiptsFromSyncComplete completed - processed $totalReceipts total receipts, hasChanges: $hasChanges")
         
         // Only trigger UI update if receipts actually changed
         if (hasChanges) {
@@ -189,6 +288,20 @@ object ReceiptFunctions {
         }
         
         return hasChanges
+    }
+    
+    /**
+     * Legacy function name - redirects to processReadReceiptsFromSyncComplete for backward compatibility.
+     * @deprecated Use processReadReceiptsFromSyncComplete or processReadReceiptsFromPaginate explicitly
+     */
+    @Deprecated("Use processReadReceiptsFromSyncComplete or processReadReceiptsFromPaginate explicitly")
+    fun processReadReceipts(
+        receiptsJson: JSONObject,
+        readReceiptsMap: MutableMap<String, MutableList<ReadReceipt>>,
+        updateCounter: () -> Unit,
+        onMovementDetected: ((String, String?, String) -> Unit)? = null
+    ): Boolean {
+        return processReadReceiptsFromSyncComplete(receiptsJson, readReceiptsMap, updateCounter, onMovementDetected)
     }
     
     /**
