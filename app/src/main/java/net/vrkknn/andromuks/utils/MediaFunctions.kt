@@ -567,24 +567,11 @@ fun MediaMessage(
                         } else {
                             Modifier.fillMaxWidth(0.8f)
                         }
-                    )
-                    // In dark mode, add a light glow effect
-                    .then(
-                        if (isDarkMode) {
-                            Modifier.shadow(
-                                elevation = 3.dp,
-                                shape = bubbleShape,
-                                ambientColor = Color.White.copy(alpha = 0.15f), // Light glow in dark mode
-                                spotColor = Color.White.copy(alpha = 0.2f)
-                            )
-                        } else {
-                            Modifier
-                        }
                     ),
                 shape = bubbleShape,
                 color = MaterialTheme.colorScheme.surfaceVariant,
-                tonalElevation = 3.dp,  // Provides color changes for elevation
-                shadowElevation = if (isDarkMode) 0.dp else 3.dp  // Shadows in light mode only
+                tonalElevation = 0.dp,  // No elevation/shadow
+                shadowElevation = 0.dp  // No shadow
             ) {
                 Column {
                     // Image content inside the caption bubble
@@ -748,24 +735,11 @@ fun MediaMessage(
                             Modifier.fillMaxWidth(0.8f) // Max 80% width
                         }
                     )
-                    .wrapContentHeight()
-                    // In dark mode, add a light glow effect
-                    .then(
-                        if (isDarkMode) {
-                            Modifier.shadow(
-                                elevation = 3.dp,
-                                shape = bubbleShape,
-                                ambientColor = Color.White.copy(alpha = 0.15f), // Light glow in dark mode
-                                spotColor = Color.White.copy(alpha = 0.2f)
-                            )
-                        } else {
-                            Modifier
-                        }
-                    ),
+                    .wrapContentHeight(                    ),
                 shape = bubbleShape,
                 color = MaterialTheme.colorScheme.surfaceVariant,
-                tonalElevation = 3.dp,  // Provides color changes for elevation
-                shadowElevation = if (isDarkMode) 0.dp else 3.dp  // Shadows in light mode only
+                tonalElevation = 0.dp,  // No elevation/shadow
+                shadowElevation = 0.dp  // No shadow
             ) {
                 Column {
                     MediaContent(

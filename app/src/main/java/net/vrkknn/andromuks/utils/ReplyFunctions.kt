@@ -952,31 +952,11 @@ fun MessageBubbleWithMenu(
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         showMenu = true
                     }
-                )
-                // In dark mode, add a light glow effect
-                .then(
-                    if (isDarkMode) {
-                        val ambientAlpha = 0.15f + 0.25f * highlightValue
-                        val spotAlpha = 0.2f + 0.35f * highlightValue
-                        Modifier.shadow(
-                            elevation = 3.dp + 3.dp * highlightValue,
-                            shape = bubbleShape,
-                            ambientColor = Color.White.copy(alpha = ambientAlpha),
-                            spotColor = Color.White.copy(alpha = spotAlpha)
-                        )
-                    } else {
-                        Modifier
-                    }
                 ),
             color = bubbleColorAdjusted,
             shape = bubbleShape,
-            tonalElevation = 3.dp + (2.dp * highlightValue),  // Provides color changes for elevation
-            shadowElevation =
-                if (isDarkMode) {
-                    0.dp
-                } else {
-                    3.dp + (6.dp * highlightValue)
-                },  // Shadows in light mode only
+            tonalElevation = 0.dp,  // No elevation/shadow
+            shadowElevation = 0.dp,  // No shadow
             border = combinedBorder
         ) {
             Row(content = content)

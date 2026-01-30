@@ -891,19 +891,7 @@ private fun RoomMessageContent(
                     bubbleColor = bubbleColor,
                     bubbleShape = bubbleShape,
                     modifier = Modifier
-                        .padding(top = 4.dp)
-                        .then(
-                            if (isDarkMode) {
-                                Modifier.shadow(
-                                    elevation = 3.dp,
-                                    shape = bubbleShape,
-                                    ambientColor = Color.White.copy(alpha = 0.15f),
-                                    spotColor = Color.White.copy(alpha = 0.2f)
-                                )
-                            } else {
-                                Modifier
-                            }
-                        ),
+                        .padding(top = 4.dp),
                     isMine = actualIsMine,
                     myUserId = myUserId,
                     powerLevels = appViewModel?.currentRoomState?.powerLevels,
@@ -1108,19 +1096,7 @@ private fun RoomMediaMessageContent(
                 bubbleColor = bubbleColor,
                 bubbleShape = bubbleShape,
                 modifier = Modifier
-                    .padding(top = 4.dp)
-                    .then(
-                        if (isDarkMode) {
-                            Modifier.shadow(
-                                elevation = 3.dp,
-                                shape = bubbleShape,
-                                ambientColor = Color.White.copy(alpha = 0.15f),
-                                spotColor = Color.White.copy(alpha = 0.2f)
-                            )
-                        } else {
-                            Modifier
-                        }
-                    ),
+                    .padding(top = 4.dp),
                 isMine = actualIsMine,
                 myUserId = myUserId,
                 powerLevels = appViewModel?.currentRoomState?.powerLevels,
@@ -1340,23 +1316,10 @@ private fun RoomMediaMessageContent(
             Surface(
                 color = bubbleColor,
                 shape = bubbleShape,
-                tonalElevation = 3.dp,  // Provides color changes for elevation
-                shadowElevation = if (isDarkMode) 0.dp else 3.dp,  // Shadows in light mode only
+                tonalElevation = 0.dp,  // No elevation/shadow
+                shadowElevation = 0.dp,  // No shadow
                 modifier = Modifier
                     .padding(top = 4.dp)
-                    // In dark mode, add a light glow effect
-                    .then(
-                        if (isDarkMode) {
-                            Modifier.shadow(
-                                elevation = 3.dp,
-                                shape = bubbleShape,
-                                ambientColor = Color.White.copy(alpha = 0.15f), // Light glow in dark mode
-                                spotColor = Color.White.copy(alpha = 0.2f)
-                            )
-                        } else {
-                            Modifier
-                        }
-                    )
             ) {
                 Text(
                     text = body,
@@ -2649,19 +2612,7 @@ private fun StickerMessageContent(
                 bubbleColor = bubbleColor,
                 bubbleShape = bubbleShape,
                 modifier = Modifier
-                    .padding(top = 4.dp)
-                    .then(
-                        if (isDarkMode) {
-                            Modifier.shadow(
-                                elevation = 3.dp,
-                                shape = bubbleShape,
-                                ambientColor = Color.White.copy(alpha = 0.15f),
-                                spotColor = Color.White.copy(alpha = 0.2f)
-                            )
-                        } else {
-                            Modifier
-                        }
-                    ),
+                    .padding(top = 4.dp),
                 isMine = actualIsMine,
                 myUserId = myUserId,
                 powerLevels = appViewModel?.currentRoomState?.powerLevels,
