@@ -2032,8 +2032,40 @@ fun RoomListContent(
     
     // NAVIGATION PERFORMANCE: Add scroll state for prefetching
     // NAVIGATION PERFORMANCE: Observe scroll state and trigger prefetching for visible rooms
+    // CRITICAL FIX: Prefetch initially visible rooms when tab is first shown, not just on scroll
     LaunchedEffect(listState, filteredRooms) {
         val prefetchedIds = mutableSetOf<String>()
+        
+        // Prefetch initially visible rooms when tab is first shown or rooms change
+        // This ensures rooms are prefetched even if user hasn't scrolled yet
+        // Wait a bit for LazyColumn to layout before checking visible items
+        kotlinx.coroutines.delay(100)
+        
+        val layoutInfo = listState.layoutInfo
+        if (filteredRooms.isNotEmpty() && layoutInfo.visibleItemsInfo.isNotEmpty()) {
+            val firstVisibleIndex = listState.firstVisibleItemIndex
+            val visibleIndices = layoutInfo.visibleItemsInfo.map { it.index }
+            
+            val nearbyRangeStart = (firstVisibleIndex - 10).coerceAtLeast(0)
+            val nearbyRangeEnd = (firstVisibleIndex + visibleIndices.size + 10).coerceAtMost(filteredRooms.size - 1)
+            val initiallyVisibleRoomIds = (nearbyRangeStart..nearbyRangeEnd)
+                .filter { it in filteredRooms.indices }
+                .map { filteredRooms[it].id }
+                .distinct()
+            
+            if (initiallyVisibleRoomIds.isNotEmpty()) {
+                prefetchedIds.addAll(initiallyVisibleRoomIds)
+                appViewModel.prefetchRoomData(initiallyVisibleRoomIds, firstVisibleIndex)
+                if (ROOM_LIST_VERBOSE_LOGGING && BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                        "Andromuks",
+                        "RoomListScreen: NAVIGATION OPTIMIZATION - Initial prefetch ${initiallyVisibleRoomIds.size} visible rooms (window ±10)"
+                    )
+                }
+            }
+        }
+        
+        // Also observe scroll changes to prefetch newly visible rooms
         snapshotFlow {
             val layoutInfo = listState.layoutInfo
             listState.firstVisibleItemIndex to layoutInfo.visibleItemsInfo.map { it.index }
@@ -2056,7 +2088,7 @@ fun RoomListContent(
                     if (ROOM_LIST_VERBOSE_LOGGING && BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
-                            "RoomListScreen: NAVIGATION OPTIMIZATION - Prefetch ${nearbyRoomIds.size} rooms (window ±10, deduped)"
+                            "RoomListScreen: NAVIGATION OPTIMIZATION - Prefetch ${nearbyRoomIds.size} rooms on scroll (window ±10, deduped)"
                         )
                     }
                 }
