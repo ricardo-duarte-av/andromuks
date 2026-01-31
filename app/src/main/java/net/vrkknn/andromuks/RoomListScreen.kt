@@ -1066,30 +1066,73 @@ fun RoomListScreen(
                             )
                         }
                         RoomSectionType.SPACES -> {
-                            if (appViewModel.currentSpaceId != null) {
-                                RoomListContent(
-                                    rooms = targetSection.rooms,
-                                    searchQuery = searchQuery,
-                                    appViewModel = appViewModel,
-                                    authToken = authToken,
-                                    navController = navController,
-                                    timestampUpdateTrigger = smartTimestampUpdateCounter,
-                                    hapticFeedback = hapticFeedback,
-                                    listState = currentListState,
-                                    onInviteClick = { invite ->
-                                        inviteToJoin = invite
-                                        showRoomJoiner = true
+                            val currentSpaceId = appViewModel.currentSpaceId
+                            
+                            AnimatedContent(
+                                targetState = currentSpaceId ?: "",
+                                contentKey = { it },
+                                transitionSpec = {
+                                    val isEnteringSpace = initialState.isEmpty() && targetState.isNotEmpty()
+                                    val isExitingSpace = initialState.isNotEmpty() && targetState.isEmpty()
+                                    
+                                    if (isEnteringSpace) {
+                                        // Entering space: space list zooms out and fades out, rooms zoom in and fade in
+                                        val exitTransition = scaleOut(
+                                            targetScale = 0.8f,
+                                            animationSpec = tween(1000, easing = FastOutSlowInEasing)
+                                        ) + fadeOut(animationSpec = tween(1000, easing = FastOutSlowInEasing))
+                                        
+                                        val enterTransition = scaleIn(
+                                            initialScale = 0.0f,
+                                            animationSpec = tween(1000, easing = FastOutSlowInEasing)
+                                        ) + fadeIn(animationSpec = tween(1000, easing = FastOutSlowInEasing))
+                                        
+                                        enterTransition togetherWith exitTransition
+                                    } else if (isExitingSpace) {
+                                        // Exiting space: rooms zoom out and fade out, space list zooms in and fades in
+                                        val exitTransition = scaleOut(
+                                            targetScale = 0.0f,
+                                            animationSpec = tween(1000, easing = FastOutSlowInEasing)
+                                        ) + fadeOut(animationSpec = tween(1000, easing = FastOutSlowInEasing))
+                                        
+                                        val enterTransition = scaleIn(
+                                            initialScale = 0.8f,
+                                            animationSpec = tween(1000, easing = FastOutSlowInEasing)
+                                        ) + fadeIn(animationSpec = tween(1000, easing = FastOutSlowInEasing))
+                                        
+                                        enterTransition togetherWith exitTransition
+                                    } else {
+                                        // Switching between spaces: simple fade
+                                        fadeIn(animationSpec = tween(1000)) togetherWith fadeOut(animationSpec = tween(1000))
                                     }
-                                )
-                            } else {
-                                SpacesListContent(
-                                    spaces = targetSection.spaces,
-                                    searchQuery = searchQuery,
-                                    appViewModel = appViewModel,
-                                    authToken = authToken,
-                                    navController = navController,
-                                    listState = currentListState
-                                )
+                                },
+                                label = "SpaceTransition"
+                            ) { spaceId ->
+                                if (spaceId.isNotEmpty()) {
+                                    RoomListContent(
+                                        rooms = targetSection.rooms,
+                                        searchQuery = searchQuery,
+                                        appViewModel = appViewModel,
+                                        authToken = authToken,
+                                        navController = navController,
+                                        timestampUpdateTrigger = smartTimestampUpdateCounter,
+                                        hapticFeedback = hapticFeedback,
+                                        listState = currentListState,
+                                        onInviteClick = { invite ->
+                                            inviteToJoin = invite
+                                            showRoomJoiner = true
+                                        }
+                                    )
+                                } else {
+                                    SpacesListContent(
+                                        spaces = targetSection.spaces,
+                                        searchQuery = searchQuery,
+                                        appViewModel = appViewModel,
+                                        authToken = authToken,
+                                        navController = navController,
+                                        listState = currentListState
+                                    )
+                                }
                             }
                         }
                         RoomSectionType.DIRECT_CHATS -> {
@@ -2027,6 +2070,7 @@ fun RoomListContent(
     // Debounced, meaningful-diff snapshot for the displayed rooms to reduce flicker.
     // We hash the fields that matter for rendering/sorting; unchanged hash => skip swap.
     // CRITICAL FIX: Include bridgeProtocolAvatarUrl in hash so UI updates when bridge badges arrive
+    // CRITICAL FIX: Skip debounce when rooms go from empty to non-empty (entering a space) to make animation visible
     var debouncedRooms by remember { mutableStateOf(filteredRooms) }
     val targetHash = remember(filteredRooms) {
         filteredRooms.joinToString("|") {
@@ -2034,8 +2078,18 @@ fun RoomListContent(
         }
     }
     LaunchedEffect(targetHash) {
-        kotlinx.coroutines.delay(1000L) // 1s debounce to coalesce rapid sync_complete updates
-        debouncedRooms = filteredRooms
+        val wasEmpty = debouncedRooms.isEmpty()
+        val isNowPopulated = wasEmpty && filteredRooms.isNotEmpty()
+        
+        if (isNowPopulated) {
+            // Rooms just populated (entering a space) - update immediately without debounce
+            // This ensures the animation is visible when entering a space
+            debouncedRooms = filteredRooms
+        } else {
+            // Normal case - debounce to coalesce rapid sync_complete updates
+            kotlinx.coroutines.delay(1000L)
+            debouncedRooms = filteredRooms
+        }
     }
     
     // NAVIGATION PERFORMANCE: Add scroll state for prefetching
