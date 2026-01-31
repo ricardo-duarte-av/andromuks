@@ -2019,10 +2019,11 @@ fun RoomListContent(
     
     // Debounced, meaningful-diff snapshot for the displayed rooms to reduce flicker.
     // We hash the fields that matter for rendering/sorting; unchanged hash => skip swap.
+    // CRITICAL FIX: Include bridgeProtocolAvatarUrl in hash so UI updates when bridge badges arrive
     var debouncedRooms by remember { mutableStateOf(filteredRooms) }
     val targetHash = remember(filteredRooms) {
         filteredRooms.joinToString("|") {
-            "${it.id}:${it.sortingTimestamp ?: 0L}:${it.unreadCount ?: 0}:${it.highlightCount ?: 0}:${it.messagePreview ?: ""}:${it.messageSender ?: ""}"
+            "${it.id}:${it.sortingTimestamp ?: 0L}:${it.unreadCount ?: 0}:${it.highlightCount ?: 0}:${it.messagePreview ?: ""}:${it.messageSender ?: ""}:${it.bridgeProtocolAvatarUrl ?: ""}"
         }
     }
     LaunchedEffect(targetHash) {

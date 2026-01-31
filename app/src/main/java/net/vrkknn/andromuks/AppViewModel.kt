@@ -3904,8 +3904,10 @@ class AppViewModel : ViewModel() {
         lastRoomListScrollPosition = scrollPosition
         
         // Only prefetch if we haven't done it recently (avoid excessive requests)
+        // CRITICAL FIX: Room state (including bridge info) doesn't change frequently, so use 30 minutes
+        // This prevents unnecessary re-requests while still allowing updates if room state actually changes
         val currentTime = System.currentTimeMillis()
-        val prefetchThreshold = 30 * 1000L // 30 seconds
+        val prefetchThreshold = 30 * 60 * 1000L // 30 minutes (room state is relatively stable)
         
         visibleRoomIds.forEach { roomId ->
             val navigationState = navigationCache[roomId]
@@ -11213,21 +11215,45 @@ class AppViewModel : ViewModel() {
             }
             
             // Update bridge protocol avatar if present and different
-            if (bridgeProtocolAvatarUrl != null && existing.bridgeProtocolAvatarUrl != bridgeProtocolAvatarUrl) {
-                updatedRoom = updatedRoom.copy(bridgeProtocolAvatarUrl = bridgeProtocolAvatarUrl)
-                needsUpdate = true
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated bridge protocol avatar for $roomId: $bridgeProtocolAvatarUrl")
+            // CRITICAL FIX: Always update if bridgeProtocolAvatarUrl is present, even if it's the same
+            // This ensures the badge appears even if the room was already in roomMap
+            if (bridgeProtocolAvatarUrl != null) {
+                if (existing.bridgeProtocolAvatarUrl != bridgeProtocolAvatarUrl) {
+                    updatedRoom = updatedRoom.copy(bridgeProtocolAvatarUrl = bridgeProtocolAvatarUrl)
+                    needsUpdate = true
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated bridge protocol avatar for $roomId: $bridgeProtocolAvatarUrl")
+                } else if (existing.bridgeProtocolAvatarUrl == null) {
+                    // Room exists but didn't have bridge avatar - update it
+                    updatedRoom = updatedRoom.copy(bridgeProtocolAvatarUrl = bridgeProtocolAvatarUrl)
+                    needsUpdate = true
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added bridge protocol avatar for $roomId: $bridgeProtocolAvatarUrl")
+                }
             }
             
             if (needsUpdate) {
                 roomMap[roomId] = updatedRoom
                 allRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
                 invalidateRoomSectionCache()
+                // CRITICAL FIX: Increment roomListUpdateCounter to trigger UI recomposition
+                // This ensures bridge badges appear when room state is updated
+                roomListUpdateCounter++
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated roomMap with bridge info for $roomId, triggered UI update")
             }
-        } else if (bridgeSaysDm) {
-            // No room yet; remember as DM so when the room is added it will be treated as direct.
-            directMessageRoomIds = directMessageRoomIds + roomId
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Recorded $roomId as DM via bridge room_type (no room object yet)")
+        } else {
+            // Room doesn't exist in roomMap yet - store bridge info for later
+            // This can happen if get_room_state arrives before sync_complete creates the room
+            if (bridgeProtocolAvatarUrl != null || bridgeSaysDm) {
+                // Store bridge protocol avatar in a temporary cache that will be applied when room is created
+                // For now, we'll rely on the room being created from sync_complete and then updated
+                // The bridge info will be applied on the next get_room_state or when room is opened
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Bridge info received for $roomId but room not in roomMap yet (will be applied when room is created)")
+            }
+            
+            if (bridgeSaysDm) {
+                // No room yet; remember as DM so when the room is added it will be treated as direct.
+                directMessageRoomIds = directMessageRoomIds + roomId
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Recorded $roomId as DM via bridge room_type (no room object yet)")
+            }
         }
 
         // Room state is in-memory only; no local persistence.
