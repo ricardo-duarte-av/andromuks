@@ -731,6 +731,70 @@ class AppViewModel : ViewModel() {
     var pendingSendCount by mutableStateOf(0)
         private set
     
+    // Track uploads in progress per room (roomId -> count)
+    private val uploadInProgressCount = mutableStateMapOf<String, Int>()
+    // Track upload types per room (roomId -> set of upload types: "image", "video", "audio", "file")
+    private val uploadTypesPerRoom = mutableStateMapOf<String, MutableSet<String>>()
+    
+    /**
+     * Check if there are uploads in progress for a room
+     */
+    fun hasUploadInProgress(roomId: String): Boolean {
+        return uploadInProgressCount[roomId] ?: 0 > 0
+    }
+    
+    /**
+     * Get the primary upload type for a room (for status message)
+     * Returns the first type found, or "media" as fallback
+     */
+    fun getUploadType(roomId: String): String {
+        val types = uploadTypesPerRoom[roomId] ?: return "media"
+        return when {
+            types.contains("video") -> "video"
+            types.contains("image") -> "image"
+            types.contains("audio") -> "audio"
+            types.contains("file") -> "file"
+            else -> "media"
+        }
+    }
+    
+    /**
+     * Start tracking an upload for a room
+     * @param roomId The room ID
+     * @param uploadType The type of upload: "image", "video", "audio", or "file"
+     */
+    fun beginUpload(roomId: String, uploadType: String = "image") {
+        val current = uploadInProgressCount[roomId] ?: 0
+        uploadInProgressCount[roomId] = current + 1
+        
+        val types = uploadTypesPerRoom.getOrPut(roomId) { mutableSetOf() }
+        types.add(uploadType)
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Begin upload for room $roomId (type: $uploadType, count: ${uploadInProgressCount[roomId]})")
+    }
+    
+    /**
+     * End tracking an upload for a room
+     * @param roomId The room ID
+     * @param uploadType The type of upload being completed
+     */
+    fun endUpload(roomId: String, uploadType: String = "image") {
+        val current = uploadInProgressCount[roomId] ?: 0
+        if (current > 0) {
+            val newCount = current - 1
+            if (newCount == 0) {
+                uploadInProgressCount.remove(roomId)
+                uploadTypesPerRoom.remove(roomId)
+            } else {
+                uploadInProgressCount[roomId] = newCount
+                // Note: We keep all types in the set until count reaches 0
+                // This ensures getUploadType() can still return the correct type
+                // even if multiple uploads of different types are in progress
+            }
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: End upload for room $roomId (type: $uploadType, count: $newCount)")
+        }
+    }
+    
     // Recent emojis for reactions (stored as list of strings for UI)
     // Now using singleton RecentEmojisCache - synced for UI reactivity
     private var _recentEmojis by mutableStateOf(listOf<String>())
