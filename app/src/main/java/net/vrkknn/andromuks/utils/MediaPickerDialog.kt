@@ -15,6 +15,9 @@ import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -179,16 +182,23 @@ fun MediaPreviewDialog(
 }
 
 /**
- * Video player preview component with play/pause controls, progress bar, and duration
+ * Video player preview component with play/pause controls, wavy progress bar, and duration
  */
 @Composable
 fun VideoPlayerPreview(uri: Uri) {
     val context = LocalContext.current
+    val colorScheme = MaterialTheme.colorScheme
+    val primaryColor = colorScheme.primary
+    
     var isPlaying by remember { mutableStateOf(false) }
     var videoView by remember { mutableStateOf<VideoView?>(null) }
     var currentPosition by remember { mutableStateOf(0) }
     var duration by remember { mutableStateOf(0) }
     var isUserSeeking by remember { mutableStateOf(false) }
+    var isPrepared by remember { mutableStateOf(false) }
+    
+    // Progress state for wavy indicator
+    val progressState = remember { mutableStateOf(0f) }
     
     // Update current position while playing
     LaunchedEffect(isPlaying) {
@@ -202,6 +212,15 @@ fun VideoPlayerPreview(uri: Uri) {
                 }
             }
             kotlinx.coroutines.delay(100) // Update every 100ms
+        }
+    }
+    
+    // Update progress state
+    LaunchedEffect(currentPosition, duration) {
+        progressState.value = if (duration > 0) {
+            (currentPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+        } else {
+            0f
         }
     }
     
@@ -223,9 +242,13 @@ fun VideoPlayerPreview(uri: Uri) {
                     videoView = this
                     setVideoURI(uri)
                     
-                    // Get duration when prepared
+                    // Get duration when prepared and auto-start
                     setOnPreparedListener { mp ->
                         duration = mp.duration
+                        isPrepared = true
+                        // Auto-start the video
+                        start()
+                        isPlaying = true
                     }
                     
                     // Set up completion listener to reset play state
@@ -245,27 +268,27 @@ fun VideoPlayerPreview(uri: Uri) {
             modifier = Modifier.fillMaxSize()
         )
         
-        // Play/Pause overlay button (centered)
+        // Play/Pause overlay button (centered, always visible but more transparent when playing)
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable {
+                    videoView?.let { vv ->
+                        if (isPlaying) {
+                            vv.pause()
+                            isPlaying = false
+                        } else {
+                            vv.start()
+                            isPlaying = true
+                        }
+                    }
+                },
             contentAlignment = Alignment.Center
         ) {
             Surface(
-                modifier = Modifier
-                    .size(64.dp)
-                    .clickable {
-                        videoView?.let { vv ->
-                            if (isPlaying) {
-                                vv.pause()
-                                isPlaying = false
-                            } else {
-                                vv.start()
-                                isPlaying = true
-                            }
-                        }
-                    },
+                modifier = Modifier.size(64.dp),
                 shape = CircleShape,
-                color = Color.Black.copy(alpha = 0.5f)
+                color = Color.Black.copy(alpha = if (isPlaying) 0.3f else 0.5f)
             ) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Filled.PauseCircle else Icons.Filled.PlayCircle,
@@ -278,7 +301,7 @@ fun VideoPlayerPreview(uri: Uri) {
             }
         }
         
-        // Progress bar and duration at bottom
+        // Wavy progress bar and duration at bottom
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -286,24 +309,24 @@ fun VideoPlayerPreview(uri: Uri) {
                 .background(Color.Black.copy(alpha = 0.6f))
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            // Progress slider
-            Slider(
-                value = currentPosition.toFloat(),
-                onValueChange = { newValue ->
-                    isUserSeeking = true
-                    currentPosition = newValue.toInt()
+            // Wavy progress indicator
+            @OptIn(ExperimentalMaterial3ExpressiveApi::class)
+            LinearWavyProgressIndicator(
+                progress = { progressState.value },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp),
+                color = primaryColor,
+                trackColor = primaryColor.copy(alpha = 0.3f),
+                // Flatten wave when paused or ended, animate when playing
+                amplitude = { 
+                    if (isPlaying && isPrepared) {
+                        1.0f // Maximum waviness when playing
+                    } else {
+                        0.0f // Flat when paused or ended
+                    }
                 },
-                onValueChangeFinished = {
-                    videoView?.seekTo(currentPosition)
-                    isUserSeeking = false
-                },
-                valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
-                colors = SliderDefaults.colors(
-                    thumbColor = Color.White,
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-                ),
-                modifier = Modifier.fillMaxWidth()
+                wavelength = WavyProgressIndicatorDefaults.LinearIndeterminateWavelength
             )
             
             // Time display (current / total)
