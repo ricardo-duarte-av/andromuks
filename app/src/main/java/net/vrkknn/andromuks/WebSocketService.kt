@@ -145,7 +145,8 @@ class WebSocketService : Service() {
         // Headless AppViewModel used for boot/background startup when no UI is running.
         private var headlessViewModel: AppViewModel? = null
         // Debounce headless recovery attempts to avoid churn during flappy networks.
-        private const val MIN_HEADLESS_RECOVERY_INTERVAL_MS = 10_000L
+        // CRITICAL FIX: Reduced from 10s to 1s - 10 seconds is too long for users
+        private const val MIN_HEADLESS_RECOVERY_INTERVAL_MS = 1_000L
         private var lastHeadlessRecoveryAttemptMs: Long = 0L
         
         /**
@@ -164,10 +165,16 @@ class WebSocketService : Service() {
         /**
          * Ensure a headless AppViewModel exists to bring up the WebSocket on boot/background.
          * This is only used when no UI ViewModel has registered callbacks yet.
+         * 
+         * CRITICAL FIX: Reduced debounce to 1 second and ensures callbacks are registered before returning.
          */
         fun ensureHeadlessPrimary(context: Context, reason: String) {
             val hasCallback = getActiveReconnectionCallback() != null
-            if (hasCallback) return
+            if (hasCallback) {
+                if (BuildConfig.DEBUG) Log.d("WebSocketService", "Headless recovery skipped - callback already available")
+                return
+            }
+            
             val now = System.currentTimeMillis()
             if (now - lastHeadlessRecoveryAttemptMs < MIN_HEADLESS_RECOVERY_INTERVAL_MS) {
                 if (BuildConfig.DEBUG) {
@@ -188,8 +195,28 @@ class WebSocketService : Service() {
                 return
             }
 
+            // CRITICAL FIX: Check if headless ViewModel exists but callbacks aren't registered yet
+            // This can happen if markAsPrimaryInstance() failed or hasn't completed
+            if (headlessViewModel != null) {
+                val stillNoCallback = getActiveReconnectionCallback() == null
+                if (stillNoCallback) {
+                    android.util.Log.w("WebSocketService", "Headless ViewModel exists but callbacks not registered - re-registering callbacks")
+                    // Try to re-register callbacks
+                    headlessViewModel?.markAsPrimaryInstance()
+                    // Wait a moment for callbacks to register
+                    serviceScope.launch {
+                        delay(100)
+                        val callbackNow = getActiveReconnectionCallback()
+                        if (callbackNow == null) {
+                            android.util.Log.e("WebSocketService", "Headless ViewModel callbacks still not registered after re-registration - recreating ViewModel")
+                            headlessViewModel = null // Force recreation
+                        }
+                    }
+                }
+            }
+
             if (headlessViewModel == null) {
-                if (BuildConfig.DEBUG) Log.d("WebSocketService", "Creating headless AppViewModel for background startup ($reason)")
+                android.util.Log.i("WebSocketService", "Creating headless AppViewModel for background startup ($reason)")
                 headlessViewModel = AppViewModel().apply {
                     initializeFCM(context.applicationContext, homeserverUrl, authToken, skipCacheClear = true)
                     updateHomeserverUrl(homeserverUrl)
@@ -197,10 +224,39 @@ class WebSocketService : Service() {
                     loadSettings(context.applicationContext)
                     markAsPrimaryInstance()
                 }
+                
+                // CRITICAL FIX: Verify callbacks are registered after creation
+                // Wait a moment for markAsPrimaryInstance() to complete
+                serviceScope.launch {
+                    delay(200) // Give time for callbacks to register
+                    val callbackRegistered = getActiveReconnectionCallback() != null
+                    if (callbackRegistered) {
+                        if (BuildConfig.DEBUG) Log.d("WebSocketService", "Headless ViewModel callbacks successfully registered")
+                    } else {
+                        android.util.Log.e("WebSocketService", "CRITICAL: Headless ViewModel created but callbacks not registered - this will cause reconnection failures")
+                    }
+                }
             }
 
             // Trigger connection if not already connected.
-            headlessViewModel?.initializeWebSocketConnection(homeserverUrl, authToken)
+            // CRITICAL FIX: Only trigger if we have a callback (otherwise it will fail)
+            val callbackAvailable = getActiveReconnectionCallback() != null
+            if (callbackAvailable) {
+                headlessViewModel?.initializeWebSocketConnection(homeserverUrl, authToken)
+            } else {
+                android.util.Log.w("WebSocketService", "Headless ViewModel exists but callback not available yet - will retry after callback registration")
+                // Retry after a short delay to allow callbacks to register
+                serviceScope.launch {
+                    delay(500)
+                    val callbackNow = getActiveReconnectionCallback()
+                    if (callbackNow != null) {
+                        android.util.Log.i("WebSocketService", "Headless ViewModel callback now available - initializing WebSocket connection")
+                        headlessViewModel?.initializeWebSocketConnection(homeserverUrl, authToken)
+                    } else {
+                        android.util.Log.e("WebSocketService", "Headless ViewModel callback still not available after delay - connection will fail")
+                    }
+                }
+            }
         }
         
         /**

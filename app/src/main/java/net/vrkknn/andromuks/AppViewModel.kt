@@ -282,7 +282,11 @@ class AppViewModel : ViewModel() {
         // This allows callbacks to work even if this AppViewModel is destroyed
         val currentHomeserverUrl = homeserverUrl
         val currentAuthToken = authToken
-        val currentViewModelId = viewModelId
+        
+        // CRITICAL FIX: Capture viewModelId and this instance for use in callback
+        // This ensures the callback can use this instance directly if it's primary
+        val callbackViewModelId = viewModelId
+        val callbackViewModelInstance = this
         
         // Register reconnection callback - this will set this instance as primary
         // STEP 1.2: Callback reads from SharedPreferences and uses registered ViewModels (doesn't capture AppViewModel)
@@ -292,11 +296,11 @@ class AppViewModel : ViewModel() {
         }
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Clear cache callback registered: $clearCacheRegistered")
         
-        val reconnectionRegistered = WebSocketService.setReconnectionCallback(viewModelId) { reason ->
+        val reconnectionRegistered = WebSocketService.setReconnectionCallback(callbackViewModelId) { reason ->
             android.util.Log.i("Andromuks", "AppViewModel: STEP 1.2 - Reconnection callback triggered (reason: $reason)")
             
             // STEP 1.2: Read credentials from SharedPreferences (not from captured AppViewModel)
-            val context = appContext
+            val context = callbackViewModelInstance.appContext
             if (context == null) {
                 android.util.Log.e("Andromuks", "AppViewModel: STEP 1.2 - Reconnection callback: appContext is null, cannot reconnect")
                 return@setReconnectionCallback
@@ -308,19 +312,29 @@ class AppViewModel : ViewModel() {
             
             if (storedHomeserverUrl.isNotEmpty() && storedAuthToken.isNotEmpty()) {
                 // STEP 1.2: Find primary ViewModel from registered ViewModels (may be different instance)
-                val registeredViewModels = WebSocketService.getRegisteredViewModels()
-                val primaryViewModel = registeredViewModels.firstOrNull { 
-                    WebSocketService.isPrimaryInstance(it.viewModelId) 
+                // CRITICAL FIX: Use this AppViewModel instance directly if we're primary, otherwise search
+                // This handles the case where headless ViewModel callback is invoked before it's fully registered
+                val isThisPrimary = WebSocketService.isPrimaryInstance(callbackViewModelId)
+                
+                val primaryViewModel = if (isThisPrimary && callbackViewModelInstance.appContext != null) {
+                    // This is the primary instance - use it directly (handles headless ViewModel case)
+                    callbackViewModelInstance
+                } else {
+                    // Search for primary in registered ViewModels
+                    val registeredViewModels = WebSocketService.getRegisteredViewModels()
+                    registeredViewModels.firstOrNull { 
+                        WebSocketService.isPrimaryInstance(it.viewModelId) 
+                    }
                 }
                 
                 if (primaryViewModel != null) {
-                    android.util.Log.i("Andromuks", "AppViewModel: STEP 1.2 - Reconnection callback: Found primary ViewModel, initializing WebSocket connection")
+                    android.util.Log.i("Andromuks", "AppViewModel: STEP 1.2 - Reconnection callback: Found primary ViewModel (${if (isThisPrimary) "this instance" else "from registry"}), initializing WebSocket connection")
                     // Clear WebSocket first
                     WebSocketService.clearWebSocket(reason)
                     // Then trigger reconnection directly on the primary ViewModel
                     primaryViewModel.initializeWebSocketConnection(storedHomeserverUrl, storedAuthToken)
                 } else {
-                    android.util.Log.w("Andromuks", "AppViewModel: STEP 1.2 - Reconnection callback: No primary ViewModel found, will be handled by promotion in Step 2")
+                    android.util.Log.w("Andromuks", "AppViewModel: STEP 1.2 - Reconnection callback: No primary ViewModel found (this instance isPrimary=$isThisPrimary), will be handled by promotion in Step 2")
                     // For now, just clear WebSocket - promotion will handle reconnection in Step 2
                     WebSocketService.clearWebSocket(reason)
                 }
@@ -11214,20 +11228,31 @@ class AppViewModel : ViewModel() {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked $roomId as DM via bridge room_type")
             }
             
-            // Update bridge protocol avatar if present and different
-            // CRITICAL FIX: Always update if bridgeProtocolAvatarUrl is present, even if it's the same
-            // This ensures the badge appears even if the room was already in roomMap
+            // Update bridge protocol avatar if present
+            // CRITICAL FIX: Always update if bridgeProtocolAvatarUrl is present, even if it matches existing
+            // This ensures the badge appears and stays visible, especially after stale data refresh
             if (bridgeProtocolAvatarUrl != null) {
                 if (existing.bridgeProtocolAvatarUrl != bridgeProtocolAvatarUrl) {
+                    // Bridge avatar changed or was null - update it
                     updatedRoom = updatedRoom.copy(bridgeProtocolAvatarUrl = bridgeProtocolAvatarUrl)
                     needsUpdate = true
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated bridge protocol avatar for $roomId: $bridgeProtocolAvatarUrl")
                 } else if (existing.bridgeProtocolAvatarUrl == null) {
-                    // Room exists but didn't have bridge avatar - update it
+                    // Room exists but didn't have bridge avatar - add it
                     updatedRoom = updatedRoom.copy(bridgeProtocolAvatarUrl = bridgeProtocolAvatarUrl)
                     needsUpdate = true
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added bridge protocol avatar for $roomId: $bridgeProtocolAvatarUrl")
+                } else {
+                    // Bridge avatar matches existing - still update to refresh data and trigger UI update
+                    // This ensures badges stay visible after stale data refresh
+                    updatedRoom = updatedRoom.copy(bridgeProtocolAvatarUrl = bridgeProtocolAvatarUrl)
+                    needsUpdate = true
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Refreshed bridge protocol avatar for $roomId (same value, refreshing UI)")
                 }
+            } else if (existing.bridgeProtocolAvatarUrl != null) {
+                // Response doesn't have bridge info but room had it - keep existing (don't clear)
+                // Bridge info might not be in every response, so preserve what we have
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Response missing bridge info for $roomId, preserving existing: ${existing.bridgeProtocolAvatarUrl}")
             }
             
             if (needsUpdate) {

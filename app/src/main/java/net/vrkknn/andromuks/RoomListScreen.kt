@@ -31,6 +31,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -1402,8 +1403,14 @@ fun RoomListItem(
                             MaterialTheme.colorScheme.surface,
                             CircleShape
                         )
-                        .padding(1.dp)
+                        .border(
+                            width = 2.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
                 ) {
+                    // 16dp avatar image centered inside the 24dp circle (24dp - 4dp border on each side = 16dp)
                     net.vrkknn.andromuks.ui.components.AvatarImage(
                         mxcUrl = protocolAvatarUrl,
                         homeserverUrl = homeserverUrl,

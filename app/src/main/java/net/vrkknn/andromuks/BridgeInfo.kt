@@ -13,9 +13,9 @@ data class BridgeInfo(
     val protocol: BridgeProtocolInfo?
 ) {
     val displayName: String?
-        get() = channel?.displayName
-            ?: protocol?.displayName
+        get() = protocol?.displayName
             ?: protocol?.id
+            ?: channel?.displayName
             ?: channel?.id
 
     val avatarUrl: String?
