@@ -6,10 +6,14 @@ import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.media.MediaPlayer
 import android.net.Uri
 import android.util.Log
 import android.webkit.MimeTypeMap
+import java.io.File
+import java.io.FileOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -34,7 +38,12 @@ data class MediaUploadResult(
     val height: Int,
     val size: Long,
     val mimeType: String,
-    val blurHash: String
+    val blurHash: String,
+    val thumbnailUrl: String? = null,
+    val thumbnailWidth: Int? = null,
+    val thumbnailHeight: Int? = null,
+    val thumbnailMimeType: String? = null,
+    val thumbnailSize: Long? = null
 )
 
 /**
@@ -96,6 +105,20 @@ object MediaUploadUtils {
             
             if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: File size: $size bytes, mimeType: $mimeType, filename: $filename")
             
+            // Read EXIF orientation to handle rotated images
+            var exifOrientation = ExifInterface.ORIENTATION_NORMAL
+            try {
+                // Create a temporary file to read EXIF data (ExifInterface needs a file path)
+                val tempFile = File.createTempFile("exif_", ".jpg", context.cacheDir)
+                tempFile.outputStream().use { it.write(fileBytes) }
+                val exif = ExifInterface(tempFile.absolutePath)
+                exifOrientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+                tempFile.delete()
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: EXIF orientation: $exifOrientation")
+            } catch (e: Exception) {
+                Log.w("Andromuks", "MediaUploadUtils: Failed to read EXIF orientation", e)
+            }
+            
             // Decode image to get dimensions and calculate blurhash
             val bitmap = BitmapFactory.decodeByteArray(fileBytes, 0, fileBytes.size)
             if (bitmap == null) {
@@ -103,35 +126,193 @@ object MediaUploadUtils {
                 return@withContext null
             }
             
-            val width = bitmap.width
-            val height = bitmap.height
+            // Get bitmap dimensions (may be swapped if EXIF orientation is 6 or 8)
+            var bitmapWidth = bitmap.width
+            var bitmapHeight = bitmap.height
             
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Image dimensions: ${width}x${height}")
+            // For EXIF orientations 6 and 8, width and height are swapped in the bitmap
+            // We need to swap them back to get the actual image dimensions
+            val needsDimensionSwap = exifOrientation == ExifInterface.ORIENTATION_ROTATE_90 || 
+                                     exifOrientation == ExifInterface.ORIENTATION_ROTATE_270
             
-            // Create a small thumbnail for blurhash calculation (much faster)
-            val thumbnailSize = 400
-            val scale = minOf(thumbnailSize.toFloat() / width, thumbnailSize.toFloat() / height)
-            val thumbnailWidth = (width * scale).toInt()
-            val thumbnailHeight = (height * scale).toInt()
-            val thumbnail = Bitmap.createScaledBitmap(bitmap, thumbnailWidth, thumbnailHeight, true)
+            val width: Int
+            val height: Int
             
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Created thumbnail for blurhash: ${thumbnailWidth}x${thumbnailHeight}")
+            if (needsDimensionSwap) {
+                // Swap dimensions for 90/270 degree rotations
+                width = bitmapHeight
+                height = bitmapWidth
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Swapped dimensions due to EXIF orientation $exifOrientation")
+            } else {
+                width = bitmapWidth
+                height = bitmapHeight
+            }
             
-            // Calculate blurhash from thumbnail (much faster than full image)
-            val blurHash = encodeBlurHash(thumbnail)
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Bitmap dimensions: ${bitmapWidth}x${bitmapHeight}, Actual image dimensions: ${width}x${height}")
+            
+            // Rotate bitmap to correct orientation if needed
+            val orientedBitmap = when (exifOrientation) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> {
+                    // Rotate 90 degrees clockwise (to correct for 90° CCW EXIF)
+                    val matrix = Matrix().apply { postRotate(90f) }
+                    Bitmap.createBitmap(bitmap, 0, 0, bitmapWidth, bitmapHeight, matrix, true)
+                }
+                ExifInterface.ORIENTATION_ROTATE_180 -> {
+                    val matrix = Matrix().apply { postRotate(180f) }
+                    Bitmap.createBitmap(bitmap, 0, 0, bitmapWidth, bitmapHeight, matrix, true)
+                }
+                ExifInterface.ORIENTATION_ROTATE_270 -> {
+                    // Rotate 270 degrees clockwise (to correct for 270° CCW EXIF)
+                    val matrix = Matrix().apply { postRotate(270f) }
+                    Bitmap.createBitmap(bitmap, 0, 0, bitmapWidth, bitmapHeight, matrix, true)
+                }
+                ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> {
+                    val matrix = Matrix().apply { postScale(-1f, 1f, bitmapWidth / 2f, bitmapHeight / 2f) }
+                    Bitmap.createBitmap(bitmap, 0, 0, bitmapWidth, bitmapHeight, matrix, true)
+                }
+                ExifInterface.ORIENTATION_FLIP_VERTICAL -> {
+                    val matrix = Matrix().apply { postScale(1f, -1f, bitmapWidth / 2f, bitmapHeight / 2f) }
+                    Bitmap.createBitmap(bitmap, 0, 0, bitmapWidth, bitmapHeight, matrix, true)
+                }
+                else -> bitmap // No rotation needed
+            }
+            
+            // If we created a new bitmap, recycle the original
+            val finalBitmap = if (orientedBitmap != bitmap) {
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Rotated bitmap to correct orientation")
+                bitmap.recycle()
+                orientedBitmap
+            } else {
+                bitmap
+            }
+            
+            // Use the oriented bitmap's dimensions (should match width/height now)
+            val finalBitmapWidth = finalBitmap.width
+            val finalBitmapHeight = finalBitmap.height
+            
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Final bitmap dimensions after orientation: ${finalBitmapWidth}x${finalBitmapHeight}")
+            
+            // Create a thumbnail (max dimension 400px, keep aspect ratio)
+            // Only create thumbnail if image is larger than 400px in any dimension
+            // Use finalBitmap dimensions (already oriented correctly)
+            val maxThumbnailDimension = 400
+            val needsThumbnail = finalBitmapWidth > maxThumbnailDimension || finalBitmapHeight > maxThumbnailDimension
+            
+            val thumbnail: Bitmap?
+            val thumbnailWidth: Int?
+            val thumbnailHeight: Int?
+            val thumbnailMxcUrl: String?
+            val thumbnailMimeType: String?
+            val thumbnailSize: Long?
+            
+            if (needsThumbnail) {
+                // Find the greater dimension (width or height) - use finalBitmap dimensions
+                val greaterDimension = maxOf(finalBitmapWidth, finalBitmapHeight)
+                // Calculate scale so that the greater dimension becomes 400px
+                val scale = maxThumbnailDimension.toFloat() / greaterDimension
+                // Calculate thumbnail dimensions maintaining aspect ratio
+                // IMPORTANT: Use finalBitmap dimensions (already correctly oriented)
+                val thumbWidth = (finalBitmapWidth * scale).toInt()
+                val thumbHeight = (finalBitmapHeight * scale).toInt()
+                
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Original bitmap: ${finalBitmapWidth}x${finalBitmapHeight}, Greater dimension: $greaterDimension, Scale: $scale")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Calculated thumbnail dimensions: ${thumbWidth}x${thumbHeight}")
+                
+                // Create thumbnail bitmap with correct dimensions (width first, then height)
+                thumbnail = Bitmap.createScaledBitmap(finalBitmap, thumbWidth, thumbHeight, true)
+                
+                // Get actual dimensions from the created thumbnail bitmap
+                val actualThumbWidth = thumbnail.width
+                val actualThumbHeight = thumbnail.height
+                
+                if (BuildConfig.DEBUG) {
+                    Log.d("Andromuks", "MediaUploadUtils: Created thumbnail actual dimensions: ${actualThumbWidth}x${actualThumbHeight}")
+                    if (actualThumbWidth != thumbWidth || actualThumbHeight != thumbHeight) {
+                        Log.w("Andromuks", "MediaUploadUtils: WARNING - Thumbnail dimensions mismatch! Expected: ${thumbWidth}x${thumbHeight}, Got: ${actualThumbWidth}x${actualThumbHeight}")
+                    }
+                }
+                
+                // Convert thumbnail to bytes for upload
+                // Always use JPEG for thumbnails to keep file size small
+                val thumbnailOutputStream = ByteArrayOutputStream()
+                thumbnail.compress(Bitmap.CompressFormat.JPEG, 85, thumbnailOutputStream)
+                val thumbnailBytes = thumbnailOutputStream.toByteArray()
+                val thumbSize = thumbnailBytes.size.toLong()
+                val thumbMimeType = "image/jpeg"
+                
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Thumbnail size: $thumbSize bytes, mimeType: $thumbMimeType")
+                
+                val client = OkHttpClient.Builder()
+                    .build()
+                
+                // Upload thumbnail first
+                val thumbnailFilename = "thumb_${filename}"
+                val thumbnailUploadUrl = buildUploadUrl(homeserverUrl, thumbnailFilename, isEncrypted)
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Uploading thumbnail to: $thumbnailUploadUrl")
+                
+                val thumbnailRequestBody = thumbnailBytes.toRequestBody(thumbMimeType.toMediaType())
+                val thumbnailRequest = Request.Builder()
+                    .url(thumbnailUploadUrl)
+                    .post(thumbnailRequestBody)
+                    .addHeader("Cookie", "gomuks_auth=$authToken")
+                    .addHeader("Content-Type", thumbMimeType)
+                    .build()
+                
+                val thumbnailResponse = client.newCall(thumbnailRequest).execute()
+                if (!thumbnailResponse.isSuccessful) {
+                    Log.e("Andromuks", "MediaUploadUtils: Thumbnail upload failed with code: ${thumbnailResponse.code}")
+                    Log.e("Andromuks", "MediaUploadUtils: Response body: ${thumbnailResponse.body?.string()}")
+                    // Continue with original upload even if thumbnail fails
+                }
+                
+                val thumbnailResponseBody = thumbnailResponse.body?.string()
+                thumbnailMxcUrl = if (thumbnailResponse.isSuccessful) {
+                    parseMxcUrlFromResponse(thumbnailResponseBody)
+                } else {
+                    null
+                }
+                
+                // Use actual bitmap dimensions, not calculated ones (in case they differ)
+                thumbnailWidth = actualThumbWidth
+                thumbnailHeight = actualThumbHeight
+                thumbnailMimeType = thumbMimeType
+                thumbnailSize = thumbSize
+                
+                if (BuildConfig.DEBUG) {
+                    if (thumbnailMxcUrl != null) {
+                        Log.d("Andromuks", "MediaUploadUtils: Thumbnail upload successful, mxc URL: $thumbnailMxcUrl")
+                    } else {
+                        Log.w("Andromuks", "MediaUploadUtils: Thumbnail upload failed, continuing without thumbnail")
+                    }
+                }
+            } else {
+                // Image is already small, no thumbnail needed
+                thumbnail = null
+                thumbnailWidth = null
+                thumbnailHeight = null
+                thumbnailMimeType = null
+                thumbnailSize = null
+                thumbnailMxcUrl = null
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Image is already small (${width}x${height}), skipping thumbnail creation")
+            }
+            
+            // Calculate blurhash from thumbnail if available, otherwise from full image
+            // IMPORTANT: Do this BEFORE recycling the thumbnail bitmap
+            val blurHashBitmap = thumbnail ?: finalBitmap
+            val blurHash = encodeBlurHash(blurHashBitmap)
             if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: BlurHash calculated: $blurHash")
             
-            // Clean up thumbnail
-            if (thumbnail != bitmap) {
+            // Now we can safely recycle the thumbnail bitmap (if it's different from the final bitmap)
+            if (needsThumbnail && thumbnail != null && thumbnail != finalBitmap) {
                 thumbnail.recycle()
             }
             
-            // Upload to server
-            val uploadUrl = buildUploadUrl(homeserverUrl, filename, isEncrypted)
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Upload URL: $uploadUrl")
-            
             val client = OkHttpClient.Builder()
                 .build()
+            
+            // Upload original image
+            val uploadUrl = buildUploadUrl(homeserverUrl, filename, isEncrypted)
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Upload URL: $uploadUrl")
             
             val requestBody = fileBytes.toRequestBody(mimeType.toMediaType())
             
@@ -166,11 +347,16 @@ object MediaUploadUtils {
             
             MediaUploadResult(
                 mxcUrl = mxcUrl,
-                width = width,
-                height = height,
+                width = finalBitmapWidth,  // Use finalBitmap dimensions (correctly oriented)
+                height = finalBitmapHeight,
                 size = size,
                 mimeType = mimeType,
-                blurHash = blurHash
+                blurHash = blurHash,
+                thumbnailUrl = thumbnailMxcUrl,
+                thumbnailWidth = if (thumbnailMxcUrl != null) thumbnailWidth else null,
+                thumbnailHeight = if (thumbnailMxcUrl != null) thumbnailHeight else null,
+                thumbnailMimeType = if (thumbnailMxcUrl != null) thumbnailMimeType else null,
+                thumbnailSize = if (thumbnailMxcUrl != null) thumbnailSize else null
             )
             
         } catch (e: Exception) {

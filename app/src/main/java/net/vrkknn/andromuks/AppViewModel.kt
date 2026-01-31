@@ -9487,9 +9487,14 @@ class AppViewModel : ViewModel() {
         threadRootEventId: String? = null,
         replyToEventId: String? = null,
         isThreadFallback: Boolean = true,
-        mentions: List<String> = emptyList()
+        mentions: List<String> = emptyList(),
+        thumbnailUrl: String? = null,
+        thumbnailWidth: Int? = null,
+        thumbnailHeight: Int? = null,
+        thumbnailMimeType: String? = null,
+        thumbnailSize: Long? = null
     ) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendMediaMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl'")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendMediaMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', thumbnailUrl: '$thumbnailUrl'")
         
         val ws = webSocket ?: return
         val messageRequestId = requestIdCounter++
@@ -9501,17 +9506,32 @@ class AppViewModel : ViewModel() {
         // Use caption if provided, otherwise use filename
         val body = caption.ifBlank { filename }
         
+        // Build info map with optional thumbnail info
+        val infoMap = mutableMapOf<String, Any>(
+            "mimetype" to mimeType,
+            "xyz.amorgan.blurhash" to blurHash,
+            "w" to width,
+            "h" to height,
+            "size" to size
+        )
+        
+        // Add thumbnail info if available
+        if (thumbnailUrl != null) {
+            infoMap["thumbnail_url"] = thumbnailUrl
+            val thumbnailInfo = mutableMapOf<String, Any>()
+            thumbnailWidth?.let { thumbnailInfo["w"] = it }
+            thumbnailHeight?.let { thumbnailInfo["h"] = it }
+            thumbnailMimeType?.let { thumbnailInfo["mimetype"] = it }
+            if (thumbnailInfo.isNotEmpty()) {
+                infoMap["thumbnail_info"] = thumbnailInfo
+            }
+        }
+        
         val baseContent = mapOf(
             "msgtype" to msgType,
             "body" to body,
             "url" to mxcUrl,
-            "info" to mapOf(
-                "mimetype" to mimeType,
-                "xyz.amorgan.blurhash" to blurHash,
-                "w" to width,
-                "h" to height,
-                "size" to size
-            ),
+            "info" to infoMap,
             "filename" to filename
         )
         
@@ -9560,7 +9580,12 @@ class AppViewModel : ViewModel() {
         threadRootEventId: String? = null,
         replyToEventId: String? = null,
         isThreadFallback: Boolean = true,
-        mentions: List<String> = emptyList()
+        mentions: List<String> = emptyList(),
+        thumbnailUrl: String? = null,
+        thumbnailWidth: Int? = null,
+        thumbnailHeight: Int? = null,
+        thumbnailMimeType: String? = null,
+        thumbnailSize: Long? = null
     ) {
         // Extract filename from mxc URL (format: mxc://server/mediaId)
         val filename = mxcUrl.substringAfterLast("/").let { mediaId ->
@@ -9589,7 +9614,12 @@ class AppViewModel : ViewModel() {
             threadRootEventId = threadRootEventId,
             replyToEventId = replyToEventId,
             isThreadFallback = isThreadFallback,
-            mentions = mentions
+            mentions = mentions,
+            thumbnailUrl = thumbnailUrl,
+            thumbnailWidth = thumbnailWidth,
+            thumbnailHeight = thumbnailHeight,
+            thumbnailMimeType = thumbnailMimeType,
+            thumbnailSize = thumbnailSize
         )
     }
     

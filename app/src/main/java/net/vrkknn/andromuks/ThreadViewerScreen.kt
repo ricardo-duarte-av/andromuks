@@ -1886,7 +1886,12 @@ fun ThreadViewerScreen(
                                                     threadRootEventId = threadRootEventId,
                                                     replyToEventId = replyTarget,
                                                     isThreadFallback = replyingToEvent == null,
-                                                    mentions = mentions
+                                                    mentions = mentions,
+                                                    thumbnailUrl = uploadResult.thumbnailUrl,
+                                                    thumbnailWidth = uploadResult.thumbnailWidth,
+                                                    thumbnailHeight = uploadResult.thumbnailHeight,
+                                                    thumbnailMimeType = uploadResult.thumbnailMimeType,
+                                                    thumbnailSize = uploadResult.thumbnailSize
                                                 )
                                             } else {
                                                 Toast.makeText(context, "Failed to upload image", Toast.LENGTH_SHORT).show()

@@ -3291,7 +3291,12 @@ fun BubbleTimelineScreen(
                                                     size = uploadResult.size,
                                                     mimeType = uploadResult.mimeType,
                                                     blurHash = uploadResult.blurHash,
-                                                    caption = caption.takeIf { it.isNotBlank() }
+                                                    caption = caption.takeIf { it.isNotBlank() },
+                                                    thumbnailUrl = uploadResult.thumbnailUrl,
+                                                    thumbnailWidth = uploadResult.thumbnailWidth,
+                                                    thumbnailHeight = uploadResult.thumbnailHeight,
+                                                    thumbnailMimeType = uploadResult.thumbnailMimeType,
+                                                    thumbnailSize = uploadResult.thumbnailSize
                                                 )
                                                 
                                                 // Clear state
