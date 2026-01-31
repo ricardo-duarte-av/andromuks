@@ -179,19 +179,37 @@ fun RoomListScreen(
     // Declared early so it can be used in LaunchedEffect blocks below
     var smartTimestampUpdateCounter by remember { mutableStateOf(0) }
 
-    // Ensure cached data and pending items are applied after cold start/activity recreation.
+    // Ensure cached data is applied after cold start/activity recreation.
     // CRITICAL FIX: Don't call refreshUIFromCache() here - it rebuilds allRooms from roomMap
     // which may have stale unread counts. We load from in-memory state via buildSectionSnapshot().
+    // NOTE: checkAndProcessPendingItemsOnStartup is deprecated (no DB, all data from WebSocket)
+    // CRITICAL FIX: Add timeout to prevent getting stuck on "Refreshing rooms..." if operations hang
     LaunchedEffect(Unit) {
         coldStartRefreshing = true
-        appViewModel.checkAndProcessPendingItemsOnStartup(context)
-        // CRITICAL FIX: Ensure profile is loaded on cold start to prevent "Loading profile..." stall
-        appViewModel.ensureCurrentUserProfileLoaded()
-        // REMOVED: appViewModel.refreshUIFromCache() - this rebuilds allRooms from stale roomMap
-        // Instead, we load fresh data from in-memory state via buildSectionSnapshot() below
-        // Ensure a sort after cache restore/cold start so room order reflects latest DB data.
-        appViewModel.forceRoomListSort()
-        coldStartRefreshing = false
+        try {
+            // Use withTimeoutOrNull to prevent hanging - max 3 seconds for startup operations
+            // These are lightweight operations (cache lookups, in-memory sorting)
+            kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                // Initialize syncIngestor (lightweight - just ensures it exists)
+                appViewModel.checkAndProcessPendingItemsOnStartup(context)
+                // CRITICAL FIX: Ensure profile is loaded on cold start to prevent "Loading profile..." stall
+                appViewModel.ensureCurrentUserProfileLoaded()
+                // REMOVED: appViewModel.refreshUIFromCache() - this rebuilds allRooms from stale roomMap
+                // Instead, we load fresh data from in-memory state via buildSectionSnapshot() below
+                // Ensure a sort after cache restore/cold start so room order reflects latest data.
+                appViewModel.forceRoomListSort()
+            } ?: run {
+                // Timeout occurred - log warning but continue
+                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "RoomListScreen: Startup operations timed out after 3 seconds, continuing anyway")
+            }
+        } catch (e: Exception) {
+            // Catch any exceptions to prevent getting stuck
+            if (BuildConfig.DEBUG) android.util.Log.e("Andromuks", "RoomListScreen: Error during startup operations", e)
+        } finally {
+            // Always clear the refreshing flag, even if operations failed or timed out
+            // This prevents getting stuck on "Refreshing rooms..." message
+            coldStartRefreshing = false
+        }
     }
     
     // CRITICAL FIX #1: Profile loading is non-blocking - UI can show with fallback (userId)
