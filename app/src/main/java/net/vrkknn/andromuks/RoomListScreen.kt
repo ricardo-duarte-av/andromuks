@@ -2089,19 +2089,25 @@ fun RoomListContent(
     // We hash the fields that matter for rendering/sorting; unchanged hash => skip swap.
     // CRITICAL FIX: Include bridgeProtocolAvatarUrl in hash so UI updates when bridge badges arrive
     // CRITICAL FIX: Skip debounce when rooms go from empty to non-empty (entering a space) to make animation visible
+    // CRITICAL FIX: Skip debounce when searchQuery changes to make search responsive
     var debouncedRooms by remember { mutableStateOf(filteredRooms) }
+    var previousSearchQuery by remember { mutableStateOf(searchQuery) }
     val targetHash = remember(filteredRooms) {
         filteredRooms.joinToString("|") {
             "${it.id}:${it.sortingTimestamp ?: 0L}:${it.unreadCount ?: 0}:${it.highlightCount ?: 0}:${it.messagePreview ?: ""}:${it.messageSender ?: ""}:${it.bridgeProtocolAvatarUrl ?: ""}"
         }
     }
-    LaunchedEffect(targetHash) {
+    LaunchedEffect(targetHash, searchQuery) {
         val wasEmpty = debouncedRooms.isEmpty()
         val isNowPopulated = wasEmpty && filteredRooms.isNotEmpty()
+        val searchQueryChanged = searchQuery != previousSearchQuery
         
-        if (isNowPopulated) {
-            // Rooms just populated (entering a space) - update immediately without debounce
-            // This ensures the animation is visible when entering a space
+        // Update previous search query
+        previousSearchQuery = searchQuery
+        
+        if (isNowPopulated || searchQueryChanged) {
+            // Rooms just populated (entering a space) OR search query changed - update immediately without debounce
+            // This ensures the animation is visible when entering a space and search is responsive
             debouncedRooms = filteredRooms
         } else {
             // Normal case - debounce to coalesce rapid sync_complete updates
