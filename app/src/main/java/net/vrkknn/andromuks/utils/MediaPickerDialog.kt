@@ -41,10 +41,12 @@ fun MediaPreviewDialog(
     isAudio: Boolean = false,
     isFile: Boolean = false,
     onDismiss: () -> Unit,
-    onSend: (caption: String) -> Unit
+    onSend: (caption: String, compressOriginal: Boolean) -> Unit
 ) {
     var caption by remember { mutableStateOf("") }
+    var compressOriginal by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val isImage = !isVideo && !isAudio && !isFile
     
     // Determine the appropriate title based on media type
     val title = when {
@@ -118,6 +120,25 @@ fun MediaPreviewDialog(
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
+                // Compression checkbox (only for images)
+                if (isImage) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = compressOriginal,
+                            onCheckedChange = { compressOriginal = it }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Compress image",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                
                 // Caption input
                 OutlinedTextField(
                     value = caption,
@@ -132,7 +153,7 @@ fun MediaPreviewDialog(
                 
                 // Send button
                 Button(
-                    onClick = { onSend(caption) },
+                    onClick = { onSend(caption, compressOriginal) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),

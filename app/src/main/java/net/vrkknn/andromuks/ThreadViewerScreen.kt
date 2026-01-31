@@ -1768,7 +1768,7 @@ fun ThreadViewerScreen(
                             selectedFileUri = null
                             selectedMediaIsVideo = false
                         },
-                        onSend = { caption ->
+                        onSend = { caption, compressOriginal ->
                             showMediaPreview = false
                             isUploading = true
                             coroutineScope.launch {
@@ -1869,7 +1869,8 @@ fun ThreadViewerScreen(
                                                 uri = currentUri,
                                                 homeserverUrl = homeserverUrl,
                                                 authToken = authToken,
-                                                isEncrypted = false
+                                                isEncrypted = false,
+                                                compressOriginal = compressOriginal
                                             )
                                             if (uploadResult != null) {
                                                 val replyTarget = replyingToEvent?.eventId ?: sortedEvents.lastOrNull()?.eventId

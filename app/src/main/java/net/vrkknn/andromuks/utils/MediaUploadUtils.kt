@@ -80,7 +80,8 @@ object MediaUploadUtils {
         uri: Uri,
         homeserverUrl: String,
         authToken: String,
-        isEncrypted: Boolean = false
+        isEncrypted: Boolean = false,
+        compressOriginal: Boolean = false
     ): MediaUploadResult? = withContext(Dispatchers.IO) {
         try {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Starting upload for URI: $uri")
@@ -310,11 +311,60 @@ object MediaUploadUtils {
             val client = OkHttpClient.Builder()
                 .build()
             
-            // Upload original image
+            // Compress original image if requested
+            val finalImageBytes: ByteArray
+            val finalImageSize: Long
+            val finalImageWidth: Int
+            val finalImageHeight: Int
+            
+            if (compressOriginal) {
+                // Determine if portrait or landscape
+                val isPortrait = finalBitmapHeight > finalBitmapWidth
+                val maxDimension = if (isPortrait) 1080 else 1920
+                
+                // Calculate scale to compress
+                val greaterDimension = maxOf(finalBitmapWidth, finalBitmapHeight)
+                val scale = if (greaterDimension > maxDimension) {
+                    maxDimension.toFloat() / greaterDimension
+                } else {
+                    1.0f // No compression needed
+                }
+                
+                val compressedWidth = (finalBitmapWidth * scale).toInt()
+                val compressedHeight = (finalBitmapHeight * scale).toInt()
+                
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Compressing original image from ${finalBitmapWidth}x${finalBitmapHeight} to ${compressedWidth}x${compressedHeight}")
+                
+                // Create compressed bitmap
+                val compressedBitmap = Bitmap.createScaledBitmap(finalBitmap, compressedWidth, compressedHeight, true)
+                
+                // Convert to bytes
+                val compressedOutputStream = ByteArrayOutputStream()
+                compressedBitmap.compress(Bitmap.CompressFormat.JPEG, 85, compressedOutputStream)
+                finalImageBytes = compressedOutputStream.toByteArray()
+                finalImageSize = finalImageBytes.size.toLong()
+                finalImageWidth = compressedBitmap.width
+                finalImageHeight = compressedBitmap.height
+                
+                // Recycle compressed bitmap
+                if (compressedBitmap != finalBitmap) {
+                    compressedBitmap.recycle()
+                }
+                
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Compressed image size: $finalImageSize bytes (original: ${fileBytes.size} bytes)")
+            } else {
+                // Use original file bytes
+                finalImageBytes = fileBytes
+                finalImageSize = size
+                finalImageWidth = finalBitmapWidth
+                finalImageHeight = finalBitmapHeight
+            }
+            
+            // Upload original image (compressed or not)
             val uploadUrl = buildUploadUrl(homeserverUrl, filename, isEncrypted)
             if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Upload URL: $uploadUrl")
             
-            val requestBody = fileBytes.toRequestBody(mimeType.toMediaType())
+            val requestBody = finalImageBytes.toRequestBody(mimeType.toMediaType())
             
             val request = Request.Builder()
                 .url(uploadUrl)
@@ -347,9 +397,9 @@ object MediaUploadUtils {
             
             MediaUploadResult(
                 mxcUrl = mxcUrl,
-                width = finalBitmapWidth,  // Use finalBitmap dimensions (correctly oriented)
-                height = finalBitmapHeight,
-                size = size,
+                width = finalImageWidth,  // Use final image dimensions (compressed or original)
+                height = finalImageHeight,
+                size = finalImageSize,
                 mimeType = mimeType,
                 blurHash = blurHash,
                 thumbnailUrl = thumbnailMxcUrl,

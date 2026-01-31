@@ -3142,7 +3142,7 @@ fun BubbleTimelineScreen(
                             selectedFileUri = null
                             selectedMediaIsVideo = false
                         },
-                        onSend = { caption ->
+                        onSend = { caption, compressOriginal ->
                             // Start upload
                             showMediaPreview = false
                             isUploading = true
@@ -3271,13 +3271,14 @@ fun BubbleTimelineScreen(
                                         }
                                         else -> {
                                             // Upload image
-                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Starting image upload")
+                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Starting image upload (compressOriginal: $compressOriginal)")
                                             val uploadResult = MediaUploadUtils.uploadMedia(
                                                 context = context,
                                                 uri = selectedMediaUri!!,
                                                 homeserverUrl = homeserverUrl,
                                                 authToken = authToken,
-                                                isEncrypted = false
+                                                isEncrypted = false,
+                                                compressOriginal = compressOriginal
                                             )
                                             
                                             if (uploadResult != null) {
