@@ -80,12 +80,22 @@ object VideoUploadUtils {
             
             if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Extracted thumbnail frame: ${thumbnailFrame.width}x${thumbnailFrame.height}")
             
-            // Thumbnail the frame if it's HD or higher (reduce to max 1280 width while maintaining aspect ratio)
-            val maxThumbnailWidth = 1280
-            val thumbnailBitmap = if (thumbnailFrame.width > maxThumbnailWidth) {
-                val scale = maxThumbnailWidth.toFloat() / thumbnailFrame.width
-                val thumbnailWidth = maxThumbnailWidth
-                val thumbnailHeight = (thumbnailFrame.height * scale).toInt()
+            // Use the frame dimensions for video dimensions (they're already correctly oriented)
+            // This handles cases where the video has rotation metadata
+            val displayWidth = thumbnailFrame.width
+            val displayHeight = thumbnailFrame.height
+            
+            // Thumbnail the frame to max 400px (same as images) while maintaining aspect ratio
+            val maxThumbnailDimension = 400
+            val thumbnailBitmap = if (displayWidth > maxThumbnailDimension || displayHeight > maxThumbnailDimension) {
+                // Calculate scale based on the greater dimension
+                val scale = if (displayWidth > displayHeight) {
+                    maxThumbnailDimension.toFloat() / displayWidth
+                } else {
+                    maxThumbnailDimension.toFloat() / displayHeight
+                }
+                val thumbnailWidth = (displayWidth * scale).toInt()
+                val thumbnailHeight = (displayHeight * scale).toInt()
                 
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Scaling thumbnail to ${thumbnailWidth}x${thumbnailHeight}")
                 Bitmap.createScaledBitmap(thumbnailFrame, thumbnailWidth, thumbnailHeight, true).also {
@@ -97,9 +107,9 @@ object VideoUploadUtils {
                 thumbnailFrame
             }
             
-            // QUALITY IMPROVEMENT: Maximum quality for video thumbnails
+            // Compress thumbnail to JPEG (quality 85, same as images) to keep file size reasonable
             val thumbnailOutputStream = ByteArrayOutputStream()
-            thumbnailBitmap.compress(Bitmap.CompressFormat.JPEG, 100, thumbnailOutputStream)
+            thumbnailBitmap.compress(Bitmap.CompressFormat.JPEG, 85, thumbnailOutputStream)
             val thumbnailBytes = thumbnailOutputStream.toByteArray()
             val thumbnailSize = thumbnailBytes.size.toLong()
             
@@ -188,8 +198,8 @@ object VideoUploadUtils {
             VideoUploadResult(
                 videoMxcUrl = videoMxcUrl,
                 thumbnailMxcUrl = thumbnailMxcUrl,
-                width = width,
-                height = height,
+                width = displayWidth,  // Use display dimensions from frame (correctly oriented)
+                height = displayHeight, // Use display dimensions from frame (correctly oriented)
                 duration = duration,
                 size = videoSize,
                 mimeType = mimeType,
