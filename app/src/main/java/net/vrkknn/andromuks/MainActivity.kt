@@ -558,6 +558,26 @@ class MainActivity : ComponentActivity() {
         extractedRoomId?.let { roomId ->
             if (::appViewModel.isInitialized) {
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - Direct navigation to room: $roomId")
+                
+                // CRITICAL FIX: Check if WebSocket is stuck and trigger recovery
+                // This fixes the issue where FCM notifications don't recover stuck connections
+                // (unlike permanent notification which recreates MainActivity via onCreate)
+                val isStuck = WebSocketService.isConnectionStuck()
+                if (isStuck) {
+                    android.util.Log.w("Andromuks", "MainActivity: onNewIntent - WebSocket stuck detected - triggering recovery")
+                    // Ensure this instance is primary and callbacks are registered
+                    appViewModel.markAsPrimaryInstance()
+                    // Get credentials and force reconnection
+                    val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                    val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+                    val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                    if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+                        appViewModel.initializeWebSocketConnection(homeserverUrl, authToken)
+                    } else {
+                        android.util.Log.w("Andromuks", "MainActivity: onNewIntent - Cannot recover: credentials missing")
+                    }
+                }
+                
                 // OPTIMIZATION #1: Direct navigation instead of pending state
                 val notificationTimestamp = intent.getLongExtra("notification_timestamp", 0L).takeIf { it > 0 }
                 appViewModel.setDirectRoomNavigation(

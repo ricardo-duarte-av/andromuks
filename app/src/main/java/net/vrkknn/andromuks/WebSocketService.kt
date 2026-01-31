@@ -56,7 +56,9 @@ class WebSocketService : Service() {
         private const val PONG_TIMEOUT_MS = 1_000L // 1 second - "rush to healthy"
         private const val PING_INTERVAL_MS = 15_000L // 15 seconds normal interval
         private const val CONSECUTIVE_FAILURES_TO_DROP = 3 // Drop WebSocket after 3 consecutive ping failures
-        private const val INIT_COMPLETE_TIMEOUT_MS = 15_000L // 15 seconds to wait for init_complete
+        private const val INIT_COMPLETE_TIMEOUT_MS = 15_000L // 15 seconds to wait for init_complete (fallback)
+        private const val RUN_ID_TIMEOUT_MS = 500L // 500ms to wait for run_id after connection
+        private const val INIT_COMPLETE_AFTER_RUN_ID_TIMEOUT_MS = 1_000L // 1 second to wait for init_complete after run_id, for large accounts
         private const val INIT_COMPLETE_RETRY_BASE_MS = 2_000L // 2 seconds initial retry delay
         private const val INIT_COMPLETE_RETRY_MAX_MS = 64_000L // 64 seconds max retry delay
         private const val MAX_RECONNECTION_ATTEMPTS = 10
@@ -1231,7 +1233,11 @@ class WebSocketService : Service() {
             
             // Start timeout for init_complete - connection is only healthy after init_complete arrives
             serviceInstance.waitingForInitComplete = true
-            serviceInstance.startInitCompleteTimeout()
+            serviceInstance.runIdReceived = false
+            serviceInstance.runIdReceivedTime = 0
+            // Start timeout for run_id (2 seconds) - if not received, connection is broken
+            serviceInstance.startRunIdTimeout()
+            // Don't start init_complete timeout yet - wait for run_id first
             
             // Log activity: WebSocket connecting (not connected yet)
             logActivity("WebSocket Connecting - Waiting for init_complete", actualNetworkType.name)
@@ -1303,7 +1309,12 @@ class WebSocketService : Service() {
             // Cancel init_complete timeout if active
             serviceInstance.initCompleteTimeoutJob?.cancel()
             serviceInstance.initCompleteTimeoutJob = null
+            // Cancel run_id timeout if active
+            serviceInstance.runIdTimeoutJob?.cancel()
+            serviceInstance.runIdTimeoutJob = null
             serviceInstance.waitingForInitComplete = false
+            serviceInstance.runIdReceived = false
+            serviceInstance.runIdReceivedTime = 0
             
             // Reset connection health tracking
             serviceInstance.lastKnownLagMs = null
@@ -1342,6 +1353,42 @@ class WebSocketService : Service() {
         fun isWebSocketConnected(): Boolean {
             val serviceInstance = instance ?: return false
             return serviceInstance.connectionState == ConnectionState.CONNECTED && serviceInstance.webSocket != null
+        }
+        
+        /**
+         * Get current connection state (for debugging and recovery)
+         */
+        fun getConnectionState(): ConnectionState? {
+            return instance?.connectionState
+        }
+        
+        /**
+         * Check if connection is stuck in CONNECTING or RECONNECTING state
+         */
+        fun isConnectionStuck(): Boolean {
+            val serviceInstance = instance ?: return false
+            val state = serviceInstance.connectionState
+            val hasCallback = getActiveReconnectionCallback() != null
+            
+            // Stuck if in CONNECTING/RECONNECTING state but no callback to handle recovery
+            if ((state == ConnectionState.CONNECTING || state == ConnectionState.RECONNECTING) && !hasCallback) {
+                return true
+            }
+            
+            // Also check if waiting for init_complete for too long
+            if (state == ConnectionState.CONNECTING && serviceInstance.waitingForInitComplete) {
+                val timeSinceConnect = if (serviceInstance.connectionStartTime > 0) {
+                    System.currentTimeMillis() - serviceInstance.connectionStartTime
+                } else {
+                    0L
+                }
+                // Stuck if waiting >20 seconds for init_complete (timeout is 15s, so 20s means timeout failed)
+                if (timeSinceConnect > 20_000) {
+                    return true
+                }
+            }
+            
+            return false
         }
         
         /**
@@ -1597,6 +1644,31 @@ class WebSocketService : Service() {
         }
         
         /**
+         * Notify that run_id was received - start 1-second timeout for init_complete
+         */
+        fun onRunIdReceived() {
+            val serviceInstance = instance ?: return
+            
+            if (serviceInstance.runIdReceived) {
+                // Already received - ignore duplicate
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Run ID already received - ignoring duplicate")
+                return
+            }
+            
+            serviceInstance.runIdReceived = true
+            serviceInstance.runIdReceivedTime = System.currentTimeMillis()
+            
+            // Cancel run_id timeout (we got it)
+            serviceInstance.runIdTimeoutJob?.cancel()
+            serviceInstance.runIdTimeoutJob = null
+            
+            android.util.Log.i("WebSocketService", "Run ID received - starting 1-second timeout for init_complete")
+            
+            // Start 1-second timeout for init_complete
+            serviceInstance.startInitCompleteTimeout()
+        }
+        
+        /**
          * Handle init_complete received - mark connection as healthy
          */
         fun onInitCompleteReceived() {
@@ -1605,6 +1677,9 @@ class WebSocketService : Service() {
             // Cancel timeout if still waiting
             serviceInstance.initCompleteTimeoutJob?.cancel()
             serviceInstance.initCompleteTimeoutJob = null
+            // Cancel run_id timeout if still active (should already be cancelled, but be safe)
+            serviceInstance.runIdTimeoutJob?.cancel()
+            serviceInstance.runIdTimeoutJob = null
             
             if (!serviceInstance.waitingForInitComplete) {
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Init complete received but not waiting - ignoring")
@@ -1866,6 +1941,9 @@ class WebSocketService : Service() {
     private var pingJob: Job? = null
     private var pongTimeoutJob: Job? = null
     private var initCompleteTimeoutJob: Job? = null // Timeout waiting for init_complete
+    private var runIdTimeoutJob: Job? = null // Timeout waiting for run_id
+    private var runIdReceived: Boolean = false // Track if run_id was received
+    private var runIdReceivedTime: Long = 0 // Timestamp when run_id was received
     private var lastPingRequestId: Int = 0
     private var lastPingTimestamp: Long = 0
     private var pingInFlight: Boolean = false // Guard to prevent concurrent pings
@@ -2673,10 +2751,50 @@ class WebSocketService : Service() {
      * Start timeout for init_complete after WebSocket opens
      * If init_complete doesn't arrive within timeout, drop connection and retry with exponential backoff
      */
+    /**
+     * Start timeout for run_id - if not received within 2 seconds, connection is broken
+     */
+    private fun startRunIdTimeout() {
+        runIdTimeoutJob?.cancel()
+        runIdTimeoutJob = serviceScope.launch {
+            delay(RUN_ID_TIMEOUT_MS)
+            
+            // Check if run_id was received
+            if (runIdReceived) {
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Run ID timeout expired but already received - ignoring")
+                return@launch
+            }
+            
+            // Check if connection is still active
+            if (connectionState != ConnectionState.CONNECTING && connectionState != ConnectionState.CONNECTED) {
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Run ID timeout expired but connection not active - ignoring")
+                return@launch
+            }
+            
+            android.util.Log.w("WebSocketService", "Run ID timeout expired after ${RUN_ID_TIMEOUT_MS}ms - connection broken (run_id not received)")
+            logActivity("Run ID Timeout - Connection Broken", currentNetworkType.name)
+            
+            // Drop the connection - it's broken
+            clearWebSocket("Run ID timeout - connection broken (run_id not received)")
+            
+            // Schedule reconnection
+            scheduleReconnection("Run ID timeout - reconnecting")
+        }
+    }
+    
+    
     private fun startInitCompleteTimeout() {
         initCompleteTimeoutJob?.cancel()
+        
+        // Use 1-second timeout if run_id was received, otherwise use fallback 15-second timeout
+        val timeoutMs = if (runIdReceived) {
+            INIT_COMPLETE_AFTER_RUN_ID_TIMEOUT_MS
+        } else {
+            INIT_COMPLETE_TIMEOUT_MS
+        }
+        
         initCompleteTimeoutJob = serviceScope.launch {
-            delay(INIT_COMPLETE_TIMEOUT_MS)
+            delay(timeoutMs)
             
             // Check if we're still waiting for init_complete
             if (!waitingForInitComplete) {
@@ -2690,7 +2808,13 @@ class WebSocketService : Service() {
                 return@launch
             }
             
-            android.util.Log.w("WebSocketService", "Init complete timeout expired after ${INIT_COMPLETE_TIMEOUT_MS}ms - connection failed")
+            val reason = if (runIdReceived) {
+                "Init complete timeout expired after ${timeoutMs}ms (run_id received ${System.currentTimeMillis() - runIdReceivedTime}ms ago) - connection broken"
+            } else {
+                "Init complete timeout expired after ${timeoutMs}ms - connection failed"
+            }
+            
+            android.util.Log.w("WebSocketService", reason)
             logActivity("Init Complete Timeout - Connection Failed", currentNetworkType.name)
             
             // Show notification about connection failure

@@ -471,6 +471,11 @@ fun connectToWebsocket(
                         val data = jsonObject.optJSONObject("data")
                         val runId = data?.optString("run_id", "")
                         val vapidKey = data?.optString("vapid_key", "")
+                        
+                        // CRITICAL: Notify WebSocketService that run_id was received
+                        // This starts the 1-second timeout for init_complete
+                        WebSocketService.onRunIdReceived()
+                        
                         // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                             for (viewModel in WebSocketService.getRegisteredViewModels()) {
@@ -650,6 +655,11 @@ fun connectToWebsocket(
                                     val data = jsonObject.optJSONObject("data")
                                     val runId = data?.optString("run_id", "")
                                     val vapidKey = data?.optString("vapid_key", "")
+                                    
+                                    // CRITICAL: Notify WebSocketService that run_id was received
+                                    // This starts the 1-second timeout for init_complete
+                                    WebSocketService.onRunIdReceived()
+                                    
                                     // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                                         for (viewModel in WebSocketService.getRegisteredViewModels()) {
