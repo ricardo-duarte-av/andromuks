@@ -78,6 +78,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -1085,48 +1086,63 @@ fun RoomListScreen(
                         }
                         RoomSectionType.SPACES -> {
                             val currentSpaceId = appViewModel.currentSpaceId
+                            val isInSpace = currentSpaceId != null
                             
-                            AnimatedContent(
-                                targetState = currentSpaceId ?: "",
-                                contentKey = { it },
-                                transitionSpec = {
-                                    val isEnteringSpace = initialState.isEmpty() && targetState.isNotEmpty()
-                                    val isExitingSpace = initialState.isNotEmpty() && targetState.isEmpty()
-                                    
-                                    if (isEnteringSpace) {
-                                        // Entering space: space list zooms out and fades out, rooms zoom in and fade in
-                                        val exitTransition = scaleOut(
-                                            targetScale = 0.8f,
-                                            animationSpec = tween(1000, easing = FastOutSlowInEasing)
-                                        ) + fadeOut(animationSpec = tween(1000, easing = FastOutSlowInEasing))
-                                        
-                                        val enterTransition = scaleIn(
-                                            initialScale = 0.0f,
-                                            animationSpec = tween(1000, easing = FastOutSlowInEasing)
-                                        ) + fadeIn(animationSpec = tween(1000, easing = FastOutSlowInEasing))
-                                        
-                                        enterTransition togetherWith exitTransition
-                                    } else if (isExitingSpace) {
-                                        // Exiting space: rooms zoom out and fade out, space list zooms in and fades in
-                                        val exitTransition = scaleOut(
-                                            targetScale = 0.0f,
-                                            animationSpec = tween(1000, easing = FastOutSlowInEasing)
-                                        ) + fadeOut(animationSpec = tween(1000, easing = FastOutSlowInEasing))
-                                        
-                                        val enterTransition = scaleIn(
-                                            initialScale = 0.8f,
-                                            animationSpec = tween(1000, easing = FastOutSlowInEasing)
-                                        ) + fadeIn(animationSpec = tween(1000, easing = FastOutSlowInEasing))
-                                        
-                                        enterTransition togetherWith exitTransition
-                                    } else {
-                                        // Switching between spaces: simple fade
-                                        fadeIn(animationSpec = tween(1000)) togetherWith fadeOut(animationSpec = tween(1000))
-                                    }
-                                },
-                                label = "SpaceTransition"
-                            ) { spaceId ->
-                                if (spaceId.isNotEmpty()) {
+                            // CRITICAL: Get spaces directly from viewmodel, not from targetSection
+                            // When entering a space, targetSection.spaces becomes empty, breaking the exit animation
+                            // Get spaces from viewmodel so animation always has content
+                            val spacesForAnimation = remember(appViewModel.allSpaces, isInSpace) {
+                                // Always use spaces from viewmodel - they're stable and available even when in a space
+                                appViewModel.allSpaces.map { space ->
+                                    SpaceItem(
+                                        id = space.id,
+                                        name = space.name,
+                                        avatarUrl = space.avatarUrl,
+                                        rooms = space.rooms
+                                    )
+                                }
+                            }
+                            
+                            // Use Box with AnimatedVisibility for both pieces so both can animate simultaneously
+                            // This creates the "Zoom Through" / Container Transform effect
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                // Space list - visible when NOT in a space
+                                // Use spacesForAnimation which is always populated from viewmodel
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = !isInSpace,
+                                    exit = slideOutVertically(
+                                        targetOffsetY = { -it }, // Slide up (negative offset = upward) when entering space
+                                        animationSpec = tween(1000, easing = FastOutSlowInEasing)
+                                    ) + fadeOut(animationSpec = tween(1000, easing = FastOutSlowInEasing)),
+                                    enter = slideInVertically(
+                                        initialOffsetY = { -it }, // Slide down from top (negative offset = from above) when exiting space
+                                        animationSpec = tween(1000, easing = FastOutSlowInEasing)
+                                    ) + fadeIn(animationSpec = tween(1000, easing = FastOutSlowInEasing)),
+                                    label = "SpaceListTransition"
+                                ) {
+                                    SpacesListContent(
+                                        spaces = spacesForAnimation,
+                                        searchQuery = searchQuery,
+                                        appViewModel = appViewModel,
+                                        authToken = authToken,
+                                        navController = navController,
+                                        listState = currentListState
+                                    )
+                                }
+                                
+                                // Rooms - visible when IN a space
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = isInSpace,
+                                    exit = scaleOut(
+                                        targetScale = 0.0f, // Zoom out completely when exiting space
+                                        animationSpec = tween(1000, easing = FastOutSlowInEasing)
+                                    ) + fadeOut(animationSpec = tween(1000, easing = FastOutSlowInEasing)),
+                                    enter = scaleIn(
+                                        initialScale = 0.0f, // Zoom in from nothing when entering space
+                                        animationSpec = tween(1000, easing = FastOutSlowInEasing)
+                                    ) + fadeIn(animationSpec = tween(1000, easing = FastOutSlowInEasing)),
+                                    label = "RoomsTransition"
+                                ) {
                                     RoomListContent(
                                         rooms = targetSection.rooms,
                                         searchQuery = searchQuery,
@@ -1140,15 +1156,6 @@ fun RoomListScreen(
                                             inviteToJoin = invite
                                             showRoomJoiner = true
                                         }
-                                    )
-                                } else {
-                                    SpacesListContent(
-                                        spaces = targetSection.spaces,
-                                        searchQuery = searchQuery,
-                                        appViewModel = appViewModel,
-                                        authToken = authToken,
-                                        navController = navController,
-                                        listState = currentListState
                                     )
                                 }
                             }
@@ -2028,11 +2035,6 @@ fun RoomListContent(
 ) {
     val context = LocalContext.current
     
-    // PHASE 1: Track updated rooms for highlighting - track BEFORE debouncing
-    val roomListUpdateCounter = appViewModel.roomListUpdateCounter
-    val highlightedRooms = remember { mutableStateMapOf<String, Long>() } // roomId -> highlight start time
-    val previousRoomStates = remember { mutableStateMapOf<String, Triple<Int?, Int?, Long?>>() } // roomId -> (unreadCount, highlightCount, timestamp)
-    
     // Handle Android back key when inside a space
     androidx.activity.compose.BackHandler(enabled = appViewModel.currentSpaceId != null) {
         if (appViewModel.currentSpaceId != null) {
@@ -2049,40 +2051,6 @@ fun RoomListContent(
                 room.name.contains(searchQuery, ignoreCase = true)
             }
         }
-    }
-    
-    // PHASE 1: Track which rooms were updated when counter changes - use filteredRooms (before debounce) to catch changes immediately
-    LaunchedEffect(roomListUpdateCounter, filteredRooms.map { "${it.id}:${it.unreadCount}:${it.highlightCount}:${it.sortingTimestamp}" }.joinToString()) {
-        val now = System.currentTimeMillis()
-        val currentRoomStates = filteredRooms.associate { room ->
-            room.id to Triple(room.unreadCount, room.highlightCount, room.sortingTimestamp)
-        }
-        
-        // Find rooms that changed (unread count, highlight count, or timestamp changed)
-        val updatedRoomIds = currentRoomStates.keys.filter { roomId ->
-            val current = currentRoomStates[roomId]
-            val previous = previousRoomStates[roomId]
-            current != previous // Room state changed
-        }
-        
-        // Mark updated rooms as highlighted
-        if (updatedRoomIds.isNotEmpty()) {
-            updatedRoomIds.forEach { roomId ->
-                highlightedRooms[roomId] = now
-            }
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Highlighting ${updatedRoomIds.size} updated rooms: ${updatedRoomIds.take(5).joinToString()}")
-        } else if (BuildConfig.DEBUG && roomListUpdateCounter > 0) {
-            android.util.Log.d("Andromuks", "RoomListScreen: No rooms changed (counter=$roomListUpdateCounter, rooms=${filteredRooms.size})")
-        }
-        
-        // Update previous states
-        previousRoomStates.clear()
-        previousRoomStates.putAll(currentRoomStates)
-        
-        // Clean up old highlights (older than 2 seconds) - run periodically
-        kotlinx.coroutines.delay(500)
-        val cutoffTime = System.currentTimeMillis() - 2000
-        highlightedRooms.entries.removeAll { entry -> entry.value < cutoffTime }
     }
     
     // Debounced, meaningful-diff snapshot for the displayed rooms to reduce flicker.
@@ -2206,27 +2174,6 @@ fun RoomListContent(
             val roomIdForNavigation = room.id
             
             Column {
-                // PHASE 1: Add highlight effect for updated rooms - make it more visible
-                val isHighlighted = highlightedRooms.containsKey(room.id)
-                val highlightKey = highlightedRooms[room.id] // Use timestamp as key to reset animation
-                // Animate highlight: fade from 0.6 to 0 over 2 seconds when room is highlighted
-                var highlightTarget by remember(highlightKey) { mutableStateOf(0f) }
-                LaunchedEffect(highlightKey) {
-                    if (highlightKey != null) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Starting highlight animation for room ${room.id}")
-                        highlightTarget = 0.6f // Start at 0.6 (more visible)
-                        kotlinx.coroutines.delay(50) // Small delay to ensure animation starts
-                        highlightTarget = 0f // Fade to 0
-                    } else {
-                        highlightTarget = 0f
-                    }
-                }
-                val highlightAlpha = androidx.compose.animation.core.animateFloatAsState(
-                    targetValue = highlightTarget,
-                    animationSpec = tween(2000, easing = FastOutSlowInEasing),
-                    label = "room_highlight_fade"
-                ).value
-                
                 RoomListItem(
                     room = room,
                     homeserverUrl = appViewModel.homeserverUrl,
@@ -2270,18 +2217,7 @@ fun RoomListContent(
                     },
                     timestampUpdateTrigger = timestampUpdateTrigger,
                     appViewModel = appViewModel,
-                    modifier = Modifier
-                        .animateContentSize()
-                        .then(
-                            if (isHighlighted && highlightAlpha > 0f) {
-                                Modifier.background(
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.3f * highlightAlpha), // More visible color and alpha
-                                    RoundedCornerShape(12.dp) // Larger radius for visibility
-                                )
-                            } else {
-                                Modifier
-                            }
-                        ),
+                    modifier = Modifier.animateContentSize(),
                     isEnabled = roomOpenInProgress == null || roomOpenInProgress == roomIdForNavigation
                 )
                 
