@@ -13641,8 +13641,9 @@ class AppViewModel : ViewModel() {
             return WebSocketResult.NOT_CONNECTED
         }
         
-        val ws = WebSocketService.getWebSocket()
-        if (ws == null) {
+        // REFACTORING: Use WebSocketService.sendCommand() API instead of direct WebSocket access
+        // Check connection state first
+        if (!WebSocketService.isWebSocketConnected()) {
             // CRITICAL FIX: Queue command for retry when WebSocket is disconnected
             // This prevents commands from being lost when WebSocket temporarily disconnects
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket is not connected, queuing command: $command (requestId: $requestId)")
@@ -13655,22 +13656,14 @@ class AppViewModel : ViewModel() {
         // There's no need to block new commands while retrying old ones
         // New commands can be sent immediately, and responses will be processed as they arrive
         
-        // REFACTORING: Use service-owned WebSocket directly (no need for local reference)
-        // Send command immediately
-        val sendResult = try {
-            val json = org.json.JSONObject()
-            json.put("command", command)
-            json.put("request_id", requestId)
-            json.put("data", org.json.JSONObject(data))
-            val jsonString = json.toString()
-            
-            // Log all WebSocket commands being sent
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "sendWebSocketCommand: command='$command', requestId=$requestId, data=${org.json.JSONObject(data).toString().take(200)}")
-            
-            ws.send(jsonString) // Use service-owned WebSocket
+        // REFACTORING: Use WebSocketService.sendCommand() API
+        // Log all WebSocket commands being sent
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "sendWebSocketCommand: command='$command', requestId=$requestId, data=${org.json.JSONObject(data).toString().take(200)}")
+        
+        val sendResult = if (WebSocketService.sendCommand(command, requestId, data)) {
             WebSocketResult.SUCCESS
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to send WebSocket command: $command", e)
+        } else {
+            android.util.Log.w("Andromuks", "AppViewModel: Failed to send WebSocket command: $command (service returned false)")
             WebSocketResult.CONNECTION_ERROR
         }
         
