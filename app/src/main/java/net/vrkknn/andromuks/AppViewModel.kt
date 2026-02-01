@@ -442,13 +442,9 @@ class AppViewModel : ViewModel() {
         // 2. Attach to existing WebSocket if available and not already attached
         val existingWebSocket = WebSocketService.getWebSocket()
         if (existingWebSocket != null) {
-            if (webSocket == null || webSocket != existingWebSocket) {
-                android.util.Log.i("Andromuks", "AppViewModel: STEP 2.3 - Attaching to existing WebSocket")
-                webSocket = existingWebSocket
-                WebSocketService.registerReceiveCallback(viewModelId, this)
-            } else {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: STEP 2.3 - Already attached to WebSocket")
-            }
+            // REFACTORING: Service owns WebSocket - just register callbacks, no local storage needed
+            android.util.Log.i("Andromuks", "AppViewModel: STEP 2.3 - Attaching to existing WebSocket")
+            WebSocketService.registerReceiveCallback(viewModelId, this)
         } else {
             // 3. If no WebSocket exists and we have credentials, attempt to reconnect
             // This handles the case where the primary was destroyed while disconnected
@@ -1806,9 +1802,10 @@ class AppViewModel : ViewModel() {
         
         // Add retried operations back with updated retry count (addPendingOperation already syncs)
         // Skip command_* operations here because sendWebSocketCommand() will re-track them with the new request_id.
+        // CRITICAL FIX: Save to storage for retries (need persistence)
         operationsToRetry
             .filterNot { it.type.startsWith("command_") }
-            .forEach { addPendingOperation(it) }
+            .forEach { addPendingOperation(it, saveToStorage = true) }
         
         // Retry the operations
         if (operationsToRetry.isNotEmpty()) {
@@ -5433,7 +5430,7 @@ class AppViewModel : ViewModel() {
         if (existingWebSocket != null) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Attaching $viewModelId to existing WebSocket")
             logActivity("Attached to Existing WebSocket", null)
-            webSocket = existingWebSocket
+            // REFACTORING: Service owns WebSocket - just register callbacks, no local storage needed
             WebSocketService.registerReceiveCallback(viewModelId, this)
             
             // STEP 2.2: Check if this ViewModel was promoted to primary while it wasn't attached
@@ -6204,7 +6201,8 @@ class AppViewModel : ViewModel() {
     }
     
     
-    private var webSocket: WebSocket? = null
+    // REFACTORING: WebSocket is now owned by WebSocketService - no local storage needed
+    // All WebSocket operations delegate to WebSocketService.getWebSocket()
     private var lastReceivedRequestId: Int = 0 // Tracks ANY incoming request_id (for pong detection)
     // NOTE: We no longer track last_received_id - all timeline caches are cleared on connect/reconnect
     private var lastSyncTimestamp: Long = 0 // Timestamp of last sync_complete received
@@ -6364,7 +6362,8 @@ class AppViewModel : ViewModel() {
     
     fun setWebSocket(webSocket: WebSocket) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: setWebSocket() called for $viewModelId")
-        this.webSocket = webSocket
+        // REFACTORING: Service now owns WebSocket - no need to store locally
+        // The service already has the reference, we just need to set up callbacks
         
         // Reset requestIdCounter on WebSocket (re)connect to keep IDs manageable
         requestIdCounter = 1
@@ -6480,7 +6479,7 @@ class AppViewModel : ViewModel() {
     }
 
     fun clearWebSocket(reason: String = "Unknown", closeCode: Int? = null, closeReason: String? = null) {
-        this.webSocket = null
+        // REFACTORING: Service now owns WebSocket - no need to clear local reference
         
         // Reset initialization flag on disconnect - will be set again when init_complete arrives
         if (initializationComplete) {
@@ -6572,6 +6571,15 @@ class AppViewModel : ViewModel() {
         android.util.Log.w("Andromuks", "AppViewModel: Connection failure - Type: $errorType, Reason: $reason")
         logActivity("Connection Failure - $errorType: ${error.message}", null)
         
+        // CRITICAL FIX: Check if network is available before scheduling reconnection
+        // This prevents reconnection attempts when network is lost (WiFi turned off, etc.)
+        val networkType = WebSocketService.getCurrentNetworkType()
+        if (networkType == WebSocketService.NetworkType.NONE) {
+            android.util.Log.w("Andromuks", "AppViewModel: Connection failure but no network available - not scheduling reconnection (reason: $reason)")
+            logActivity("Connection Failure - No Network Available", null)
+            return
+        }
+        
         when (errorType) {
             "DNS_FAILURE" -> {
                 // DNS failures are often persistent - use exponential backoff with longer delays
@@ -6590,6 +6598,13 @@ class AppViewModel : ViewModel() {
                 
                 viewModelScope.launch {
                     delay(delayMs)
+                    // CRITICAL FIX: Check network again before executing reconnection
+                    // Network might have been lost during the delay
+                    val currentNetworkType = WebSocketService.getCurrentNetworkType()
+                    if (currentNetworkType == WebSocketService.NetworkType.NONE) {
+                        android.util.Log.w("Andromuks", "AppViewModel: DNS retry delayed but network now unavailable - cancelling reconnection")
+                        return@launch
+                    }
                     // Reset DNS failure count on successful reconnection attempt
                     // (will be reset when connection succeeds)
                     scheduleReconnection("DNS resolution failure (attempt $nextDnsFailureCount)")
@@ -6607,9 +6622,15 @@ class AppViewModel : ViewModel() {
                 viewModelScope.launch {
                     // Wait 10 seconds - if network is still unavailable, NetworkMonitor will handle it
                     delay(10000L)
+                    // CRITICAL FIX: Check network again before executing reconnection
+                    val currentNetworkType = WebSocketService.getCurrentNetworkType()
+                    if (currentNetworkType == WebSocketService.NetworkType.NONE) {
+                        android.util.Log.w("Andromuks", "AppViewModel: Network still unavailable after 10s - not scheduling fallback reconnection")
+                        return@launch
+                    }
                     // Only schedule if still disconnected (NetworkMonitor may have already reconnected)
                     if (!isWebSocketConnected()) {
-                        android.util.Log.i("Andromuks", "AppViewModel: Network still unreachable after 10s - scheduling fallback reconnection")
+                        android.util.Log.i("Andromuks", "AppViewModel: Network available after 10s - scheduling fallback reconnection")
                         scheduleReconnection("Network unreachable (fallback retry)")
                     }
                 }
@@ -6766,7 +6787,7 @@ class AppViewModel : ViewModel() {
     /**
      * PHASE 5.1: Add operation to queue with size limits and persistence
      */
-    private fun addPendingOperation(operation: PendingWebSocketOperation): Boolean {
+    private fun addPendingOperation(operation: PendingWebSocketOperation, saveToStorage: Boolean = false): Boolean {
         // PHASE 5.1: Enforce queue size limit (remove oldest if at limit)
         synchronized(pendingOperationsLock) {
         if (pendingWebSocketOperations.size >= MAX_QUEUE_SIZE) {
@@ -6783,7 +6804,13 @@ class AppViewModel : ViewModel() {
         
         pendingWebSocketOperations.add(operation)
         }
-        savePendingOperationsToStorage()
+        // CRITICAL FIX: Only save to storage when explicitly needed (disconnected commands, retries)
+        // When WebSocket is connected and command is sent successfully, we only need in-memory tracking
+        // Storage is only needed for persistence across app restarts or when disconnected
+        // This prevents unnecessary storage writes on every command when WebSocket is connected
+        if (saveToStorage) {
+            savePendingOperationsToStorage()
+        }
         return true
     }
     
@@ -7008,7 +7035,7 @@ class AppViewModel : ViewModel() {
                                 val result = sendMessageInternal(roomId, text)
                                 if (result != WebSocketResult.SUCCESS && operation.retryCount < maxRetryAttempts) {
                                     // Re-queue if still failing
-                                    addPendingOperation(operation.copy(retryCount = operation.retryCount + 1))
+                                    addPendingOperation(operation.copy(retryCount = operation.retryCount + 1), saveToStorage = true)
                                 }
                             }
                         }
@@ -7074,7 +7101,7 @@ class AppViewModel : ViewModel() {
                 } catch (e: Exception) {
                     android.util.Log.e("Andromuks", "AppViewModel: Error retrying operation ${operation.type}: ${e.message}")
                     if (operation.retryCount < maxRetryAttempts) {
-                        addPendingOperation(operation.copy(retryCount = operation.retryCount + 1))
+                        addPendingOperation(operation.copy(retryCount = operation.retryCount + 1), saveToStorage = true)
                     }
                 }
             }
@@ -7134,7 +7161,7 @@ class AppViewModel : ViewModel() {
         
         // CRITICAL FIX: Process deferred emoji pack requests when WebSocket is ready
         // This ensures custom emojis are loaded even if account_data was processed before WebSocket connected
-        if (deferredEmojiPackRequests.isNotEmpty() && webSocket != null) {
+        if (deferredEmojiPackRequests.isNotEmpty() && isWebSocketConnected()) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing ${deferredEmojiPackRequests.size} deferred emoji pack requests")
             val requests = deferredEmojiPackRequests.toList()
             deferredEmojiPackRequests.clear()
@@ -7427,7 +7454,7 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        val ws = webSocket ?: return
+        val ws = WebSocketService.getWebSocket() ?: return
         val reqId = requestIdCounter++
         
         // Track this request to prevent duplicates
@@ -7496,7 +7523,7 @@ class AppViewModel : ViewModel() {
     
     // Send a message and track the response
     fun sendMessage(roomId: String, text: String, mentions: List<String> = emptyList()) {
-        val ws = webSocket ?: return
+        val ws = WebSocketService.getWebSocket() ?: return
         val reqId = requestIdCounter++
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendMessage called with roomId=$roomId, text='$text', reqId=$reqId")
@@ -8059,8 +8086,7 @@ class AppViewModel : ViewModel() {
         )
         
         // Issue paginate request to fill cache
-        val webSocket = this.webSocket
-        if (webSocket == null) {
+        if (!isWebSocketConnected()) {
             android.util.Log.w("Andromuks", "AppViewModel: ensureTimelineCacheIsFresh($roomId) - WebSocket not connected, cannot paginate")
             return
         }
@@ -8143,7 +8169,7 @@ class AppViewModel : ViewModel() {
             roomOpenTimestamps[roomId] = openTimestamp
             
             // Still request room state in background for any updates
-            if (webSocket != null && !pendingRoomStateRequests.contains(roomId)) {
+            if (isWebSocketConnected() && !pendingRoomStateRequests.contains(roomId)) {
                 val stateRequestId = requestIdCounter++
                 roomStateRequests[stateRequestId] = roomId
                 pendingRoomStateRequests.add(roomId)
@@ -8170,7 +8196,7 @@ class AppViewModel : ViewModel() {
         
         // OPPORTUNISTIC PROFILE LOADING: Only request room state without members to prevent OOM
         // Member profiles will be loaded on-demand when actually needed for rendering
-        if (webSocket != null && !pendingRoomStateRequests.contains(roomId)) {
+        if (isWebSocketConnected() && !pendingRoomStateRequests.contains(roomId)) {
             val stateRequestId = requestIdCounter++
             roomStateRequests[stateRequestId] = roomId
             pendingRoomStateRequests.add(roomId)
@@ -8216,7 +8242,7 @@ class AppViewModel : ViewModel() {
             // GUARD: Check if a paginate request is already pending for this room (atomic check-and-set)
             val wasAdded = roomsWithPendingPaginate.add(roomId)
             
-            if (!isRefreshingSameRoom && webSocket != null && INITIAL_ROOM_PAGINATE_LIMIT > 0 && wasAdded) {
+            if (!isRefreshingSameRoom && isWebSocketConnected() && INITIAL_ROOM_PAGINATE_LIMIT > 0 && wasAdded) {
                 val paginateRequestId = requestIdCounter++
                 timelineRequests[paginateRequestId] = roomId
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending paginate request to fetch newer events for $roomId (limit=$INITIAL_ROOM_PAGINATE_LIMIT, reqId=$paginateRequestId)")
@@ -8246,7 +8272,7 @@ class AppViewModel : ViewModel() {
         // CACHE EMPTY OR NOT ACTIVELY CACHED: Issue paginate command to fill the cache
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No events in cache or room not actively cached for $roomId, issuing paginate command to fill cache")
         
-        if (webSocket == null) {
+        if (!isWebSocketConnected()) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, cannot paginate for $roomId")
             // Set loading state and clear timeline
             timelineEvents = emptyList()
@@ -8453,7 +8479,7 @@ class AppViewModel : ViewModel() {
             return true
         }
 
-        val ws = webSocket ?: run {
+        val ws = WebSocketService.getWebSocket() ?: run {
             android.util.Log.w("Andromuks", "AppViewModel: Cannot prefetch snapshot for $roomId - WebSocket not connected")
             return false
         }
@@ -8606,7 +8632,7 @@ class AppViewModel : ViewModel() {
                 
                 
                 // Request room state in background if needed
-                if (webSocket != null && !pendingRoomStateRequests.contains(roomId)) {
+                if (isWebSocketConnected() && !pendingRoomStateRequests.contains(roomId)) {
                     val stateRequestId = requestIdCounter++
                     roomStateRequests[stateRequestId] = roomId
                     pendingRoomStateRequests.add(roomId)
@@ -8724,7 +8750,7 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting room state with members for room: $roomId")
         
         // Check if WebSocket is connected
-        if (webSocket == null) {
+        if (!isWebSocketConnected()) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected - calling back with error, health monitor will handle reconnection")
             callback(null, "WebSocket not connected")
             return
@@ -8791,7 +8817,7 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting profile on-demand (network) for $userId in room $roomId")
         
         // Check if WebSocket is connected
-        if (webSocket == null) {
+        if (!isWebSocketConnected()) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, skipping on-demand profile request")
             return
         }
@@ -8825,7 +8851,7 @@ class AppViewModel : ViewModel() {
      */
     fun requestRoomSpecificUserProfile(roomId: String, userId: String) {
         // Check if WebSocket is connected
-        if (webSocket == null) {
+        if (!isWebSocketConnected()) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, cannot request room-specific profile")
             return
         }
@@ -8873,7 +8899,7 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting updated room profiles for room: $roomId")
         
         // Check if WebSocket is connected
-        if (webSocket == null) {
+        if (!isWebSocketConnected()) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, skipping profile refresh")
             return
         }
@@ -8904,7 +8930,7 @@ class AppViewModel : ViewModel() {
         roomSpecificStateRequests[requestId] = roomId
         
         // Build JSON structure manually to ensure proper array handling
-        val ws = webSocket
+        val ws = WebSocketService.getWebSocket()
         if (ws != null) {
             val json = org.json.JSONObject()
             json.put("command", "get_specific_room_state")
@@ -8936,7 +8962,8 @@ class AppViewModel : ViewModel() {
      * Request emoji pack data from a room using get_specific_room_state
      */
     private fun requestEmojiPackData(roomId: String, packName: String) {
-        if (webSocket == null) {
+        val ws = WebSocketService.getWebSocket()
+        if (ws == null) {
             // CRITICAL FIX: Queue emoji pack requests when WebSocket isn't ready
             // They will be processed when WebSocket connects
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket not connected, queuing emoji pack request for $packName in $roomId")
@@ -8948,28 +8975,25 @@ class AppViewModel : ViewModel() {
         emojiPackRequests[requestId] = Pair(roomId, packName)
         roomSpecificStateRequests[requestId] = roomId
         
-        val ws = webSocket
-        if (ws != null) {
-            val json = org.json.JSONObject()
-            json.put("command", "get_specific_room_state")
-            json.put("request_id", requestId)
-            
-            val data = org.json.JSONObject()
-            val keysArray = org.json.JSONArray()
-            
-            val keyObj = org.json.JSONObject()
-            keyObj.put("room_id", roomId)
-            keyObj.put("type", "im.ponies.room_emotes")
-            keyObj.put("state_key", packName)
-            keysArray.put(keyObj)
-            
-            data.put("keys", keysArray)
-            json.put("data", data)
-            
-            val jsonString = json.toString()
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting emoji pack: $jsonString")
-            ws.send(jsonString)
-        }
+        val json = org.json.JSONObject()
+        json.put("command", "get_specific_room_state")
+        json.put("request_id", requestId)
+        
+        val data = org.json.JSONObject()
+        val keysArray = org.json.JSONArray()
+        
+        val keyObj = org.json.JSONObject()
+        keyObj.put("room_id", roomId)
+        keyObj.put("type", "im.ponies.room_emotes")
+        keyObj.put("state_key", packName)
+        keysArray.put(keyObj)
+        
+        data.put("keys", keysArray)
+        json.put("data", data)
+        
+        val jsonString = json.toString()
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting emoji pack: $jsonString")
+        ws.send(jsonString)
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent emoji pack request with ID $requestId for pack $packName in room $roomId")
     }
@@ -8987,7 +9011,7 @@ class AppViewModel : ViewModel() {
         
         
         // Check if WebSocket is connected
-        if (webSocket == null) {
+        if (!isWebSocketConnected()) {
             return
         }
         
@@ -9046,7 +9070,8 @@ class AppViewModel : ViewModel() {
                         "roomId" to roomId,
                         "text" to text
                     )
-                )
+                ),
+                saveToStorage = true // Save to storage when WebSocket is disconnected
             )
         }
     }
@@ -9114,7 +9139,7 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing notification reply (dedup key: $dedupKey)")
         
         // Check websocket state
-        if (webSocket == null || !spacesLoaded) {
+        if (!isWebSocketConnected() || !spacesLoaded) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket not ready yet, queueing notification action")
             
             // DEDUPLICATION: Check if this exact action is already queued (prevent duplicate queueing)
@@ -9244,7 +9269,7 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: markRoomAsReadFromNotification called for room $roomId")
         
         // Check websocket state
-        if (webSocket == null || !spacesLoaded) {
+        if (!isWebSocketConnected() || !spacesLoaded) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket not ready yet, queueing notification action")
             
             // Queue the action to be executed when WebSocket is ready
@@ -9318,7 +9343,7 @@ class AppViewModel : ViewModel() {
     fun sendReaction(roomId: String, eventId: String, emoji: String) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendReaction called with roomId: '$roomId', eventId: '$eventId', emoji: '$emoji'")
         
-        val ws = webSocket ?: return
+        val ws = WebSocketService.getWebSocket() ?: return
         
         val reactionRequestId = requestIdCounter++
         
@@ -9423,7 +9448,7 @@ class AppViewModel : ViewModel() {
     }
     
     private fun sendAccountDataUpdate(frequencies: List<Pair<String, Int>>) {
-        val ws = webSocket ?: return
+        val ws = WebSocketService.getWebSocket() ?: return
         val accountDataRequestId = requestIdCounter++
         
         // Create the recent_emoji array format: [["emoji", count], ...]
@@ -9495,7 +9520,7 @@ class AppViewModel : ViewModel() {
     fun sendEdit(roomId: String, text: String, originalEvent: net.vrkknn.andromuks.TimelineEvent) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendEdit called with roomId: '$roomId', text: '$text', originalEvent: ${originalEvent.eventId}")
         
-        val ws = webSocket ?: return
+        val ws = WebSocketService.getWebSocket() ?: return
         val editRequestId = requestIdCounter++
         
         // Track this outgoing request
@@ -9560,7 +9585,7 @@ class AppViewModel : ViewModel() {
     ) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendMediaMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', thumbnailUrl: '$thumbnailUrl'")
         
-        val ws = webSocket ?: return
+        val ws = WebSocketService.getWebSocket() ?: return
         val messageRequestId = requestIdCounter++
         
         // Track this outgoing request
@@ -9705,7 +9730,7 @@ class AppViewModel : ViewModel() {
     ) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendStickerMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', body: '$body', width: $width, height: $height")
         
-        val ws = webSocket ?: return
+        val ws = WebSocketService.getWebSocket() ?: return
         val messageRequestId = requestIdCounter++
         
         // Track this outgoing request
@@ -9799,7 +9824,7 @@ class AppViewModel : ViewModel() {
     ) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendVideoMessage called with roomId: '$roomId', videoMxcUrl: '$videoMxcUrl'")
         
-        val ws = webSocket ?: return
+        val ws = WebSocketService.getWebSocket() ?: return
         val messageRequestId = requestIdCounter++
         
         // Track this outgoing request
@@ -9875,7 +9900,7 @@ class AppViewModel : ViewModel() {
     fun sendDelete(roomId: String, originalEvent: net.vrkknn.andromuks.TimelineEvent, reason: String = "") {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendDelete called with roomId: '$roomId', eventId: ${originalEvent.eventId}, reason: '$reason'")
         
-        val ws = webSocket ?: return
+        val ws = WebSocketService.getWebSocket() ?: return
         val deleteRequestId = requestIdCounter++
         
         // Track this outgoing request
@@ -9914,7 +9939,7 @@ class AppViewModel : ViewModel() {
     ) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendAudioMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', duration: ${duration}ms")
         
-        val ws = webSocket ?: return
+        val ws = WebSocketService.getWebSocket() ?: return
         val messageRequestId = requestIdCounter++
         
         // Track this outgoing request
@@ -9980,7 +10005,7 @@ class AppViewModel : ViewModel() {
     ) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendFileMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', filename: '$filename'")
         
-        val ws = webSocket ?: return
+        val ws = WebSocketService.getWebSocket() ?: return
         val messageRequestId = requestIdCounter++
         
         // Track this outgoing request
@@ -13298,7 +13323,8 @@ class AppViewModel : ViewModel() {
                         "roomId" to roomId,
                         "eventId" to eventId
                     )
-                )
+                ),
+                saveToStorage = true // Save to storage when WebSocket is disconnected
             )
         }
     }
@@ -13617,7 +13643,10 @@ class AppViewModel : ViewModel() {
         
         val ws = WebSocketService.getWebSocket()
         if (ws == null) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket is not connected, cannot send command: $command")
+            // CRITICAL FIX: Queue command for retry when WebSocket is disconnected
+            // This prevents commands from being lost when WebSocket temporarily disconnects
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket is not connected, queuing command: $command (requestId: $requestId)")
+            queueCommandForOfflineRetry(command, requestId, data)
             return WebSocketResult.NOT_CONNECTED
         }
         
@@ -13626,10 +13655,31 @@ class AppViewModel : ViewModel() {
         // There's no need to block new commands while retrying old ones
         // New commands can be sent immediately, and responses will be processed as they arrive
         
+        // REFACTORING: Use service-owned WebSocket directly (no need for local reference)
+        // Send command immediately
+        val sendResult = try {
+            val json = org.json.JSONObject()
+            json.put("command", command)
+            json.put("request_id", requestId)
+            json.put("data", org.json.JSONObject(data))
+            val jsonString = json.toString()
+            
+            // Log all WebSocket commands being sent
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "sendWebSocketCommand: command='$command', requestId=$requestId, data=${org.json.JSONObject(data).toString().take(200)}")
+            
+            ws.send(jsonString) // Use service-owned WebSocket
+            WebSocketResult.SUCCESS
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to send WebSocket command: $command", e)
+            WebSocketResult.CONNECTION_ERROR
+        }
+        
         // PHASE 5.2: Track all commands with positive request_id for acknowledgment
         // request_id = 0 means no response expected (like typing)
         // request_id > 0 means we expect a response with same request_id
-        if (requestId > 0) {
+        // CRITICAL FIX: Only track in memory for acknowledgment - don't save to storage when WebSocket is connected
+        // Storage is only needed for persistence across app restarts or when disconnected
+        if (requestId > 0 && sendResult == WebSocketResult.SUCCESS) {
             val messageId = java.util.UUID.randomUUID().toString()
             val acknowledgmentTimeout = System.currentTimeMillis() + 30000L // 30 seconds
             
@@ -13647,28 +13697,24 @@ class AppViewModel : ViewModel() {
                 acknowledgmentTimeout = acknowledgmentTimeout
             )
             
-            // Add to queue before sending (will be removed when response arrives)
-            addPendingOperation(operation)
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Tracking command '$command' with request_id: $requestId for acknowledgment")
+            // Add to in-memory queue for acknowledgment tracking (no storage save)
+            // Only save to storage if WebSocket disconnects or command fails
+            synchronized(pendingOperationsLock) {
+                if (pendingWebSocketOperations.size >= MAX_QUEUE_SIZE) {
+                    // Remove oldest operation (by timestamp)
+                    val oldest = pendingWebSocketOperations.minByOrNull { it.timestamp }
+                    if (oldest != null) {
+                        pendingWebSocketOperations.remove(oldest)
+                        if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Queue full (${MAX_QUEUE_SIZE}), removed oldest operation: ${oldest.type}")
+                    }
+                }
+                pendingWebSocketOperations.add(operation)
+            }
+            // Don't save to storage - command was sent successfully, only need in-memory tracking
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Tracking command '$command' with request_id: $requestId for acknowledgment (in-memory only)")
         }
         
-        // Send command immediately
-        return try {
-            val json = org.json.JSONObject()
-            json.put("command", command)
-            json.put("request_id", requestId)
-            json.put("data", org.json.JSONObject(data))
-            val jsonString = json.toString()
-            
-            // Log all WebSocket commands being sent
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "sendWebSocketCommand: command='$command', requestId=$requestId, data=${org.json.JSONObject(data).toString().take(200)}")
-            
-            webSocket?.send(jsonString)
-            WebSocketResult.SUCCESS
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to send WebSocket command: $command", e)
-            WebSocketResult.CONNECTION_ERROR
-        }
+        return sendResult
     }
     
     /**
@@ -13687,6 +13733,7 @@ class AppViewModel : ViewModel() {
     private fun queueCommandForOfflineRetry(command: String, requestId: Int, data: Map<String, Any>) {
         // PHASE 5.1: Add to pending operations for retry when connection is restored
         // Queue size limit is now enforced in addPendingOperation()
+        // CRITICAL FIX: Save to storage when WebSocket is disconnected (need persistence)
         addPendingOperation(
             PendingWebSocketOperation(
                 type = "offline_$command",
@@ -13696,7 +13743,8 @@ class AppViewModel : ViewModel() {
                     "data" to data
                 ),
                 retryCount = 0
-            )
+            ),
+            saveToStorage = true // Save to storage when disconnected
         )
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Queued offline command: $command")
     }
@@ -13709,7 +13757,7 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: getEvent called for roomId: '$roomId', eventId: '$eventId'")
         
         // Check if WebSocket is connected
-        if (webSocket == null) {
+        if (!isWebSocketConnected()) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected - calling back with null, health monitor will handle reconnection")
             callback(null)
             return
@@ -13758,7 +13806,7 @@ class AppViewModel : ViewModel() {
         val actualMaxTimestamp = maxTimestamp ?: System.currentTimeMillis()
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: requestMentionsList called with maxTimestamp=$actualMaxTimestamp, limit=$limit")
         
-        val ws = webSocket ?: run {
+        val ws = WebSocketService.getWebSocket() ?: run {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected - cannot request mentions list")
             return
         }
@@ -14027,39 +14075,17 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        // Use viewModelScope to ensure connection survives activity recreation
-        viewModelScope.launch {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Initializing WebSocket connection using viewModelScope (survives activity recreation)")
-            
-            // NOTE: We no longer set reconnection parameters for last_received_id
-            // All timeline caches are cleared on connect/reconnect instead
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Connecting WebSocket without last_received_id (caches will be cleared on connect)")
-            
-            // Start WebSocket service BEFORE connecting websocket
-            startWebSocketService()
-            
-            // Set app as visible since we're starting the app
-            WebSocketService.setAppVisibility(true)
-            
-            // Verify backend health with timeout
-            try {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Verifying backend health before opening WebSocket")
-                withTimeout(10_000L) { // 10 second timeout
-                    net.vrkknn.andromuks.utils.waitForBackendHealth(homeserverUrl, loggerTag = "AppViewModel")
-                }
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Backend health check completed, connecting WebSocket")
-            } catch (e: TimeoutCancellationException) {
-                android.util.Log.w("Andromuks", "AppViewModel: Backend health check timed out after 10 seconds - proceeding with WebSocket connection anyway")
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Backend health check failed with exception - proceeding with WebSocket connection anyway", e)
-            }
-            
-            // Connect websocket - service is now ready to receive the connection
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Calling connectToWebsocket()")
-            val client = okhttp3.OkHttpClient.Builder().build()
-            net.vrkknn.andromuks.utils.connectToWebsocket(homeserverUrl, client, token, this@AppViewModel, reason = "Initial connection from AppViewModel")
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: connectToWebsocket() call completed")
-        }
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Delegating WebSocket connection to WebSocketService")
+        
+        // Start WebSocket service BEFORE connecting websocket
+        startWebSocketService()
+        
+        // Set app as visible since we're starting the app
+        WebSocketService.setAppVisibility(true)
+        
+        // REFACTORING: Delegate connection to service
+        // The service now owns the WebSocket connection lifecycle
+        WebSocketService.connectWebSocket(homeserverUrl, token, this@AppViewModel, reason = "Initial connection from AppViewModel")
     }
 
     // User Info Functions
@@ -14070,7 +14096,7 @@ class AppViewModel : ViewModel() {
     fun requestUserEncryptionInfo(userId: String, callback: (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting encryption info for user: $userId")
         
-        if (webSocket == null) {
+        if (!isWebSocketConnected()) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected")
             callback(null, "WebSocket not connected")
             return
@@ -14090,7 +14116,7 @@ class AppViewModel : ViewModel() {
     fun requestMutualRooms(userId: String, callback: (List<String>?, String?) -> Unit) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting mutual rooms with user: $userId")
         
-        if (webSocket == null) {
+        if (!isWebSocketConnected()) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected")
             callback(null, "WebSocket not connected")
             return
@@ -14110,7 +14136,7 @@ class AppViewModel : ViewModel() {
     fun trackUserDevices(userId: String, callback: (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Tracking devices for user: $userId")
         
-        if (webSocket == null) {
+        if (!isWebSocketConnected()) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected")
             callback(null, "WebSocket not connected")
             return
@@ -14171,7 +14197,7 @@ class AppViewModel : ViewModel() {
     ) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendThreadReply called - roomId: $roomId, text: '$text', threadRoot: $threadRootEventId, fallbackReply: $fallbackReplyToEventId")
         
-        if (webSocket == null) {
+        if (!isWebSocketConnected()) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected - cannot send thread reply, health monitor will handle reconnection")
             return
         }
@@ -14483,7 +14509,7 @@ class AppViewModel : ViewModel() {
         }
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending resolve_alias for $alias with requestId=$requestId")
-        webSocket?.send(request.toString())
+        WebSocketService.getWebSocket()?.send(request.toString())
     }
     
     /**
@@ -14503,7 +14529,7 @@ class AppViewModel : ViewModel() {
         }
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending get_room_summary for $roomIdOrAlias with requestId=$requestId")
-        webSocket?.send(request.toString())
+        WebSocketService.getWebSocket()?.send(request.toString())
     }
     
     /**
@@ -14528,7 +14554,7 @@ class AppViewModel : ViewModel() {
         }
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending join_room for $roomIdOrAlias with requestId=$requestId")
-        webSocket?.send(request.toString())
+        WebSocketService.getWebSocket()?.send(request.toString())
     }
     
     private fun handleResolveAliasResponse(requestId: Int, data: Any) {

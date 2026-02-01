@@ -349,6 +349,8 @@ fun connectToWebsocket(
         override fun onOpen(webSocket: WebSocket, response: Response) {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: onOpen: ws opened on "+response.message)
             
+            // Toast notification is handled by WebSocketService.setWebSocket() which has access to context
+            
             // Debug: Log all response headers to see if backend request ID is available
             if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: WebSocket response headers:")
             response.headers.names().forEach { name ->
@@ -369,6 +371,8 @@ fun connectToWebsocket(
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             Log.e("Andromuks", "NetworkUtils: WebSocket connection failed", t)
             Log.e("Andromuks", "NetworkUtils: Failure reason: ${t.message}, response: ${response?.code}")
+            
+            // Toast notification is handled by WebSocketService.clearWebSocket() which has access to context
             
             // Check for 401 Unauthorized - invalid/expired token
             if (response?.code == 401 || (t is java.net.ProtocolException && t.message?.contains("401") == true)) {

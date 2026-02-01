@@ -58,7 +58,7 @@ class WebSocketService : Service() {
         private const val CONSECUTIVE_FAILURES_TO_DROP = 3 // Drop WebSocket after 3 consecutive ping failures
         private const val INIT_COMPLETE_TIMEOUT_MS = 15_000L // 15 seconds to wait for init_complete (fallback)
         private const val RUN_ID_TIMEOUT_MS = 500L // 500ms to wait for run_id after connection
-        private const val INIT_COMPLETE_AFTER_RUN_ID_TIMEOUT_MS = 1_000L // 1 second to wait for init_complete after run_id, for large accounts
+        private const val INIT_COMPLETE_AFTER_RUN_ID_TIMEOUT_MS = 2_000L // 2 seconds to wait for init_complete after run_id (increased from 1s to handle slower networks)
         private const val INIT_COMPLETE_RETRY_BASE_MS = 2_000L // 2 seconds initial retry delay
         private const val INIT_COMPLETE_RETRY_MAX_MS = 64_000L // 64 seconds max retry delay
         private const val MAX_RECONNECTION_ATTEMPTS = 10
@@ -1247,6 +1247,9 @@ class WebSocketService : Service() {
             
             android.util.Log.i("WebSocketService", "WebSocket connection opened - waiting for init_complete")
             logPingStatus()
+            
+            // Show toast for connection opened
+            serviceInstance.showWebSocketToast("Connection opened - waiting for run_id")
         }
         
         /**
@@ -1279,6 +1282,9 @@ class WebSocketService : Service() {
             }
             
             android.util.Log.w("WebSocketService", "clearWebSocket() called - setting connection state to DISCONNECTED (was: ${serviceInstance.connectionState})")
+            
+            // Show toast for connection cleared
+            serviceInstance.showWebSocketToast("Connection killed: $reason")
             
             // Validate state before clearing
             detectAndRecoverStateCorruption()
@@ -1360,6 +1366,13 @@ class WebSocketService : Service() {
          */
         fun getConnectionState(): ConnectionState? {
             return instance?.connectionState
+        }
+        
+        /**
+         * Get current network type (for checking if network is available)
+         */
+        fun getCurrentNetworkType(): NetworkType {
+            return instance?.currentNetworkType ?: NetworkType.NONE
         }
         
         /**
@@ -1549,6 +1562,87 @@ class WebSocketService : Service() {
         }
         
         /**
+         * Wait for service instance to be ready (with timeout)
+         * This prevents race conditions where methods are called before onCreate()
+         */
+        private suspend fun waitForServiceInstance(timeoutMs: Long = 5_000L): WebSocketService? {
+            if (instance != null) {
+                return instance
+            }
+            
+            // Poll for instance with short delays
+            val startTime = System.currentTimeMillis()
+            val pollDelay = 50L // 50ms between checks
+            
+            while (System.currentTimeMillis() - startTime < timeoutMs) {
+                if (instance != null) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service instance ready after ${System.currentTimeMillis() - startTime}ms")
+                    return instance
+                }
+                delay(pollDelay)
+            }
+            
+            android.util.Log.w("WebSocketService", "Service instance not ready after ${timeoutMs}ms timeout")
+            return null
+        }
+        
+        /**
+         * REFACTORING: Initiate WebSocket connection from service
+         * This method will eventually own the WebSocket connection lifecycle
+         * For now, it delegates to AppViewModel but the service will own the WebSocket reference
+         */
+        fun connectWebSocket(homeserverUrl: String, token: String, appViewModel: AppViewModel, reason: String = "Service-initiated connection") {
+            android.util.Log.i("WebSocketService", "connectWebSocket() called - initiating connection (reason: $reason)")
+            
+            // For now, delegate to NetworkUtils.connectToWebsocket() which will call setWebSocket()
+            // Eventually, we'll move the connection logic here
+            serviceScope.launch {
+                try {
+                    // CRITICAL FIX: Wait for service instance to be ready (with timeout)
+                    // This prevents race condition where connectWebSocket() is called before onCreate()
+                    val serviceInstance = waitForServiceInstance(5_000L) ?: run {
+                        android.util.Log.e("WebSocketService", "connectWebSocket() called but service instance is null after waiting 5 seconds")
+                        return@launch
+                    }
+                    
+                    // Check if already connected
+                    if (isWebSocketConnected()) {
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "connectWebSocket() called but already connected - skipping")
+                        return@launch
+                    }
+                    
+                    // Check if already connecting
+                    if (serviceInstance.connectionState == ConnectionState.CONNECTING) {
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "connectWebSocket() called but already connecting - skipping")
+                        return@launch
+                    }
+                    
+                    // Verify backend health with timeout
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Verifying backend health before opening WebSocket")
+                    try {
+                        withTimeout(10_000L) { // 10 second timeout
+                            net.vrkknn.andromuks.utils.waitForBackendHealth(homeserverUrl, loggerTag = "WebSocketService")
+                        }
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Backend health check completed, connecting WebSocket")
+                    } catch (e: TimeoutCancellationException) {
+                        android.util.Log.w("WebSocketService", "Backend health check timed out after 10 seconds - proceeding with WebSocket connection anyway")
+                    } catch (e: Exception) {
+                        android.util.Log.e("WebSocketService", "Backend health check failed with exception - proceeding with WebSocket connection anyway", e)
+                    }
+                    
+                    // Connect websocket - NetworkUtils will call setWebSocket() which the service owns
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Calling NetworkUtils.connectToWebsocket()")
+                    val client = okhttp3.OkHttpClient.Builder().build()
+                    net.vrkknn.andromuks.utils.connectToWebsocket(homeserverUrl, client, token, appViewModel, reason = reason)
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "NetworkUtils.connectToWebsocket() call completed")
+                } catch (e: Exception) {
+                    android.util.Log.e("WebSocketService", "Error in connectWebSocket()", e)
+                    clearWebSocket("Connection error: ${e.message}")
+                }
+            }
+        }
+        
+        /**
          * @deprecated No longer used - we never pass last_received_id on connect/reconnect
          */
         @Deprecated("No longer used - we no longer track last_received_id")
@@ -1589,6 +1683,13 @@ class WebSocketService : Service() {
          */
         fun startPingLoopOnInitComplete() {
             val serviceInstance = instance ?: return
+            // CRITICAL FIX: Only start ping loop if connection is actually CONNECTED
+            // This prevents ping loop from starting if init_complete arrives after timeout
+            if (serviceInstance.connectionState != ConnectionState.CONNECTED) {
+                android.util.Log.w("WebSocketService", "Init_complete received but connection state is ${serviceInstance.connectionState} - not starting ping loop")
+                return
+            }
+            
             if (!serviceInstance.pingLoopStarted) {
                 serviceInstance.pingLoopStarted = true
                 serviceInstance.hasEverReachedReadyState = true
@@ -1681,12 +1782,27 @@ class WebSocketService : Service() {
             serviceInstance.runIdTimeoutJob?.cancel()
             serviceInstance.runIdTimeoutJob = null
             
+            // CRITICAL FIX: Handle race condition where init_complete arrives just after timeout
+            // If we're not waiting but connection is still CONNECTING, accept it anyway
             if (!serviceInstance.waitingForInitComplete) {
-                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Init complete received but not waiting - ignoring")
-                return
+                if (serviceInstance.connectionState == ConnectionState.CONNECTING) {
+                    // Race condition: timeout fired but init_complete arrived shortly after
+                    // Accept it anyway since connection is still active
+                    android.util.Log.w("WebSocketService", "Init complete received after timeout but connection still CONNECTING - accepting (race condition)")
+                } else {
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Init complete received but not waiting - ignoring (state: ${serviceInstance.connectionState})")
+                    return
+                }
             }
             
             serviceInstance.waitingForInitComplete = false
+            
+            // CRITICAL FIX: Verify connection state before proceeding
+            // If connection was cleared due to timeout, don't proceed with init_complete processing
+            if (serviceInstance.connectionState != ConnectionState.CONNECTING && serviceInstance.connectionState != ConnectionState.CONNECTED) {
+                android.util.Log.w("WebSocketService", "Init complete received but connection state is ${serviceInstance.connectionState} - ignoring")
+                return
+            }
             
             // Reset retry count on successful init_complete
             serviceInstance.initCompleteRetryCount = 0
@@ -1716,6 +1832,9 @@ class WebSocketService : Service() {
             android.util.Log.i("WebSocketService", "Init complete received - connection marked as CONNECTED")
             logActivity("Init Complete Received - Connection Healthy", serviceInstance.currentNetworkType.name)
             
+            // Show toast for successful connection
+            serviceInstance.showWebSocketToast("Connected!")
+            
             // Update notification
             updateConnectionStatus(true, null, serviceInstance.lastSyncTimestamp)
             
@@ -1729,6 +1848,13 @@ class WebSocketService : Service() {
          */
         fun scheduleReconnection(reason: String) {
             val serviceInstance = instance ?: return
+            
+            // CRITICAL FIX: Don't schedule reconnection if network is not available
+            if (serviceInstance.currentNetworkType == NetworkType.NONE) {
+                android.util.Log.w("WebSocketService", "Cannot schedule reconnection - no network available (reason: $reason)")
+                serviceInstance.showWebSocketToast("No network - cannot reconnect")
+                return
+            }
             
             // PHASE 2.1: If reconnection callback is not available, queue the request
             val activeCallback = getActiveReconnectionCallback()
@@ -1809,14 +1935,37 @@ class WebSocketService : Service() {
                 
                 logActivity("Connecting - $reason", serviceInstance.currentNetworkType.name)
                 
+                // Show toast for reconnection scheduled
+                serviceInstance.showWebSocketToast("Reconnecting: $reason")
+                
                 serviceInstance.reconnectionJob = serviceScope.launch {
                     try {
+                        // CRITICAL FIX: Check if network is still available before attempting reconnection
+                        // Network might have been lost between scheduling and execution
+                        if (serviceInstance.currentNetworkType == NetworkType.NONE) {
+                            android.util.Log.w("WebSocketService", "Reconnection job started but network is NONE - cancelling reconnection")
+                            serviceInstance.showWebSocketToast("No network - cancelling reconnection")
+                            serviceInstance.isReconnecting = false
+                            return@launch
+                        }
+                        
                         // PHASE 3.3: Validate network before reconnecting (prevents reconnection on captive portals)
                         // Increased timeout from 2s to 5s for slow networks
                         val networkValidated = serviceInstance.waitForNetworkValidation(5000L)
                         if (!networkValidated) {
+                            // CRITICAL FIX: If network validation failed and network is NONE, cancel reconnection
+                            if (serviceInstance.currentNetworkType == NetworkType.NONE) {
+                                android.util.Log.w("WebSocketService", "Network validation failed and network is NONE - cancelling reconnection")
+                                serviceInstance.showWebSocketToast("No network - cancelling reconnection")
+                                serviceInstance.isReconnecting = false
+                                return@launch
+                            }
+                            
                             android.util.Log.w("WebSocketService", "Network validation timeout or failed - proceeding with reconnection anyway (might be slow network)")
                             logActivity("Network Validation Timeout - Proceeding", serviceInstance.currentNetworkType.name)
+                            
+                            // Show toast for network validation timeout
+                            serviceInstance.showWebSocketToast("Network validation timeout")
                         } else {
                             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network validated - proceeding with reconnection")
                         }
@@ -1937,6 +2086,38 @@ class WebSocketService : Service() {
         
     }
     
+    // Toast debouncing to prevent too many toasts
+    private var lastToastTime: Long = 0
+    private var lastToastMessage: String? = null
+    private val TOAST_DEBOUNCE_MS = 1000L // Minimum 1 second between toasts
+    
+    /**
+     * Show a Toast notification for WebSocket actions (for debugging stuck connections)
+     * Debounced to prevent too many toasts (Android has limits)
+     */
+    private fun showWebSocketToast(message: String) {
+        try {
+            val now = System.currentTimeMillis()
+            // Debounce: Only show if message changed or enough time passed
+            if (message == lastToastMessage && now - lastToastTime < TOAST_DEBOUNCE_MS) {
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Toast debounced: $message")
+                return
+            }
+            
+            lastToastTime = now
+            lastToastMessage = message
+            
+            android.widget.Toast.makeText(
+                applicationContext,
+                "WS: $message",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        } catch (e: Exception) {
+            // If toast fails (e.g., no UI context), just log it
+            android.util.Log.d("WebSocketService", "Toast: $message")
+        }
+    }
+    
     // Instance variables for WebSocket state management
     private var pingJob: Job? = null
     private var pongTimeoutJob: Job? = null
@@ -2052,11 +2233,18 @@ class WebSocketService : Service() {
             // Log backend health check result
             logActivity("Backend Health Check: ${if (isHealthy) "HEALTHY" else "UNHEALTHY"} (HTTP ${response.code})", currentNetworkType.name)
             
+            // Show toast for backend health check
+            showWebSocketToast("Backend: ${if (isHealthy) "HEALTHY" else "UNHEALTHY"} (${response.code})")
+            
             response.close()
             isHealthy
         } catch (e: Exception) {
             android.util.Log.w("WebSocketService", "Backend health check failed", e)
             logActivity("Backend Health Check: FAILED - ${e.message}", currentNetworkType.name)
+            
+            // Show toast for backend health check failure
+            showWebSocketToast("Backend: FAILED - ${e.message?.take(20)}")
+            
             false
         }
     }
@@ -2313,24 +2501,41 @@ class WebSocketService : Service() {
                     val previousNetworkType = lastNetworkType
                     val hasCallback = getActiveReconnectionCallback() != null
                     
+                    // Show toast for network available
+                    showWebSocketToast("Network available: $networkType")
+                    
                     // PHASE 3.2: Update network type tracking
                     lastNetworkType = newNetworkType
                     currentNetworkType = newNetworkType
+                    
+                    // CRITICAL FIX: Wait for network validation BEFORE attempting reconnection
+                    // This prevents DNS resolution failures when network isn't fully ready
+                    android.util.Log.i("WebSocketService", "Network available: $networkType - waiting for validation before reconnecting")
+                    
+                    // Wait for network validation first (5 seconds max)
+                    val networkValidated = waitForNetworkValidation(5000L)
+                    if (!networkValidated) {
+                        android.util.Log.w("WebSocketService", "Network available but validation failed/timeout - not reconnecting yet")
+                        showWebSocketToast("Network not validated - waiting")
+                        return@launch
+                    }
+                    
+                    android.util.Log.i("WebSocketService", "Network validated - checking if reconnection needed")
                     
                     // SIMPLIFIED: Only reconnect if:
                     // 1. We're not connected (offline → online)
                     // 2. Network type changed AND connection is unhealthy
                     // Otherwise, trust Android's network state and keep existing connection
                     if (connectionState != ConnectionState.CONNECTED) {
-                        // Not connected - reconnect
-                        android.util.Log.w("WebSocketService", "Network available but WebSocket not connected - triggering reconnection")
-                        logActivity("Network Available - Reconnecting", currentNetworkType.name)
+                        // Not connected - reconnect (network is now validated)
+                        android.util.Log.w("WebSocketService", "Network validated but WebSocket not connected - triggering reconnection")
+                        logActivity("Network Validated - Reconnecting", currentNetworkType.name)
                         
                         // PHASE 2.1: Use scheduleReconnection which will queue if callback not available
                         if (!hasCallback) {
-                            ensureHeadlessPrimary(applicationContext, "Network available - callback missing")
+                            ensureHeadlessPrimary(applicationContext, "Network validated - callback missing")
                         }
-                        scheduleReconnection("Network available: $networkType")
+                        scheduleReconnection("Network validated: $networkType")
                     } else if (previousNetworkType != newNetworkType && previousNetworkType != NetworkType.NONE) {
                         // Network type changed while connected - only reconnect if connection is unhealthy
                         val shouldReconnect = shouldReconnectOnNetworkChange(previousNetworkType, newNetworkType)
@@ -2353,6 +2558,21 @@ class WebSocketService : Service() {
                 android.util.Log.w("WebSocketService", "Network lost - marking connection as degraded")
                 logActivity("Network Lost", currentNetworkType.name)
                 
+                // Show toast for network lost
+                showWebSocketToast("Network lost")
+                
+                // CRITICAL FIX: Cancel any pending reconnection attempts when network is lost
+                // Android reports no network available, so don't try to connect
+                synchronized(reconnectionLock) {
+                    reconnectionJob?.cancel()
+                    reconnectionJob = null
+                    isReconnecting = false
+                }
+                
+                // Cancel network change debounce job
+                networkChangeDebounceJob?.cancel()
+                networkChangeDebounceJob = null
+                
                 // PHASE 3.2: Update network type tracking
                 lastNetworkType = currentNetworkType // Keep previous type for when network returns
                 currentNetworkType = NetworkType.NONE
@@ -2361,7 +2581,12 @@ class WebSocketService : Service() {
                 // Wait for network to become available again
                 isCurrentlyConnected = false
                 
-                // Update notification to show network loss
+                // Clear WebSocket since there's no network
+                clearWebSocket("Network lost - no network available")
+                
+                // Update notification to show network loss (explicitly set to DISCONNECTED)
+                // CRITICAL FIX: Ensure state is DISCONNECTED when network is lost
+                connectionState = ConnectionState.DISCONNECTED
                 updateConnectionStatus(false, lastKnownLagMs, lastSyncTimestamp)
             },
             onNetworkTypeChanged = { previousType, newType ->
@@ -2371,6 +2596,9 @@ class WebSocketService : Service() {
                 
                 android.util.Log.i("WebSocketService", "Network type changed: $previousType → $newType (previous tracked: $previousNetworkType)")
                 logActivity("Network Type Changed: $previousType → $newType", newType.name)
+                
+                // Show toast for network type change
+                showWebSocketToast("Network: $previousType → $newType")
                 
                 // SIMPLIFIED: Trust Android's network state - only reconnect if connection is actually broken
                 val shouldReconnect = shouldReconnectOnNetworkChange(previousNetworkType, newNetworkType)
@@ -2464,6 +2692,10 @@ class WebSocketService : Service() {
             if (currentCapabilities != null && currentCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
                 val elapsed = System.currentTimeMillis() - startTime
                 android.util.Log.i("WebSocketService", "Network validation: Validated after ${elapsed}ms")
+                
+                // Show toast for network validation success
+                showWebSocketToast("Network validated (${elapsed}ms)")
+                
                 return true
             }
             
@@ -2477,6 +2709,10 @@ class WebSocketService : Service() {
         
         // Timeout - network validation didn't complete
         android.util.Log.w("WebSocketService", "Network validation: Timeout after ${timeoutMs}ms - network may be slow or captive portal")
+        
+        // Show toast for network validation timeout
+        showWebSocketToast("Network validation timeout (${timeoutMs}ms)")
+        
         return false
     }
     
@@ -2773,6 +3009,9 @@ class WebSocketService : Service() {
             
             android.util.Log.w("WebSocketService", "Run ID timeout expired after ${RUN_ID_TIMEOUT_MS}ms - connection broken (run_id not received)")
             logActivity("Run ID Timeout - Connection Broken", currentNetworkType.name)
+            
+            // Show toast for timeout
+            showWebSocketToast("run_id timeout - reconnecting")
             
             // Drop the connection - it's broken
             clearWebSocket("Run ID timeout - connection broken (run_id not received)")
@@ -3428,6 +3667,8 @@ class WebSocketService : Service() {
             
             when {
                 callbackMissing -> "Waiting for app..."
+                // CRITICAL FIX: When network is lost (NONE), show "Disconnected" instead of "Connecting..."
+                currentState == ConnectionState.DISCONNECTED && currentNetworkType == NetworkType.NONE -> "Disconnected"
                 currentState == ConnectionState.DISCONNECTED -> "Connecting..."
                 currentState == ConnectionState.CONNECTING -> "Connecting..."
                 currentState == ConnectionState.CONNECTED -> "Connected."

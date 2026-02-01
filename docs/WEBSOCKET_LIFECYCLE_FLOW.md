@@ -266,3 +266,4 @@ CONNECTED
 - But if callback is permanently missing, recovery will also fail
 - Only fix: User opens app → AppViewModel created → Callback registered → Reconnection executes
 
+

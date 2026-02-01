@@ -1483,14 +1483,15 @@ fun HtmlMessageText(
     
     // OPPORTUNISTIC PROFILE LOADING: Extract Matrix user IDs from HTML and request profiles
     LaunchedEffect(nodes, event.roomId) {
-        if (appViewModel != null && nodes.isNotEmpty()) {
+        val vm = appViewModel
+        if (vm != null && nodes.isNotEmpty()) {
             val userIds = extractMatrixUserIdsFromNodes(nodes)
             userIds.forEach { userId ->
                 // Check if we already have the profile
-                val existingProfile = appViewModel.getUserProfile(userId, event.roomId)
+                val existingProfile = vm.getUserProfile(userId, event.roomId)
                 if (existingProfile == null) {
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: Requesting profile on-demand for $userId from HTML")
-                    appViewModel.requestUserProfileOnDemand(userId, event.roomId)
+                    vm.requestUserProfileOnDemand(userId, event.roomId)
                 }
             }
         }

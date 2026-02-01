@@ -223,8 +223,8 @@ fun ChatBubbleLoadingScreen(
                 Log.w("Andromuks", "ChatBubbleLoadingScreen: WebSocket not connected - starting foreground service and connecting")
                 appViewModel.startWebSocketService()
                 WebSocketService.setAppVisibility(true)
-                waitForBackendHealth(homeserverUrl, loggerTag = "ChatBubbleLoading")
-                connectToWebsocket(homeserverUrl, httpClient, token, appViewModel, reason = "chat_bubble_launch")
+                // REFACTORING: Delegate connection to service
+                WebSocketService.connectWebSocket(homeserverUrl, token, appViewModel, reason = "chat_bubble_launch")
                 
                 // Wait for WebSocket to connect (with timeout)
                 var pollCount = 0
