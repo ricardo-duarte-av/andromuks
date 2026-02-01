@@ -4819,81 +4819,90 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "AppViewModel: init_complete received - will process ${initialSyncCompleteQueue.size} queued initial sync_complete messages")
         }
 
-        // Start WebSocket pinger immediately on init_complete so low-traffic accounts don’t wait for first sync_complete
+        // Start WebSocket pinger immediately on init_complete so low-traffic accounts don't wait for first sync_complete
         net.vrkknn.andromuks.WebSocketService.startPingLoopOnInitComplete()
         
-                // Process all queued initial sync_complete messages
-                viewModelScope.launch(Dispatchers.Default) {
-                    initialSyncProcessingMutex.withLock {
-                        val queuedMessages = synchronized(initialSyncCompleteQueue) {
-                            val messages = initialSyncCompleteQueue.toList()
-                            val totalCount = messages.size
-                            initialSyncCompleteQueue.clear()
-                            pendingSyncCompleteCount = totalCount // Set total pending count
-                            processedSyncCompleteCount = 0 // Reset processed count
-                            messages
-                        }
-                        
-                        if (queuedMessages.isNotEmpty()) {
-                            if (BuildConfig.DEBUG) {
-                                android.util.Log.d("Andromuks", "AppViewModel: Processing ${queuedMessages.size} queued initial sync_complete messages")
+        // Process all queued initial sync_complete messages
+        viewModelScope.launch(Dispatchers.Default) {
+                    try {
+                        initialSyncProcessingMutex.withLock {
+                            val queuedMessages = synchronized(initialSyncCompleteQueue) {
+                                val messages = initialSyncCompleteQueue.toList()
+                                val totalCount = messages.size
+                                initialSyncCompleteQueue.clear()
+                                pendingSyncCompleteCount = totalCount // Set total pending count
+                                processedSyncCompleteCount = 0 // Reset processed count
+                                messages
                             }
                             
-                            // Collect all summary update jobs to wait for them to complete
-                            val summaryUpdateJobs = mutableListOf<Job>()
-                            
-                            // PERFORMANCE FIX: Process queued messages in chunks with yields to prevent ANR
-                            // This is critical for reconnect scenarios where hundreds of sync batches may queue up
-                            val chunkSize = 10 // Process 10 sync batches before yielding
-                            for ((index, syncJson) in queuedMessages.withIndex()) {
-                                if (BuildConfig.DEBUG && (index % 50 == 0 || index == queuedMessages.size - 1)) {
-                                    android.util.Log.d("Andromuks", "AppViewModel: Processing queued initial sync_complete message ${index + 1}/${queuedMessages.size}")
-                                }
-                                // Process with completion callback to update counter when actual DB work completes
-                                val currentIndex = index // Capture index for lambda
-                                val job = processInitialSyncComplete(syncJson) {
-                                    // Update processed count after actual processing completes (inside the job)
-                                    // Use launch to switch to Main dispatcher since we're in a suspend context
-                                    viewModelScope.launch(Dispatchers.Main) {
-                                        processedSyncCompleteCount = currentIndex + 1
-                                    }
-                                }
-                                if (job != null) {
-                                    summaryUpdateJobs.add(job)
+                            if (queuedMessages.isNotEmpty()) {
+                                if (BuildConfig.DEBUG) {
+                                    android.util.Log.d("Andromuks", "AppViewModel: Processing ${queuedMessages.size} queued initial sync_complete messages")
                                 }
                                 
-                                // PERFORMANCE FIX: Yield every chunkSize messages to prevent ANR
-                                // This allows the UI thread to remain responsive during heavy reconnect processing
-                                if ((index + 1) % chunkSize == 0) {
-                                    kotlinx.coroutines.yield()
+                                // Collect summary update jobs to monitor them (but don't wait for them)
+                                val summaryUpdateJobs = mutableListOf<Job>()
+                                
+                                // PERFORMANCE FIX: Process queued messages in chunks with yields to prevent ANR
+                                // This is critical for reconnect scenarios where hundreds of sync batches may queue up
+                                val chunkSize = 10 // Process 10 sync batches before yielding
+                                for ((index, syncJson) in queuedMessages.withIndex()) {
+                                    if (BuildConfig.DEBUG && (index % 50 == 0 || index == queuedMessages.size - 1)) {
+                                        android.util.Log.d("Andromuks", "AppViewModel: Processing queued initial sync_complete message ${index + 1}/${queuedMessages.size}")
+                                    }
+                                    // Process with completion callback to update counter when actual DB work completes
+                                    val currentIndex = index // Capture index for lambda
+                                    val job = processInitialSyncComplete(syncJson) {
+                                        // Update processed count after actual processing completes (inside the job)
+                                        // Use launch to switch to Main dispatcher since we're in a suspend context
+                                        viewModelScope.launch(Dispatchers.Main) {
+                                            processedSyncCompleteCount = currentIndex + 1
+                                        }
+                                    }
+                                    if (job != null) {
+                                        summaryUpdateJobs.add(job)
+                                        // CRITICAL FIX: Monitor summary update jobs in background without blocking
+                                        // If a job fails or takes too long, log it but don't block UI initialization
+                                        viewModelScope.launch(Dispatchers.Default) {
+                                            try {
+                                                kotlinx.coroutines.withTimeoutOrNull(10000L) { // 10 second timeout per job
+                                                    job.join()
+                                                } ?: run {
+                                                    android.util.Log.w("Andromuks", "AppViewModel: Summary update job for sync_complete message ${currentIndex + 1} timed out after 10 seconds - continuing in background")
+                                                }
+                                            } catch (e: Exception) {
+                                                android.util.Log.e("Andromuks", "AppViewModel: Summary update job for sync_complete message ${currentIndex + 1} failed: ${e.message}", e)
+                                            }
+                                        }
+                                    }
+                                    
+                                    // PERFORMANCE FIX: Yield every chunkSize messages to prevent ANR
+                                    // This allows the UI thread to remain responsive during heavy reconnect processing
+                                    if ((index + 1) % chunkSize == 0) {
+                                        kotlinx.coroutines.yield()
+                                    }
+                                }
+                                
+                                if (BuildConfig.DEBUG) {
+                                    android.util.Log.d("Andromuks", "AppViewModel: Finished processing all ${queuedMessages.size} initial sync_complete messages - ${summaryUpdateJobs.size} summary update jobs running in background")
                                 }
                             }
-                    
-                    if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "AppViewModel: Finished processing all ${queuedMessages.size} initial sync_complete messages, waiting for ${summaryUpdateJobs.size} summary updates to complete")
-                    }
-                    
-                    // CRITICAL FIX: Wait for all summary updates to complete before marking initial sync complete
-                    // This ensures room summaries are fully loaded from DB before showing the UI
-                    // This prevents multiple UI refreshes after initial sync is marked complete
-                    if (summaryUpdateJobs.isNotEmpty()) {
-                        summaryUpdateJobs.forEach { it.join() }
-                        if (BuildConfig.DEBUG) {
-                            android.util.Log.d("Andromuks", "AppViewModel: All summary updates completed - initial sync data is now fully loaded")
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: Error processing initial sync_complete messages: ${e.message}", e)
+                    } finally {
+                        // CRITICAL FIX: Mark initial sync processing as complete immediately after processing messages
+                        // Don't wait for summary update jobs - they run in background and update UI as they complete
+                        // Room data is already parsed and in memory, so UI can be shown immediately
+                        initialSyncProcessingComplete = true
+                        withContext(Dispatchers.Main) {
+                            initialSyncComplete = true
+                            if (BuildConfig.DEBUG) {
+                                android.util.Log.d("Andromuks", "AppViewModel: Initial sync processing complete - UI can now be shown (summary updates running in background)")
+                            }
                         }
                     }
                 }
-                
-                // Mark initial sync processing as complete
-                initialSyncProcessingComplete = true
-                withContext(Dispatchers.Main) {
-                    initialSyncComplete = true
-                    if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "AppViewModel: Initial sync processing complete - UI can now be shown")
-                    }
-                }
-            }
-        }
         
         // Mark initialization as complete - from now on, all sync_complete messages are real-time updates
         initializationComplete = true
