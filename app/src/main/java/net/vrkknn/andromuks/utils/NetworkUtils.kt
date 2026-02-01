@@ -262,7 +262,8 @@ fun connectToWebsocket(
     url: String,
     client: OkHttpClient,
     token: String,
-    appViewModel: AppViewModel,
+    context: android.content.Context,
+    appViewModel: AppViewModel? = null, // Optional - only needed for message routing callbacks
     reason: String = "Initial connection"
 ) {
     if (BuildConfig.DEBUG) Log.d("NetworkUtils", "connectToWebsocket: Initializing... Reason: $reason")
@@ -272,9 +273,10 @@ fun connectToWebsocket(
     val webSocketUrl = trimWebsocketHost(url)
     
     // Build WebSocket URL with reconnection parameters
-    // run_id is always read from SharedPreferences (via AppViewModel.getCurrentRunId())
+    // run_id is always read from SharedPreferences directly (no ViewModel needed)
     // NOTE: We NEVER pass last_received_id - all caches are cleared on connect/reconnect
-    val runId = appViewModel.getCurrentRunId() // Always from SharedPreferences
+    val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+    val runId = prefs.getString("ws_run_id", "") ?: ""
     
     if (BuildConfig.DEBUG) {
         Log.d(
@@ -298,8 +300,17 @@ fun connectToWebsocket(
         runId
     }
     
-    // Check if compression is enabled
-    val compressionEnabled = appViewModel.enableCompression
+    // Check if compression is enabled (read from SharedPreferences)
+    // CRITICAL: Use same default as AppViewModel (true) to match UI state
+    val compressionEnabled = prefs.getBoolean("enable_compression", true)
+    if (BuildConfig.DEBUG) {
+        Log.d("NetworkUtils", "Compression setting read from SharedPreferences: $compressionEnabled (key: enable_compression, default: true)")
+        // Debug: Check all compression-related keys
+        val allKeys = prefs.all.keys.filter { it.contains("compress", ignoreCase = true) }
+        if (allKeys.isNotEmpty()) {
+            Log.d("NetworkUtils", "NetworkUtils: Found compression-related keys: $allKeys")
+        }
+    }
     
     // Initialize streaming decompressor if compression is enabled
     if (compressionEnabled) {
@@ -324,6 +335,9 @@ fun connectToWebsocket(
     }
     if (compressionEnabled) {
         queryParams.add("compress=1")
+        if (BuildConfig.DEBUG) Log.d("NetworkUtils", "Added compress=1 to query parameters")
+    } else {
+        if (BuildConfig.DEBUG) Log.d("NetworkUtils", "Compression disabled - not adding compress parameter")
     }
     
     val finalWebSocketUrl = if (queryParams.isEmpty()) {
@@ -339,11 +353,7 @@ fun connectToWebsocket(
         .addHeader("User-Agent", getUserAgent())
         .build()
     
-    // Set up websocket restart callback
-    appViewModel.onRestartWebSocket = { reason ->
-        if (BuildConfig.DEBUG) Log.d("NetworkUtils", "Websocket restart requested, reconnecting... Reason: $reason")
-        connectToWebsocket(url, client, token, appViewModel, reason)
-    }
+    // REFACTORING: No restart callback needed - service handles reconnection directly
 
     val websocketListener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -358,10 +368,9 @@ fun connectToWebsocket(
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: Header '$name': '$value'")
             }
             
-            // Set WebSocket in AppViewModel (which will also set it in service)
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: Calling appViewModel.setWebSocket()")
-            appViewModel.setWebSocket(webSocket)
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: connectToWebsocket using AppViewModel instance: $appViewModel")
+            // REFACTORING: Set WebSocket directly in service (no ViewModel needed)
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: Calling WebSocketService.setWebSocket()")
+            WebSocketService.setWebSocket(webSocket)
             
             // DO NOT reset reconnection state here - wait for init_complete
             // resetReconnectionState() will be called after init_complete arrives
@@ -377,7 +386,12 @@ fun connectToWebsocket(
             // Check for 401 Unauthorized - invalid/expired token
             if (response?.code == 401 || (t is java.net.ProtocolException && t.message?.contains("401") == true)) {
                 Log.e("Andromuks", "NetworkUtils: 401 Unauthorized detected - clearing credentials and navigating to login")
-                appViewModel.handleUnauthorizedError()
+                // Notify registered ViewModels about unauthorized error
+                WebSocketService.getServiceScope().launch(Dispatchers.Main) {
+                    for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                        viewModel.handleUnauthorizedError()
+                    }
+                }
                 return
             }
             
@@ -425,11 +439,14 @@ fun connectToWebsocket(
                 
                 // Clear WebSocket connection
                 val failureReason = "TLS/SSL error: $tlsErrorDetails"
-                appViewModel.clearWebSocket(failureReason)
                 WebSocketService.clearWebSocket(failureReason)
                 
-                // Handle TLS error with appropriate strategy
-                appViewModel.handleTlsError(tlsErrorType, t, failureReason)
+                // Handle TLS error with appropriate strategy - notify registered ViewModels
+                WebSocketService.getServiceScope().launch(Dispatchers.Main) {
+                    for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                        viewModel.handleTlsError(tlsErrorType, t, failureReason)
+                    }
+                }
                 return
             }
             
@@ -441,26 +458,36 @@ fun connectToWebsocket(
                 else -> "GENERIC_ERROR"
             }
             
-            // Clear WebSocket connection in both AppViewModel and service
+            // Clear WebSocket connection
             val failureReason = "Connection failure: ${t.message}"
-            appViewModel.clearWebSocket(failureReason)
             WebSocketService.clearWebSocket(failureReason)
             
-            // PHASE 4.2: Handle connection failure with error-specific strategies
-            appViewModel.handleConnectionFailure(errorType, t, failureReason)
+            // PHASE 4.2: Handle connection failure with error-specific strategies - notify registered ViewModels
+            WebSocketService.getServiceScope().launch(Dispatchers.Main) {
+                for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                    viewModel.handleConnectionFailure(errorType, t, failureReason)
+                }
+            }
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            val jsonObject = try { JSONObject(text) } catch (e: Exception) { null }
+            if (BuildConfig.DEBUG) {
+                Log.d("Andromuks", "NetworkUtils: onMessage received (text, length=${text.length})")
+            }
+            val jsonObject = try { JSONObject(text) } catch (e: Exception) { 
+                Log.e("Andromuks", "NetworkUtils: Failed to parse JSON message: ${text.take(200)}", e)
+                null 
+            }
             if (jsonObject != null) {
                 // Debug: Check if this message contains backend request ID
                 val backendRequestId = jsonObject.optString("backend_request_id").takeIf { it.isNotEmpty() }
                 // Track last received request_id for ping purposes
-                val receivedReqId = jsonObject.optInt("request_id", 0)
-                if (receivedReqId != 0) {
-                    appViewModel.noteIncomingRequestId(receivedReqId)
-                }
+                // REFACTORING: Request ID tracking can be handled by service if needed
+                // For now, we'll skip it as it's not critical for connection
                 val command = jsonObject.optString("command")
+                if (BuildConfig.DEBUG) {
+                    Log.d("Andromuks", "NetworkUtils: Processing command: $command")
+                }
                 when (command) {
                     "pong" -> {
                         val requestId = jsonObject.optInt("request_id")
@@ -488,9 +515,18 @@ fun connectToWebsocket(
                         }
                     }
                     "sync_complete" -> {
+                        if (BuildConfig.DEBUG) {
+                            Log.d("Andromuks", "NetworkUtils: sync_complete received (uncompressed) - distributing to ViewModels")
+                        }
                         // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                             val registeredViewModels = WebSocketService.getRegisteredViewModels()
+                            if (BuildConfig.DEBUG) {
+                                Log.d("Andromuks", "NetworkUtils: sync_complete (uncompressed) - Found ${registeredViewModels.size} registered ViewModels")
+                            }
+                            if (registeredViewModels.isEmpty()) {
+                                Log.w("Andromuks", "NetworkUtils: CRITICAL - sync_complete received but no ViewModels registered!")
+                            }
                             for (index in registeredViewModels.indices) {
                                 val viewModel = registeredViewModels[index]
                                 // JSONObject is not thread-safe, so provide an isolated copy per ViewModel
@@ -500,7 +536,14 @@ fun connectToWebsocket(
                                 } else {
                                     JSONObject(jsonObject.toString())
                                 }
-                                viewModel.updateRoomsFromSyncJsonAsync(clonedJson)
+                                if (BuildConfig.DEBUG) {
+                                    Log.d("Andromuks", "NetworkUtils: sync_complete (uncompressed) - Calling updateRoomsFromSyncJsonAsync on ViewModel $index")
+                                }
+                                try {
+                                    viewModel.updateRoomsFromSyncJsonAsync(clonedJson)
+                                } catch (e: Exception) {
+                                    Log.e("Andromuks", "NetworkUtils: Error calling updateRoomsFromSyncJsonAsync on ViewModel $index", e)
+                                }
                             }
                         }
                     }
@@ -623,7 +666,9 @@ fun connectToWebsocket(
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-            
+            if (BuildConfig.DEBUG) {
+                Log.d("Andromuks", "NetworkUtils: onMessage received (bytes, length=${bytes.size})")
+            }
             try {
                 if (streamingDecompressor != null) {
                     // Use streaming decompressor for stateful DEFLATE decompression
@@ -631,9 +676,14 @@ fun connectToWebsocket(
                     val decompressedText = streamingDecompressor!!.readAvailable()
                     
                     if (decompressedText != null) {
-                        
+                        if (BuildConfig.DEBUG) {
+                            Log.d("Andromuks", "NetworkUtils: Decompressed message (length=${decompressedText.length})")
+                        }
                         // Handle multiple JSON objects that may be concatenated in one frame
                         val jsonObjects = parseMultipleJsonObjects(decompressedText)
+                        if (BuildConfig.DEBUG) {
+                            Log.d("Andromuks", "NetworkUtils: Parsed ${jsonObjects.size} JSON objects from compressed message")
+                        }
                         
                         for (jsonObject in jsonObjects) {
                             // Debug: Check if this message contains backend request ID
@@ -642,9 +692,12 @@ fun connectToWebsocket(
                             // Track last received request_id for ping purposes
                             val receivedReqId = jsonObject.optInt("request_id", 0)
                             if (receivedReqId != 0) {
-                                appViewModel.noteIncomingRequestId(receivedReqId)
+                                // REFACTORING: Request ID tracking can be handled by service if needed
                             }
                             val command = jsonObject.optString("command")
+                            if (BuildConfig.DEBUG) {
+                                Log.d("Andromuks", "NetworkUtils: Processing command (compressed): $command")
+                            }
                             when (command) {
                                 "pong" -> {
                                     val requestId = jsonObject.optInt("request_id")
@@ -672,11 +725,28 @@ fun connectToWebsocket(
                                     }
                                 }
                                 "sync_complete" -> {
-
+                                    if (BuildConfig.DEBUG) {
+                                        Log.d("Andromuks", "NetworkUtils: sync_complete received (compressed) - distributing to ViewModels")
+                                    }
                                     // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
-                                        for (viewModel in WebSocketService.getRegisteredViewModels()) {
-                                            viewModel.updateRoomsFromSyncJsonAsync(jsonObject)
+                                        val registeredViewModels = WebSocketService.getRegisteredViewModels()
+                                        if (BuildConfig.DEBUG) {
+                                            Log.d("Andromuks", "NetworkUtils: sync_complete (compressed) - Found ${registeredViewModels.size} registered ViewModels")
+                                        }
+                                        for (index in registeredViewModels.indices) {
+                                            val viewModel = registeredViewModels[index]
+                                            // JSONObject is not thread-safe, so provide an isolated copy per ViewModel
+                                            val clonedJson = if (index == registeredViewModels.lastIndex) {
+                                                // Last ViewModel can reuse original to avoid extra allocation
+                                                jsonObject
+                                            } else {
+                                                JSONObject(jsonObject.toString())
+                                            }
+                                            if (BuildConfig.DEBUG) {
+                                                Log.d("Andromuks", "NetworkUtils: sync_complete (compressed) - Calling updateRoomsFromSyncJsonAsync on ViewModel $index")
+                                            }
+                                            viewModel.updateRoomsFromSyncJsonAsync(clonedJson)
                                         }
                                     }
                                 }
@@ -792,12 +862,12 @@ fun connectToWebsocket(
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
             Log.i("Andromuks", "NetworkUtils: WebSocket Closing ($code): $reason")
             
-            // PHASE 4.1: Extract close code and reason, pass to AppViewModel for handling
-            // AppViewModel.handleWebSocketClose() will determine reconnection strategy
-            appViewModel.handleWebSocketClose(code, reason)
-            
-            // Also clear in service with close code information
+            // REFACTORING: Service handles close events and reconnection strategy
+            // Clear WebSocket in service with close code information
             WebSocketService.clearWebSocket("WebSocket closing ($code)", code, reason)
+            
+            // If ViewModel is available, notify it (for UI updates)
+            appViewModel?.handleWebSocketClose(code, reason)
         }
         
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {

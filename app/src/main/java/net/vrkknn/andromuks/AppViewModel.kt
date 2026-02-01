@@ -201,6 +201,9 @@ class AppViewModel : ViewModel() {
         // This updates the registration if it was already registered as secondary
         WebSocketService.registerViewModel(viewModelId, isPrimary = true)
         
+        // CRITICAL: Register to receive WebSocket messages
+        WebSocketService.registerReceiveCallback(viewModelId, this)
+        
         // PHASE 1.4 FIX: Register primary callbacks immediately when marked as primary
         // This ensures callbacks are available before WebSocket connection is established
         // The service can then properly detect that AppViewModel is available
@@ -425,6 +428,9 @@ class AppViewModel : ViewModel() {
         
         // STEP 2.3: Update registration to reflect primary status
         WebSocketService.registerViewModel(viewModelId, isPrimary = true)
+        
+        // CRITICAL: Register to receive WebSocket messages
+        WebSocketService.registerReceiveCallback(viewModelId, this)
         
         // STEP 2.3: Register primary callbacks with service
         // The callbacks are already stored in service (from previous primary), but we need to
@@ -7454,7 +7460,6 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        val ws = WebSocketService.getWebSocket() ?: return
         val reqId = requestIdCounter++
         
         // Track this request to prevent duplicates
@@ -7464,15 +7469,8 @@ class AppViewModel : ViewModel() {
             profileRequestRooms[reqId] = roomId
         }
         
-        val json = org.json.JSONObject()
-        json.put("command", "get_profile")
-        json.put("request_id", reqId)
-        val data = org.json.JSONObject()
-        data.put("user_id", userId)
-        json.put("data", data)
-        val payload = json.toString()
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending get_profile for $userId (roomId=$roomId): $payload")
-        ws.send(payload)
+        // REFACTORING: Use WebSocketService.sendCommand() instead of direct ws.send()
+        sendWebSocketCommand("get_profile", reqId, mapOf("user_id" to userId))
     }
     
     /**
@@ -7523,7 +7521,6 @@ class AppViewModel : ViewModel() {
     
     // Send a message and track the response
     fun sendMessage(roomId: String, text: String, mentions: List<String> = emptyList()) {
-        val ws = WebSocketService.getWebSocket() ?: return
         val reqId = requestIdCounter++
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendMessage called with roomId=$roomId, text='$text', reqId=$reqId")
@@ -7531,24 +7528,17 @@ class AppViewModel : ViewModel() {
         // Track this outgoing request
         trackOutgoingRequest(reqId, roomId)
         
-        val json = org.json.JSONObject()
-        json.put("command", "send_message")
-        json.put("request_id", reqId)
-        val data = org.json.JSONObject()
-        data.put("room_id", roomId)
-        data.put("text", text)
-        val mentionsObj = org.json.JSONObject()
-        val userIdsArray = org.json.JSONArray()
-        mentions.forEach { userIdsArray.put(it) }
-        mentionsObj.put("user_ids", userIdsArray)
-        mentionsObj.put("room", false)
-        data.put("mentions", mentionsObj)
-        data.put("url_previews", org.json.JSONArray())
-        json.put("data", data)
-        
-        val payload = json.toString()
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending message: $payload")
-        ws.send(payload)
+        // REFACTORING: Use sendWebSocketCommand() instead of direct ws.send()
+        val mentionsData = mapOf(
+            "user_ids" to mentions,
+            "room" to false
+        )
+        sendWebSocketCommand("send_message", reqId, mapOf(
+            "room_id" to roomId,
+            "text" to text,
+            "mentions" to mentionsData,
+            "url_previews" to emptyList<Any>()
+        ))
 
     }
     
@@ -8929,31 +8919,15 @@ class AppViewModel : ViewModel() {
         val requestId = requestIdCounter++
         roomSpecificStateRequests[requestId] = roomId
         
-        // Build JSON structure manually to ensure proper array handling
-        val ws = WebSocketService.getWebSocket()
-        if (ws != null) {
-            val json = org.json.JSONObject()
-            json.put("command", "get_specific_room_state")
-            json.put("request_id", requestId)
-            
-            val data = org.json.JSONObject()
-            val keysArray = org.json.JSONArray()
-            
-            for (key in keys) {
-                val keyObj = org.json.JSONObject()
-                keyObj.put("room_id", key["room_id"])
-                keyObj.put("type", key["type"])
-                keyObj.put("state_key", key["state_key"])
-                keysArray.put(keyObj)
-            }
-            
-            data.put("keys", keysArray)
-            json.put("data", data)
-            
-            val jsonString = json.toString()
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending get_specific_room_state: $jsonString")
-            ws.send(jsonString)
+        // REFACTORING: Use sendWebSocketCommand() instead of direct ws.send()
+        val keysList = keys.map { key ->
+            mapOf(
+                "room_id" to (key["room_id"] as? String ?: ""),
+                "type" to (key["type"] as? String ?: ""),
+                "state_key" to (key["state_key"] as? String ?: "")
+            )
         }
+        sendWebSocketCommand("get_specific_room_state", requestId, mapOf("keys" to keysList))
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent get_specific_room_state request with ID $requestId for ${keys.size} members")
     }
@@ -8962,8 +8936,7 @@ class AppViewModel : ViewModel() {
      * Request emoji pack data from a room using get_specific_room_state
      */
     private fun requestEmojiPackData(roomId: String, packName: String) {
-        val ws = WebSocketService.getWebSocket()
-        if (ws == null) {
+        if (!isWebSocketConnected()) {
             // CRITICAL FIX: Queue emoji pack requests when WebSocket isn't ready
             // They will be processed when WebSocket connects
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket not connected, queuing emoji pack request for $packName in $roomId")
@@ -8975,25 +8948,13 @@ class AppViewModel : ViewModel() {
         emojiPackRequests[requestId] = Pair(roomId, packName)
         roomSpecificStateRequests[requestId] = roomId
         
-        val json = org.json.JSONObject()
-        json.put("command", "get_specific_room_state")
-        json.put("request_id", requestId)
-        
-        val data = org.json.JSONObject()
-        val keysArray = org.json.JSONArray()
-        
-        val keyObj = org.json.JSONObject()
-        keyObj.put("room_id", roomId)
-        keyObj.put("type", "im.ponies.room_emotes")
-        keyObj.put("state_key", packName)
-        keysArray.put(keyObj)
-        
-        data.put("keys", keysArray)
-        json.put("data", data)
-        
-        val jsonString = json.toString()
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting emoji pack: $jsonString")
-        ws.send(jsonString)
+        // REFACTORING: Use sendWebSocketCommand() instead of direct ws.send()
+        val keysList = listOf(mapOf(
+            "room_id" to roomId,
+            "type" to "im.ponies.room_emotes",
+            "state_key" to packName
+        ))
+        sendWebSocketCommand("get_specific_room_state", requestId, mapOf("keys" to keysList))
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent emoji pack request with ID $requestId for pack $packName in room $roomId")
     }
@@ -9730,70 +9691,56 @@ class AppViewModel : ViewModel() {
     ) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendStickerMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', body: '$body', width: $width, height: $height")
         
-        val ws = WebSocketService.getWebSocket() ?: return
         val messageRequestId = requestIdCounter++
         
         // Track this outgoing request
         trackOutgoingRequest(messageRequestId, roomId)
         
-        val json = org.json.JSONObject()
-        json.put("command", "send_message")
-        json.put("request_id", messageRequestId)
-        
-        val data = org.json.JSONObject()
-        data.put("room_id", roomId)
-        data.put("text", "")
-        
-        // Create base_content for sticker
-        val baseContent = org.json.JSONObject()
-        baseContent.put("msgtype", "m.sticker")
-        baseContent.put("body", body)
-        baseContent.put("url", mxcUrl)
-        
-        val info = org.json.JSONObject()
-        info.put("mimetype", mimeType)
-        info.put("size", size)
-        // Include width and height if provided (required for rendering)
+        // REFACTORING: Use sendWebSocketCommand() instead of direct ws.send()
+        val baseContent = mutableMapOf<String, Any>(
+            "msgtype" to "m.sticker",
+            "body" to body,
+            "url" to mxcUrl
+        )
+        val info = mutableMapOf<String, Any>(
+            "mimetype" to mimeType,
+            "size" to size
+        )
         if (width > 0 && height > 0) {
-            info.put("w", width)
-            info.put("h", height)
+            info["w"] = width
+            info["h"] = height
         }
-        baseContent.put("info", info)
+        baseContent["info"] = info
         
-        data.put("base_content", baseContent)
+        val mentionsData = mapOf(
+            "user_ids" to mentions,
+            "room" to false
+        )
         
-        // Mentions
-        val mentionsObj = org.json.JSONObject()
-        val mentionArr = org.json.JSONArray()
-        mentions.forEach { mentionArr.put(it) }
-        mentionsObj.put("user_ids", mentionArr)
-        mentionsObj.put("room", false)
-        data.put("mentions", mentionsObj)
-
+        val dataMap = mutableMapOf<String, Any>(
+            "room_id" to roomId,
+            "text" to "",
+            "base_content" to baseContent,
+            "mentions" to mentionsData,
+            "url_previews" to emptyList<Any>()
+        )
+        
         if (threadRootEventId != null) {
             val resolvedReplyTarget = replyToEventId
                 ?: getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
             val threadFallbackFlag = resolvedReplyTarget == null
-            val relatesTo = org.json.JSONObject()
-            relatesTo.put("rel_type", "m.thread")
-            relatesTo.put("event_id", threadRootEventId)
-            relatesTo.put("is_falling_back", threadFallbackFlag)
+            val relatesTo = mutableMapOf<String, Any>(
+                "rel_type" to "m.thread",
+                "event_id" to threadRootEventId,
+                "is_falling_back" to threadFallbackFlag
+            )
             if (resolvedReplyTarget != null) {
-                val inReplyTo = org.json.JSONObject()
-                inReplyTo.put("event_id", resolvedReplyTarget)
-                relatesTo.put("m.in_reply_to", inReplyTo)
+                relatesTo["m.in_reply_to"] = mapOf("event_id" to resolvedReplyTarget)
             }
-            data.put("relates_to", relatesTo)
+            dataMap["relates_to"] = relatesTo
         }
         
-        // Empty url_previews
-        data.put("url_previews", org.json.JSONArray())
-        
-        json.put("data", data)
-        
-        val payload = json.toString()
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending sticker message: $payload")
-        ws.send(payload)
+        sendWebSocketCommand("send_message", messageRequestId, dataMap)
         
         messageRequests[messageRequestId] = roomId
         pendingSendCount++
@@ -9824,7 +9771,6 @@ class AppViewModel : ViewModel() {
     ) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendVideoMessage called with roomId: '$roomId', videoMxcUrl: '$videoMxcUrl'")
         
-        val ws = WebSocketService.getWebSocket() ?: return
         val messageRequestId = requestIdCounter++
         
         // Track this outgoing request
@@ -9900,7 +9846,6 @@ class AppViewModel : ViewModel() {
     fun sendDelete(roomId: String, originalEvent: net.vrkknn.andromuks.TimelineEvent, reason: String = "") {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendDelete called with roomId: '$roomId', eventId: ${originalEvent.eventId}, reason: '$reason'")
         
-        val ws = WebSocketService.getWebSocket() ?: return
         val deleteRequestId = requestIdCounter++
         
         // Track this outgoing request
@@ -9939,7 +9884,6 @@ class AppViewModel : ViewModel() {
     ) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendAudioMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', duration: ${duration}ms")
         
-        val ws = WebSocketService.getWebSocket() ?: return
         val messageRequestId = requestIdCounter++
         
         // Track this outgoing request
@@ -13539,73 +13483,77 @@ class AppViewModel : ViewModel() {
      * Commands are sent individually with sequential request IDs
      */
     private fun sendRawWebSocketCommand(command: String, requestId: Int, data: Any?): WebSocketResult {
-        val ws = WebSocketService.getWebSocket()
-        if (ws == null) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket is not connected, cannot send command: $command")
-            return WebSocketResult.NOT_CONNECTED
-        }
-
-        val payload = when (data) {
-            null -> JSONObject()
-            is JSONObject -> data
-            is JSONArray -> data
-            is Map<*, *> -> JSONObject(data)
-            is List<*> -> JSONArray(data)
-            else -> data
-        }
-
-        val normalizedPayload = if (command == "send_to_device") {
-            val payloadObject = when (payload) {
-                is JSONObject -> payload
-                is String -> {
-                    try {
-                        JSONObject(payload)
-                    } catch (_: Exception) {
-                        null
-                    }
-                }
-                else -> null
+        // REFACTORING: Convert data to Map format for WebSocketService.sendCommand()
+        val dataMap = when (data) {
+            null -> emptyMap<String, Any>()
+            is Map<*, *> -> {
+                @Suppress("UNCHECKED_CAST")
+                data as Map<String, Any>
             }
-            if (payloadObject == null) {
-                payload
-            } else {
-                val eventType = payloadObject.optString("event_type").ifBlank { payloadObject.optString("type") }
-                val normalized = JSONObject()
-                if (eventType.isNotBlank()) {
-                    normalized.put("event_type", eventType)
-                    // Don't include 'type' - gomuks expects only 'event_type'
-                }
-                if (payloadObject.has("encrypted")) {
-                    normalized.put("encrypted", payloadObject.opt("encrypted"))
-                }
-                if (payloadObject.has("messages")) {
-                    normalized.put("messages", payloadObject.opt("messages"))
-                }
-                val keys = payloadObject.keys()
+            is JSONObject -> {
+                // Convert JSONObject to Map
+                val map = mutableMapOf<String, Any>()
+                val keys = data.keys()
                 while (keys.hasNext()) {
                     val key = keys.next()
-                    if (normalized.has(key)) continue
-                    normalized.put(key, payloadObject.opt(key))
+                    map[key] = data.opt(key) ?: ""
                 }
-                normalized
+                map
             }
-        } else {
-            payload
+            else -> {
+                // For complex types, fall back to direct WebSocket send
+                // This is a legacy path - most commands should use Map<String, Any>
+                android.util.Log.w("Andromuks", "sendRawWebSocketCommand: Complex data type, using legacy path: ${data::class.simpleName}")
+                // Use WebSocketService.getWebSocket() and send directly for complex types
+                return try {
+                    val json = JSONObject()
+                    json.put("command", command)
+                    json.put("request_id", requestId)
+                    json.put("data", data)
+                    val jsonString = json.toString()
+                    val ws = WebSocketService.getWebSocket()
+                    if (ws == null) {
+                        android.util.Log.w("Andromuks", "AppViewModel: WebSocket is not connected, cannot send command: $command")
+                        return WebSocketResult.NOT_CONNECTED
+                    }
+                    // Legacy path: direct send for complex data types
+                    ws.send(jsonString)
+                    WebSocketResult.SUCCESS
+                } catch (e: Exception) {
+                    android.util.Log.e("Andromuks", "AppViewModel: Failed to send raw WebSocket command: $command", e)
+                    WebSocketResult.CONNECTION_ERROR
+                }
+            }
         }
 
-        return try {
-            val json = JSONObject()
-            json.put("command", command)
-            json.put("request_id", requestId)
-            json.put("data", normalizedPayload)
-            val jsonString = json.toString()
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "sendRawWebSocketCommand: command='$command', requestId=$requestId, data=${normalizedPayload.toString().take(200)}")
+        // Normalize send_to_device payload
+        val normalizedData = if (command == "send_to_device" && dataMap.isNotEmpty()) {
+            val eventType = (dataMap["event_type"] as? String) ?: (dataMap["type"] as? String) ?: ""
+            val normalized = mutableMapOf<String, Any>()
+            if (eventType.isNotBlank()) {
+                normalized["event_type"] = eventType
             }
-            ws.send(jsonString)
+            if (dataMap.containsKey("encrypted")) {
+                normalized["encrypted"] = dataMap["encrypted"] ?: false
+            }
+            if (dataMap.containsKey("messages")) {
+                normalized["messages"] = dataMap["messages"] ?: emptyList<Any>()
+            }
+            // Copy other fields
+            dataMap.forEach { (key, value) ->
+                if (!normalized.containsKey(key)) {
+                    normalized[key] = value
+                }
+            }
+            normalized
+        } else {
+            dataMap
+        }
+
+        // Use WebSocketService.sendCommand()
+        return if (WebSocketService.sendCommand(command, requestId, normalizedData)) {
             WebSocketResult.SUCCESS
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to send raw WebSocket command: $command", e)
+        } else {
             WebSocketResult.CONNECTION_ERROR
         }
     }
@@ -13960,10 +13908,15 @@ class AppViewModel : ViewModel() {
         // Save setting to SharedPreferences
         appContext?.let { context ->
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            prefs.edit()
+            val saved = prefs.edit()
                 .putBoolean("enable_compression", enableCompression)
-                .apply()
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved enableCompression setting: $enableCompression")
+                .commit() // Use commit() instead of apply() to ensure it's saved synchronously
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "AppViewModel: Saved enableCompression setting: $enableCompression (commit result: $saved)")
+                // Verify it was actually saved
+                val verify = prefs.getBoolean("enable_compression", !enableCompression)
+                android.util.Log.d("Andromuks", "AppViewModel: Verified enableCompression in SharedPreferences: $verify")
+            }
         }
         
         // Restart WebSocket with new compression setting
@@ -14078,6 +14031,7 @@ class AppViewModel : ViewModel() {
         
         // REFACTORING: Delegate connection to service
         // The service now owns the WebSocket connection lifecycle
+        // Pass this ViewModel for message routing (optional - service can work without it)
         WebSocketService.connectWebSocket(homeserverUrl, token, this@AppViewModel, reason = "Initial connection from AppViewModel")
     }
 
@@ -14493,16 +14447,8 @@ class AppViewModel : ViewModel() {
         val requestId = requestIdCounter++
         resolveAliasRequests[requestId] = callback
         
-        val request = org.json.JSONObject().apply {
-            put("command", "resolve_alias")
-            put("request_id", requestId)
-            put("data", org.json.JSONObject().apply {
-                put("alias", alias)
-            })
-        }
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending resolve_alias for $alias with requestId=$requestId")
-        WebSocketService.getWebSocket()?.send(request.toString())
+        // REFACTORING: Use sendWebSocketCommand() instead of direct send()
+        sendWebSocketCommand("resolve_alias", requestId, mapOf("alias" to alias))
     }
     
     /**
@@ -14512,17 +14458,11 @@ class AppViewModel : ViewModel() {
         val requestId = requestIdCounter++
         getRoomSummaryRequests[requestId] = callback
         
-        val request = org.json.JSONObject().apply {
-            put("command", "get_room_summary")
-            put("request_id", requestId)
-            put("data", org.json.JSONObject().apply {
-                put("room_id_or_alias", roomIdOrAlias)
-                put("via", org.json.JSONArray(viaServers))
-            })
-        }
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending get_room_summary for $roomIdOrAlias with requestId=$requestId")
-        WebSocketService.getWebSocket()?.send(request.toString())
+        // REFACTORING: Use sendWebSocketCommand() instead of direct send()
+        sendWebSocketCommand("get_room_summary", requestId, mapOf(
+            "room_id_or_alias" to roomIdOrAlias,
+            "via" to viaServers
+        ))
     }
     
     /**
@@ -14535,19 +14475,12 @@ class AppViewModel : ViewModel() {
         // Store the roomIdOrAlias so we can mark it as newly joined when we get the response
         // We'll mark it in handleJoinRoomCallbackResponse when we get the actual room ID
         
-        val request = org.json.JSONObject().apply {
-            put("command", "join_room")
-            put("request_id", requestId)
-            put("data", org.json.JSONObject().apply {
-                put("room_id_or_alias", roomIdOrAlias)
-                if (viaServers.isNotEmpty()) {
-                    put("via", org.json.JSONArray(viaServers))
-                }
-            })
+        // REFACTORING: Use sendWebSocketCommand() instead of direct send()
+        val dataMap = mutableMapOf<String, Any>("room_id_or_alias" to roomIdOrAlias)
+        if (viaServers.isNotEmpty()) {
+            dataMap["via"] = viaServers
         }
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending join_room for $roomIdOrAlias with requestId=$requestId")
-        WebSocketService.getWebSocket()?.send(request.toString())
+        sendWebSocketCommand("join_room", requestId, dataMap)
     }
     
     private fun handleResolveAliasResponse(requestId: Int, data: Any) {

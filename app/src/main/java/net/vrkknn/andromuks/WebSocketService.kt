@@ -177,10 +177,15 @@ class WebSocketService : Service() {
          * 
          * CRITICAL FIX: Reduced debounce to 1 second and ensures callbacks are registered before returning.
          */
+        /**
+         * REFACTORING: Headless ViewModel is now only needed for message routing, not reconnection
+         * Reconnection is handled directly by the service
+         */
         fun ensureHeadlessPrimary(context: Context, reason: String) {
-            val hasCallback = getActiveReconnectionCallback() != null
-            if (hasCallback) {
-                if (BuildConfig.DEBUG) Log.d("WebSocketService", "Headless recovery skipped - callback already available")
+            // Check if we already have a ViewModel for message routing
+            val hasViewModel = getRegisteredViewModels().isNotEmpty() || headlessViewModel != null
+            if (hasViewModel) {
+                if (BuildConfig.DEBUG) Log.d("WebSocketService", "Headless ViewModel already exists - skipping creation")
                 return
             }
             
@@ -599,18 +604,42 @@ class WebSocketService : Service() {
          * @param reason Reason for reconnection
          * @param logIfMissing Whether to log a warning if callback is missing (default: true)
          */
+        /**
+         * REFACTORING: Service now handles reconnection directly
+         * No longer needs ViewModel callbacks - service reads credentials from SharedPreferences
+         * and uses any available ViewModel (preferably primary) or creates headless if needed
+         */
         private fun invokeReconnectionCallback(reason: String, logIfMissing: Boolean = true) {
-            val callback = getActiveReconnectionCallback()
-            if (callback != null) {
-                try {
-                    callback.invoke(reason)
-                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 1.3 - Reconnection callback invoked: $reason")
-                } catch (e: Exception) {
-                    android.util.Log.e("WebSocketService", "STEP 1.3 - Error invoking reconnection callback: ${e.message}", e)
-                }
-            } else {
+            val serviceInstance = instance ?: run {
                 if (logIfMissing) {
-                    android.util.Log.w("WebSocketService", "STEP 1.3 - Reconnection callback not available - cannot trigger reconnection: $reason")
+                    android.util.Log.w("WebSocketService", "Service instance not available - cannot reconnect: $reason")
+                }
+                return
+            }
+            
+            // Service handles reconnection directly - read credentials from SharedPreferences
+            serviceScope.launch {
+                try {
+                    val prefs = serviceInstance.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                    val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
+                    val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
+                    
+                    if (homeserverUrl.isEmpty() || authToken.isEmpty()) {
+                        android.util.Log.w("WebSocketService", "Cannot reconnect - missing credentials in SharedPreferences")
+                        return@launch
+                    }
+                    
+                    android.util.Log.i("WebSocketService", "Service handling reconnection directly: $reason")
+                    
+                    // REFACTORING: Service can reconnect without ViewModel
+                    // ViewModel is optional - only needed for message routing callbacks
+                    // If no ViewModel exists, messages will be queued until one registers
+                    val viewModelToUse = getRegisteredViewModels().firstOrNull() ?: headlessViewModel
+                    
+                    // Connect - ViewModel is optional (null is fine, service handles everything)
+                    connectWebSocket(homeserverUrl, authToken, viewModelToUse, reason)
+                } catch (e: Exception) {
+                    android.util.Log.e("WebSocketService", "Error during service-initiated reconnection", e)
                 }
             }
         }
@@ -1651,7 +1680,7 @@ class WebSocketService : Service() {
          * This method will eventually own the WebSocket connection lifecycle
          * For now, it delegates to AppViewModel but the service will own the WebSocket reference
          */
-        fun connectWebSocket(homeserverUrl: String, token: String, appViewModel: AppViewModel, reason: String = "Service-initiated connection") {
+        fun connectWebSocket(homeserverUrl: String, token: String, appViewModel: AppViewModel? = null, reason: String = "Service-initiated connection") {
             android.util.Log.i("WebSocketService", "connectWebSocket() called - initiating connection (reason: $reason)")
             
             // For now, delegate to NetworkUtils.connectToWebsocket() which will call setWebSocket()
@@ -1690,10 +1719,11 @@ class WebSocketService : Service() {
                         android.util.Log.e("WebSocketService", "Backend health check failed with exception - proceeding with WebSocket connection anyway", e)
                     }
                     
-                    // Connect websocket - NetworkUtils will call setWebSocket() which the service owns
+                    // REFACTORING: Connect websocket - no ViewModel needed, service handles everything
                     if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Calling NetworkUtils.connectToWebsocket()")
                     val client = okhttp3.OkHttpClient.Builder().build()
-                    net.vrkknn.andromuks.utils.connectToWebsocket(homeserverUrl, client, token, appViewModel, reason = reason)
+                    // Pass context and optional ViewModel (for message routing only)
+                    net.vrkknn.andromuks.utils.connectToWebsocket(homeserverUrl, client, token, serviceInstance.applicationContext, appViewModel, reason = reason)
                     if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "NetworkUtils.connectToWebsocket() call completed")
                 } catch (e: Exception) {
                     android.util.Log.e("WebSocketService", "Error in connectWebSocket()", e)
@@ -1918,17 +1948,9 @@ class WebSocketService : Service() {
             
             // PHASE 2.1: If reconnection callback is not available, queue the request
             val activeCallback = getActiveReconnectionCallback()
-            if (activeCallback == null) {
-                synchronized(serviceInstance.pendingReconnectionLock) {
-                    serviceInstance.pendingReconnectionReasons.add(reason)
-                    android.util.Log.w("WebSocketService", "Reconnection callback not available - queued reconnection request: $reason (queue size: ${serviceInstance.pendingReconnectionReasons.size})")
-                    logActivity("Reconnection Queued - $reason", serviceInstance.currentNetworkType.name)
-                }
-                // Headless recovery: ensure a primary ViewModel exists to handle reconnection.
-                // This avoids being stuck in "Connecting..." when UI is not running.
-                ensureHeadlessPrimary(serviceInstance.applicationContext, "Reconnection queued - callback missing")
-                return
-            }
+            // REFACTORING: Service handles reconnection directly - no callback needed
+            // We still need a ViewModel for NetworkUtils, but we'll get/create one in invokeReconnectionCallback()
+            // No need to queue or check for callbacks
             
             // ATOMIC GUARD: Use synchronized lock to prevent parallel reconnection attempts
             synchronized(serviceInstance.reconnectionLock) {
@@ -2586,25 +2608,26 @@ class WebSocketService : Service() {
                     // 1. We're not connected (offline → online)
                     // 2. Network type changed AND connection is unhealthy
                     // Otherwise, trust Android's network state and keep existing connection
-                    if (connectionState != ConnectionState.CONNECTED) {
+                    // CRITICAL FIX: Don't reconnect if we're already CONNECTING - wait for init_complete first
+                    if (connectionState == ConnectionState.DISCONNECTED) {
                         // Not connected - reconnect (network is now validated)
-                        android.util.Log.w("WebSocketService", "Network validated but WebSocket not connected - triggering reconnection")
+                        android.util.Log.w("WebSocketService", "Network validated but WebSocket disconnected - triggering reconnection")
                         logActivity("Network Validated - Reconnecting", currentNetworkType.name)
                         
-                        // PHASE 2.1: Use scheduleReconnection which will queue if callback not available
-                        if (!hasCallback) {
-                            ensureHeadlessPrimary(applicationContext, "Network validated - callback missing")
-                        }
+                        // REFACTORING: Service handles reconnection directly
                         scheduleReconnection("Network validated: $networkType")
+                    } else if (connectionState == ConnectionState.CONNECTING) {
+                        // Already connecting - don't trigger another reconnection
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d("WebSocketService", "Network validated but WebSocket already connecting - waiting for init_complete")
+                        }
                     } else if (previousNetworkType != newNetworkType && previousNetworkType != NetworkType.NONE) {
                         // Network type changed while connected - only reconnect if connection is unhealthy
                         val shouldReconnect = shouldReconnectOnNetworkChange(previousNetworkType, newNetworkType)
                         if (shouldReconnect) {
                             android.util.Log.i("WebSocketService", "Network type changed while connected and connection unhealthy - reconnecting ($previousNetworkType → $newNetworkType)")
                             clearWebSocket("Network type changed: $previousNetworkType → $newNetworkType")
-                            if (!hasCallback) {
-                                ensureHeadlessPrimary(applicationContext, "Network change - callback missing")
-                            }
+                            // REFACTORING: Service handles reconnection directly
                             scheduleReconnection("Network type changed: $previousNetworkType → $newNetworkType")
                         } else {
                             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network type changed ($previousNetworkType → $newNetworkType) but connection is healthy - trusting Android, keeping connection")
@@ -2679,9 +2702,7 @@ class WebSocketService : Service() {
                     } else {
                         // Not connected - just trigger reconnection
                         android.util.Log.i("WebSocketService", "Network type changed and not connected - triggering reconnection ($previousNetworkType → $newNetworkType)")
-                        if (!hasCallback) {
-                            ensureHeadlessPrimary(applicationContext, "Network type change - callback missing")
-                        }
+                        // REFACTORING: Service handles reconnection directly
                         scheduleReconnection("Network type changed: $previousNetworkType → $newNetworkType")
                     }
                 } else {
