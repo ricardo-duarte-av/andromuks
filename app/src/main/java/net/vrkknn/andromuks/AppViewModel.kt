@@ -230,8 +230,12 @@ class AppViewModel : ViewModel() {
         requireInitComplete: Boolean = false,
         roomId: String? = null
     ): Boolean {
+        android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: START - roomId=$roomId, timeoutMs=$timeoutMs, requireInitComplete=$requireInitComplete, currentRoomId=$currentRoomId")
+        val startTime = System.currentTimeMillis()
         return withTimeoutOrNull(timeoutMs) {
+            var pollCount = 0
             while (true) {
+                pollCount++
                 // REMOVED: profileReady check - profiles load in background, events render with fallback immediately
                 // Events can render instantly with username/avatar fallback, profiles update when they arrive
                 // REMOVED: spacesReady check - not needed, init_complete check suffices if websocket was not connected
@@ -254,13 +258,24 @@ class AppViewModel : ViewModel() {
                     true
                 }
                 
+                if (pollCount % 10 == 0 || (!pendingReady || !syncReady || !initReady || !timelineReady)) {
+                    // Log every 10 polls or when not ready
+                    android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: Polling - roomId=$roomId, pollCount=$pollCount, pendingReady=$pendingReady, syncReady=$syncReady, initReady=$initReady, timelineReady=$timelineReady, isTimelineLoading=$isTimelineLoading, timelineEvents.size=${timelineEvents.size}, currentRoomId=$currentRoomId")
+                }
+                
                 if (pendingReady && syncReady && initReady && timelineReady) {
+                    val elapsed = System.currentTimeMillis() - startTime
+                    android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: READY - roomId=$roomId, elapsed=${elapsed}ms, pollCount=$pollCount")
                     break
                 }
                 delay(pollDelayMs)
             }
             true
-        } ?: false
+        } ?: run {
+            val elapsed = System.currentTimeMillis() - startTime
+            android.util.Log.w("Andromuks", "🟣 awaitRoomDataReadiness: TIMEOUT - roomId=$roomId, elapsed=${elapsed}ms, timeoutMs=$timeoutMs, isProcessingPendingItems=$isProcessingPendingItems, initialSyncComplete=$initialSyncComplete, isTimelineLoading=$isTimelineLoading, timelineEvents.size=${timelineEvents.size}, currentRoomId=$currentRoomId")
+            false
+        }
     }
     
     /**
@@ -4811,13 +4826,11 @@ class AppViewModel : ViewModel() {
     }
     
     fun onInitComplete() {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: onInitComplete called - setting spacesLoaded = true")
+        android.util.Log.d("Andromuks", "🟣 onInitComplete: START - initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded, initialSyncCompleteQueue.size=${initialSyncCompleteQueue.size}")
         
         // CRITICAL FIX: Set initialSyncPhase = true to stop queueing and start processing queued messages
         initialSyncPhase = true
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: init_complete received - will process ${initialSyncCompleteQueue.size} queued initial sync_complete messages")
-        }
+        android.util.Log.d("Andromuks", "🟣 onInitComplete: Set initialSyncPhase=true, will process ${initialSyncCompleteQueue.size} queued initial sync_complete messages")
 
         // Start WebSocket pinger immediately on init_complete so low-traffic accounts don't wait for first sync_complete
         net.vrkknn.andromuks.WebSocketService.startPingLoopOnInitComplete()
@@ -4890,10 +4903,25 @@ class AppViewModel : ViewModel() {
                                 if (BuildConfig.DEBUG) {
                                     android.util.Log.d("Andromuks", "AppViewModel: Finished processing all ${queuedMessages.size} initial sync_complete messages - ${summaryUpdateJobs.size} summary update jobs running in background")
                                 }
+                                
+                                // CRITICAL FIX: Set initialSyncComplete immediately after processing completes
+                                // Don't wait for finally block - this ensures UI is unblocked as soon as processing finishes
+                                initialSyncProcessingComplete = true
+                                withContext(Dispatchers.Main) {
+                                    android.util.Log.d("Andromuks", "🟣 onInitComplete: Finished processing ${queuedMessages.size} messages - Setting initialSyncComplete=true, spacesLoaded=true")
+                                    initialSyncComplete = true
+                                    spacesLoaded = true
+                                    android.util.Log.d("Andromuks", "🟣 onInitComplete: COMPLETE - initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded - UI can now be shown")
+                                }
                             } else {
                                 // Queue was empty - set flags immediately
-                                if (BuildConfig.DEBUG) {
-                                    android.util.Log.d("Andromuks", "AppViewModel: No queued messages to process - setting initialSyncComplete immediately")
+                                android.util.Log.d("Andromuks", "🟣 onInitComplete: No queued messages - setting initialSyncComplete immediately")
+                                initialSyncProcessingComplete = true
+                                withContext(Dispatchers.Main) {
+                                    android.util.Log.d("Andromuks", "🟣 onInitComplete: Setting initialSyncComplete=true, spacesLoaded=true (empty queue)")
+                                    initialSyncComplete = true
+                                    spacesLoaded = true
+                                    android.util.Log.d("Andromuks", "🟣 onInitComplete: COMPLETE - initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded")
                                 }
                             }
                         }
@@ -4905,13 +4933,12 @@ class AppViewModel : ViewModel() {
                         // Room data is already parsed and in memory, so UI can be shown immediately
                         initialSyncProcessingComplete = true
                         withContext(Dispatchers.Main) {
-                            // CRITICAL FIX: Set both flags together atomically to prevent UI from getting stuck
-                            // This ensures the UI sees both states change together
-                            initialSyncComplete = true
-                            spacesLoaded = true
-                            if (BuildConfig.DEBUG) {
-                                android.util.Log.d("Andromuks", "AppViewModel: Initial sync processing complete - UI can now be shown (summary updates running in background)")
-                            }
+                        // CRITICAL FIX: Set both flags together atomically to prevent UI from getting stuck
+                        // This ensures the UI sees both states change together
+                        android.util.Log.d("Andromuks", "🟣 Initial sync processing: Setting initialSyncComplete=true, spacesLoaded=true")
+                        initialSyncComplete = true
+                        spacesLoaded = true
+                        android.util.Log.d("Andromuks", "🟣 Initial sync processing: COMPLETE - initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded - UI can now be shown")
                         }
                     }
                 }
@@ -5481,10 +5508,9 @@ class AppViewModel : ViewModel() {
                 // because this might be a new AppViewModel instance that doesn't have that flag set
                 initialSyncPhase = true
                 initialSyncProcessingComplete = true
+                android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Setting initialSyncComplete=true (already-initialized WebSocket)")
                 initialSyncComplete = true
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Attaching to already-initialized WebSocket (connected=true) - marking initial sync as complete")
-                }
+                android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: initialSyncComplete=$initialSyncComplete")
                 
                 // If spaces are loaded, trigger navigation immediately
                 if (spacesLoaded && !navigationCallbackTriggered) {
@@ -8159,7 +8185,7 @@ class AppViewModel : ViewModel() {
     }
 
     fun requestRoomTimeline(roomId: String, useLruCache: Boolean = true) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting timeline for room: $roomId (useLruCache=$useLruCache)")
+        android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: START - roomId=$roomId, useLruCache=$useLruCache, currentRoomId=$currentRoomId, isTimelineLoading=$isTimelineLoading, isPaginating=$isPaginating")
         
         // Check if we're refreshing the same room before updating currentRoomId
         val isRefreshingSameRoom = currentRoomId == roomId && timelineEvents.isNotEmpty()
@@ -8279,13 +8305,14 @@ class AppViewModel : ViewModel() {
         }
         
         // CACHE EMPTY OR NOT ACTIVELY CACHED: Issue paginate command to fill the cache
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No events in cache or room not actively cached for $roomId, issuing paginate command to fill cache")
+        android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: Cache empty/missing - roomId=$roomId, cachedEvents=${cachedEvents?.size ?: 0}, isActivelyCached=$isActivelyCached, isWebSocketConnected=${isWebSocketConnected()}")
         
         if (!isWebSocketConnected()) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, cannot paginate for $roomId")
+            android.util.Log.w("Andromuks", "🟢 requestRoomTimeline: WebSocket not connected - roomId=$roomId, setting loading=true and clearing timeline")
             // Set loading state and clear timeline
             timelineEvents = emptyList()
             isTimelineLoading = true
+            android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: EXIT (WebSocket not connected) - roomId=$roomId, isTimelineLoading=$isTimelineLoading")
             return
         }
         
@@ -8294,12 +8321,14 @@ class AppViewModel : ViewModel() {
         val wasAdded = roomsWithPendingPaginate.add(roomId)
         if (!wasAdded) {
             // Room already has a pending paginate request
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping paginate request for $roomId - already have a pending paginate request")
+            android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: Paginate already pending - roomId=$roomId, isRefreshingSameRoom=$isRefreshingSameRoom")
             // Still set loading state and clear timeline if needed
             if (!isRefreshingSameRoom) {
                 timelineEvents = emptyList()
                 isTimelineLoading = true
+                android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: Set loading state - roomId=$roomId, isTimelineLoading=$isTimelineLoading")
             }
+            android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: EXIT (paginate already pending) - roomId=$roomId")
             return
         }
         
@@ -8307,7 +8336,13 @@ class AppViewModel : ViewModel() {
         if (!isRefreshingSameRoom) {
             val paginateRequestId = requestIdCounter++
             timelineRequests[paginateRequestId] = roomId
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending paginate request for $roomId (limit=$INITIAL_ROOM_PAGINATE_LIMIT, reqId=$paginateRequestId)")
+            android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: Sending paginate - roomId=$roomId, requestId=$paginateRequestId, limit=$INITIAL_ROOM_PAGINATE_LIMIT, isTimelineLoading=$isTimelineLoading")
+            
+            // Set loading state BEFORE sending command
+            timelineEvents = emptyList()
+            isTimelineLoading = true
+            android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: Set loading=true - roomId=$roomId, isTimelineLoading=$isTimelineLoading")
+            
             val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
                 "room_id" to roomId,
                 "max_timeline_id" to 0, // Fetch latest events
@@ -8315,16 +8350,20 @@ class AppViewModel : ViewModel() {
                 "reset" to false
             ))
             
+            android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: sendWebSocketCommand returned - roomId=$roomId, requestId=$paginateRequestId, result=$result")
+            
             if (result == WebSocketResult.SUCCESS) {
                 // PROACTIVE CACHE MANAGEMENT: Mark room as actively cached so SyncIngestor knows to update it
                 RoomTimelineCache.markRoomAsCached(roomId)
                 markInitialPaginate(roomId, "cache_miss")
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked room $roomId as actively cached (will receive events from sync_complete)")
+                android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: Paginate sent successfully - roomId=$roomId, requestId=$paginateRequestId, marked as actively cached, waiting for response...")
             } else {
-                android.util.Log.w("Andromuks", "AppViewModel: Failed to send paginate request for $roomId: $result")
+                android.util.Log.w("Andromuks", "🟢 requestRoomTimeline: FAILED to send paginate - roomId=$roomId, requestId=$paginateRequestId, result=$result, removing from tracking")
                 // Remove from tracking if send failed
                 timelineRequests.remove(paginateRequestId)
                 roomsWithPendingPaginate.remove(roomId)
+                isTimelineLoading = false
+                android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: Set loading=false (send failed) - roomId=$roomId, isTimelineLoading=$isTimelineLoading")
             }
         } else {
             // Not sending paginate, so remove from tracking
@@ -8545,6 +8584,7 @@ class AppViewModel : ViewModel() {
     
     // OPTIMIZATION #4: Cache-first navigation method
     fun navigateToRoomWithCache(roomId: String, notificationTimestamp: Long? = null) {
+        android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: START - roomId=$roomId, notificationTimestamp=$notificationTimestamp, isProcessingPendingItems=$isProcessingPendingItems, initialSyncComplete=$initialSyncComplete")
         updateCurrentRoomIdInPrefs(roomId)
         // Add to opened rooms (exempt from cache clearing on reconnect)
         RoomTimelineCache.addOpenedRoom(roomId)
@@ -8555,14 +8595,17 @@ class AppViewModel : ViewModel() {
         // Cache is populated from sync_complete messages or paginate responses only
         viewModelScope.launch {
             val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
+            android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Cache check - roomId=$roomId, cachedEventCount=$cachedEventCount, isActivelyCached=${RoomTimelineCache.isRoomActivelyCached(roomId)}")
             
             // OPTIMIZATION #4: Use the exact same logic as requestRoomTimeline for consistency
             if (cachedEventCount >= 10) {
+                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Using cache (>=10 events) - roomId=$roomId, cachedEventCount=$cachedEventCount")
                 // OPTIMIZATION #4: Use cached data immediately (same threshold as requestRoomTimeline)
                 // Get cached events using the same method as requestRoomTimeline
                 val cachedEvents = RoomTimelineCache.getCachedEvents(roomId)
                 
                 if (cachedEvents != null) {
+                    android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Cache hit - roomId=$roomId, cachedEvents.size=${cachedEvents.size}, building timeline from cache")
 
                 
                 // Set loading to false immediately to prevent loading flash
@@ -8675,9 +8718,13 @@ class AppViewModel : ViewModel() {
                 // DISABLED: No longer automatically requesting fresh timeline data from server
                 // We rely on cache and websocket resilience to ensure we have exact copy of events
                 // The websocket will automatically sync any new events via sync_complete messages
-                    
+                    android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: SUCCESS - roomId=$roomId, timeline built from cache (${cachedEvents.size} events), isTimelineLoading=$isTimelineLoading")
                     return@launch // Exit early - room is already rendered from cache
+                } else {
+                    android.util.Log.w("Andromuks", "🔵 navigateToRoomWithCache: Cache miss - roomId=$roomId, cachedEventCount=$cachedEventCount but getCachedEvents returned null")
                 }
+            } else {
+                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Cache insufficient - roomId=$roomId, cachedEventCount=$cachedEventCount (<10), will request timeline")
             }
             
             // OPTIMIZATION #4: Fallback to regular requestRoomTimeline if no cache
@@ -8686,21 +8733,25 @@ class AppViewModel : ViewModel() {
             // This prevents race condition where timeline request is sent while sync_complete is still processing
             // which can cause the timeline to wait indefinitely for a response
             if (isProcessingPendingItems) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Waiting for pending items to finish before requesting timeline for $roomId")
+                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Waiting for pending items - roomId=$roomId, isProcessingPendingItems=true")
+                val waitStart = System.currentTimeMillis()
                 // Wait for pending items to finish (with timeout to avoid infinite wait)
                 withTimeoutOrNull(10_000L) {
                     while (isProcessingPendingItems) {
                         delay(100L)
                     }
                 }
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Pending items finished (or timeout), requesting timeline for $roomId")
+                val waitDuration = System.currentTimeMillis() - waitStart
+                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Pending items finished - roomId=$roomId, waitDuration=${waitDuration}ms, isProcessingPendingItems=$isProcessingPendingItems")
             }
             
             // REMOVED: Queue flush waiting - no longer needed since we removed queue blocking
             // Commands can be sent immediately even while retries are happening
             // Webmuks handles out-of-order messages and responses are matched by request_id
             
+            android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Calling requestRoomTimeline - roomId=$roomId, isTimelineLoading=$isTimelineLoading")
             requestRoomTimeline(roomId)
+            android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: requestRoomTimeline returned - roomId=$roomId, isTimelineLoading=$isTimelineLoading")
         }
     }
 
@@ -10776,18 +10827,18 @@ class AppViewModel : ViewModel() {
     }
     
     fun handleTimelineResponse(requestId: Int, data: Any) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: handleTimelineResponse called with requestId=$requestId, dataType=${data::class.java.simpleName}")
+        android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: START - requestId=$requestId, dataType=${data::class.java.simpleName}, currentRoomId=$currentRoomId, isTimelineLoading=$isTimelineLoading")
         
         // Determine request type and get room ID
         val roomId = timelineRequests[requestId] ?: paginateRequests[requestId] ?: backgroundPrefetchRequests[requestId]
         if (roomId == null) {
-            android.util.Log.w("Andromuks", "AppViewModel: Received response for unknown request ID: $requestId")
+            android.util.Log.w("Andromuks", "🟡 handleTimelineResponse: UNKNOWN requestId - requestId=$requestId, timelineRequests=${timelineRequests.keys}, paginateRequests=${paginateRequests.keys}, backgroundPrefetchRequests=${backgroundPrefetchRequests.keys}")
             return
         }
 
         val isPaginateRequest = paginateRequests.containsKey(requestId)
         val isBackgroundPrefetchRequest = backgroundPrefetchRequests.containsKey(requestId)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling timeline response for room: $roomId, requestId: $requestId, isPaginate: $isPaginateRequest, isBackgroundPrefetch: $isBackgroundPrefetchRequest, data type: ${data::class.java.simpleName}")
+        android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: Processing - roomId=$roomId, requestId=$requestId, isPaginate=$isPaginateRequest, isBackgroundPrefetch=$isBackgroundPrefetchRequest, currentRoomId=$currentRoomId, isTimelineLoading=$isTimelineLoading")
 
         // CRITICAL FIX: Parse has_more field BEFORE processing events, so we have it even if events array is empty
         var hasMoreFromResponse: Boolean? = null
@@ -10800,7 +10851,11 @@ class AppViewModel : ViewModel() {
         
         // Process events array - main event processing logic
         fun processEventsArray(eventsArray: JSONArray): Int {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processEventsArray called with ${eventsArray.length()} events from server")
+            val eventCount = eventsArray.length()
+            android.util.Log.d("Andromuks", "🟡 processEventsArray: START - roomId=$roomId, requestId=$requestId, eventCount=$eventCount, isPaginate=$isPaginateRequest, isBackgroundPrefetch=$isBackgroundPrefetchRequest, currentRoomId=$currentRoomId, isTimelineLoading=$isTimelineLoading")
+            if (eventCount == 0) {
+                android.util.Log.w("Andromuks", "🟡 processEventsArray: EMPTY response - roomId=$roomId, requestId=$requestId, isPaginate=$isPaginateRequest")
+            }
             val timelineList = mutableListOf<TimelineEvent>()
             val allEvents = mutableListOf<TimelineEvent>()  // For version processing
             val memberMap = RoomMemberCache.getRoomMembers(roomId)
@@ -10941,6 +10996,7 @@ class AppViewModel : ViewModel() {
                 paginateRequestMaxTimelineIds.remove(requestId)
                 backgroundPrefetchRequests.remove(requestId)
                 isPaginating = false
+                android.util.Log.w("Andromuks", "🟡 processEventsArray: EMPTY response handled - roomId=$roomId, requestId=$requestId, returning early, isTimelineLoading=$isTimelineLoading")
                 return reactionProcessedCount
             }
             
@@ -10993,11 +11049,14 @@ class AppViewModel : ViewModel() {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: isPaginating set to FALSE")
                 } else {
                     // This is an initial paginate - build timeline from chain mapping
+                    android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: Initial paginate - roomId=$roomId, requestId=$requestId, timelineList.size=${timelineList.size}, isTimelineLoading=$isTimelineLoading")
                     handleInitialTimelineBuild(roomId, timelineList)
+                    android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: After handleInitialTimelineBuild - roomId=$roomId, requestId=$requestId, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading")
                     // Clean up pending paginate tracking when initial paginate completes
                     if (isInitialPaginate) {
                         timelineRequests.remove(requestId)
                         roomsWithPendingPaginate.remove(roomId)
+                        android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: Cleaned up tracking - roomId=$roomId, requestId=$requestId, remaining timelineRequests=${timelineRequests.size}")
                     }
                     
                     // CRITICAL FIX: After initial pagination completes, automatically request member profiles
@@ -11042,19 +11101,24 @@ class AppViewModel : ViewModel() {
                 }
             }
             
+            android.util.Log.d("Andromuks", "🟡 processEventsArray: COMPLETE - roomId=$roomId, requestId=$requestId, reactionsProcessed=$reactionProcessedCount, timelineList.size=${timelineList.size}, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading")
             return reactionProcessedCount
         }
 
         when (data) {
             is JSONArray -> {
+                android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: JSONArray response - roomId=$roomId, requestId=$requestId, array.length=${data.length()}")
                 totalReactionsProcessed = processEventsArray(data)
+                android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: processEventsArray completed - roomId=$roomId, requestId=$requestId, reactionsProcessed=$totalReactionsProcessed, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading")
             }
             is JSONObject -> {
                 val eventsArray = data.optJSONArray("events")
                 if (eventsArray != null) {
+                    android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: JSONObject with events array - roomId=$roomId, requestId=$requestId, events.length=${eventsArray.length()}")
                     totalReactionsProcessed = processEventsArray(eventsArray)
+                    android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: processEventsArray completed - roomId=$roomId, requestId=$requestId, reactionsProcessed=$totalReactionsProcessed, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading")
                 } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: JSONObject did not contain 'events' array")
+                    android.util.Log.w("Andromuks", "🟡 handleTimelineResponse: JSONObject did not contain 'events' array - roomId=$roomId, requestId=$requestId, keys=${data.keys().asSequence().toList()}")
                 }
                 
                 // Parse has_more field for pagination (but not for background prefetch)
@@ -13646,12 +13710,20 @@ class AppViewModel : ViewModel() {
         
         // REFACTORING: Use WebSocketService.sendCommand() API
         // Log all WebSocket commands being sent
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "sendWebSocketCommand: command='$command', requestId=$requestId, data=${org.json.JSONObject(data).toString().take(200)}")
+        val roomId = data["room_id"] as? String
+        if (command == "paginate") {
+            android.util.Log.d("Andromuks", "🟠 sendWebSocketCommand: SENDING paginate - requestId=$requestId, roomId=$roomId, data=${org.json.JSONObject(data).toString().take(200)}")
+        } else if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "sendWebSocketCommand: command='$command', requestId=$requestId, data=${org.json.JSONObject(data).toString().take(200)}")
+        }
         
         val sendResult = if (WebSocketService.sendCommand(command, requestId, data)) {
+            if (command == "paginate") {
+                android.util.Log.d("Andromuks", "🟠 sendWebSocketCommand: paginate SENT successfully - requestId=$requestId, roomId=$roomId")
+            }
             WebSocketResult.SUCCESS
         } else {
-            android.util.Log.w("Andromuks", "AppViewModel: Failed to send WebSocket command: $command (service returned false)")
+            android.util.Log.w("Andromuks", "🟠 sendWebSocketCommand: FAILED to send $command - requestId=$requestId, roomId=$roomId (service returned false)")
             WebSocketResult.CONNECTION_ERROR
         }
         
@@ -15028,8 +15100,10 @@ class AppViewModel : ViewModel() {
         }
         
         buildTimelineFromChain()
+        val timelineSizeBefore = timelineEvents.size
         isTimelineLoading = false
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: timelineEvents set, isTimelineLoading set to false")
+        val timelineSizeAfter = timelineEvents.size
+        android.util.Log.d("Andromuks", "🟡 handleInitialTimelineBuild: Timeline built - roomId=$roomId, timelineList.size=${timelineList.size}, timelineEvents.size=$timelineSizeAfter (was $timelineSizeBefore), isTimelineLoading=$isTimelineLoading")
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Seeding cache with ${timelineList.size} paginated events for room $roomId")
         RoomTimelineCache.seedCacheWithPaginatedEvents(roomId, timelineList)
         

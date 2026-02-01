@@ -235,6 +235,11 @@ fun RoomListScreen(
     var stableSection by remember { 
         mutableStateOf(appViewModel.getCurrentRoomSection())
     }
+    
+    // DEBUG: Log state changes to identify why "Refreshing rooms..." is stuck
+    LaunchedEffect(coldStartRefreshing, shouldBlockForPending, effectiveSpacesLoaded, effectiveInitialSyncComplete, stableSection.rooms.size) {
+        android.util.Log.d("Andromuks", "🔴 RoomListScreen: Loading state - coldStartRefreshing=$coldStartRefreshing, shouldBlockForPending=$shouldBlockForPending, effectiveSpacesLoaded=$effectiveSpacesLoaded, effectiveInitialSyncComplete=$effectiveInitialSyncComplete, hasRooms=${stableSection.rooms.isNotEmpty()}, roomCount=${stableSection.rooms.size}")
+    }
     var previousSectionType by remember { mutableStateOf(stableSection.type) }
     var sectionAnimationDirection by remember { mutableStateOf(0) }
     // Room summaries are now in-memory only - no need for separate summary tracking
