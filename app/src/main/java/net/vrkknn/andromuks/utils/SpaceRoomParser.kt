@@ -617,6 +617,15 @@ object SpaceRoomParser {
             val currentSpaces = appViewModel?.allSpaces ?: emptyList()
             //android.util.Log.d("Andromuks", "SpaceRoomParser: Updating ${currentSpaces.size} existing spaces with edges")
             
+            // CRITICAL FIX: If currentSpaces is empty, don't update (would clear all spaces)
+            // This can happen if updateExistingSpacesWithEdges is called before parseSpacesBasic
+            // has populated spaces, or if spaces were cleared but not yet repopulated.
+            // Wait for spaces to be populated first via parseSpacesBasic.
+            if (currentSpaces.isEmpty()) {
+                android.util.Log.w("Andromuks", "SpaceRoomParser: updateExistingSpacesWithEdges called but currentSpaces is empty - skipping update to prevent clearing spaces")
+                return
+            }
+            
             for (space in currentSpaces) {
                 val spaceEdgeArray = spaceEdges.optJSONArray(space.id)
                 val childRooms = mutableListOf<net.vrkknn.andromuks.RoomItem>()
@@ -661,7 +670,12 @@ object SpaceRoomParser {
             }
             
             // Update the spaces in AppViewModel
-            appViewModel?.updateAllSpaces(updatedSpaces)
+            // CRITICAL FIX: Only update if we have spaces to update (should always be true after the check above)
+            if (updatedSpaces.isNotEmpty()) {
+                appViewModel?.updateAllSpaces(updatedSpaces)
+            } else {
+                android.util.Log.w("Andromuks", "SpaceRoomParser: updateExistingSpacesWithEdges produced no updated spaces - skipping update")
+            }
             //android.util.Log.d("Andromuks", "SpaceRoomParser: Updated ${updatedSpaces.size} spaces with edges")
             if (discoveredSpaceIds.isNotEmpty()) {
                 appViewModel?.registerSpaceIds(discoveredSpaceIds)
