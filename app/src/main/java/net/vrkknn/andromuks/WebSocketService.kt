@@ -18,6 +18,9 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.atomic.AtomicLong
 import okhttp3.WebSocket
 import org.json.JSONObject
@@ -90,6 +93,10 @@ class WebSocketService : Service() {
         // PHASE 1.1: Primary instance tracking - ensures only one AppViewModel controls WebSocket lifecycle
         // Primary instance is the one that manages reconnection, offline mode, and activity logging
         private var primaryViewModelId: String? = null
+        
+        // Connection state StateFlow for reactive UI updates
+        private val _connectionStateFlow = MutableStateFlow<ConnectionState>(ConnectionState.DISCONNECTED)
+        val connectionStateFlow: StateFlow<ConnectionState> = _connectionStateFlow.asStateFlow()
         
         // STEP 1.1: Primary callbacks stored in service (not AppViewModel)
         // These callbacks are stored as lambda functions in the service, allowing them to persist
@@ -1212,7 +1219,7 @@ class WebSocketService : Service() {
                 serviceInstance.webSocket?.close(1000, "Reconnecting")
             }
             
-            serviceInstance.connectionState = ConnectionState.CONNECTING
+            updateConnectionState(ConnectionState.CONNECTING)
             serviceInstance.webSocket = webSocket
             // DO NOT mark as CONNECTED yet - wait for init_complete
             // Track connection start time for duration display
@@ -1292,7 +1299,7 @@ class WebSocketService : Service() {
             // Close the WebSocket properly before clearing the reference
             serviceInstance.webSocket?.close(1000, "Clearing connection")
             serviceInstance.webSocket = null
-            serviceInstance.connectionState = ConnectionState.DISCONNECTED
+            updateConnectionState(ConnectionState.DISCONNECTED)
             serviceInstance.isCurrentlyConnected = false
             
             // CRITICAL FIX: Reset reconnection state when connection fails during reconnection
@@ -1454,7 +1461,7 @@ class WebSocketService : Service() {
                 System.currentTimeMillis() - serviceInstance.lastReconnectionTime > 60_000) {
                 android.util.Log.w("WebSocketService", "CORRUPTION: Stuck in reconnecting state for >60s - recovering")
                 serviceInstance.isReconnecting = false
-                serviceInstance.connectionState = ConnectionState.DISCONNECTED
+                updateConnectionState(ConnectionState.DISCONNECTED)
                 corruptionDetected = true
             }
             
@@ -1464,11 +1471,11 @@ class WebSocketService : Service() {
             
             if (hasWebSocket && !isConnected) {
                 android.util.Log.w("WebSocketService", "CORRUPTION: WebSocket exists but state is not CONNECTED - recovering")
-                serviceInstance.connectionState = ConnectionState.CONNECTED
+                updateConnectionState(ConnectionState.CONNECTED)
                 corruptionDetected = true
             } else if (!hasWebSocket && isConnected) {
                 android.util.Log.w("WebSocketService", "CORRUPTION: State is CONNECTED but no WebSocket - recovering")
-                serviceInstance.connectionState = ConnectionState.DISCONNECTED
+                updateConnectionState(ConnectionState.DISCONNECTED)
                 corruptionDetected = true
             }
             
@@ -1508,7 +1515,7 @@ class WebSocketService : Service() {
             // Reset all state
             serviceInstance.isReconnecting = false
             serviceInstance.isCurrentlyConnected = false
-            serviceInstance.connectionState = ConnectionState.DISCONNECTED
+            updateConnectionState(ConnectionState.DISCONNECTED)
             serviceInstance.consecutivePingTimeouts = 0
             serviceInstance.lastReconnectionTime = 0
             
@@ -1536,6 +1543,59 @@ class WebSocketService : Service() {
          */
         fun getWebSocket(): WebSocket? {
             return instance?.webSocket
+        }
+        
+        /**
+         * Update connection state (both instance and StateFlow)
+         */
+        private fun updateConnectionState(newState: ConnectionState) {
+            val serviceInstance = instance
+            if (serviceInstance != null) {
+                serviceInstance.connectionState = newState
+            }
+            _connectionStateFlow.value = newState
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Connection state updated: $newState")
+        }
+        
+        /**
+         * Send a WebSocket command
+         * @param command The command name (e.g., "get_room_state", "mark_read")
+         * @param requestId The request ID for matching responses (0 for no response expected)
+         * @param data The command data as a map
+         * @return true if the command was sent successfully, false otherwise
+         */
+        fun sendCommand(command: String, requestId: Int, data: Map<String, Any>): Boolean {
+            val serviceInstance = instance ?: run {
+                android.util.Log.w("WebSocketService", "sendCommand() called but service instance is null")
+                return false
+            }
+            
+            val ws = serviceInstance.webSocket
+            if (ws == null) {
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "sendCommand() called but WebSocket is null: $command")
+                return false
+            }
+            
+            // Check connection state
+            if (serviceInstance.connectionState != ConnectionState.CONNECTED) {
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "sendCommand() called but not connected (state: ${serviceInstance.connectionState}): $command")
+                return false
+            }
+            
+            return try {
+                val json = JSONObject()
+                json.put("command", command)
+                json.put("request_id", requestId)
+                json.put("data", JSONObject(data))
+                val jsonString = json.toString()
+                
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "sendCommand: command='$command', requestId=$requestId")
+                
+                ws.send(jsonString)
+            } catch (e: Exception) {
+                android.util.Log.e("WebSocketService", "Failed to send WebSocket command: $command", e)
+                false
+            }
         }
         
         /**
@@ -1828,7 +1888,7 @@ class WebSocketService : Service() {
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Cleared all timeline caches on init_complete (all rooms marked as needing pagination)")
             
             // Now mark as CONNECTED - connection is healthy
-            serviceInstance.connectionState = ConnectionState.CONNECTED
+            updateConnectionState(ConnectionState.CONNECTED)
             android.util.Log.i("WebSocketService", "Init complete received - connection marked as CONNECTED")
             logActivity("Init Complete Received - Connection Healthy", serviceInstance.currentNetworkType.name)
             
@@ -1921,7 +1981,7 @@ class WebSocketService : Service() {
                 // Cancel any existing reconnection job
                 serviceInstance.reconnectionJob?.cancel()
                 
-                serviceInstance.connectionState = ConnectionState.RECONNECTING
+                updateConnectionState(ConnectionState.RECONNECTING)
                 serviceInstance.lastReconnectionTime = currentTime
                 serviceInstance.reconnectionAttemptCount++
                 
@@ -3192,6 +3252,9 @@ class WebSocketService : Service() {
         
         instance = this
         createNotificationChannel()
+        
+        // Initialize connection state StateFlow
+        updateConnectionState(connectionState)
         
         if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service created - serviceStartTime: $serviceStartTime")
         
