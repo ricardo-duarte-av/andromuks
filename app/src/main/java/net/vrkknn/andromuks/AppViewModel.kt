@@ -9396,6 +9396,19 @@ class AppViewModel : ViewModel() {
         // Keep only top 20
         val updatedFrequencies = sortedFrequencies.take(20)
         
+        // CRITICAL SAFEGUARD: Ensure we never have an empty list after update
+        // This should never happen since we always add or increment, but defensive check prevents data loss
+        if (updatedFrequencies.isEmpty()) {
+            android.util.Log.e("Andromuks", "AppViewModel: updateRecentEmojis resulted in empty list for emoji '$emoji' - this should never happen! Adding emoji with count 1")
+            val fallbackFrequencies = listOf(Pair(emoji, 1))
+            recentEmojiFrequencies = fallbackFrequencies.toMutableList()
+            val emojisList = fallbackFrequencies.map { it.first }
+            RecentEmojisCache.set(emojisList)
+            recentEmojis = emojisList
+            sendAccountDataUpdate(fallbackFrequencies)
+            return
+        }
+        
         // Update internal storage and UI list
         recentEmojiFrequencies = updatedFrequencies.toMutableList()
                         val emojisList = updatedFrequencies.map { it.first }
@@ -9410,6 +9423,14 @@ class AppViewModel : ViewModel() {
     
     private fun sendAccountDataUpdate(frequencies: List<Pair<String, Int>>) {
         val ws = WebSocketService.getWebSocket() ?: return
+        
+        // CRITICAL SAFEGUARD: Never send empty recent_emoji array to server
+        // This would clear all recent emojis. If frequencies is empty, something went wrong.
+        if (frequencies.isEmpty()) {
+            android.util.Log.w("Andromuks", "AppViewModel: sendAccountDataUpdate called with empty frequencies list - skipping send to prevent clearing recent emojis")
+            return
+        }
+        
         val accountDataRequestId = requestIdCounter++
         
         // Create the recent_emoji array format: [["emoji", count], ...]
