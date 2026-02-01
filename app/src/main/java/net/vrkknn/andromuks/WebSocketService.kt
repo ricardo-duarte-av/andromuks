@@ -1267,6 +1267,25 @@ class WebSocketService : Service() {
             serviceInstance.currentNetworkType = actualNetworkType
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network type set to: $actualNetworkType")
             
+            // #region agent log
+            try {
+                val logData = java.util.HashMap<String, Any>()
+                logData["state"] = "CONNECTING"
+                logData["networkType"] = actualNetworkType.name
+                logData["connectionStartTime"] = serviceInstance.connectionStartTime
+                logData["webSocketNotNull"] = (webSocket != null)
+                val logJson = org.json.JSONObject()
+                logJson.put("sessionId", "debug-session")
+                logJson.put("runId", "run1")
+                logJson.put("hypothesisId", "A")
+                logJson.put("location", "WebSocketService.kt:1251")
+                logJson.put("message", "State changed to CONNECTING")
+                logJson.put("data", org.json.JSONObject(logData))
+                logJson.put("timestamp", System.currentTimeMillis())
+                java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
+            } catch (e: Exception) { }
+            // #endregion
+            
             // Start timeout for init_complete - connection is only healthy after init_complete arrives
             serviceInstance.waitingForInitComplete = true
             serviceInstance.runIdReceived = false
@@ -1318,6 +1337,28 @@ class WebSocketService : Service() {
             }
             
             android.util.Log.w("WebSocketService", "clearWebSocket() called - setting connection state to DISCONNECTED (was: ${serviceInstance.connectionState})")
+            
+            // #region agent log
+            try {
+                val logData = java.util.HashMap<String, Any>()
+                logData["reason"] = reason
+                logData["previousState"] = serviceInstance.connectionState.name
+                logData["currentNetworkType"] = serviceInstance.currentNetworkType.name
+                logData["waitingForInitComplete"] = serviceInstance.waitingForInitComplete
+                logData["initCompleteTimeoutJobActive"] = (serviceInstance.initCompleteTimeoutJob?.isActive == true)
+                logData["webSocketNotNull"] = (serviceInstance.webSocket != null)
+                logData["timeSinceConnect"] = if (serviceInstance.connectionStartTime > 0) System.currentTimeMillis() - serviceInstance.connectionStartTime else 0
+                val logJson = org.json.JSONObject()
+                logJson.put("sessionId", "debug-session")
+                logJson.put("runId", "run1")
+                logJson.put("hypothesisId", "C")
+                logJson.put("location", "WebSocketService.kt:1320")
+                logJson.put("message", "clearWebSocket called")
+                logJson.put("data", org.json.JSONObject(logData))
+                logJson.put("timestamp", System.currentTimeMillis())
+                java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
+            } catch (e: Exception) { }
+            // #endregion
             
             // Show toast for connection cleared
             serviceInstance.showWebSocketToast("Connection killed: $reason")
@@ -1887,10 +1928,45 @@ class WebSocketService : Service() {
             
             serviceInstance.waitingForInitComplete = false
             
+            // #region agent log
+            try {
+                val logData = java.util.HashMap<String, Any>()
+                logData["connectionState"] = serviceInstance.connectionState.name
+                logData["currentNetworkType"] = serviceInstance.currentNetworkType.name
+                logData["timeSinceConnect"] = if (serviceInstance.connectionStartTime > 0) System.currentTimeMillis() - serviceInstance.connectionStartTime else 0
+                logData["webSocketNotNull"] = (serviceInstance.webSocket != null)
+                val logJson = org.json.JSONObject()
+                logJson.put("sessionId", "debug-session")
+                logJson.put("runId", "run1")
+                logJson.put("hypothesisId", "D")
+                logJson.put("location", "WebSocketService.kt:1892")
+                logJson.put("message", "Init complete received - checking state")
+                logJson.put("data", org.json.JSONObject(logData))
+                logJson.put("timestamp", System.currentTimeMillis())
+                java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
+            } catch (e: Exception) { }
+            // #endregion
+            
             // CRITICAL FIX: Verify connection state before proceeding
             // If connection was cleared due to timeout, don't proceed with init_complete processing
             if (serviceInstance.connectionState != ConnectionState.CONNECTING && serviceInstance.connectionState != ConnectionState.CONNECTED) {
                 android.util.Log.w("WebSocketService", "Init complete received but connection state is ${serviceInstance.connectionState} - ignoring")
+                // #region agent log
+                try {
+                    val logData = java.util.HashMap<String, Any>()
+                    logData["connectionState"] = serviceInstance.connectionState.name
+                    logData["currentNetworkType"] = serviceInstance.currentNetworkType.name
+                    val logJson = org.json.JSONObject()
+                    logJson.put("sessionId", "debug-session")
+                    logJson.put("runId", "run1")
+                    logJson.put("hypothesisId", "D")
+                    logJson.put("location", "WebSocketService.kt:1893")
+                    logJson.put("message", "Init complete ignored - wrong state")
+                    logJson.put("data", org.json.JSONObject(logData))
+                    logJson.put("timestamp", System.currentTimeMillis())
+                    java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
+                } catch (e: Exception) { }
+                // #endregion
                 return
             }
             
@@ -1921,6 +1997,24 @@ class WebSocketService : Service() {
             updateConnectionState(ConnectionState.CONNECTED)
             android.util.Log.i("WebSocketService", "Init complete received - connection marked as CONNECTED")
             logActivity("Init Complete Received - Connection Healthy", serviceInstance.currentNetworkType.name)
+            
+            // #region agent log
+            try {
+                val logData = java.util.HashMap<String, Any>()
+                logData["connectionState"] = serviceInstance.connectionState.name
+                logData["currentNetworkType"] = serviceInstance.currentNetworkType.name
+                logData["timeSinceConnect"] = if (serviceInstance.connectionStartTime > 0) System.currentTimeMillis() - serviceInstance.connectionStartTime else 0
+                val logJson = org.json.JSONObject()
+                logJson.put("sessionId", "debug-session")
+                logJson.put("runId", "run1")
+                logJson.put("hypothesisId", "D")
+                logJson.put("location", "WebSocketService.kt:1921")
+                logJson.put("message", "State changed to CONNECTED")
+                logJson.put("data", org.json.JSONObject(logData))
+                logJson.put("timestamp", System.currentTimeMillis())
+                java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
+            } catch (e: Exception) { }
+            // #endregion
             
             // Show toast for successful connection
             serviceInstance.showWebSocketToast("Connected!")
@@ -2747,6 +2841,28 @@ class WebSocketService : Service() {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d("WebSocketService", "Network type changed but state is $connectionState - not triggering reconnection")
                         }
+                        
+                        // #region agent log
+                        try {
+                            val logData = java.util.HashMap<String, Any>()
+                            logData["previousNetworkType"] = previousNetworkType.name
+                            logData["newNetworkType"] = newNetworkType.name
+                            logData["connectionState"] = connectionState.name
+                            logData["waitingForInitComplete"] = waitingForInitComplete
+                            logData["initCompleteTimeoutJobActive"] = (initCompleteTimeoutJob?.isActive == true)
+                            logData["timeSinceConnect"] = if (connectionStartTime > 0) System.currentTimeMillis() - connectionStartTime else 0
+                            logData["webSocketNotNull"] = (webSocket != null)
+                            val logJson = org.json.JSONObject()
+                            logJson.put("sessionId", "debug-session")
+                            logJson.put("runId", "run1")
+                            logJson.put("hypothesisId", "A")
+                            logJson.put("location", "WebSocketService.kt:2746")
+                            logJson.put("message", "Network changed during CONNECTING - ignored")
+                            logJson.put("data", org.json.JSONObject(logData))
+                            logJson.put("timestamp", System.currentTimeMillis())
+                            java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
+                        } catch (e: Exception) { }
+                        // #endregion
                     }
                 } else {
                     // Network type changed but connection is healthy - trust Android, keep existing connection
@@ -3221,18 +3337,91 @@ class WebSocketService : Service() {
             INIT_COMPLETE_TIMEOUT_MS
         }
         
+        // #region agent log
+        try {
+            val logData = java.util.HashMap<String, Any>()
+            logData["timeoutMs"] = timeoutMs
+            logData["runIdReceived"] = runIdReceived
+            logData["connectionState"] = connectionState.name
+            logData["currentNetworkType"] = currentNetworkType.name
+            val logJson = org.json.JSONObject()
+            logJson.put("sessionId", "debug-session")
+            logJson.put("runId", "run1")
+            logJson.put("hypothesisId", "B")
+            logJson.put("location", "WebSocketService.kt:3214")
+            logJson.put("message", "startInitCompleteTimeout called")
+            logJson.put("data", org.json.JSONObject(logData))
+            logJson.put("timestamp", System.currentTimeMillis())
+            java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
+        } catch (e: Exception) { }
+        // #endregion
+        
         initCompleteTimeoutJob = serviceScope.launch {
+            // #region agent log
+            try {
+                val logData = java.util.HashMap<String, Any>()
+                logData["timeoutMs"] = timeoutMs
+                logData["runIdReceived"] = runIdReceived
+                logData["connectionState"] = connectionState.name
+                logData["waitingForInitComplete"] = waitingForInitComplete
+                logData["currentNetworkType"] = currentNetworkType.name
+                val logJson = org.json.JSONObject()
+                logJson.put("sessionId", "debug-session")
+                logJson.put("runId", "run1")
+                logJson.put("hypothesisId", "B")
+                logJson.put("location", "WebSocketService.kt:3224")
+                logJson.put("message", "Init complete timeout job started")
+                logJson.put("data", org.json.JSONObject(logData))
+                logJson.put("timestamp", System.currentTimeMillis())
+                java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
+            } catch (e: Exception) { }
+            // #endregion
+            
             delay(timeoutMs)
             
             // Check if we're still waiting for init_complete
             if (!waitingForInitComplete) {
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Init complete timeout expired but already received - ignoring")
+                // #region agent log
+                try {
+                    val logData = java.util.HashMap<String, Any>()
+                    logData["timeoutMs"] = timeoutMs
+                    logData["connectionState"] = connectionState.name
+                    logData["currentNetworkType"] = currentNetworkType.name
+                    val logJson = org.json.JSONObject()
+                    logJson.put("sessionId", "debug-session")
+                    logJson.put("runId", "run1")
+                    logJson.put("hypothesisId", "B")
+                    logJson.put("location", "WebSocketService.kt:3230")
+                    logJson.put("message", "Timeout expired but init_complete already received")
+                    logJson.put("data", org.json.JSONObject(logData))
+                    logJson.put("timestamp", System.currentTimeMillis())
+                    java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
+                } catch (e: Exception) { }
+                // #endregion
                 return@launch
             }
             
             // Check if connection is still active
             if (connectionState != ConnectionState.CONNECTING && connectionState != ConnectionState.CONNECTED) {
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Init complete timeout expired but connection not active - ignoring")
+                // #region agent log
+                try {
+                    val logData = java.util.HashMap<String, Any>()
+                    logData["timeoutMs"] = timeoutMs
+                    logData["connectionState"] = connectionState.name
+                    logData["currentNetworkType"] = currentNetworkType.name
+                    val logJson = org.json.JSONObject()
+                    logJson.put("sessionId", "debug-session")
+                    logJson.put("runId", "run1")
+                    logJson.put("hypothesisId", "B")
+                    logJson.put("location", "WebSocketService.kt:3236")
+                    logJson.put("message", "Timeout expired but connection not active")
+                    logJson.put("data", org.json.JSONObject(logData))
+                    logJson.put("timestamp", System.currentTimeMillis())
+                    java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
+                } catch (e: Exception) { }
+                // #endregion
                 return@launch
             }
             
@@ -3244,6 +3433,28 @@ class WebSocketService : Service() {
             
             android.util.Log.w("WebSocketService", reason)
             logActivity("Init Complete Timeout - Connection Failed", currentNetworkType.name)
+            
+            // #region agent log
+            try {
+                val logData = java.util.HashMap<String, Any>()
+                logData["timeoutMs"] = timeoutMs
+                logData["connectionState"] = connectionState.name
+                logData["currentNetworkType"] = currentNetworkType.name
+                logData["waitingForInitComplete"] = waitingForInitComplete
+                logData["runIdReceived"] = runIdReceived
+                logData["timeSinceConnect"] = if (connectionStartTime > 0) System.currentTimeMillis() - connectionStartTime else 0
+                logData["webSocketNotNull"] = (webSocket != null)
+                val logJson = org.json.JSONObject()
+                logJson.put("sessionId", "debug-session")
+                logJson.put("runId", "run1")
+                logJson.put("hypothesisId", "B")
+                logJson.put("location", "WebSocketService.kt:3245")
+                logJson.put("message", "Init complete timeout fired - clearing WebSocket")
+                logJson.put("data", org.json.JSONObject(logData))
+                logJson.put("timestamp", System.currentTimeMillis())
+                java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
+            } catch (e: Exception) { }
+            // #endregion
             
             // Show notification about connection failure
             showInitCompleteFailureNotification()

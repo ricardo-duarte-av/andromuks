@@ -4822,6 +4822,10 @@ class AppViewModel : ViewModel() {
         // Start WebSocket pinger immediately on init_complete so low-traffic accounts don't wait for first sync_complete
         net.vrkknn.andromuks.WebSocketService.startPingLoopOnInitComplete()
         
+        // CRITICAL FIX: Set spacesLoaded immediately so UI doesn't wait unnecessarily
+        // This is safe because init_complete means the backend is ready
+        spacesLoaded = true
+        
         // Process all queued initial sync_complete messages
         viewModelScope.launch(Dispatchers.Default) {
                     try {
@@ -4886,6 +4890,11 @@ class AppViewModel : ViewModel() {
                                 if (BuildConfig.DEBUG) {
                                     android.util.Log.d("Andromuks", "AppViewModel: Finished processing all ${queuedMessages.size} initial sync_complete messages - ${summaryUpdateJobs.size} summary update jobs running in background")
                                 }
+                            } else {
+                                // Queue was empty - set flags immediately
+                                if (BuildConfig.DEBUG) {
+                                    android.util.Log.d("Andromuks", "AppViewModel: No queued messages to process - setting initialSyncComplete immediately")
+                                }
                             }
                         }
                     } catch (e: Exception) {
@@ -4896,7 +4905,10 @@ class AppViewModel : ViewModel() {
                         // Room data is already parsed and in memory, so UI can be shown immediately
                         initialSyncProcessingComplete = true
                         withContext(Dispatchers.Main) {
+                            // CRITICAL FIX: Set both flags together atomically to prevent UI from getting stuck
+                            // This ensures the UI sees both states change together
                             initialSyncComplete = true
+                            spacesLoaded = true
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d("Andromuks", "AppViewModel: Initial sync processing complete - UI can now be shown (summary updates running in background)")
                             }
@@ -4923,8 +4935,6 @@ class AppViewModel : ViewModel() {
             android.util.Log.i("Andromuks", "AppViewModel: Clearing certificate error state (connection succeeded)")
             setCertificateErrorState(false, null)
         }
-        
-        spacesLoaded = true
         
         // Now that all rooms are loaded, populate space edges
         populateSpaceEdges()
