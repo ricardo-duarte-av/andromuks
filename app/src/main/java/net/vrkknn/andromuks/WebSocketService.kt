@@ -2267,6 +2267,10 @@ class WebSocketService : Service() {
     private var pingLoopStarted = false // Track if ping loop has been started after first sync_complete
     private var hasEverReachedReadyState = false // Track if we have ever received sync_complete on this run
     
+    // Fallback network validation state (exponential backoff)
+    private var fallbackBackoffDelayMs = 1000L // Start with 1 second
+    private var lastNetworkTypeForBackoff: NetworkType? = null // Track network type to reset backoff on change
+    
     // PHASE 2.2: Service restart detection
     private var serviceStartTime: Long = 0 // Track when service started (0 = not started yet)
     private var wasRestarted: Boolean = false // Track if service was restarted (instance was null before onCreate)
@@ -2595,12 +2599,36 @@ class WebSocketService : Service() {
                     android.util.Log.i("WebSocketService", "Network available: $networkType - waiting for validation before reconnecting")
                     
                     // Wait for network validation first (5 seconds max)
+                    // CRITICAL FIX: If we're disconnected, use fallback validation with exponential backoff
                     val networkValidated = waitForNetworkValidation(5000L)
                     if (!networkValidated) {
-                        android.util.Log.w("WebSocketService", "Network available but validation failed/timeout - not reconnecting yet")
-                        showWebSocketToast("Network not validated - waiting")
-                        return@launch
+                        if (connectionState == ConnectionState.DISCONNECTED) {
+                            // We're disconnected - try fallback validation with exponential backoff
+                            android.util.Log.w("WebSocketService", "Network available but Android validation timeout - trying fallback backend health check")
+                            val fallbackValidated = tryFallbackNetworkValidation()
+                            if (fallbackValidated) {
+                                android.util.Log.i("WebSocketService", "Fallback validation succeeded - proceeding with reconnection")
+                                logActivity("Network Available - Reconnecting (fallback validated)", currentNetworkType.name)
+                                // Reset backoff on success
+                                fallbackBackoffDelayMs = 1000L
+                                scheduleReconnection("Network available: $networkType (fallback validated)")
+                            } else {
+                                android.util.Log.w("WebSocketService", "Fallback validation failed - will retry with exponential backoff (next: ${fallbackBackoffDelayMs}ms)")
+                                showWebSocketToast("Network validation failed - retrying...")
+                                // Don't reconnect yet - will retry on next network event with increased backoff
+                            }
+                            return@launch
+                        } else {
+                            // Connected/connecting - wait for validation
+                            android.util.Log.w("WebSocketService", "Network available but validation failed/timeout - not reconnecting yet (state: $connectionState)")
+                            showWebSocketToast("Network not validated - waiting")
+                            return@launch
+                        }
                     }
+                    
+                    // Android validation succeeded - reset fallback backoff
+                    fallbackBackoffDelayMs = 1000L
+                    lastNetworkTypeForBackoff = null
                     
                     android.util.Log.i("WebSocketService", "Network validated - checking if reconnection needed")
                     
@@ -2683,6 +2711,15 @@ class WebSocketService : Service() {
                 // Show toast for network type change
                 showWebSocketToast("Network: $previousType → $newType")
                 
+                // CRITICAL: Reset fallback backoff when network type changes
+                if (lastNetworkTypeForBackoff != newNetworkType) {
+                    fallbackBackoffDelayMs = 1000L // Reset to 1 second
+                    lastNetworkTypeForBackoff = newNetworkType
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d("WebSocketService", "Network type changed - reset fallback backoff to 1s")
+                    }
+                }
+                
                 // SIMPLIFIED: Trust Android's network state - only reconnect if connection is actually broken
                 val shouldReconnect = shouldReconnectOnNetworkChange(previousNetworkType, newNetworkType)
                 
@@ -2699,11 +2736,17 @@ class WebSocketService : Service() {
                             ensureHeadlessPrimary(applicationContext, "Network type change - callback missing")
                         }
                         scheduleReconnection("Network type changed: $previousNetworkType → $newNetworkType")
-                    } else {
-                        // Not connected - just trigger reconnection
-                        android.util.Log.i("WebSocketService", "Network type changed and not connected - triggering reconnection ($previousNetworkType → $newNetworkType)")
+                    } else if (connectionState == ConnectionState.DISCONNECTED) {
+                        // Not connected - trigger reconnection (network validation will happen in scheduleReconnection)
+                        android.util.Log.i("WebSocketService", "Network type changed and disconnected - triggering reconnection ($previousNetworkType → $newNetworkType)")
                         // REFACTORING: Service handles reconnection directly
+                        // Note: onNetworkAvailable will also try to reconnect, but scheduleReconnection has guards against duplicates
                         scheduleReconnection("Network type changed: $previousNetworkType → $newNetworkType")
+                    } else {
+                        // Other state (CONNECTING, etc.) - don't trigger another reconnection
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d("WebSocketService", "Network type changed but state is $connectionState - not triggering reconnection")
+                        }
                     }
                 } else {
                     // Network type changed but connection is healthy - trust Android, keep existing connection
@@ -2795,6 +2838,71 @@ class WebSocketService : Service() {
         showWebSocketToast("Network validation timeout (${timeoutMs}ms)")
         
         return false
+    }
+    
+    /**
+     * Fallback network validation using backend health check with exponential backoff
+     * Used when Android's network validation times out but we're disconnected
+     * 
+     * @return true if backend is reachable (HTTP 200), false otherwise
+     */
+    private suspend fun tryFallbackNetworkValidation(): Boolean {
+        val serviceInstance = instance ?: return false
+        
+        // Get homeserver URL from SharedPreferences
+        val prefs = serviceInstance.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+        val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
+        
+        if (homeserverUrl.isBlank()) {
+            android.util.Log.w("WebSocketService", "Fallback validation: No homeserver URL available")
+            return false
+        }
+        
+        try {
+            android.util.Log.i("WebSocketService", "Fallback validation: Checking backend health with ${fallbackBackoffDelayMs}ms delay")
+            
+            // Wait for backoff delay before attempting
+            delay(fallbackBackoffDelayMs)
+            
+            // Perform backend health check
+            val isHealthy = try {
+                val healthClient = okhttp3.OkHttpClient.Builder()
+                    .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+                
+                val request = okhttp3.Request.Builder()
+                    .url(homeserverUrl)
+                    .get()
+                    .build()
+                
+                healthClient.newCall(request).execute().use { response ->
+                    val healthy = response.isSuccessful && response.code == 200
+                    android.util.Log.i("WebSocketService", "Fallback validation: Backend health check: HTTP ${response.code} (healthy=$healthy)")
+                    healthy
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("WebSocketService", "Fallback validation: Backend health check failed: ${e.message}", e)
+                false
+            }
+            
+            if (isHealthy) {
+                // Success - reset backoff
+                fallbackBackoffDelayMs = 1000L
+                android.util.Log.i("WebSocketService", "Fallback validation: Backend reachable - proceeding with reconnection")
+                return true
+            } else {
+                // Failure - increase backoff exponentially (1, 2, 4, 8, 16 seconds, max 16)
+                fallbackBackoffDelayMs = (fallbackBackoffDelayMs * 2).coerceAtMost(16000L)
+                android.util.Log.w("WebSocketService", "Fallback validation: Backend not reachable - next backoff: ${fallbackBackoffDelayMs}ms")
+                return false
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("WebSocketService", "Fallback validation: Error during validation", e)
+            // Increase backoff on error too
+            fallbackBackoffDelayMs = (fallbackBackoffDelayMs * 2).coerceAtMost(16000L)
+            return false
+        }
     }
     
     /**
