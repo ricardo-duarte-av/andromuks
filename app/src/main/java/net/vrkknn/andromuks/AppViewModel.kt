@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import net.vrkknn.andromuks.SpaceItem
@@ -1100,9 +1101,67 @@ class AppViewModel : ViewModel() {
         private set
     var processedSyncCompleteCount by mutableStateOf(0)
         private set
+    
+    // Startup progress messages for loading screen (last 10 messages, newest on top)
+    private val _startupProgressMessages = mutableStateListOf<String>()
+    val startupProgressMessages: List<String> get() = _startupProgressMessages
+    
+    // Track if startup is complete (ready to show room list)
+    var isStartupComplete by mutableStateOf(false)
+        private set
+    
+    /**
+     * Add a progress message to the startup loading screen
+     * Messages are added to the front (newest on top), keeping only the last 10
+     */
+    fun addStartupProgressMessage(message: String) {
+        synchronized(_startupProgressMessages) {
+            _startupProgressMessages.add(0, message) // Add to front
+            if (_startupProgressMessages.size > 10) {
+                _startupProgressMessages.removeAt(_startupProgressMessages.size - 1) // Remove oldest
+            }
+        }
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟦 Startup Progress: $message")
+    }
+    
+    /**
+     * Clear all startup progress messages (e.g., on app restart)
+     */
+    fun clearStartupProgressMessages() {
+        synchronized(_startupProgressMessages) {
+            _startupProgressMessages.clear()
+        }
+    }
+    
+    /**
+     * Check if startup is complete and room list is ready to be displayed
+     * Startup is complete when:
+     * 1. init_complete was received (initializationComplete = true)
+     * 2. All initial sync_complete messages have been processed (initialSyncComplete = true)
+     * 3. Spaces are loaded (spacesLoaded = true)
+     * Note: Bridge avatars are loaded lazily in background, so we don't wait for them
+     */
+    fun checkStartupComplete() {
+        val wasComplete = isStartupComplete
+        val nowComplete = initializationComplete && 
+                         initialSyncComplete && 
+                         spacesLoaded &&
+                         roomMap.isNotEmpty() // Have at least some rooms
+        
+        if (nowComplete && !wasComplete) {
+            isStartupComplete = true
+            addStartupProgressMessage("Ready!")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "🟦 Startup complete - Room list ready to display")
+            }
+        }
+    }
 
     fun setSpaces(spaces: List<SpaceItem>, skipCounterUpdate: Boolean = false) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: setSpaces called with ${spaces.size} spaces")
+        if (spaces.isNotEmpty() && !initialSyncComplete) {
+            addStartupProgressMessage("Processing ${spaces.size} spaces...")
+        }
         spaceList = spaces
         
         // SYNC OPTIMIZATION: Allow skipping immediate counter updates for batched updates
@@ -3530,7 +3589,6 @@ class AppViewModel : ViewModel() {
                                 // historical data from queued sync_complete messages even after initializationComplete is set
                                 if (isAppVisible && initialSyncComplete) {
                                     if (isActualNewJoin) {
-                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: New member joined: $userId in room $roomId - triggering immediate UI update")
                                         // New joins are critical - trigger member update immediately
                                         memberUpdateCounter++
                                     } else if (isProfileChange) {
@@ -4585,7 +4643,6 @@ class AppViewModel : ViewModel() {
             if (initialSyncProcessingComplete) {
                 // Initial sync is complete - this is a real new room, mark as newly joined
             newlyJoinedRoomIds.add(room.id)
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name} (marked as newly joined)")
             } else {
                 // Initial sync - just add the room without marking as newly joined
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added room during initial sync: ${room.name} (not marking as newly joined)")
@@ -4843,6 +4900,7 @@ class AppViewModel : ViewModel() {
     
     fun onInitComplete() {
         android.util.Log.d("Andromuks", "🟣 onInitComplete: START - initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded, initialSyncCompleteQueue.size=${initialSyncCompleteQueue.size}")
+        addStartupProgressMessage("Initialization complete - processing ${initialSyncCompleteQueue.size} sync messages")
         
         // CRITICAL FIX: Set initialSyncPhase = true to stop queueing and start processing queued messages
         initialSyncPhase = true
@@ -4880,16 +4938,38 @@ class AppViewModel : ViewModel() {
                                 // This is critical for reconnect scenarios where hundreds of sync batches may queue up
                                 val chunkSize = 10 // Process 10 sync batches before yielding
                                 
-                                // CRITICAL FIX: Set initialSyncComplete=true after processing first 2-3 messages (enough to get room data)
-                                // This unblocks the UI immediately while remaining messages process in background
-                                // For large accounts (580+ rooms), processing all 8-9 messages before showing UI causes long stalls
-                                val earlyUnblockThreshold = 3 // Unblock UI after processing first 3 messages
+                                // CRITICAL FIX: Optimize unblocking based on sync_complete message pattern for large accounts:
+                                // Message 1: clear_state=true, ~100 rooms, space_edges, top_level_spaces (CRITICAL - has spaces info)
+                                // Messages 2-7: ~100 rooms each
+                                // Message 8: account_data
+                                // Strategy: Unblock after message 1 (has spaces) OR after 2 messages (~200 rooms), whichever comes first
+                                // This ensures UI shows immediately with spaces info while remaining rooms load in background
                                 var hasUnblockedUI = false
                                 
                                 for ((index, syncJson) in queuedMessages.withIndex()) {
                                     if (BuildConfig.DEBUG && (index % 50 == 0 || index == queuedMessages.size - 1)) {
                                         android.util.Log.d("Andromuks", "AppViewModel: Processing queued initial sync_complete message ${index + 1}/${queuedMessages.size}")
                                     }
+                                    
+                                    // Check if this is the first message with clear_state=true (has spaces info)
+                                    val data = syncJson.optJSONObject("data")
+                                    val isClearState = data?.optBoolean("clear_state") == true
+                                    val isFirstMessage = index == 0
+                                    val hasSpacesInfo = isFirstMessage && isClearState
+                                    
+                                    // Add progress message for processing sync_complete
+                                    if (isClearState) {
+                                        addStartupProgressMessage("Processing spaces and initial rooms...")
+                                    } else {
+                                        val roomsJson = data?.optJSONObject("rooms")
+                                        val roomCount = roomsJson?.length() ?: 0
+                                        if (roomCount > 0) {
+                                            addStartupProgressMessage("Processing $roomCount rooms...")
+                                        } else if (data?.optJSONObject("account_data") != null) {
+                                            addStartupProgressMessage("Processing account data...")
+                                        }
+                                    }
+                                    
                                     // Process with completion callback to update counter when actual DB work completes
                                     val currentIndex = index // Capture index for lambda
                                     val job = processInitialSyncComplete(syncJson) {
@@ -4916,17 +4996,37 @@ class AppViewModel : ViewModel() {
                                         }
                                     }
                                     
-                                    // CRITICAL FIX: Unblock UI after processing first few messages (enough to get room data)
-                                    // This allows UI to show immediately while remaining messages process in background
-                                    if (!hasUnblockedUI && (currentIndex + 1) >= earlyUnblockThreshold) {
-                                        hasUnblockedUI = true
-                                        initialSyncProcessingComplete = true
-                                        withContext(Dispatchers.Main) {
-                                            val roomCount = roomMap.size
-                                            android.util.Log.d("Andromuks", "🟣 onInitComplete: EARLY UNBLOCK - Processed ${currentIndex + 1}/${queuedMessages.size} messages, have $roomCount rooms - Setting initialSyncComplete=true to unblock UI")
-                                            initialSyncComplete = true
-                                            spacesLoaded = true
-                                            android.util.Log.d("Andromuks", "🟣 onInitComplete: EARLY UNBLOCK COMPLETE - UI can now be shown, remaining ${queuedMessages.size - currentIndex - 1} messages will process in background")
+                                    // CRITICAL FIX: Unblock UI strategically based on message content
+                                    // 1. If first message has clear_state=true (has spaces info), unblock immediately after processing it
+                                    // 2. Otherwise, unblock after processing 2 messages (~200 rooms)
+                                    // This ensures UI shows with spaces info ASAP while remaining rooms load in background
+                                    if (!hasUnblockedUI) {
+                                        val shouldUnblock = when {
+                                            hasSpacesInfo -> {
+                                                // First message with clear_state=true - has spaces info, unblock immediately
+                                                android.util.Log.d("Andromuks", "🟣 onInitComplete: First message has clear_state=true with spaces info - will unblock after processing")
+                                                true
+                                            }
+                                            (currentIndex + 1) >= 2 -> {
+                                                // Processed 2 messages (~200 rooms) - enough to show UI
+                                                android.util.Log.d("Andromuks", "🟣 onInitComplete: Processed 2 messages (~200 rooms) - will unblock UI")
+                                                true
+                                            }
+                                            else -> false
+                                        }
+                                        
+                                        if (shouldUnblock) {
+                                            hasUnblockedUI = true
+                                            initialSyncProcessingComplete = true
+                                            withContext(Dispatchers.Main) {
+                                                val roomCount = roomMap.size
+                                                val reason = if (hasSpacesInfo) "first message with clear_state=true (spaces info)" else "processed 2 messages (~200 rooms)"
+                                                android.util.Log.d("Andromuks", "🟣 onInitComplete: EARLY UNBLOCK - $reason, have $roomCount rooms - Setting initialSyncComplete=true to unblock UI")
+                                                initialSyncComplete = true
+                                                spacesLoaded = true
+                                                checkStartupComplete() // Check if startup is complete
+                                                android.util.Log.d("Andromuks", "🟣 onInitComplete: EARLY UNBLOCK COMPLETE - UI can now be shown, remaining ${queuedMessages.size - currentIndex - 1} messages will process in background")
+                                            }
                                         }
                                     }
                                     
@@ -4949,6 +5049,7 @@ class AppViewModel : ViewModel() {
                                         android.util.Log.d("Andromuks", "🟣 onInitComplete: Finished processing ${queuedMessages.size} messages (early unblock didn't trigger) - Setting initialSyncComplete=true, spacesLoaded=true")
                                         initialSyncComplete = true
                                         spacesLoaded = true
+                                        checkStartupComplete() // Check if startup is complete
                                         android.util.Log.d("Andromuks", "🟣 onInitComplete: COMPLETE - initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded - UI can now be shown")
                                     }
                                 }
@@ -4960,6 +5061,7 @@ class AppViewModel : ViewModel() {
                                     android.util.Log.d("Andromuks", "🟣 onInitComplete: Setting initialSyncComplete=true, spacesLoaded=true (empty queue)")
                                     initialSyncComplete = true
                                     spacesLoaded = true
+                                    checkStartupComplete() // Check if startup is complete
                                     android.util.Log.d("Andromuks", "🟣 onInitComplete: COMPLETE - initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded")
                                 }
                             }
@@ -4977,6 +5079,7 @@ class AppViewModel : ViewModel() {
                         android.util.Log.d("Andromuks", "🟣 Initial sync processing: Setting initialSyncComplete=true, spacesLoaded=true")
                         initialSyncComplete = true
                         spacesLoaded = true
+                        checkStartupComplete() // Check if startup is complete
                         android.util.Log.d("Andromuks", "🟣 Initial sync processing: COMPLETE - initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded - UI can now be shown")
                         }
                     }
@@ -4984,6 +5087,7 @@ class AppViewModel : ViewModel() {
         
         // Mark initialization as complete - from now on, all sync_complete messages are real-time updates
         initializationComplete = true
+        checkStartupComplete() // Check if startup is complete
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Initialization complete - future sync_complete messages will trigger UI updates")
         
         // CRITICAL FIX: Trigger deferred room state requests after initial sync completes
@@ -5025,6 +5129,7 @@ class AppViewModel : ViewModel() {
         }
         
         // Now that all rooms are loaded, populate space edges
+        addStartupProgressMessage("Processing space edges...")
         populateSpaceEdges()
         
         // Update ConversationsApi with the real homeserver URL and refresh shortcuts
@@ -6474,6 +6579,8 @@ class AppViewModel : ViewModel() {
     
     fun setWebSocket(webSocket: WebSocket) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: setWebSocket() called for $viewModelId")
+        addStartupProgressMessage("Connected to WebSocket")
+        
         // REFACTORING: Service now owns WebSocket - no need to store locally
         // The service already has the reference, we just need to set up callbacks
         

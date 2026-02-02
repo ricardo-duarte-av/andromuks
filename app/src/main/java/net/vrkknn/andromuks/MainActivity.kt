@@ -795,7 +795,42 @@ fun AppNavigation(
                     null
                 }
             }
-        ) { RoomListScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
+        ) {
+            // Show startup loading screen until startup is complete
+            val isStartupComplete = appViewModel.isStartupComplete
+            val progressMessages = appViewModel.startupProgressMessages
+            val initialSyncComplete = appViewModel.initialSyncComplete
+            val spacesLoaded = appViewModel.spacesLoaded
+            
+            // Periodically check if startup is complete (when state changes)
+            androidx.compose.runtime.LaunchedEffect(initialSyncComplete, spacesLoaded, appViewModel.roomListUpdateCounter) {
+                appViewModel.checkStartupComplete()
+            }
+            
+            // Add a small delay after startup is marked complete to allow background work to settle
+            // This prevents ANR when the room list is first displayed with many rooms
+            var showRoomList by remember { mutableStateOf(false) }
+            androidx.compose.runtime.LaunchedEffect(isStartupComplete) {
+                if (isStartupComplete) {
+                    // Wait 300ms for background work to settle before showing room list
+                    delay(300)
+                    showRoomList = true
+                } else {
+                    showRoomList = false
+                }
+            }
+            
+            if (!isStartupComplete || !showRoomList) {
+                // Show loading screen with progress messages
+                net.vrkknn.andromuks.ui.components.StartupLoadingScreen(
+                    progressMessages = progressMessages,
+                    modifier = modifier
+                )
+            } else {
+                // Show room list when startup is complete and delay has passed
+                RoomListScreen(navController = navController, modifier = modifier, appViewModel = appViewModel)
+            }
+        }
         composable("simple_room_list") {
             SimplerRoomListScreen(
                 navController = navController,

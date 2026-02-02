@@ -515,15 +515,9 @@ fun connectToWebsocket(
                         }
                     }
                     "sync_complete" -> {
-                        if (BuildConfig.DEBUG) {
-                            Log.d("Andromuks", "NetworkUtils: sync_complete received (uncompressed) - distributing to ViewModels")
-                        }
                         // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                             val registeredViewModels = WebSocketService.getRegisteredViewModels()
-                            if (BuildConfig.DEBUG) {
-                                Log.d("Andromuks", "NetworkUtils: sync_complete (uncompressed) - Found ${registeredViewModels.size} registered ViewModels")
-                            }
                             if (registeredViewModels.isEmpty()) {
                                 Log.w("Andromuks", "NetworkUtils: CRITICAL - sync_complete received but no ViewModels registered!")
                             }
@@ -535,9 +529,6 @@ fun connectToWebsocket(
                                     jsonObject
                                 } else {
                                     JSONObject(jsonObject.toString())
-                                }
-                                if (BuildConfig.DEBUG) {
-                                    Log.d("Andromuks", "NetworkUtils: sync_complete (uncompressed) - Calling updateRoomsFromSyncJsonAsync on ViewModel $index")
                                 }
                                 try {
                                     viewModel.updateRoomsFromSyncJsonAsync(clonedJson)
@@ -725,14 +716,11 @@ fun connectToWebsocket(
                                     }
                                 }
                                 "sync_complete" -> {
-                                    if (BuildConfig.DEBUG) {
-                                        Log.d("Andromuks", "NetworkUtils: sync_complete received (compressed) - distributing to ViewModels")
-                                    }
                                     // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                                         val registeredViewModels = WebSocketService.getRegisteredViewModels()
-                                        if (BuildConfig.DEBUG) {
-                                            Log.d("Andromuks", "NetworkUtils: sync_complete (compressed) - Found ${registeredViewModels.size} registered ViewModels")
+                                        if (registeredViewModels.isEmpty()) {
+                                            Log.w("Andromuks", "NetworkUtils: CRITICAL - sync_complete received but no ViewModels registered!")
                                         }
                                         for (index in registeredViewModels.indices) {
                                             val viewModel = registeredViewModels[index]
@@ -743,10 +731,11 @@ fun connectToWebsocket(
                                             } else {
                                                 JSONObject(jsonObject.toString())
                                             }
-                                            if (BuildConfig.DEBUG) {
-                                                Log.d("Andromuks", "NetworkUtils: sync_complete (compressed) - Calling updateRoomsFromSyncJsonAsync on ViewModel $index")
+                                            try {
+                                                viewModel.updateRoomsFromSyncJsonAsync(clonedJson)
+                                            } catch (e: Exception) {
+                                                Log.e("Andromuks", "NetworkUtils: Error calling updateRoomsFromSyncJsonAsync on ViewModel $index", e)
                                             }
-                                            viewModel.updateRoomsFromSyncJsonAsync(clonedJson)
                                         }
                                     }
                                 }

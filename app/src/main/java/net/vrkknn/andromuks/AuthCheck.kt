@@ -45,11 +45,13 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
 
     LaunchedEffect(Unit) {
         appViewModel.isLoading = true
+        appViewModel.addStartupProgressMessage("Starting...")
         val token = sharedPreferences.getString("gomuks_auth_token", null)
         val homeserverUrl = sharedPreferences.getString("homeserver_url", null)
 
         if (token != null && homeserverUrl != null) {
             if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Token and server URL found.")
+            appViewModel.addStartupProgressMessage("Connecting to WebSocket...")
             
             // Check if permissions are granted
             val hasNotificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
