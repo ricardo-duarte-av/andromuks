@@ -4031,6 +4031,22 @@ class AppViewModel : ViewModel() {
             navigationCache[roomId] = RoomNavigationState(roomId)
         }
         
+        // CRITICAL FIX: Defer bridge protocol avatar requests until after initial sync completes
+        // During initial sync with 580+ rooms, sending hundreds of get_room_state requests overwhelms the system
+        // Bridge avatars are non-essential and can be loaded lazily after UI is shown
+        if (!initialSyncComplete) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "AppViewModel: Deferring room state request for $roomId until initial sync completes (bridge avatars are non-essential)")
+            }
+            // Update navigation state but don't request room state yet
+            val currentState = navigationCache[roomId] ?: RoomNavigationState(roomId)
+            navigationCache[roomId] = currentState.copy(
+                essentialDataLoaded = false, // Mark as not loaded yet
+                lastPrefetchTime = System.currentTimeMillis()
+            )
+            return
+        }
+        
         // NAVIGATION PERFORMANCE: Load essential data first (room state without members)
         if (!pendingRoomStateRequests.contains(roomId)) {
             requestRoomState(roomId)
@@ -4863,6 +4879,13 @@ class AppViewModel : ViewModel() {
                                 // PERFORMANCE FIX: Process queued messages in chunks with yields to prevent ANR
                                 // This is critical for reconnect scenarios where hundreds of sync batches may queue up
                                 val chunkSize = 10 // Process 10 sync batches before yielding
+                                
+                                // CRITICAL FIX: Set initialSyncComplete=true after processing first 2-3 messages (enough to get room data)
+                                // This unblocks the UI immediately while remaining messages process in background
+                                // For large accounts (580+ rooms), processing all 8-9 messages before showing UI causes long stalls
+                                val earlyUnblockThreshold = 3 // Unblock UI after processing first 3 messages
+                                var hasUnblockedUI = false
+                                
                                 for ((index, syncJson) in queuedMessages.withIndex()) {
                                     if (BuildConfig.DEBUG && (index % 50 == 0 || index == queuedMessages.size - 1)) {
                                         android.util.Log.d("Andromuks", "AppViewModel: Processing queued initial sync_complete message ${index + 1}/${queuedMessages.size}")
@@ -4893,6 +4916,20 @@ class AppViewModel : ViewModel() {
                                         }
                                     }
                                     
+                                    // CRITICAL FIX: Unblock UI after processing first few messages (enough to get room data)
+                                    // This allows UI to show immediately while remaining messages process in background
+                                    if (!hasUnblockedUI && (currentIndex + 1) >= earlyUnblockThreshold) {
+                                        hasUnblockedUI = true
+                                        initialSyncProcessingComplete = true
+                                        withContext(Dispatchers.Main) {
+                                            val roomCount = roomMap.size
+                                            android.util.Log.d("Andromuks", "🟣 onInitComplete: EARLY UNBLOCK - Processed ${currentIndex + 1}/${queuedMessages.size} messages, have $roomCount rooms - Setting initialSyncComplete=true to unblock UI")
+                                            initialSyncComplete = true
+                                            spacesLoaded = true
+                                            android.util.Log.d("Andromuks", "🟣 onInitComplete: EARLY UNBLOCK COMPLETE - UI can now be shown, remaining ${queuedMessages.size - currentIndex - 1} messages will process in background")
+                                        }
+                                    }
+                                    
                                     // PERFORMANCE FIX: Yield every chunkSize messages to prevent ANR
                                     // This allows the UI thread to remain responsive during heavy reconnect processing
                                     if ((index + 1) % chunkSize == 0) {
@@ -4904,14 +4941,16 @@ class AppViewModel : ViewModel() {
                                     android.util.Log.d("Andromuks", "AppViewModel: Finished processing all ${queuedMessages.size} initial sync_complete messages - ${summaryUpdateJobs.size} summary update jobs running in background")
                                 }
                                 
-                                // CRITICAL FIX: Set initialSyncComplete immediately after processing completes
-                                // Don't wait for finally block - this ensures UI is unblocked as soon as processing finishes
-                                initialSyncProcessingComplete = true
-                                withContext(Dispatchers.Main) {
-                                    android.util.Log.d("Andromuks", "🟣 onInitComplete: Finished processing ${queuedMessages.size} messages - Setting initialSyncComplete=true, spacesLoaded=true")
-                                    initialSyncComplete = true
-                                    spacesLoaded = true
-                                    android.util.Log.d("Andromuks", "🟣 onInitComplete: COMPLETE - initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded - UI can now be shown")
+                                // CRITICAL FIX: Ensure initialSyncComplete is set even if early unblock didn't trigger (e.g., < 3 messages)
+                                // This is a safety net to ensure UI is always unblocked
+                                if (!hasUnblockedUI) {
+                                    initialSyncProcessingComplete = true
+                                    withContext(Dispatchers.Main) {
+                                        android.util.Log.d("Andromuks", "🟣 onInitComplete: Finished processing ${queuedMessages.size} messages (early unblock didn't trigger) - Setting initialSyncComplete=true, spacesLoaded=true")
+                                        initialSyncComplete = true
+                                        spacesLoaded = true
+                                        android.util.Log.d("Andromuks", "🟣 onInitComplete: COMPLETE - initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded - UI can now be shown")
+                                    }
                                 }
                             } else {
                                 // Queue was empty - set flags immediately
@@ -4946,6 +4985,28 @@ class AppViewModel : ViewModel() {
         // Mark initialization as complete - from now on, all sync_complete messages are real-time updates
         initializationComplete = true
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Initialization complete - future sync_complete messages will trigger UI updates")
+        
+        // CRITICAL FIX: Trigger deferred room state requests after initial sync completes
+        // These were deferred during initial sync to prevent overwhelming the system with 580+ get_room_state requests
+        // Now that initial sync is complete, we can load bridge protocol avatars lazily
+        viewModelScope.launch(Dispatchers.Default) {
+            delay(2000) // Wait 2 seconds for UI to settle before loading bridge avatars
+            val deferredRooms = navigationCache.values
+                .filter { !it.essentialDataLoaded }
+                .map { it.roomId }
+                .filter { !pendingRoomStateRequests.contains(it) }
+                .take(50) // Load in batches of 50 to avoid overwhelming the system
+            
+            if (deferredRooms.isNotEmpty()) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Loading ${deferredRooms.size} deferred room state requests (bridge avatars) after initial sync")
+                }
+                deferredRooms.forEach { roomId ->
+                    requestRoomState(roomId)
+                    delay(50) // Small delay between requests to avoid overwhelming the backend
+                }
+            }
+        }
         
         // Reset reconnection state now that init_complete has arrived
         // This is safe to call now because connection is confirmed healthy
