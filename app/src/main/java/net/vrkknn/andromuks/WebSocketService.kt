@@ -1267,25 +1267,6 @@ class WebSocketService : Service() {
             serviceInstance.currentNetworkType = actualNetworkType
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network type set to: $actualNetworkType")
             
-            // #region agent log
-            try {
-                val logData = java.util.HashMap<String, Any>()
-                logData["state"] = "CONNECTING"
-                logData["networkType"] = actualNetworkType.name
-                logData["connectionStartTime"] = serviceInstance.connectionStartTime
-                logData["webSocketNotNull"] = (webSocket != null)
-                val logJson = org.json.JSONObject()
-                logJson.put("sessionId", "debug-session")
-                logJson.put("runId", "run1")
-                logJson.put("hypothesisId", "A")
-                logJson.put("location", "WebSocketService.kt:1251")
-                logJson.put("message", "State changed to CONNECTING")
-                logJson.put("data", org.json.JSONObject(logData))
-                logJson.put("timestamp", System.currentTimeMillis())
-                java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
-            } catch (e: Exception) { }
-            // #endregion
-            
             // Start timeout for init_complete - connection is only healthy after init_complete arrives
             serviceInstance.waitingForInitComplete = true
             serviceInstance.runIdReceived = false
@@ -1337,28 +1318,6 @@ class WebSocketService : Service() {
             }
             
             android.util.Log.w("WebSocketService", "clearWebSocket() called - setting connection state to DISCONNECTED (was: ${serviceInstance.connectionState})")
-            
-            // #region agent log
-            try {
-                val logData = java.util.HashMap<String, Any>()
-                logData["reason"] = reason
-                logData["previousState"] = serviceInstance.connectionState.name
-                logData["currentNetworkType"] = serviceInstance.currentNetworkType.name
-                logData["waitingForInitComplete"] = serviceInstance.waitingForInitComplete
-                logData["initCompleteTimeoutJobActive"] = (serviceInstance.initCompleteTimeoutJob?.isActive == true)
-                logData["webSocketNotNull"] = (serviceInstance.webSocket != null)
-                logData["timeSinceConnect"] = if (serviceInstance.connectionStartTime > 0) System.currentTimeMillis() - serviceInstance.connectionStartTime else 0
-                val logJson = org.json.JSONObject()
-                logJson.put("sessionId", "debug-session")
-                logJson.put("runId", "run1")
-                logJson.put("hypothesisId", "C")
-                logJson.put("location", "WebSocketService.kt:1320")
-                logJson.put("message", "clearWebSocket called")
-                logJson.put("data", org.json.JSONObject(logData))
-                logJson.put("timestamp", System.currentTimeMillis())
-                java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
-            } catch (e: Exception) { }
-            // #endregion
             
             // Show toast for connection cleared
             serviceInstance.showWebSocketToast("Connection killed: $reason")
@@ -1928,45 +1887,10 @@ class WebSocketService : Service() {
             
             serviceInstance.waitingForInitComplete = false
             
-            // #region agent log
-            try {
-                val logData = java.util.HashMap<String, Any>()
-                logData["connectionState"] = serviceInstance.connectionState.name
-                logData["currentNetworkType"] = serviceInstance.currentNetworkType.name
-                logData["timeSinceConnect"] = if (serviceInstance.connectionStartTime > 0) System.currentTimeMillis() - serviceInstance.connectionStartTime else 0
-                logData["webSocketNotNull"] = (serviceInstance.webSocket != null)
-                val logJson = org.json.JSONObject()
-                logJson.put("sessionId", "debug-session")
-                logJson.put("runId", "run1")
-                logJson.put("hypothesisId", "D")
-                logJson.put("location", "WebSocketService.kt:1892")
-                logJson.put("message", "Init complete received - checking state")
-                logJson.put("data", org.json.JSONObject(logData))
-                logJson.put("timestamp", System.currentTimeMillis())
-                java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
-            } catch (e: Exception) { }
-            // #endregion
-            
             // CRITICAL FIX: Verify connection state before proceeding
             // If connection was cleared due to timeout, don't proceed with init_complete processing
             if (serviceInstance.connectionState != ConnectionState.CONNECTING && serviceInstance.connectionState != ConnectionState.CONNECTED) {
                 android.util.Log.w("WebSocketService", "Init complete received but connection state is ${serviceInstance.connectionState} - ignoring")
-                // #region agent log
-                try {
-                    val logData = java.util.HashMap<String, Any>()
-                    logData["connectionState"] = serviceInstance.connectionState.name
-                    logData["currentNetworkType"] = serviceInstance.currentNetworkType.name
-                    val logJson = org.json.JSONObject()
-                    logJson.put("sessionId", "debug-session")
-                    logJson.put("runId", "run1")
-                    logJson.put("hypothesisId", "D")
-                    logJson.put("location", "WebSocketService.kt:1893")
-                    logJson.put("message", "Init complete ignored - wrong state")
-                    logJson.put("data", org.json.JSONObject(logData))
-                    logJson.put("timestamp", System.currentTimeMillis())
-                    java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
-                } catch (e: Exception) { }
-                // #endregion
                 return
             }
             
@@ -1997,24 +1921,6 @@ class WebSocketService : Service() {
             updateConnectionState(ConnectionState.CONNECTED)
             android.util.Log.i("WebSocketService", "Init complete received - connection marked as CONNECTED")
             logActivity("Init Complete Received - Connection Healthy", serviceInstance.currentNetworkType.name)
-            
-            // #region agent log
-            try {
-                val logData = java.util.HashMap<String, Any>()
-                logData["connectionState"] = serviceInstance.connectionState.name
-                logData["currentNetworkType"] = serviceInstance.currentNetworkType.name
-                logData["timeSinceConnect"] = if (serviceInstance.connectionStartTime > 0) System.currentTimeMillis() - serviceInstance.connectionStartTime else 0
-                val logJson = org.json.JSONObject()
-                logJson.put("sessionId", "debug-session")
-                logJson.put("runId", "run1")
-                logJson.put("hypothesisId", "D")
-                logJson.put("location", "WebSocketService.kt:1921")
-                logJson.put("message", "State changed to CONNECTED")
-                logJson.put("data", org.json.JSONObject(logData))
-                logJson.put("timestamp", System.currentTimeMillis())
-                java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
-            } catch (e: Exception) { }
-            // #endregion
             
             // Show toast for successful connection
             serviceInstance.showWebSocketToast("Connected!")
@@ -2841,28 +2747,6 @@ class WebSocketService : Service() {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d("WebSocketService", "Network type changed but state is $connectionState - not triggering reconnection")
                         }
-                        
-                        // #region agent log
-                        try {
-                            val logData = java.util.HashMap<String, Any>()
-                            logData["previousNetworkType"] = previousNetworkType.name
-                            logData["newNetworkType"] = newNetworkType.name
-                            logData["connectionState"] = connectionState.name
-                            logData["waitingForInitComplete"] = waitingForInitComplete
-                            logData["initCompleteTimeoutJobActive"] = (initCompleteTimeoutJob?.isActive == true)
-                            logData["timeSinceConnect"] = if (connectionStartTime > 0) System.currentTimeMillis() - connectionStartTime else 0
-                            logData["webSocketNotNull"] = (webSocket != null)
-                            val logJson = org.json.JSONObject()
-                            logJson.put("sessionId", "debug-session")
-                            logJson.put("runId", "run1")
-                            logJson.put("hypothesisId", "A")
-                            logJson.put("location", "WebSocketService.kt:2746")
-                            logJson.put("message", "Network changed during CONNECTING - ignored")
-                            logJson.put("data", org.json.JSONObject(logData))
-                            logJson.put("timestamp", System.currentTimeMillis())
-                            java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
-                        } catch (e: Exception) { }
-                        // #endregion
                     }
                 } else {
                     // Network type changed but connection is healthy - trust Android, keep existing connection
@@ -3337,91 +3221,18 @@ class WebSocketService : Service() {
             INIT_COMPLETE_TIMEOUT_MS
         }
         
-        // #region agent log
-        try {
-            val logData = java.util.HashMap<String, Any>()
-            logData["timeoutMs"] = timeoutMs
-            logData["runIdReceived"] = runIdReceived
-            logData["connectionState"] = connectionState.name
-            logData["currentNetworkType"] = currentNetworkType.name
-            val logJson = org.json.JSONObject()
-            logJson.put("sessionId", "debug-session")
-            logJson.put("runId", "run1")
-            logJson.put("hypothesisId", "B")
-            logJson.put("location", "WebSocketService.kt:3214")
-            logJson.put("message", "startInitCompleteTimeout called")
-            logJson.put("data", org.json.JSONObject(logData))
-            logJson.put("timestamp", System.currentTimeMillis())
-            java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
-        } catch (e: Exception) { }
-        // #endregion
-        
         initCompleteTimeoutJob = serviceScope.launch {
-            // #region agent log
-            try {
-                val logData = java.util.HashMap<String, Any>()
-                logData["timeoutMs"] = timeoutMs
-                logData["runIdReceived"] = runIdReceived
-                logData["connectionState"] = connectionState.name
-                logData["waitingForInitComplete"] = waitingForInitComplete
-                logData["currentNetworkType"] = currentNetworkType.name
-                val logJson = org.json.JSONObject()
-                logJson.put("sessionId", "debug-session")
-                logJson.put("runId", "run1")
-                logJson.put("hypothesisId", "B")
-                logJson.put("location", "WebSocketService.kt:3224")
-                logJson.put("message", "Init complete timeout job started")
-                logJson.put("data", org.json.JSONObject(logData))
-                logJson.put("timestamp", System.currentTimeMillis())
-                java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
-            } catch (e: Exception) { }
-            // #endregion
-            
             delay(timeoutMs)
             
             // Check if we're still waiting for init_complete
             if (!waitingForInitComplete) {
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Init complete timeout expired but already received - ignoring")
-                // #region agent log
-                try {
-                    val logData = java.util.HashMap<String, Any>()
-                    logData["timeoutMs"] = timeoutMs
-                    logData["connectionState"] = connectionState.name
-                    logData["currentNetworkType"] = currentNetworkType.name
-                    val logJson = org.json.JSONObject()
-                    logJson.put("sessionId", "debug-session")
-                    logJson.put("runId", "run1")
-                    logJson.put("hypothesisId", "B")
-                    logJson.put("location", "WebSocketService.kt:3230")
-                    logJson.put("message", "Timeout expired but init_complete already received")
-                    logJson.put("data", org.json.JSONObject(logData))
-                    logJson.put("timestamp", System.currentTimeMillis())
-                    java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
-                } catch (e: Exception) { }
-                // #endregion
                 return@launch
             }
             
             // Check if connection is still active
             if (connectionState != ConnectionState.CONNECTING && connectionState != ConnectionState.CONNECTED) {
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Init complete timeout expired but connection not active - ignoring")
-                // #region agent log
-                try {
-                    val logData = java.util.HashMap<String, Any>()
-                    logData["timeoutMs"] = timeoutMs
-                    logData["connectionState"] = connectionState.name
-                    logData["currentNetworkType"] = currentNetworkType.name
-                    val logJson = org.json.JSONObject()
-                    logJson.put("sessionId", "debug-session")
-                    logJson.put("runId", "run1")
-                    logJson.put("hypothesisId", "B")
-                    logJson.put("location", "WebSocketService.kt:3236")
-                    logJson.put("message", "Timeout expired but connection not active")
-                    logJson.put("data", org.json.JSONObject(logData))
-                    logJson.put("timestamp", System.currentTimeMillis())
-                    java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
-                } catch (e: Exception) { }
-                // #endregion
                 return@launch
             }
             
@@ -3433,28 +3244,6 @@ class WebSocketService : Service() {
             
             android.util.Log.w("WebSocketService", reason)
             logActivity("Init Complete Timeout - Connection Failed", currentNetworkType.name)
-            
-            // #region agent log
-            try {
-                val logData = java.util.HashMap<String, Any>()
-                logData["timeoutMs"] = timeoutMs
-                logData["connectionState"] = connectionState.name
-                logData["currentNetworkType"] = currentNetworkType.name
-                logData["waitingForInitComplete"] = waitingForInitComplete
-                logData["runIdReceived"] = runIdReceived
-                logData["timeSinceConnect"] = if (connectionStartTime > 0) System.currentTimeMillis() - connectionStartTime else 0
-                logData["webSocketNotNull"] = (webSocket != null)
-                val logJson = org.json.JSONObject()
-                logJson.put("sessionId", "debug-session")
-                logJson.put("runId", "run1")
-                logJson.put("hypothesisId", "B")
-                logJson.put("location", "WebSocketService.kt:3245")
-                logJson.put("message", "Init complete timeout fired - clearing WebSocket")
-                logJson.put("data", org.json.JSONObject(logData))
-                logJson.put("timestamp", System.currentTimeMillis())
-                java.io.File("/home/daedric/Documents/andromuks/.cursor/debug.log").appendText(logJson.toString() + "\n")
-            } catch (e: Exception) { }
-            // #endregion
             
             // Show notification about connection failure
             showInitCompleteFailureNotification()
@@ -3493,7 +3282,8 @@ class WebSocketService : Service() {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             
             val intent = Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("from_service_notification", true)
             }
             
             val pendingIntent = PendingIntent.getActivity(
@@ -3629,6 +3419,10 @@ class WebSocketService : Service() {
             return START_NOT_STICKY
         }
         
+        // CRITICAL FIX: Check battery optimization status and warn if enabled
+        // Battery optimization can cause the service to be killed
+        checkBatteryOptimizationStatus()
+        
         // Start as foreground service with notification
         // This keeps the app process alive and prevents Android from killing it
         try {
@@ -3644,6 +3438,10 @@ class WebSocketService : Service() {
             android.util.Log.e("WebSocketService", "Failed to start foreground service", e)
             // Don't crash - service will run in background
         }
+        
+        // CRITICAL FIX: Return START_STICKY to ensure service restarts if killed by system
+        // This is essential for reliability, especially without battery optimization exemption
+        return START_STICKY
         
         // Update notification with current connection state after service starts
         // This ensures the notification shows the correct state even if no WebSocket is connected yet
@@ -3852,13 +3650,25 @@ class WebSocketService : Service() {
     }
 
     private fun createNotification(): Notification {
+        // CRITICAL FIX: Use SINGLE_TOP instead of CLEAR_TASK to handle process death recovery
+        // SINGLE_TOP brings existing activity to front without clearing task stack
+        // This prevents issues when app process is killed but service survives
         val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            // Add flag to indicate this is from service notification (for process death recovery)
+            putExtra("from_service_notification", true)
+        }
+        
+        // CRITICAL FIX: Use FLAG_IMMUTABLE for Android 12+ and ensure PendingIntent is refreshed
+        // Request code 0 ensures we always get the same PendingIntent (Android caches by request code)
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
         }
         
         val pendingIntent = PendingIntent.getActivity(
-            this, 0, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            this, 0, intent, pendingIntentFlags
         )
 
         // Use current connection state for initial notification text
@@ -3895,13 +3705,20 @@ class WebSocketService : Service() {
             return
         }
         
+        // CRITICAL FIX: Use SINGLE_TOP for process death recovery (same as createNotification)
         val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra("from_service_notification", true)
+        }
+        
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
         }
         
         val pendingIntent = PendingIntent.getActivity(
-            this, 0, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            this, 0, intent, pendingIntentFlags
         )
         
         // Format lag
@@ -3948,13 +3765,20 @@ class WebSocketService : Service() {
      */
     fun updateConnectionStatus(isConnected: Boolean, lagMs: Long? = null, lastSyncTimestamp: Long? = null) {
         traceToggle("updateConnectionStatus", "isConnected=$isConnected lag=$lagMs lastSync=$lastSyncTimestamp")
+        // CRITICAL FIX: Use SINGLE_TOP for process death recovery (same as createNotification)
         val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra("from_service_notification", true)
+        }
+        
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
         }
         
         val pendingIntent = PendingIntent.getActivity(
-            this, 0, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            this, 0, intent, pendingIntentFlags
         )
         
         val notificationText = if (BuildConfig.DEBUG) {
@@ -4213,6 +4037,29 @@ class WebSocketService : Service() {
             wakeLock = null
         } catch (e: Exception) {
             android.util.Log.e("WebSocketService", "Failed to release wake lock: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * Check battery optimization status and log warning if enabled
+     * Battery optimization can cause the foreground service to be killed
+     */
+    private fun checkBatteryOptimizationStatus() {
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            val isIgnoringBatteryOptimizations = powerManager.isIgnoringBatteryOptimizations(packageName)
+            
+            if (!isIgnoringBatteryOptimizations) {
+                android.util.Log.w("WebSocketService", "Battery optimization is ENABLED for this app - service may be killed by system")
+                android.util.Log.w("WebSocketService", "To prevent service from being killed, disable battery optimization in Settings > Apps > Andromuks > Battery")
+                android.util.Log.w("WebSocketService", "Or use the in-app permissions screen to request battery optimization exemption")
+            } else {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("WebSocketService", "Battery optimization is disabled - service should remain stable")
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("WebSocketService", "Failed to check battery optimization status: ${e.message}", e)
         }
     }
     

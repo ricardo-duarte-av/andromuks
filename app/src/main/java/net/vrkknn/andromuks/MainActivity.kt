@@ -73,6 +73,16 @@ class MainActivity : ComponentActivity() {
 
         pendingShareIntent = intent.takeIf { isShareIntent(it) }
         
+        // CRITICAL FIX: Handle process death recovery when app is recreated from service notification
+        // After ~6 hours, Android may kill the app process but keep the service running
+        // When user taps the notification, the app process is recreated and we need to recover state
+        val fromServiceNotification = intent.getBooleanExtra("from_service_notification", false)
+        if (fromServiceNotification) {
+            android.util.Log.i("Andromuks", "MainActivity: onCreate - Recovered from process death (tapped service notification)")
+            // The service is still running, so we just need to ensure the app initializes properly
+            // AppViewModel will be created and will register with the service
+        }
+        
         setContent {
             AndromuksTheme {
                 // Check for crash and show dialog if needed
