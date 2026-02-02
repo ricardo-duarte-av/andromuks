@@ -4,13 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.os.PowerManager
 import android.util.Log
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
-import androidx.compose.material3.Surface
+import net.vrkknn.andromuks.ui.components.StartupLoadingScreen
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -20,7 +14,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -46,6 +39,7 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
     LaunchedEffect(Unit) {
         appViewModel.isLoading = true
         appViewModel.addStartupProgressMessage("Starting...")
+        appViewModel.addStartupProgressMessage("Checking stored auth....")
         val token = sharedPreferences.getString("gomuks_auth_token", null)
         val homeserverUrl = sharedPreferences.getString("homeserver_url", null)
 
@@ -310,16 +304,11 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
     }
 
     AndromuksTheme {
-        Surface {
-            Column(
-                modifier = modifier.fillMaxSize().padding(16.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                if (appViewModel.isLoading) {
-                    ExpressiveLoadingIndicator(modifier = Modifier.size(64.dp))
-                }
-            }
+        if (appViewModel.isLoading) {
+            StartupLoadingScreen(
+                progressMessages = appViewModel.startupProgressMessages,
+                modifier = modifier
+            )
         }
     }
 }
