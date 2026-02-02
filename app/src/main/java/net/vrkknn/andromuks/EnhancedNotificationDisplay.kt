@@ -164,6 +164,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      * Creates a conversation channel for a specific room/conversation
      * This is required for per-conversation notification settings
      * Note: Conversation channels require Android R+, but we create a regular channel on older versions
+     * 
+     * CRITICAL FIX: Avoid deleting and recreating channels unnecessarily, as this dismisses
+     * all notifications using that channel. Only recreate if importance is too low.
      */
     private fun createConversationChannel(roomId: String, roomName: String, isGroupRoom: Boolean) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -172,15 +175,32 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Create a unique channel ID for this conversation
             val conversationChannelId = "${CONVERSATION_CHANNEL_ID}_$roomId"
             
+            // Check if channel already exists
+            val existingChannel = notificationManager.getNotificationChannel(conversationChannelId)
+            
+            // CRITICAL FIX: If channel exists with correct importance, skip recreation to avoid dismissing notifications
+            // Only delete and recreate if importance is too low (which should be rare)
+            if (existingChannel != null && existingChannel.importance >= NotificationManager.IMPORTANCE_HIGH) {
+                // Channel already exists with correct importance - no need to recreate
+                // This prevents notifications from being dismissed on every update
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "Conversation channel already exists with correct importance: $conversationChannelId - skipping recreation")
+                }
+                return
+            }
+            
+            // Only delete and recreate if channel doesn't exist or has low importance
+            if (existingChannel != null && existingChannel.importance < NotificationManager.IMPORTANCE_HIGH) {
+                if (BuildConfig.DEBUG) {
+                    Log.w(TAG, "Channel exists with low importance (${existingChannel.importance}), deleting and recreating: $conversationChannelId")
+                }
+                // WARNING: This will dismiss all notifications using this channel
+                // But it's necessary to restore proper importance
+                notificationManager.deleteNotificationChannel(conversationChannelId)
+            }
+            
             // Choose sound based on room type
             val soundResource = if (isGroupRoom) R.raw.descending else R.raw.bright
-            
-            // If a channel already exists but is lower than HIGH, recreate it to bump importance.
-            notificationManager.getNotificationChannel(conversationChannelId)?.let { existing ->
-                if (existing.importance < NotificationManager.IMPORTANCE_HIGH) {
-                    notificationManager.deleteNotificationChannel(conversationChannelId)
-                }
-            }
 
             // Create native Android notification channel
             val soundUri = android.net.Uri.parse("android.resource://" + context.packageName + "/" + soundResource)
@@ -209,7 +229,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 channel.setConversationId(CONVERSATION_CHANNEL_ID, roomId)
             }
             
-            // Create the channel
+            // Create the channel (will update if it already exists, but we try to avoid that above)
             notificationManager.createNotificationChannel(channel)
             if (BuildConfig.DEBUG) {
                 Log.d(TAG, "Created/updated conversation channel: $conversationChannelId, sound: ${channel.sound}, importance: ${channel.importance}")
@@ -586,11 +606,12 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 
                 messagingStyle.addMessage(message)
                 
-                // Create conversation channel for this room
+                // Create conversation channel for this room (only if needed - avoids dismissing notifications)
                 createConversationChannel(notificationData.roomId, notificationData.roomName ?: notificationData.roomId, isGroupRoom)
                 
                 // Use conversation channel for all notifications
-                // Fallback to DM or GROUP channel if conversation channel doesn't exist (Android < R)
+                // CRITICAL: Always use the conversation channel ID to ensure consistent notification updates
+                // The channel should exist after createConversationChannel, but we have a fallback just in case
                 val conversationChannelId = "${CONVERSATION_CHANNEL_ID}_${notificationData.roomId}"
                 val channelId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -601,8 +622,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         }
                         conversationChannelId
                     } else {
-                        if (BuildConfig.DEBUG) Log.w(TAG, "Conversation channel not found, using fallback channel")
+                        if (BuildConfig.DEBUG) Log.w(TAG, "Conversation channel not found after creation, using fallback channel - this should be rare")
                         // Fallback to appropriate channel based on room type
+                        // NOTE: Using a different channel ID will cause Android to treat this as a different notification
+                        // which will cause the flicker issue. This fallback should rarely be needed.
                         if (isGroupRoom) GROUP_CHANNEL_ID else DM_CHANNEL_ID
                     }
                 } else {
