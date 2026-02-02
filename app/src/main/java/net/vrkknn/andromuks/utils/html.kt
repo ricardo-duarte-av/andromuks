@@ -474,18 +474,16 @@ private fun AnnotatedString.Builder.appendHtmlNode(
             text = if (hideContent) {
                 maskSpoilerText(text)
             } else {
-                // In HTML mode, <br> tags handle line breaks, so remove newlines from text nodes
-                // to prevent double line breaks when HTML has "<br>\n"
+                // Preserve newlines in text nodes, but handle them carefully to avoid double breaks
                 // Normalize tabs/multiple spaces within each line
                 // Preserve single spaces around inline tags (like <strong>, <em>) for readability
                 // Only normalize multiple spaces/tabs to single spaces, don't trim edges
-                var normalized = text.replace("\r\n", " ")
-                    .replace("\r", " ")
-                    .replace("\n", " ")
+                var normalized = text.replace("\r\n", "\n")
+                    .replace("\r", "\n")
                     .replace(Regex("[\\t ]+"), " ")
-                // If previous node was a line break, trim leading whitespace from this text node
-                // This prevents extra spaces when HTML has "<br>\nMessage"
-                if (previousWasLineBreak && normalized.isNotEmpty() && normalized[0].isWhitespace()) {
+                // If previous node was a line break, trim leading whitespace/newlines from this text node
+                // This prevents extra spaces/newlines when HTML has "<br>\nMessage"
+                if (previousWasLineBreak && normalized.isNotEmpty() && (normalized[0].isWhitespace() || normalized[0] == '\n')) {
                     normalized = normalized.trimStart()
                 }
                 // Skip text nodes that are only whitespace (e.g., newlines after <br> tags)
@@ -497,7 +495,20 @@ private fun AnnotatedString.Builder.appendHtmlNode(
             }
             // Only append if text is not blank (shouldn't happen after normalization, but safety check)
             if (text.isNotBlank()) {
-                withStyle(baseStyle) { append(text) }
+                // Split by newlines and append each line separately, preserving newlines
+                val lines = text.split('\n')
+                lines.forEachIndexed { index, line ->
+                    if (index > 0) {
+                        // Add newline before each line except the first
+                        append("\n")
+                    }
+                    // Append the line content, trimming trailing whitespace but preserving the line itself
+                    val trimmedLine = line.trimEnd()
+                    if (trimmedLine.isNotEmpty()) {
+                        withStyle(baseStyle) { append(trimmedLine) }
+                    }
+                    // Note: Blank lines are preserved by the newline above, even if trimmedLine is empty
+                }
             }
         }
         is HtmlNode.LineBreak -> append("\n")
