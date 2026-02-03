@@ -201,7 +201,8 @@ data class MediaInfo(
     val thumbnailWidth: Int? = null,
     val thumbnailHeight: Int? = null,
     val duration: Int? = null, // Video duration in milliseconds
-    val thumbnailIsEncrypted: Boolean = false // Whether thumbnail is encrypted (from thumbnail_file vs thumbnail_url)
+    val thumbnailIsEncrypted: Boolean = false, // Whether thumbnail is encrypted (from thumbnail_file vs thumbnail_url)
+    val isAnimated: Boolean? = null // From MSC4230: true if the original image is animated (GIF, animated PNG, animated WebP)
 )
 
 @Immutable

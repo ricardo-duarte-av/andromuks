@@ -847,7 +847,11 @@ private fun MediaContent(
     val density = LocalDensity.current
     
     // Determine if we're using thumbnails
-    val useThumbnail = loadThumbnailsIfAvailable && mediaMessage.info.thumbnailUrl != null
+    // MSC4230: Skip thumbnails for animated images (GIF, animated PNG, animated WebP) to ensure animation plays
+    // Thumbnails for animated images are typically static JPG/PNG, so we need to use the original
+    val useThumbnail = loadThumbnailsIfAvailable && 
+                       mediaMessage.info.thumbnailUrl != null &&
+                       mediaMessage.info.isAnimated != true  // Skip thumbnail for animated images
     
     // State to track if user has tapped to reveal thumbnail (only relevant when renderThumbnailsAlways is false)
     var isRevealed by remember(mediaMessage.url) { mutableStateOf(false) }

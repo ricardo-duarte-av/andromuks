@@ -84,7 +84,7 @@ fun SettingsScreen(
                             fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = "Use image thumbnails in timelines when provided (saves bandwidth).",
+                            text = "Use image thumbnails in timelines when provided (saves bandwidth). Note: For animated images (GIF, animated PNG, animated WebP), the original is always used to ensure animation plays.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

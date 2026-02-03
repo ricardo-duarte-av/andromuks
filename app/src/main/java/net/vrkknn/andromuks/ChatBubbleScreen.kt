@@ -1188,6 +1188,11 @@ fun ChatBubbleEventItem(
                             
                             val caption = if (body != filename && body.isNotBlank()) body else null
                             
+                            // Extract is_animated from MSC4230 (for animated images: GIF, animated PNG, animated WebP)
+                            val isAnimated = if (msgType == "m.image") {
+                                info.optBoolean("is_animated", false).takeIf { info.has("is_animated") }
+                            } else null
+                            
                             val mediaInfo = MediaInfo(
                                 width = width,
                                 height = height,
@@ -1196,7 +1201,8 @@ fun ChatBubbleEventItem(
                                 blurHash = blurHash,
                                 thumbnailUrl = thumbnailUrl,
                                 thumbnailBlurHash = thumbnailBlurHash,
-                                thumbnailIsEncrypted = thumbnailFile != null
+                                thumbnailIsEncrypted = thumbnailFile != null,
+                                isAnimated = isAnimated
                             )
                             
                             val mediaMessage = MediaMessage(
@@ -1402,6 +1408,11 @@ fun ChatBubbleEventItem(
                                 
                                 val caption = if (body != filename && body.isNotBlank()) body else null
                                 
+                                // Extract is_animated from MSC4230 (for animated images: GIF, animated PNG, animated WebP)
+                                val isAnimated = if (msgType == "m.image") {
+                                    info.optBoolean("is_animated", false).takeIf { info.has("is_animated") }
+                                } else null
+                                
                                 val mediaInfo = MediaInfo(
                                     width = width,
                                     height = height,
@@ -1410,7 +1421,8 @@ fun ChatBubbleEventItem(
                                     blurHash = blurHash,
                                     thumbnailUrl = thumbnailUrl,
                                     thumbnailBlurHash = thumbnailBlurHash,
-                                    thumbnailIsEncrypted = thumbnailFile != null
+                                    thumbnailIsEncrypted = thumbnailFile != null,
+                                    isAnimated = isAnimated
                                 )
                                 
                                 val mediaMessage = MediaMessage(

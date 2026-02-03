@@ -1172,6 +1172,11 @@ private fun RoomMediaMessageContent(
             info.optInt("duration", 0).takeIf { it > 0 }
         } else null
 
+        // Extract is_animated from MSC4230 (for animated images: GIF, animated PNG, animated WebP)
+        val isAnimated = if (msgType == "m.image") {
+            info.optBoolean("is_animated", false).takeIf { info.has("is_animated") }
+        } else null
+
         // Extract caption
         val caption = if (body != filename && body.isNotBlank()) {
             val localContent = event.localContent
@@ -1195,7 +1200,8 @@ private fun RoomMediaMessageContent(
                 thumbnailWidth = thumbnailWidth,
                 thumbnailHeight = thumbnailHeight,
                 duration = duration,
-                thumbnailIsEncrypted = thumbnailIsEncrypted
+                thumbnailIsEncrypted = thumbnailIsEncrypted,
+                isAnimated = isAnimated
             )
 
         val mediaMessage =
@@ -1978,6 +1984,11 @@ private fun EncryptedMessageContent(
                     info.optInt("duration", 0).takeIf { it > 0 }
                 } else null
 
+                // Extract is_animated from MSC4230 (for animated images: GIF, animated PNG, animated WebP)
+                val isAnimated = if (msgType == "m.image") {
+                    info.optBoolean("is_animated", false).takeIf { info.has("is_animated") }
+                } else null
+
                 // Extract caption: use sanitized_html if available, otherwise body (only if different from filename)
                 val caption = if (body != filename && body.isNotBlank()) {
                     val localContent = event.localContent
@@ -2002,7 +2013,8 @@ private fun EncryptedMessageContent(
                         thumbnailWidth = thumbnailWidth,
                         thumbnailHeight = thumbnailHeight,
                         duration = duration,
-                        thumbnailIsEncrypted = thumbnailIsEncrypted
+                        thumbnailIsEncrypted = thumbnailIsEncrypted,
+                        isAnimated = isAnimated
                     )
 
                 val mediaMessage =
