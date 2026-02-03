@@ -538,6 +538,8 @@ class AppViewModel : ViewModel() {
         private set
     var loadThumbnailsIfAvailable by mutableStateOf(true)
         private set
+    var renderThumbnailsAlways by mutableStateOf(true)
+        private set
     var elementCallBaseUrl by mutableStateOf("")
         private set
 
@@ -14248,6 +14250,21 @@ class AppViewModel : ViewModel() {
             )
         }
     }
+    
+    fun toggleRenderThumbnailsAlways() {
+        renderThumbnailsAlways = !renderThumbnailsAlways
+        
+        appContext?.let { context ->
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("render_thumbnails_always", renderThumbnailsAlways)
+                .apply()
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Saved renderThumbnailsAlways setting: $renderThumbnailsAlways"
+            )
+        }
+    }
 
     fun updateElementCallBaseUrl(url: String) {
         elementCallBaseUrl = url.trim()
@@ -14273,10 +14290,12 @@ class AppViewModel : ViewModel() {
             enableCompression = prefs.getBoolean("enable_compression", true) // Default to true
             enterKeySendsMessage = prefs.getBoolean("enter_key_sends_message", true) // Default to true (Enter sends, Shift+Enter newline)
             loadThumbnailsIfAvailable = prefs.getBoolean("load_thumbnails_if_available", true) // Default to true
+            renderThumbnailsAlways = prefs.getBoolean("render_thumbnails_always", true) // Default to true
             elementCallBaseUrl = prefs.getString("element_call_base_url", "") ?: ""
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded enableCompression setting: $enableCompression")
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded enterKeySendsMessage setting: $enterKeySendsMessage")
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded loadThumbnailsIfAvailable setting: $loadThumbnailsIfAvailable")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded renderThumbnailsAlways setting: $renderThumbnailsAlways")
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded elementCallBaseUrl setting: $elementCallBaseUrl")
         }
     }

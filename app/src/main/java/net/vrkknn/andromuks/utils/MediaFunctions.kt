@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -400,6 +401,7 @@ fun MediaMessage(
     hasBeenEditedOverride: Boolean? = null
 ) {
     val useThumbnails = appViewModel?.loadThumbnailsIfAvailable ?: true
+    val renderThumbnailsAlways = appViewModel?.renderThumbnailsAlways ?: true
     var showImageViewer by remember { mutableStateOf(false) }
     var showVideoPlayer by remember { mutableStateOf(false) }
     // State for inline video player
@@ -502,6 +504,7 @@ fun MediaMessage(
                         authToken = authToken,
                         isEncrypted = isEncrypted,
                         loadThumbnailsIfAvailable = useThumbnails,
+                        renderThumbnailsAlways = renderThumbnailsAlways,
                         isMine = isMine,
                         onImageClick = { 
                             if (mediaMessage.msgType == "m.video") {
@@ -581,6 +584,7 @@ fun MediaMessage(
                         authToken = authToken,
                         isEncrypted = isEncrypted,
                         loadThumbnailsIfAvailable = useThumbnails,
+                        renderThumbnailsAlways = renderThumbnailsAlways,
                         isMine = isMine,
                         onImageClick = { 
                             if (mediaMessage.msgType == "m.video") {
@@ -669,6 +673,7 @@ fun MediaMessage(
                         authToken = authToken,
                         isEncrypted = isEncrypted,
                         loadThumbnailsIfAvailable = useThumbnails,
+                        renderThumbnailsAlways = renderThumbnailsAlways,
                         isMine = isMine,
                         onImageClick = { 
                             if (mediaMessage.msgType == "m.video") {
@@ -748,6 +753,7 @@ fun MediaMessage(
                         authToken = authToken,
                         isEncrypted = isEncrypted,
                         loadThumbnailsIfAvailable = useThumbnails,
+                        renderThumbnailsAlways = renderThumbnailsAlways,
                         isMine = isMine,
                         onImageClick = { 
                             if (mediaMessage.msgType == "m.video") {
@@ -831,6 +837,7 @@ private fun MediaContent(
     authToken: String,
     isEncrypted: Boolean,
     loadThumbnailsIfAvailable: Boolean,
+    renderThumbnailsAlways: Boolean = true,
     isMine: Boolean = false, // For determining bubble shape
     onImageClick: () -> Unit = {},
     onImageLongPress: (() -> Unit)? = null,
@@ -841,6 +848,13 @@ private fun MediaContent(
     
     // Determine if we're using thumbnails
     val useThumbnail = loadThumbnailsIfAvailable && mediaMessage.info.thumbnailUrl != null
+    
+    // State to track if user has tapped to reveal thumbnail (only relevant when renderThumbnailsAlways is false)
+    var isRevealed by remember(mediaMessage.url) { mutableStateOf(false) }
+    
+    // Determine if we should show blurhash placeholder
+    val shouldShowPlaceholder = !renderThumbnailsAlways && !isRevealed && 
+                                (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video")
     
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1017,11 +1031,34 @@ private fun MediaContent(
                             )
                         }
 
+                        // Calculate blurhash dimensions based on thumbnail or original image dimensions
+                        // Use a reasonable size (100px on smaller dimension) while maintaining aspect ratio
+                        val blurHashWidth: Int
+                        val blurHashHeight: Int
+                        if (useThumbnail && mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailHeight != null &&
+                            mediaMessage.info.thumbnailWidth!! > 0 && mediaMessage.info.thumbnailHeight!! > 0) {
+                            // Use thumbnail dimensions
+                            val thumbW = mediaMessage.info.thumbnailWidth!!
+                            val thumbH = mediaMessage.info.thumbnailHeight!!
+                            val scale = 100f / minOf(thumbW, thumbH).toFloat()
+                            blurHashWidth = (thumbW * scale).toInt().coerceAtLeast(32)
+                            blurHashHeight = (thumbH * scale).toInt().coerceAtLeast(32)
+                        } else if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
+                            // Use original image dimensions
+                            val scale = 100f / minOf(mediaMessage.info.width, mediaMessage.info.height).toFloat()
+                            blurHashWidth = (mediaMessage.info.width * scale).toInt().coerceAtLeast(32)
+                            blurHashHeight = (mediaMessage.info.height * scale).toInt().coerceAtLeast(32)
+                        } else {
+                            // Fallback to square if dimensions unknown
+                            blurHashWidth = 32
+                            blurHashHeight = 32
+                        }
+
                         val blurHashPainter =
-                            remember(blurHashForDisplay) {
+                            remember(blurHashForDisplay, blurHashWidth, blurHashHeight) {
                                 blurHashForDisplay?.let { blurHash ->
-                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "Decoding BlurHash: $blurHash")
-                                    val bitmap = BlurHashUtils.decodeBlurHash(blurHash, 32, 32)
+                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "Decoding BlurHash: $blurHash to ${blurHashWidth}x${blurHashHeight}")
+                                    val bitmap = BlurHashUtils.decodeBlurHash(blurHash, blurHashWidth, blurHashHeight)
                                     if (BuildConfig.DEBUG) Log.d("Andromuks", "BlurHash decoded: ${bitmap != null}")
                                     if (bitmap != null) {
                                         val imageBitmap = bitmap.asImageBitmap()
@@ -1038,8 +1075,8 @@ private fun MediaContent(
                                         Log.w("Andromuks", "BlurHash decode failed, using fallback")
                                         BitmapPainter(
                                             BlurHashUtils.createPlaceholderBitmap(
-                                                32,
-                                                32,
+                                                blurHashWidth,
+                                                blurHashHeight,
                                                 androidx.compose.ui.graphics.Color.Gray
                                             )
                                         )
@@ -1053,8 +1090,8 @@ private fun MediaContent(
                                         )
                                         BitmapPainter(
                                             BlurHashUtils.createPlaceholderBitmap(
-                                                32,
-                                                32,
+                                                blurHashWidth,
+                                                blurHashHeight,
                                                 androidx.compose.ui.graphics.Color.Gray
                                             )
                                         )
@@ -1093,62 +1130,107 @@ private fun MediaContent(
                             hasLoadedDimensions = false
                         }
 
-                        // PERFORMANCE: Use AsyncImage with onSuccess to extract dimensions and adjust aspect ratio
-                        // Image fills frame width and maintains aspect ratio, clipped by frame
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(imageUrl ?: "")
-                                .apply {
-                                    if (cachedFile == null) {
-                                        addHeader("Cookie", "gomuks_auth=$authToken")
-                                    }
+                        if (shouldShowPlaceholder) {
+                            // Show blurhash placeholder with "Tap to show" text
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(loadedAspectRatio)
+                                    .scale(1.02f)
+                                    .clickable {
+                                        // First tap: reveal thumbnail
+                                        isRevealed = true
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                // Show blurhash or empty box
+                                if (blurHashForDisplay != null) {
+                                    Image(
+                                        painter = blurHashPainter,
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                    )
+                                } else {
+                                    // Empty box with background
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    )
                                 }
-                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                .diskCachePolicy(CachePolicy.ENABLED)
-                                .size(600, 600) // QUALITY IMPROVEMENT: Larger size for better quality
-                                .build(),
-                            imageLoader = imageLoader,
-                            contentDescription = mediaMessage.filename,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(loadedAspectRatio)
-                                .scale(1.02f) // Make image slightly larger than frame so it gets clipped
-                                .combinedClickable(
-                                    onClick = { onImageClick() },
-                                    onLongClick = { onImageLongPress?.invoke() }
-                                ),
-                            placeholder = blurHashPainter,
-                            error = blurHashPainter,
-                            contentScale = androidx.compose.ui.layout.ContentScale.FillWidth, // Fill frame width, maintain aspect ratio
-                            onSuccess = { state ->
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
                                 
-                                        // Extract actual image dimensions from loaded image
-                                        val painter = state.painter
-                                        val intrinsicSize = painter.intrinsicSize
-                                        if (intrinsicSize.width > 0 && intrinsicSize.height > 0 && !hasLoadedDimensions) {
-                                            val actualAspectRatio = intrinsicSize.width / intrinsicSize.height
-                                            if (BuildConfig.DEBUG) Log.d(
-                                                "Andromuks",
-                                                "Image loaded with dimensions: ${intrinsicSize.width}x${intrinsicSize.height}, aspectRatio=$actualAspectRatio (original from JSON: $aspectRatio, hasValidJsonDimensions: $hasValidJsonDimensions)"
-                                            )
-                                            // Only update if we didn't have valid dimensions from JSON
-                                            // This means JSON width/height were missing or invalid
-                                            if (!hasValidJsonDimensions) {
-                                                loadedAspectRatio = actualAspectRatio
-                                                hasLoadedDimensions = true
+                                // "Tap to show" text overlay
+                                Text(
+                                    text = "Tap to show",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .background(
+                                            MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                )
+                            }
+                        } else {
+                            // PERFORMANCE: Use AsyncImage with onSuccess to extract dimensions and adjust aspect ratio
+                            // Image fills frame width and maintains aspect ratio, clipped by frame
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(imageUrl ?: "")
+                                    .apply {
+                                        if (cachedFile == null) {
+                                            addHeader("Cookie", "gomuks_auth=$authToken")
+                                        }
+                                    }
+                                    .memoryCachePolicy(CachePolicy.ENABLED)
+                                    .diskCachePolicy(CachePolicy.ENABLED)
+                                    .size(600, 600) // QUALITY IMPROVEMENT: Larger size for better quality
+                                    .build(),
+                                imageLoader = imageLoader,
+                                contentDescription = mediaMessage.filename,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(loadedAspectRatio)
+                                    .scale(1.02f) // Make image slightly larger than frame so it gets clipped
+                                    .combinedClickable(
+                                        onClick = { onImageClick() },
+                                        onLongClick = { onImageLongPress?.invoke() }
+                                    ),
+                                placeholder = blurHashPainter,
+                                error = blurHashPainter,
+                                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth, // Fill frame width, maintain aspect ratio
+                                onSuccess = { state ->
+                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
+                                    
+                                            // Extract actual image dimensions from loaded image
+                                            val painter = state.painter
+                                            val intrinsicSize = painter.intrinsicSize
+                                            if (intrinsicSize.width > 0 && intrinsicSize.height > 0 && !hasLoadedDimensions) {
+                                                val actualAspectRatio = intrinsicSize.width / intrinsicSize.height
                                                 if (BuildConfig.DEBUG) Log.d(
                                                     "Andromuks",
-                                                    "Updated aspect ratio from loaded image: $actualAspectRatio"
+                                                    "Image loaded with dimensions: ${intrinsicSize.width}x${intrinsicSize.height}, aspectRatio=$actualAspectRatio (original from JSON: $aspectRatio, hasValidJsonDimensions: $hasValidJsonDimensions)"
                                                 )
+                                                // Only update if we didn't have valid dimensions from JSON
+                                                // This means JSON width/height were missing or invalid
+                                                if (!hasValidJsonDimensions) {
+                                                    loadedAspectRatio = actualAspectRatio
+                                                    hasLoadedDimensions = true
+                                                    if (BuildConfig.DEBUG) Log.d(
+                                                        "Andromuks",
+                                                        "Updated aspect ratio from loaded image: $actualAspectRatio"
+                                                    )
+                                                }
                                             }
-                                        }
-                            },
-                            onError = { },
-                            onLoading = { state ->
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "⏳ Image loading: $imageUrl, state: $state")
-                            }
-                        )
+                                },
+                                onError = { },
+                                onLoading = { state ->
+                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "⏳ Image loading: $imageUrl, state: $state")
+                                }
+                            )
+                        }
                     } else if (mediaMessage.msgType == "m.video") {
                         // Check if we should show inline player or thumbnail
                         if (isVideoPlayingInline) {
@@ -1189,6 +1271,56 @@ private fun MediaContent(
                                 hasLoadedThumbnailDimensions = false
                             }
                             
+                            // Get blurhash for video
+                            val videoBlurHash = mediaMessage.info.thumbnailBlurHash ?: mediaMessage.info.blurHash
+                            
+                            // Calculate blurhash dimensions based on thumbnail or original video dimensions
+                            // Use a reasonable size (100px on smaller dimension) while maintaining aspect ratio
+                            val videoBlurHashWidth: Int
+                            val videoBlurHashHeight: Int
+                            if (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailHeight != null &&
+                                mediaMessage.info.thumbnailWidth!! > 0 && mediaMessage.info.thumbnailHeight!! > 0) {
+                                // Use thumbnail dimensions
+                                val thumbW = mediaMessage.info.thumbnailWidth!!
+                                val thumbH = mediaMessage.info.thumbnailHeight!!
+                                val scale = 100f / minOf(thumbW, thumbH).toFloat()
+                                videoBlurHashWidth = (thumbW * scale).toInt().coerceAtLeast(32)
+                                videoBlurHashHeight = (thumbH * scale).toInt().coerceAtLeast(32)
+                            } else if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
+                                // Use original video dimensions
+                                val scale = 100f / minOf(mediaMessage.info.width, mediaMessage.info.height).toFloat()
+                                videoBlurHashWidth = (mediaMessage.info.width * scale).toInt().coerceAtLeast(32)
+                                videoBlurHashHeight = (mediaMessage.info.height * scale).toInt().coerceAtLeast(32)
+                            } else {
+                                // Fallback to square if dimensions unknown
+                                videoBlurHashWidth = 32
+                                videoBlurHashHeight = 32
+                            }
+                            
+                            val videoBlurHashPainter = remember(videoBlurHash, videoBlurHashWidth, videoBlurHashHeight) {
+                                videoBlurHash?.let { blurHash ->
+                                    val bitmap = BlurHashUtils.decodeBlurHash(blurHash, videoBlurHashWidth, videoBlurHashHeight)
+                                    if (bitmap != null) {
+                                        BitmapPainter(bitmap.asImageBitmap())
+                                    } else {
+                                        BitmapPainter(
+                                            BlurHashUtils.createPlaceholderBitmap(
+                                                videoBlurHashWidth,
+                                                videoBlurHashHeight,
+                                                androidx.compose.ui.graphics.Color.Gray
+                                            )
+                                        )
+                                    }
+                                }
+                                    ?: BitmapPainter(
+                                        BlurHashUtils.createPlaceholderBitmap(
+                                            videoBlurHashWidth,
+                                            videoBlurHashHeight,
+                                            androidx.compose.ui.graphics.Color.Gray
+                                        )
+                                    )
+                            }
+                            
                             Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1196,7 +1328,48 @@ private fun MediaContent(
                                 .scale(1.02f), // Make thumbnail slightly larger than frame so it gets clipped
                             contentAlignment = Alignment.Center
                         ) {
-                            if (thumbnailUrl != null) {
+                            if (shouldShowPlaceholder) {
+                                // Show blurhash placeholder with "Tap to show" text
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clickable {
+                                            // First tap: reveal thumbnail
+                                            isRevealed = true
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    // Show blurhash or empty box
+                                    if (videoBlurHash != null) {
+                                        Image(
+                                            painter = videoBlurHashPainter,
+                                            contentDescription = null,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                        )
+                                    } else {
+                                        // Empty box with background
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        )
+                                    }
+                                    
+                                    // "Tap to show" text overlay
+                                    Text(
+                                        text = "Tap to show",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier
+                                            .background(
+                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                                                RoundedCornerShape(8.dp)
+                                            )
+                                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    )
+                                }
+                            } else if (thumbnailUrl != null) {
                                 // Render video thumbnail
                                 val thumbnailHttpUrl =
                                     MediaUtils.mxcToHttpUrl(thumbnailUrl, homeserverUrl)
@@ -1311,30 +1484,74 @@ private fun MediaContent(
                                     }
                                 }
                             } else {
-                                // Fallback: No thumbnail available, show placeholder
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(aspectRatio)
-                                        .combinedClickable(
-                                            onClick = { onImageClick() },
-                                            onLongClick = { onImageLongPress?.invoke() }
+                                // Fallback: No thumbnail available
+                                if (shouldShowPlaceholder) {
+                                    // Show blurhash placeholder with "Tap to show" text
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clickable {
+                                                // First tap: for videos without thumbnails, open viewer directly
+                                                onImageClick()
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        // Show blurhash or empty box
+                                        if (videoBlurHash != null) {
+                                            Image(
+                                                painter = videoBlurHashPainter,
+                                                contentDescription = null,
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
+                                            )
+                                        } else {
+                                            // Empty box with background
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                            )
+                                        }
+                                        
+                                        // "Tap to show" text overlay
+                                        Text(
+                                            text = "Tap to show",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier
+                                                .background(
+                                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                                                    RoundedCornerShape(8.dp)
+                                                )
+                                                .padding(horizontal = 12.dp, vertical = 6.dp)
                                         )
-                                ) {
-                                    Text(
-                                        text = "🎥",
-                                        style = MaterialTheme.typography.headlineMedium
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = mediaMessage.filename,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                    }
+                                } else {
+                                    // No thumbnail available, show placeholder
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(aspectRatio)
+                                            .combinedClickable(
+                                                onClick = { onImageClick() },
+                                                onLongClick = { onImageLongPress?.invoke() }
+                                            )
+                                    ) {
+                                        Text(
+                                            text = "🎥",
+                                            style = MaterialTheme.typography.headlineMedium
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = mediaMessage.filename,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
                             }
                         }

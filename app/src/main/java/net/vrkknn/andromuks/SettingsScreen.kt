@@ -97,6 +97,40 @@ fun SettingsScreen(
                 }
             }
             
+            // Render thumbnails always setting
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "Render thumbnails always",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "If disabled, images and videos show blurhash placeholder until tapped (prevents automatic NSFW rendering).",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    
+                    Switch(
+                        checked = appViewModel.renderThumbnailsAlways,
+                        onCheckedChange = { appViewModel.toggleRenderThumbnailsAlways() }
+                    )
+                }
+            }
+            
             // Compression Setting
             Card(
                 modifier = Modifier.fillMaxWidth(),
