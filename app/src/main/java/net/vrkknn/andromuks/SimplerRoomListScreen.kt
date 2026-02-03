@@ -23,6 +23,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import kotlinx.coroutines.delay
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 
@@ -57,12 +59,40 @@ fun SimplerRoomListScreen(
         }
     val authToken =
         remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
-    val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
+    val uiState by appViewModel.rememberRoomListUiState()
+    val imageToken = uiState.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     val homeserverUrl = appViewModel.homeserverUrl
 
     // Observe rooms from the view model. allRooms already updates reactively via mutableStateOf.
     val rooms = appViewModel.allRooms
     val pendingShare = appViewModel.pendingShare
+    
+    // Wait for initial sync to complete before showing rooms
+    // This ensures rooms are loaded from WebSocket before displaying
+    var showRooms by remember { 
+        mutableStateOf(uiState.initialSyncComplete || rooms.isNotEmpty())
+    }
+    var loadingTimeout by remember { mutableStateOf(false) }
+    
+    LaunchedEffect(uiState.initialSyncComplete, rooms.size) {
+        // Show rooms if:
+        // 1. Initial sync is complete, OR
+        // 2. We have rooms available (even if sync not complete yet)
+        if (uiState.initialSyncComplete || rooms.isNotEmpty()) {
+            showRooms = true
+        }
+    }
+    
+    // Timeout fallback: show rooms after 15 seconds even if sync not complete
+    LaunchedEffect(showRooms) {
+        if (!showRooms) {
+            delay(15000L)
+            if (!showRooms) {
+                loadingTimeout = true
+                showRooms = true
+            }
+        }
+    }
 
     AndromuksTheme {
         Surface(
@@ -121,10 +151,24 @@ fun SimplerRoomListScreen(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    if (rooms.isEmpty()) {
+                    // Show loading state while waiting for rooms to sync
+                    if (!showRooms) {
+                        EmptyRoomListPlaceholder(
+                            title = "Loading rooms...",
+                            message = if (loadingTimeout) {
+                                "Taking longer than expected. Please wait or go back."
+                            } else {
+                                "Syncing rooms from server. This may take a moment."
+                            },
+                            actionLabel = "Go back"
+                        ) {
+                            navController.popBackStack()
+                            appViewModel.clearPendingShare()
+                        }
+                    } else if (rooms.isEmpty()) {
                         EmptyRoomListPlaceholder(
                             title = "No rooms available",
-                            message = "Once rooms are synced, they'll appear here.",
+                            message = "No rooms found. Make sure you're connected and have joined some rooms.",
                             actionLabel = "Go back"
                         ) {
                             navController.popBackStack()
