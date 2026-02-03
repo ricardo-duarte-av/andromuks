@@ -45,7 +45,14 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
 
         if (token != null && homeserverUrl != null) {
             if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Token and server URL found.")
-            appViewModel.addStartupProgressMessage("Connecting to WebSocket...")
+            
+            // CRITICAL FIX: Check if WebSocket is already connected BEFORE adding "Connecting..." message
+            val isAlreadyConnected = WebSocketService.isWebSocketConnected()
+            if (!isAlreadyConnected) {
+                appViewModel.addStartupProgressMessage("Connecting to WebSocket...")
+            } else {
+                appViewModel.addStartupProgressMessage("Attaching to existing WebSocket...")
+            }
             
             // Check if permissions are granted
             val hasNotificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -91,16 +98,51 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
             appViewModel.updateAuthToken(token)
             fun navigateToRoomListIfNeeded(reason: String) {
                 val currentRoute = navController.currentBackStackEntry?.destination?.route
+                if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "navigateToRoomListIfNeeded called with reason: $reason, currentRoute: $currentRoute")
+                
+                // CRITICAL FIX: When opening via app shortcut (not pinned shortcut), we should always navigate to room_list
+                // even if we're currently on room_timeline/... from a previous session.
+                // The reason "websocket already connected" indicates we're opening the app normally, not via shortcut.
+                val shouldForceNavigation = reason == "websocket already connected" || reason == "default flow"
+                
                 if (currentRoute != null) {
-                    if (currentRoute == "simple_room_list" ||
+                    // If we're already on "room_list", ensure isLoading is false and return
+                    // (don't navigate again to avoid navigation loops)
+                    if (currentRoute == "room_list") {
+                        if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Already on room_list, ensuring isLoading is false")
+                        appViewModel.isLoading = false
+                        return
+                    }
+                    
+                    // If we're on room_timeline/... or chat_bubble/... and we should force navigation,
+                    // navigate to room_list anyway (user opened app via app shortcut, not pinned shortcut)
+                    if (shouldForceNavigation && (currentRoute.startsWith("room_timeline/") || currentRoute.startsWith("chat_bubble/"))) {
+                        if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Force navigating to room_list ($reason) - clearing previous navigation stack (currentRoute: $currentRoute)")
+                        appViewModel.isLoading = false
+                        navController.navigate("room_list") {
+                            // Clear entire back stack and start fresh at room_list
+                            popUpTo(0) { inclusive = true }
+                        }
+                        return
+                    }
+                    
+                    // Skip navigation if we're on simple_room_list or other screens (unless forcing)
+                    if (!shouldForceNavigation && (currentRoute == "simple_room_list" ||
                         currentRoute.startsWith("room_timeline/") ||
                         currentRoute.startsWith("chat_bubble/")
-                    ) {
+                    )) {
                         if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Skipping navigation to room_list ($reason) because current route is $currentRoute")
+                        appViewModel.isLoading = false
                         return
                     }
                 }
-                navController.navigate("room_list")
+                
+                if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Navigating to room_list (reason: $reason, currentRoute: $currentRoute)")
+                appViewModel.isLoading = false
+                navController.navigate("room_list") {
+                    // Pop auth_check from back stack when navigating to room_list
+                    popUpTo("auth_check") { inclusive = true }
+                }
             }
             
             // Set up navigation callback BEFORE connecting websocket
@@ -179,8 +221,8 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
 
             // CRITICAL FIX: Only primary AppViewModel instance should create WebSocket connections
             // Non-primary instances should attach to existing connection or wait for primary to connect
+            // Note: isAlreadyConnected was already checked above for the progress message
             val isPrimary = appViewModel.isPrimaryInstance()
-            val isAlreadyConnected = WebSocketService.isWebSocketConnected()
             
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheckScreen: WebSocket connection check - isPrimary: $isPrimary, isAlreadyConnected: $isAlreadyConnected")
             
@@ -189,13 +231,19 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheckScreen: WebSocket already connected, attaching to existing connection")
                 appViewModel.attachToExistingWebSocketIfAvailable()
                 
+                // CRITICAL FIX: Since WebSocket is already connected, the navigation callback won't fire
+                // We need to set isLoading = false and register FCM notifications here
+                appViewModel.isLoading = false
+                appViewModel.registerFCMNotifications()
+                
+                // Small delay to ensure state updates are processed before navigation
+                kotlinx.coroutines.delay(50)
+                
                 // If we have direct room navigation (from notification), navigate immediately
                 // The websocket is already connected, so we don't need to wait for navigation callback
                 val directRoomId = appViewModel.getDirectRoomNavigation()
                 if (directRoomId != null) {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheckScreen: WebSocket already connected, navigating directly to room: $directRoomId")
-                    appViewModel.isLoading = false
-                    appViewModel.registerFCMNotifications()
                     val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
                     appViewModel.clearDirectRoomNavigation()
                     val encodedRoomId = java.net.URLEncoder.encode(directRoomId, "UTF-8")
@@ -211,7 +259,20 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                     navController.navigate("room_timeline/$encodedRoomId")
                 } else {
                     // No direct navigation - navigate to room_list normally
-                    navigateToRoomListIfNeeded("websocket already connected")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheckScreen: WebSocket already connected, navigating to room_list")
+                    try {
+                        navigateToRoomListIfNeeded("websocket already connected")
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AuthCheckScreen: Error navigating to room_list", e)
+                        // Fallback: try direct navigation
+                        try {
+                            navController.navigate("room_list") {
+                                popUpTo(0) { inclusive = true }
+                            }
+                        } catch (e2: Exception) {
+                            android.util.Log.e("Andromuks", "AuthCheckScreen: Error in fallback navigation", e2)
+                        }
+                    }
                 }
                 // Don't call connectToWebsocket - we're already connected
             } else if (isPrimary) {
@@ -237,6 +298,10 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                 if (WebSocketService.isWebSocketConnected()) {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheckScreen: Primary instance connected, attaching to WebSocket")
                     appViewModel.attachToExistingWebSocketIfAvailable()
+                    // CRITICAL FIX: Since WebSocket is already connected, set isLoading = false and navigate
+                    appViewModel.isLoading = false
+                    appViewModel.registerFCMNotifications()
+                    navigateToRoomListIfNeeded("non-primary attached to existing connection")
                 } else {
                     // FALLBACK: If no primary instance exists (app was closed) and no connection exists,
                     // allow this non-primary instance to create the connection

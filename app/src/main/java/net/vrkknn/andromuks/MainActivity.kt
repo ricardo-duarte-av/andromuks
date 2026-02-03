@@ -105,7 +105,23 @@ class MainActivity : ComponentActivity() {
                     onViewModelCreated = { viewModel ->
                         if (!::appViewModel.isInitialized) {
                             appViewModel = viewModel
-                            appViewModel.markAsPrimaryInstance()
+                            
+                            // CRITICAL FIX: Check if WebSocket is already connected and there's already a primary instance
+                            // If so, this instance should attach as SECONDARY, not PRIMARY
+                            // This prevents creating a new PRIMARY when opening via app shortcut after pinned shortcut
+                            val isWebSocketConnected = net.vrkknn.andromuks.WebSocketService.isWebSocketConnected()
+                            val existingPrimaryId = net.vrkknn.andromuks.WebSocketService.getPrimaryViewModelId()
+                            
+                            if (isWebSocketConnected && existingPrimaryId != null) {
+                                // WebSocket is already connected and there's already a primary instance
+                                // This instance should attach as SECONDARY (don't call markAsPrimaryInstance)
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: WebSocket already connected with primary instance $existingPrimaryId - attaching as SECONDARY")
+                                // Don't call markAsPrimaryInstance() - let it attach as secondary via attachToExistingWebSocketIfAvailable()
+                            } else {
+                                // No existing primary or WebSocket not connected - this instance should be PRIMARY
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Marking as PRIMARY (isWebSocketConnected=$isWebSocketConnected, existingPrimaryId=$existingPrimaryId)")
+                                appViewModel.markAsPrimaryInstance()
+                            }
                             
                             // OPTIMIZATION: Check if opening from notification BEFORE initializing FCM
                             // This allows us to skip cache clearing to preserve preemptive pagination cache

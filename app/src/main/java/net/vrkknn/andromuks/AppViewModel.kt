@@ -5670,13 +5670,29 @@ class AppViewModel : ViewModel() {
             if (isWebSocketConnected()) {
                 // WebSocket is in CONNECTED state, which means init_complete was already received
                 // (connectionState is only set to CONNECTED in onInitCompleteReceived)
-                // Mark initial sync as complete - don't wait for initializationComplete flag
-                // because this might be a new AppViewModel instance that doesn't have that flag set
+                // Mark initialization and initial sync as complete - don't wait for these flags
+                // because this might be a new AppViewModel instance that doesn't have these flags set
                 initialSyncPhase = true
                 initialSyncProcessingComplete = true
-                android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Setting initialSyncComplete=true (already-initialized WebSocket)")
+                android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Setting initializationComplete=true and initialSyncComplete=true (already-initialized WebSocket)")
+                initializationComplete = true  // CRITICAL: init_complete was already received by primary instance
                 initialSyncComplete = true
-                android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: initialSyncComplete=$initialSyncComplete")
+                android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: initializationComplete=$initializationComplete, initialSyncComplete=$initialSyncComplete")
+                
+                // CRITICAL FIX: Populate roomMap from cache when attaching to existing WebSocket
+                // This ensures the new AppViewModel instance has room data from previous instances
+                populateRoomMapFromCache()
+                
+                // CRITICAL FIX: Set spacesLoaded if we have rooms (populateRoomMapFromCache already does this, but ensure it's set)
+                if (roomMap.isNotEmpty() && !spacesLoaded) {
+                    spacesLoaded = true
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Set spacesLoaded=true (have ${roomMap.size} rooms)")
+                }
+                
+                // CRITICAL FIX: Check if startup is complete now that we have room data
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Checking startup complete - initializationComplete=$initializationComplete, initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded, roomMap.size=${roomMap.size}")
+                checkStartupComplete()
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: After checkStartupComplete - isStartupComplete=$isStartupComplete")
                 
                 // If spaces are loaded, trigger navigation immediately
                 if (spacesLoaded && !navigationCallbackTriggered) {
