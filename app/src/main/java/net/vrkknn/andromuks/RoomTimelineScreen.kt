@@ -2163,7 +2163,7 @@ fun RoomTimelineScreen(
                             navController.navigate("element_call/$roomId")
                         },
                         onRefreshClick = {
-                            // Full refresh: drop all on-disk and in-RAM data, then fetch 200 events
+                            // Full refresh: drop all on-disk and in-RAM data, then fetch 100 events
                             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Full refresh button clicked for room $roomId")
                             isRefreshing = true
                             appViewModel.setAutoPaginationEnabled(false, "manual_refresh_ui_$roomId")

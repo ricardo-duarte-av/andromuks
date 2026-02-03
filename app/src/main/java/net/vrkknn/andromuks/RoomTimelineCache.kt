@@ -97,6 +97,14 @@ object RoomTimelineCache {
                 roomsInitialized.remove(eldest.key)
                 eldest.value.events.clear()
                 eldest.value.eventIds.clear()
+                
+                // Also clean up room-specific profiles from ProfileCache when timeline is evicted
+                // This prevents orphaned flattened profiles from accumulating when rooms are evicted
+                ProfileCache.clearRoom(eldest.key)
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "Cleared room-specific profiles for evicted room ${eldest.key}")
+                }
+                
                 return true
             }
             
@@ -849,7 +857,9 @@ object RoomTimelineCache {
                 roomsInitialized.remove(roomId)
                 activelyCachedRooms.remove(roomId)
             }
-            if (BuildConfig.DEBUG) Log.d(TAG, "Cleared cache for room $roomId and marked as not cached")
+            // Also clean up room-specific profiles when room cache is cleared
+            ProfileCache.clearRoom(roomId)
+            if (BuildConfig.DEBUG) Log.d(TAG, "Cleared cache for room $roomId and marked as not cached (also cleared room-specific profiles)")
         }
     }
     
@@ -858,9 +868,12 @@ object RoomTimelineCache {
      */
     fun clearAllCaches() {
         synchronized(cacheLock) {
+            val allRoomIds = roomEventsCache.keys.toSet()
             roomEventsCache.clear()
             roomsInitialized.clear()
-            if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all room caches")
+            // Clear profiles for all rooms
+            allRoomIds.forEach { ProfileCache.clearRoom(it) }
+            if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all room caches (also cleared all room-specific profiles)")
         }
     }
     
@@ -876,10 +889,13 @@ object RoomTimelineCache {
             
                 if (openedRooms.isEmpty()) {
                     // No opened rooms - clear everything
+                    val allRoomIds = roomEventsCache.keys.toSet()
                     roomEventsCache.clear()
                     roomsInitialized.clear()
                     activelyCachedRooms.clear()
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all room caches and marked all rooms as needing pagination (no opened rooms)")
+                    // Clear profiles for all rooms
+                    allRoomIds.forEach { ProfileCache.clearRoom(it) }
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all room caches and marked all rooms as needing pagination (no opened rooms, also cleared all room-specific profiles)")
                 } else {
                     // Preserve caches for currently opened rooms
                     val roomsToClear = roomEventsCache.keys.filter { it !in openedRooms }.toSet()
@@ -890,6 +906,8 @@ object RoomTimelineCache {
                         roomEventsCache.remove(roomId)
                         roomsInitialized.remove(roomId)
                         activelyCachedRooms.remove(roomId)
+                        // Also clear room-specific profiles for cleared rooms
+                        ProfileCache.clearRoom(roomId)
                     }
                 
                     // Preserve opened rooms:

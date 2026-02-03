@@ -147,8 +147,8 @@ class AppViewModel : ViewModel() {
         private const val PROFILE_CACHE_FILE = "user_profiles_cache.json"
         
         // MEMORY MANAGEMENT: Constants for cache limits and cleanup
-        private const val INITIAL_ROOM_LOAD_EVENTS = 200 // Events to load when opening a room
-        private const val MAX_MEMBER_CACHE_SIZE = 5000
+        private const val INITIAL_ROOM_LOAD_EVENTS = 100 // Events to load when opening a room
+        private const val MAX_MEMBER_CACHE_SIZE = 50000
         private const val MAX_MESSAGE_VERSIONS_PER_EVENT = 50
         
         // PHASE 4: Counter for generating unique ViewModel IDs
@@ -8287,7 +8287,7 @@ class AppViewModel : ViewModel() {
      * Ensure timeline cache is fresh (cache-only approach, no DB loading)
      * If cache is empty or room is not actively cached, triggers paginate request
      */
-    suspend fun ensureTimelineCacheIsFresh(roomId: String, limit: Int = 200, isBackground: Boolean = false) {
+    suspend fun ensureTimelineCacheIsFresh(roomId: String, limit: Int = 100, isBackground: Boolean = false) {
         val cachedEvents = RoomTimelineCache.getCachedEvents(roomId)
         val isActivelyCached = RoomTimelineCache.isRoomActivelyCached(roomId)
         
@@ -8630,7 +8630,7 @@ class AppViewModel : ViewModel() {
      * 2. Clears all RAM caches and timeline bookkeeping for the room
      * 3. Resets pagination flags
      * 4. Requests fresh room state
-     * 5. Sends a paginate command for up to 200 events (ingest pipeline updates cache)
+     * 5. Sends a paginate command for up to 100 events (ingest pipeline updates cache)
      */
     fun fullRefreshRoomTimeline(roomId: String) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Full refresh for room: $roomId (resetting caches and requesting fresh snapshot)")
@@ -8678,7 +8678,7 @@ class AppViewModel : ViewModel() {
         // 4. Request fresh room state
         requestRoomState(roomId)
         
-        // 5. Request up to 200 events from the backend; ingest path will update the cache
+        // 5. Request up to 100 events from the backend; ingest path will update the cache
         val paginateRequestId = requestIdCounter++
         timelineRequests[paginateRequestId] = roomId
         val result = sendWebSocketCommand(
@@ -8687,12 +8687,12 @@ class AppViewModel : ViewModel() {
             mapOf(
             "room_id" to roomId,
             "max_timeline_id" to 0,
-            "limit" to 200,
+            "limit" to 100,
             "reset" to false
             )
         )
         
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent paginate request for room: $roomId (200 events) - awaiting response to rebuild timeline")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent paginate request for room: $roomId (100 events) - awaiting response to rebuild timeline")
         if (result == WebSocketResult.SUCCESS) {
             markInitialPaginate(roomId, "full_refresh")
         } else {
@@ -8703,7 +8703,7 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    suspend fun prefetchRoomSnapshot(roomId: String, limit: Int = 200, timeoutMs: Long = 6000L): Boolean {
+    suspend fun prefetchRoomSnapshot(roomId: String, limit: Int = 100, timeoutMs: Long = 6000L): Boolean {
         if (!AUTO_PAGINATION_ENABLED) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Prefetch snapshot disabled (AUTO_PAGINATION_ENABLED=false) for $roomId")
             return false
@@ -10989,7 +10989,7 @@ class AppViewModel : ViewModel() {
                         val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
                             "room_id" to roomId,
                             "max_timeline_id" to ourLatestRowId,
-                            "limit" to 200,
+                            "limit" to 100,
                             "reset" to false
                         ))
                         
