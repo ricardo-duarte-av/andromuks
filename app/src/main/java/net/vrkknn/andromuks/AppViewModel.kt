@@ -4614,7 +4614,11 @@ class AppViewModel : ViewModel() {
                     // If sync doesn't include account_data, we preserve the existing values
                     isFavourite = room.isFavourite || existingRoom.isFavourite, // Keep true if either is true
                     isLowPriority = room.isLowPriority || existingRoom.isLowPriority, // Keep true if either is true
-                    isDirectMessage = room.isDirectMessage || existingRoom.isDirectMessage // Preserve DM status
+                    isDirectMessage = room.isDirectMessage || existingRoom.isDirectMessage, // Preserve DM status
+                    // WRITE-ONLY BRIDGE INFO: Preserve bridge protocol avatar if it was previously set
+                    // Bridge info comes from get_room_state (m.bridge event), not from sync_complete
+                    // Once set, it's never removed (will be resolved on app restart if room is no longer bridged)
+                    bridgeProtocolAvatarUrl = room.bridgeProtocolAvatarUrl ?: existingRoom.bridgeProtocolAvatarUrl
                 )
                 // Log if favorite status was preserved (for debugging)
                 if (existingRoom.isFavourite && !room.isFavourite && updatedRoom.isFavourite) {
@@ -11581,31 +11585,29 @@ class AppViewModel : ViewModel() {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked $roomId as DM via bridge room_type")
             }
             
-            // Update bridge protocol avatar if present
-            // CRITICAL FIX: Always update if bridgeProtocolAvatarUrl is present, even if it matches existing
-            // This ensures the badge appears and stays visible, especially after stale data refresh
-            if (bridgeProtocolAvatarUrl != null) {
-                if (existing.bridgeProtocolAvatarUrl != bridgeProtocolAvatarUrl) {
-                    // Bridge avatar changed or was null - update it
-                    updatedRoom = updatedRoom.copy(bridgeProtocolAvatarUrl = bridgeProtocolAvatarUrl)
-                    needsUpdate = true
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated bridge protocol avatar for $roomId: $bridgeProtocolAvatarUrl")
-                } else if (existing.bridgeProtocolAvatarUrl == null) {
-                    // Room exists but didn't have bridge avatar - add it
-                    updatedRoom = updatedRoom.copy(bridgeProtocolAvatarUrl = bridgeProtocolAvatarUrl)
-                    needsUpdate = true
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added bridge protocol avatar for $roomId: $bridgeProtocolAvatarUrl")
-                } else {
-                    // Bridge avatar matches existing - still update to refresh data and trigger UI update
-                    // This ensures badges stay visible after stale data refresh
-                    updatedRoom = updatedRoom.copy(bridgeProtocolAvatarUrl = bridgeProtocolAvatarUrl)
-                    needsUpdate = true
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Refreshed bridge protocol avatar for $roomId (same value, refreshing UI)")
+            // WRITE-ONLY BRIDGE INFO: Once bridge info is set, it's never removed (even if response doesn't include it)
+            // Bridge events are static/eternal - if a room is no longer bridged, it will be resolved on app restart
+            // This prevents badges from disappearing due to incomplete get_room_state responses
+            val finalBridgeProtocolAvatarUrl = bridgeProtocolAvatarUrl ?: existing.bridgeProtocolAvatarUrl
+            
+            if (finalBridgeProtocolAvatarUrl != existing.bridgeProtocolAvatarUrl) {
+                // Bridge info changed (either set for first time, or updated)
+                updatedRoom = updatedRoom.copy(bridgeProtocolAvatarUrl = finalBridgeProtocolAvatarUrl)
+                needsUpdate = true
+                if (BuildConfig.DEBUG) {
+                    if (bridgeProtocolAvatarUrl != null) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Set/updated bridge protocol avatar for $roomId: $bridgeProtocolAvatarUrl")
+                    } else {
+                        android.util.Log.d("Andromuks", "AppViewModel: Preserved existing bridge protocol avatar for $roomId: ${existing.bridgeProtocolAvatarUrl} (response didn't include m.bridge)")
+                    }
                 }
-            } else if (existing.bridgeProtocolAvatarUrl != null) {
-                // Response doesn't have bridge info but room had it - keep existing (don't clear)
-                // Bridge info might not be in every response, so preserve what we have
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Response missing bridge info for $roomId, preserving existing: ${existing.bridgeProtocolAvatarUrl}")
+            } else if (finalBridgeProtocolAvatarUrl != null && existing.bridgeProtocolAvatarUrl != null) {
+                // Bridge info unchanged but present - ensure it's explicitly set to trigger UI update if needed
+                updatedRoom = updatedRoom.copy(bridgeProtocolAvatarUrl = finalBridgeProtocolAvatarUrl)
+                // Only update if we haven't already set needsUpdate for other reasons
+                if (!needsUpdate) {
+                    needsUpdate = true
+                }
             }
             
             if (needsUpdate) {
