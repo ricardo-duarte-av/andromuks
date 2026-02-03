@@ -825,11 +825,19 @@ fun AppNavigation(
             
             // Add a small delay after startup is marked complete to allow background work to settle
             // This prevents ANR when the room list is first displayed with many rooms
-            var showRoomList by remember { mutableStateOf(false) }
+            // CRITICAL FIX: Only apply delay on FIRST startup, not when navigating back
+            // If isStartupComplete is already true when composable is first created, show immediately
+            var showRoomList by remember { mutableStateOf(isStartupComplete) }
+            var hasAppliedDelay by remember { mutableStateOf(false) }
+            
             androidx.compose.runtime.LaunchedEffect(isStartupComplete) {
                 if (isStartupComplete) {
-                    // Wait 300ms for background work to settle before showing room list
-                    delay(300)
+                    if (!hasAppliedDelay) {
+                        // First time startup - wait 300ms for background work to settle
+                        delay(300)
+                        hasAppliedDelay = true
+                    }
+                    // Show room list (immediately if navigating back, after delay if first startup)
                     showRoomList = true
                 } else {
                     showRoomList = false
@@ -843,7 +851,7 @@ fun AppNavigation(
                     modifier = modifier
                 )
             } else {
-                // Show room list when startup is complete and delay has passed
+                // Show room list when startup is complete and delay has passed (first time) or immediately (navigation back)
                 RoomListScreen(navController = navController, modifier = modifier, appViewModel = appViewModel)
             }
         }
