@@ -6,7 +6,11 @@ import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.RectF
 import android.media.ExifInterface
 import android.media.MediaPlayer
 import android.net.Uri
@@ -27,6 +31,7 @@ import kotlin.math.absoluteValue
 import kotlin.math.cos
 import kotlin.math.PI
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.withSign
 
 /**
@@ -71,6 +76,112 @@ data class FileUploadResult(
  * Utilities for uploading media files and calculating blurhash
  */
 object MediaUploadUtils {
+    
+    /**
+     * Create a high-quality thumbnail with subtle blur to reduce pixelation
+     * Uses better scaling algorithm and applies a subtle Gaussian blur
+     */
+    internal fun createHighQualityThumbnail(
+        source: Bitmap,
+        targetWidth: Int,
+        targetHeight: Int,
+        blurRadius: Float = 1.5f
+    ): Bitmap {
+        // Step 1: Use Canvas with high-quality filtering for better scaling
+        val scaledBitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(scaledBitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        paint.isDither = true
+        
+        // Draw source bitmap with high-quality scaling
+        val srcRect = Rect(0, 0, source.width, source.height)
+        val dstRect = RectF(0f, 0f, targetWidth.toFloat(), targetHeight.toFloat())
+        canvas.drawBitmap(source, srcRect, dstRect, paint)
+        
+        // Step 2: Apply subtle blur to reduce pixelation artifacts
+        // Use a simple box blur algorithm (efficient and doesn't require RenderScript)
+        if (blurRadius > 0.5f) {
+            return applyBoxBlur(scaledBitmap, blurRadius)
+        }
+        
+        return scaledBitmap
+    }
+    
+    /**
+     * Apply a box blur to reduce pixelation artifacts
+     * This is an efficient approximation of Gaussian blur
+     */
+    private fun applyBoxBlur(bitmap: Bitmap, radius: Float): Bitmap {
+        val radiusInt = radius.roundToInt().coerceIn(1, 3) // Limit to 1-3 for performance
+        
+        // For small radius, use a simple box blur
+        if (radiusInt == 1) {
+            return applySinglePassBoxBlur(bitmap)
+        }
+        
+        // For larger radius, apply multiple passes
+        var result = bitmap
+        repeat(radiusInt) {
+            result = applySinglePassBoxBlur(result)
+        }
+        return result
+    }
+    
+    /**
+     * Apply a single-pass box blur (3x3 kernel)
+     * This is efficient and provides good quality for thumbnails
+     */
+    private fun applySinglePassBoxBlur(bitmap: Bitmap): Bitmap {
+        val width = bitmap.width
+        val height = bitmap.height
+        val blurred = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        
+        val pixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+        val blurredPixels = IntArray(width * height)
+        
+        // Box blur kernel: 3x3 with equal weights
+        val kernel = arrayOf(
+            intArrayOf(1, 1, 1),
+            intArrayOf(1, 1, 1),
+            intArrayOf(1, 1, 1)
+        )
+        val kernelSum = 9
+        
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                var r = 0
+                var g = 0
+                var b = 0
+                var a = 0
+                
+                // Apply kernel
+                for (ky in -1..1) {
+                    for (kx in -1..1) {
+                        val px = (x + kx).coerceIn(0, width - 1)
+                        val py = (y + ky).coerceIn(0, height - 1)
+                        val pixel = pixels[py * width + px]
+                        
+                        r += (pixel shr 16) and 0xFF
+                        g += (pixel shr 8) and 0xFF
+                        b += pixel and 0xFF
+                        a += (pixel shr 24) and 0xFF
+                    }
+                }
+                
+                // Average and set pixel
+                r /= kernelSum
+                g /= kernelSum
+                b /= kernelSum
+                a /= kernelSum
+                
+                blurredPixels[y * width + x] = (a shl 24) or (r shl 16) or (g shl 8) or b
+            }
+        }
+        
+        blurred.setPixels(blurredPixels, 0, width, 0, 0, width, height)
+        return blurred
+    }
     
     /**
      * Upload media to the server and return upload result with metadata
@@ -219,8 +330,9 @@ object MediaUploadUtils {
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Original bitmap: ${finalBitmapWidth}x${finalBitmapHeight}, Greater dimension: $greaterDimension, Scale: $scale")
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Calculated thumbnail dimensions: ${thumbWidth}x${thumbHeight}")
                 
-                // Create thumbnail bitmap with correct dimensions (width first, then height)
-                thumbnail = Bitmap.createScaledBitmap(finalBitmap, thumbWidth, thumbHeight, true)
+                // Create high-quality thumbnail with subtle blur to reduce pixelation
+                // Use better scaling algorithm and apply subtle blur for smoother appearance
+                thumbnail = createHighQualityThumbnail(finalBitmap, thumbWidth, thumbHeight, blurRadius = 1.5f)
                 
                 // Get actual dimensions from the created thumbnail bitmap
                 val actualThumbWidth = thumbnail.width

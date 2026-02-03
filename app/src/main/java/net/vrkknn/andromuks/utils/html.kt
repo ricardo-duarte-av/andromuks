@@ -495,19 +495,38 @@ private fun AnnotatedString.Builder.appendHtmlNode(
             }
             // Only append if text is not blank (shouldn't happen after normalization, but safety check)
             if (text.isNotBlank()) {
-                // Split by newlines and append each line separately, preserving newlines
-                val lines = text.split('\n')
-                lines.forEachIndexed { index, line ->
-                    if (index > 0) {
-                        // Add newline before each line except the first
-                        append("\n")
+                // If text doesn't contain newlines, append it directly without trimming
+                // This preserves spaces before inline tags like <em> and <strong>
+                if (!text.contains('\n')) {
+                    withStyle(baseStyle) { append(text) }
+                } else {
+                    // Split by newlines and append each line separately, preserving newlines
+                    // Note: We preserve trailing spaces on all lines because they might be important
+                    // (e.g., spaces before inline tags). Only the last line gets trimmed if the
+                    // original text ended with a newline (meaning that line was followed by a newline).
+                    val lines = text.split('\n')
+                    val originalEndsWithNewline = text.endsWith('\n')
+                    lines.forEachIndexed { index, line ->
+                        if (index > 0) {
+                            // Add newline before each line except the first
+                            append("\n")
+                        }
+                        // Only trim trailing whitespace from the last line if the original text
+                        // ended with a newline (meaning this line was followed by a newline).
+                        // For all other lines, preserve trailing spaces - they might be spaces
+                        // before inline tags in the next text node.
+                        val lineToAppend = if (index == lines.size - 1 && originalEndsWithNewline) {
+                            // Last line and original ended with newline - safe to trim trailing space
+                            line.trimEnd()
+                        } else {
+                            // Preserve trailing space - it might be before an inline tag
+                            line
+                        }
+                        if (lineToAppend.isNotEmpty()) {
+                            withStyle(baseStyle) { append(lineToAppend) }
+                        }
+                        // Note: Blank lines are preserved by the newline above, even if lineToAppend is empty
                     }
-                    // Append the line content, trimming trailing whitespace but preserving the line itself
-                    val trimmedLine = line.trimEnd()
-                    if (trimmedLine.isNotEmpty()) {
-                        withStyle(baseStyle) { append(trimmedLine) }
-                    }
-                    // Note: Blank lines are preserved by the newline above, even if trimmedLine is empty
                 }
             }
         }

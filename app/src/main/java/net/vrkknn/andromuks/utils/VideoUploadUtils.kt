@@ -98,7 +98,8 @@ object VideoUploadUtils {
                 val thumbnailHeight = (displayHeight * scale).toInt()
                 
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Scaling thumbnail to ${thumbnailWidth}x${thumbnailHeight}")
-                Bitmap.createScaledBitmap(thumbnailFrame, thumbnailWidth, thumbnailHeight, true).also {
+                // Use high-quality thumbnail creation with subtle blur to reduce pixelation
+                MediaUploadUtils.createHighQualityThumbnail(thumbnailFrame, thumbnailWidth, thumbnailHeight, blurRadius = 1.5f).also {
                     if (it != thumbnailFrame) {
                         thumbnailFrame.recycle()
                     }
