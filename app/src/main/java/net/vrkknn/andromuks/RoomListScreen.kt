@@ -720,19 +720,20 @@ fun RoomListScreen(
         refreshing = refreshing,
         onRefresh = {
             refreshing = true
-            // FORCE REFRESH: Reset state, clear last_received_id, and get complete payload
-            appViewModel.performFullRefresh()
-        }
-    )
-    
-    // Handle refreshing state reset
-    // Wait for spacesLoaded to become true after full refresh
-    LaunchedEffect(uiState.spacesLoaded, refreshing) {
-        if (refreshing && uiState.spacesLoaded) {
-            delay(500) // Short delay to show the refresh animation
+            // CRITICAL FIX: Navigate to auth_check (StartupLoadingScreen) to properly close and recreate WebSocket
+            // This ensures the refresh works correctly instead of leaving a spinner
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Pull-to-refresh triggered - navigating to auth_check for proper WebSocket restart")
+            // Close WebSocket connection before navigating
+            appViewModel.clearWebSocket("Pull-to-refresh")
+            // Navigate to auth_check which will handle WebSocket reconnection and show StartupLoadingScreen
+            navController.navigate("auth_check") {
+                // Clear back stack so user doesn't go back to stale room_list
+                popUpTo(0) { inclusive = true }
+            }
+            // Reset refreshing state immediately since navigation will show loading screen
             refreshing = false
         }
-    }
+    )
     
     // Listen for foreground refresh broadcast
     DisposableEffect(Unit) {
