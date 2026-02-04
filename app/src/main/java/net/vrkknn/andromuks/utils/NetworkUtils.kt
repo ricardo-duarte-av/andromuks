@@ -274,14 +274,26 @@ fun connectToWebsocket(
     
     // Build WebSocket URL with reconnection parameters
     // run_id is always read from SharedPreferences directly (no ViewModel needed)
-    // NOTE: We NEVER pass last_received_id - all caches are cleared on connect/reconnect
+    // last_received_event is read from RAM (only on reconnections, not initial connections)
     val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
     val runId = prefs.getString("ws_run_id", "") ?: ""
+    
+    // CRITICAL: Only include last_received_event on reconnections (when run_id exists)
+    // This makes reconnections snappier by telling the backend where we left off
+    val isReconnection = runId.isNotEmpty()
+    val lastReceivedRequestId = if (isReconnection) {
+        net.vrkknn.andromuks.WebSocketService.getLastReceivedRequestId(context)
+    } else {
+        // CRITICAL: Cold start - clear last_received_request_id from SharedPreferences
+        // This ensures we don't use stale values on initial connections
+        net.vrkknn.andromuks.WebSocketService.clearLastReceivedRequestId(context)
+        0 // Initial connection - don't pass last_received_event
+    }
     
     if (BuildConfig.DEBUG) {
         Log.d(
             "NetworkUtils",
-            "WebSocket URL params - runId: '$runId', reason: $reason (no last_received_id - caches cleared on connect)"
+            "WebSocket URL params - runId: '$runId', reason: $reason, isReconnection: $isReconnection, last_received_request_id: $lastReceivedRequestId"
         )
     }
     
@@ -326,6 +338,20 @@ fun connectToWebsocket(
                 "NetworkUtils",
                 "Connecting with run_id: $actualRunId, compression: $compressionEnabled"
             )
+        }
+        
+        // CRITICAL: Only include last_received_event on reconnections (when run_id exists)
+        // This makes reconnections snappier by telling the backend where we left off
+        // Note: request_id can be negative (and usually is), so check != 0 instead of > 0
+        if (lastReceivedRequestId != 0) {
+            queryParams.add("last_received_event=$lastReceivedRequestId")
+            if (BuildConfig.DEBUG) {
+                Log.d("NetworkUtils", "Added last_received_event=$lastReceivedRequestId to query parameters (reconnection)")
+            }
+        } else {
+            if (BuildConfig.DEBUG) {
+                Log.d("NetworkUtils", "No last_received_request_id available - reconnecting without last_received_event parameter")
+            }
         }
     } else {
         if (BuildConfig.DEBUG) Log.d(

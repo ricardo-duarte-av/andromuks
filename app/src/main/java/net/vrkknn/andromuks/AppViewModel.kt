@@ -4236,7 +4236,13 @@ class AppViewModel : ViewModel() {
                     // Events are processed in-memory via processSyncEventsArray()
                     // No DB refresh needed - timeline is updated directly from sync_complete events
                     
-                    // Deprecated: onSyncCompletePersisted no longer needed - we no longer track last_received_id
+                    // CRITICAL: Update last_received_request_id in RAM after sync_complete is processed successfully
+                    // This is used for faster reconnections (only on reconnections, not initial connections)
+                    // Note: request_id can be negative (and usually is), so check != 0 instead of > 0
+                    val requestId = syncJson.optInt("request_id", 0)
+                    if (requestId != 0 && appContext != null) {
+                        WebSocketService.updateLastReceivedRequestId(requestId, appContext!!)
+                    }
                 } catch (e: Exception) {
                     android.util.Log.e("Andromuks", "AppViewModel: Error persisting sync_complete: ${e.message}", e)
                     // Don't block UI updates if persistence fails
@@ -4481,7 +4487,12 @@ class AppViewModel : ViewModel() {
                     // Events are processed in-memory via processSyncEventsArray()
                     // No DB refresh needed - timeline is updated directly from sync_complete events
                     
-                    // NOTE: We no longer track requestId for reconnection - all caches are cleared on connect/reconnect
+                    // CRITICAL: Update last_received_request_id in RAM after sync_complete is processed successfully
+                    // This is used for faster reconnections (only on reconnections, not initial connections)
+                    // Note: request_id can be negative (and usually is), so check != 0 instead of > 0
+                    if (requestId != 0 && appContext != null) {
+                        WebSocketService.updateLastReceivedRequestId(requestId, appContext!!)
+                    }
                 } catch (e: Exception) {
                     android.util.Log.e("Andromuks", "AppViewModel: Error persisting sync_complete: ${e.message}", e)
                     // Don't block UI updates if persistence fails
@@ -4492,6 +4503,14 @@ class AppViewModel : ViewModel() {
                 "Andromuks",
                 "AppViewModel: Skipping sync persistence because appContext is null"
             )
+            // CRITICAL: Still update last_received_request_id even if appContext is null
+            // The sync_complete was received and processed in-memory, so we should track the request_id
+            // Note: request_id can be negative (and usually is), so check != 0 instead of > 0
+            // However, we need appContext to persist it, so skip if null
+            val requestId = syncJson.optInt("request_id", 0)
+            if (requestId != 0 && appContext != null) {
+                WebSocketService.updateLastReceivedRequestId(requestId, appContext!!)
+            }
         }
         
         // PERFORMANCE: Move heavy JSON parsing to background thread

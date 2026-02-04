@@ -1786,6 +1786,72 @@ class WebSocketService : Service() {
             // Update notification with current lag and new sync timestamp
             updateConnectionStatus(true, serviceInstance.lastKnownLagMs, serviceInstance.lastSyncTimestamp)
         }
+        
+        /**
+         * Update last received request_id from sync_complete (stored in RAM for faster reconnections)
+         * This is called after sync_complete is processed successfully
+         * 
+         * @param requestId The request_id from the sync_complete message
+         */
+        fun updateLastReceivedRequestId(requestId: Int, context: Context) {
+            val serviceInstance = instance
+            // CRITICAL: request_id can be negative (and usually is), so check != 0 instead of > 0
+            if (requestId != 0) {
+                // Update RAM value for fast access
+                serviceInstance?.lastReceivedRequestId = requestId
+                
+                // CRITICAL: Also persist to SharedPreferences so it survives service restarts
+                val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                prefs.edit().putInt("last_received_request_id", requestId).apply()
+                
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("WebSocketService", "Updated last_received_request_id to $requestId (stored in RAM and SharedPreferences for faster reconnections)")
+                }
+            }
+        }
+        
+        /**
+         * Get last received request_id (for reconnection URL parameter)
+         * Returns 0 if no sync_complete has been received yet
+         * Note: request_id can be negative (and usually is)
+         * 
+         * First checks RAM (fast), then falls back to SharedPreferences (survives restarts)
+         */
+        fun getLastReceivedRequestId(context: Context): Int {
+            // First check RAM (fast access)
+            val ramValue = instance?.lastReceivedRequestId
+            if (ramValue != null && ramValue != 0) {
+                return ramValue
+            }
+            
+            // Fall back to SharedPreferences (survives service restarts)
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val persistedValue = prefs.getInt("last_received_request_id", 0)
+            
+            // If we have a persisted value but RAM is empty, restore it to RAM
+            if (persistedValue != 0 && instance != null) {
+                instance!!.lastReceivedRequestId = persistedValue
+            }
+            
+            return persistedValue
+        }
+        
+        /**
+         * Clear last_received_request_id (called on cold starts)
+         * This ensures we don't use stale values on initial connections
+         */
+        fun clearLastReceivedRequestId(context: Context) {
+            // Clear from RAM
+            instance?.lastReceivedRequestId = 0
+            
+            // Clear from SharedPreferences
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.edit().remove("last_received_request_id").apply()
+            
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("WebSocketService", "Cleared last_received_request_id (cold start detected)")
+            }
+        }
 
         /**
          * Start ping loop immediately after init_complete so small/no-traffic accounts don’t wait for the first sync_complete.
@@ -2302,6 +2368,9 @@ class WebSocketService : Service() {
     // Ping loop state
     private var pingLoopStarted = false // Track if ping loop has been started after first sync_complete
     private var hasEverReachedReadyState = false // Track if we have ever received sync_complete on this run
+    
+    // Last received request_id from sync_complete (stored in RAM for faster reconnections)
+    private var lastReceivedRequestId: Int = 0
     
     // Fallback network validation state (exponential backoff)
     private var fallbackBackoffDelayMs = 1000L // Start with 1 second
@@ -3418,6 +3487,17 @@ class WebSocketService : Service() {
         
         instance = this
         createNotificationChannel()
+        
+        // CRITICAL: Restore last_received_request_id from SharedPreferences to RAM on service start
+        // This ensures the value survives service restarts
+        val prefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+        val persistedRequestId = prefs.getInt("last_received_request_id", 0)
+        if (persistedRequestId != 0) {
+            lastReceivedRequestId = persistedRequestId
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("WebSocketService", "Restored last_received_request_id from SharedPreferences: $persistedRequestId")
+            }
+        }
         
         // Initialize connection state StateFlow
         updateConnectionState(connectionState)
