@@ -46,7 +46,10 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.TimelineEvent
+import net.vrkknn.andromuks.MediaMessage
+import net.vrkknn.andromuks.MediaInfo
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
+import net.vrkknn.andromuks.utils.ImageViewerDialog
 import java.io.File
 
 
@@ -73,7 +76,9 @@ data class StickerMessage(
     val body: String,
     val width: Int,
     val height: Int,
-    val hasEncryptedFile: Boolean = false
+    val hasEncryptedFile: Boolean = false,
+    val mimeType: String? = null,
+    val size: Long = 0L
 )
 
 /**
@@ -123,6 +128,8 @@ fun extractStickerFromEvent(event: TimelineEvent): StickerMessage? {
     
     val width = info.optInt("w", 0)
     val height = info.optInt("h", 0)
+    val mimeType = info.optString("mimetype", "").takeIf { it.isNotBlank() }
+    val size = info.optLong("size", 0L)
     
     // Use default dimensions if missing (similar to how images handle missing dimensions)
     val finalWidth = if (width <= 0) 256 else width
@@ -132,8 +139,8 @@ fun extractStickerFromEvent(event: TimelineEvent): StickerMessage? {
         if (BuildConfig.DEBUG) Log.w("Andromuks", "StickerFunctions: Missing sticker dimensions, using defaults - width=$finalWidth, height=$finalHeight")
     }
     
-    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerFunctions: Extracted sticker - url=$url, body=$body, dimensions=${finalWidth}x${finalHeight}, hasEncryptedFile=$hasEncryptedFile")
-    return StickerMessage(url, body, finalWidth, finalHeight, hasEncryptedFile)
+    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerFunctions: Extracted sticker - url=$url, body=$body, dimensions=${finalWidth}x${finalHeight}, mimeType=$mimeType, size=$size, hasEncryptedFile=$hasEncryptedFile")
+    return StickerMessage(url, body, finalWidth, finalHeight, hasEncryptedFile, mimeType, size)
 }
 
 /**
@@ -209,16 +216,40 @@ fun StickerMessage(
     appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
     onBubbleClick: (() -> Unit)? = null
 ) {
-    var showStickerViewer by remember { mutableStateOf(false) }
+    var showImageViewer by remember { mutableStateOf(false) }
     
-    // Show sticker viewer dialog when sticker is tapped
-    if (showStickerViewer) {
-        StickerViewerDialog(
-            stickerMessage = stickerMessage,
+    // Convert StickerMessage to MediaMessage format for ImageViewerDialog
+    val mediaMessage = remember(stickerMessage) {
+        MediaMessage(
+            url = stickerMessage.url,
+            filename = stickerMessage.body,
+            caption = null,
+            info = MediaInfo(
+                width = stickerMessage.width,
+                height = stickerMessage.height,
+                size = stickerMessage.size,
+                mimeType = stickerMessage.mimeType ?: "image/webp", // Default to webp if not specified
+                blurHash = null,
+                thumbnailUrl = null,
+                thumbnailBlurHash = null,
+                thumbnailWidth = null,
+                thumbnailHeight = null,
+                duration = null,
+                thumbnailIsEncrypted = false,
+                isAnimated = null
+            ),
+            msgType = "m.sticker"
+        )
+    }
+    
+    // Show image viewer dialog when sticker is tapped (using new ImageViewerDialog)
+    if (showImageViewer) {
+        ImageViewerDialog(
+            mediaMessage = mediaMessage,
             homeserverUrl = homeserverUrl,
             authToken = authToken,
             isEncrypted = isEncrypted,
-            onDismiss = { showStickerViewer = false }
+            onDismiss = { showImageViewer = false }
         )
     }
     
@@ -267,7 +298,7 @@ fun StickerMessage(
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
                     isEncrypted = isEncrypted,
-                    onStickerClick = { showStickerViewer = true },
+                    onStickerClick = { showImageViewer = true },
                     onStickerLongPress = {
                         // Trigger menu from sticker long press
                         triggerMenuFromSticker++

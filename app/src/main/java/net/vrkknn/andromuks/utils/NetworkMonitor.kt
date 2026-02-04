@@ -33,6 +33,8 @@ class NetworkMonitor(
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var lastNetworkType: NetworkType? = null
     private var lastNetwork: Network? = null
+    // Track all available networks to detect when WiFi is still connected but lost validation
+    private val availableNetworks = mutableMapOf<Network, NetworkType>()
     
     /**
      * Start monitoring network changes
@@ -58,33 +60,85 @@ class NetworkMonitor(
                 val networkType = getNetworkType(network)
                 val previousType = lastNetworkType
                 
+                // Track this network as available
+                availableNetworks[network] = networkType
+                
                 if (BuildConfig.DEBUG) {
-                    Log.d("NetworkMonitor", "Network available: $networkType (previous: $previousType)")
+                    Log.d("NetworkMonitor", "Network available: $networkType (previous: $previousType, total available: ${availableNetworks.size})")
                 }
                 
-                // Check if this is a network type change (e.g., WiFi → Mobile, or different WiFi network)
-                if (previousType != null && previousType != NetworkType.NONE && previousType != networkType) {
-                    Log.i("NetworkMonitor", "Network type changed: $previousType → $networkType")
-                    onNetworkTypeChanged(previousType, networkType)
+                // CRITICAL FIX: Prefer Cellular (5G/4G) over WiFi, but only report network type change
+                // if the previous network actually disconnected (not just lost validation)
+                // This prevents false "network type change" notifications when WiFi is still connected
+                val preferredNetworkType = getPreferredNetworkType()
+                
+                // Only report network type change if:
+                // 1. Previous network type was different AND
+                // 2. Previous network actually disconnected (not just lost validation)
+                // OR
+                // 3. We're going from offline to online
+                if (previousType != null && previousType != NetworkType.NONE) {
+                    if (previousType != preferredNetworkType) {
+                        // Check if previous network type is still available (e.g., WiFi still connected)
+                        val previousNetworkStillAvailable = availableNetworks.values.contains(previousType)
+                        
+                        if (previousNetworkStillAvailable) {
+                            // Previous network is still connected - don't report network type change
+                            // Just silently switch to the preferred network (5G over WiFi)
+                            if (BuildConfig.DEBUG) {
+                                Log.d("NetworkMonitor", "Previous network ($previousType) still connected but switching to preferred network ($preferredNetworkType) - not reporting as network type change")
+                            }
+                            // Update to preferred network type but don't trigger callbacks
+                            lastNetworkType = preferredNetworkType
+                            lastNetwork = network
+                            return // Don't report network type change
+                        } else {
+                            // Previous network type is not available anymore - this is a real change
+                            Log.i("NetworkMonitor", "Network type changed: $previousType → $preferredNetworkType")
+                            onNetworkTypeChanged(previousType, preferredNetworkType)
+                        }
+                    }
                 }
                 
-                lastNetworkType = networkType
+                lastNetworkType = preferredNetworkType
                 lastNetwork = network
                 
                 // Network is available - trigger reconnection if needed
-                onNetworkAvailable(networkType)
+                onNetworkAvailable(preferredNetworkType)
             }
             
             override fun onLost(network: Network) {
+                // Get network type before removing (for logging and type change notification)
+                val lostNetworkType = availableNetworks[network]
+                
+                // Remove from available networks
+                availableNetworks.remove(network)
+                
                 if (BuildConfig.DEBUG) {
-                    Log.w("NetworkMonitor", "Network lost: $network (was: $lastNetworkType)")
+                    Log.w("NetworkMonitor", "Network lost: $network (type: $lostNetworkType, was: $lastNetworkType, remaining: ${availableNetworks.size})")
                 }
                 
                 // Check if this was the active network
                 if (network == lastNetwork) {
-                    lastNetworkType = NetworkType.NONE
-                    lastNetwork = null
-                    onNetworkLost()
+                    // Check if there are other networks available
+                    val preferredNetworkType = getPreferredNetworkType()
+                    
+                    if (preferredNetworkType != NetworkType.NONE) {
+                        // Another network is available - switch to it
+                        if (BuildConfig.DEBUG) {
+                            Log.d("NetworkMonitor", "Active network lost, switching to: $preferredNetworkType")
+                        }
+                        val previousType = lostNetworkType ?: lastNetworkType ?: NetworkType.NONE
+                        lastNetworkType = preferredNetworkType
+                        lastNetwork = availableNetworks.entries.firstOrNull { it.value == preferredNetworkType }?.key
+                        onNetworkTypeChanged(previousType, preferredNetworkType)
+                        onNetworkAvailable(preferredNetworkType)
+                    } else {
+                        // No networks available - we're offline
+                        lastNetworkType = NetworkType.NONE
+                        lastNetwork = null
+                        onNetworkLost()
+                    }
                 }
             }
             
@@ -92,7 +146,7 @@ class NetworkMonitor(
                 val networkType = getNetworkType(networkCapabilities)
                 val previousType = lastNetworkType
                 
-                // Check if network gained internet access or validation
+                // Update available networks if this network is validated
                 val hasInternet = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 val isValidated = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
                 
@@ -100,27 +154,102 @@ class NetworkMonitor(
                     Log.d("NetworkMonitor", "Network capabilities changed: $networkType (hasInternet: $hasInternet, isValidated: $isValidated)")
                 }
                 
-                // If network gained internet access or validation, and we're not already tracking this network
+                // CRITICAL FIX: Prefer Cellular (5G/4G) over WiFi, but only report network type change
+                // if the previous network actually disconnected (not just lost validation)
+                val preferredNetworkType = getPreferredNetworkType()
+                
+                // If network gained internet access or validation
                 if (hasInternet && isValidated) {
-                    if (previousType != networkType && previousType != null) {
-                        // Network type changed (e.g., WiFi → Mobile, or different WiFi network)
-                        Log.i("NetworkMonitor", "Network type changed via capabilities: $previousType → $networkType")
-                        onNetworkTypeChanged(previousType, networkType)
+                    // Update available networks
+                    if (networkType != NetworkType.NONE) {
+                        availableNetworks[network] = networkType
+                    }
+                    
+                    // Only report network type change if:
+                    // 1. Previous network type was different AND
+                    // 2. Previous network is not still available (actually disconnected)
+                    if (previousType != null && previousType != NetworkType.NONE) {
+                        if (previousType != preferredNetworkType) {
+                            // Check if previous network type is still available
+                            val previousNetworkStillAvailable = availableNetworks.values.contains(previousType)
+                            
+                            if (previousNetworkStillAvailable) {
+                                // Previous network is still connected - don't report network type change
+                                // Just silently switch to the preferred network (5G over WiFi)
+                                if (BuildConfig.DEBUG) {
+                                    Log.d("NetworkMonitor", "Previous network ($previousType) still connected but switching to preferred network ($preferredNetworkType) - not reporting as network type change")
+                                }
+                                // Update to preferred network type but don't trigger callbacks
+                                lastNetworkType = preferredNetworkType
+                                lastNetwork = network
+                                return // Don't report network type change
+                            } else {
+                                // Previous network type is not available anymore - this is a real change
+                                Log.i("NetworkMonitor", "Network type changed via capabilities: $previousType → $preferredNetworkType")
+                                onNetworkTypeChanged(previousType, preferredNetworkType)
+                            }
+                        }
                     } else if (previousType == null || previousType == NetworkType.NONE) {
                         // Network became available (from offline)
                         if (BuildConfig.DEBUG) {
-                            Log.d("NetworkMonitor", "Network became available via capabilities: $networkType")
+                            Log.d("NetworkMonitor", "Network became available via capabilities: $preferredNetworkType")
                         }
-                        onNetworkAvailable(networkType)
+                        onNetworkAvailable(preferredNetworkType)
                     }
                     
-                    lastNetworkType = networkType
+                    lastNetworkType = preferredNetworkType
                     lastNetwork = network
                 } else if (!hasInternet || !isValidated) {
                     // Network lost internet access or validation
+                    // Remove from available networks if it lost validation
+                    if (!isValidated) {
+                        availableNetworks.remove(network)
+                    }
+                    
                     if (network == lastNetwork) {
                         if (BuildConfig.DEBUG) {
                             Log.w("NetworkMonitor", "Network lost internet access or validation: $networkType")
+                        }
+                        
+                        // CRITICAL FIX: Prefer Cellular (5G/4G) over WiFi when both are available
+                        // When WiFi loses validation, switch to Cellular if available
+                        // But only report network type change if WiFi actually disconnected
+                        val newPreferredType = getPreferredNetworkType()
+                        
+                        if (newPreferredType != NetworkType.NONE && newPreferredType != networkType) {
+                            // Check if the current network (that lost validation) is still connected
+                            // by checking ConnectivityManager directly (not just availableNetworks)
+                            val allNetworks = connectivityManager.allNetworks
+                            val currentNetworkStillConnected = allNetworks.any { n ->
+                                val caps = connectivityManager.getNetworkCapabilities(n)
+                                caps?.hasTransport(when (networkType) {
+                                    NetworkType.WIFI -> NetworkCapabilities.TRANSPORT_WIFI
+                                    NetworkType.CELLULAR -> NetworkCapabilities.TRANSPORT_CELLULAR
+                                    NetworkType.ETHERNET -> NetworkCapabilities.TRANSPORT_ETHERNET
+                                    NetworkType.VPN -> NetworkCapabilities.TRANSPORT_VPN
+                                    else -> return@any false
+                                }) == true
+                            }
+                            
+                            if (currentNetworkStillConnected) {
+                                // Current network is still connected - silently switch to preferred network
+                                // Don't report as network type change
+                                if (BuildConfig.DEBUG) {
+                                    Log.d("NetworkMonitor", "Network ($networkType) lost validation but still connected - switching to preferred network ($newPreferredType) silently")
+                                }
+                                lastNetworkType = newPreferredType
+                                lastNetwork = availableNetworks.entries.firstOrNull { it.value == newPreferredType }?.key
+                                // Don't trigger callbacks - this is a silent switch
+                            } else {
+                                // Current network actually disconnected - this is a real change
+                                if (BuildConfig.DEBUG) {
+                                    Log.d("NetworkMonitor", "Network lost validation and disconnected, switching to: $newPreferredType")
+                                }
+                                lastNetworkType = newPreferredType
+                                lastNetwork = availableNetworks.entries.firstOrNull { it.value == newPreferredType }?.key
+                                onNetworkTypeChanged(networkType, newPreferredType)
+                                onNetworkAvailable(newPreferredType)
+                            }
                         }
                         // Don't call onNetworkLost() here - wait for onLost() to be called
                         // This handles cases where network is still connected but has no internet
@@ -191,6 +320,48 @@ class NetworkMonitor(
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> NetworkType.ETHERNET
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> NetworkType.VPN
             else -> NetworkType.OTHER
+        }
+    }
+    
+    /**
+     * Get preferred network type when multiple networks are available
+     * Prefers in this order: ETHERNET > CELLULAR (5G/4G) > VPN > WIFI > OTHER
+     * 
+     * CRITICAL: Prefers Cellular (5G/4G) over WiFi because Cellular is typically more stable
+     * and has better signal quality than weak WiFi connections
+     */
+    private fun getPreferredNetworkType(): NetworkType {
+        // Check all available networks (validated networks)
+        val availableTypes = availableNetworks.values.toSet()
+        
+        // Also check ConnectivityManager for validated networks
+        val allNetworks = connectivityManager.allNetworks
+        var ethernetAvailable = false
+        var cellularAvailable = false
+        var vpnAvailable = false
+        var wifiAvailable = false
+        
+        for (network in allNetworks) {
+            val capabilities = connectivityManager.getNetworkCapabilities(network) ?: continue
+            if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                when {
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> ethernetAvailable = true
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> cellularAvailable = true
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> vpnAvailable = true
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> wifiAvailable = true
+                }
+            }
+        }
+        
+        // Prefer in this order: ETHERNET > CELLULAR > VPN > WIFI > OTHER
+        // Cellular (5G/4G) is preferred over WiFi for better stability
+        return when {
+            availableTypes.contains(NetworkType.ETHERNET) || ethernetAvailable -> NetworkType.ETHERNET
+            availableTypes.contains(NetworkType.CELLULAR) || cellularAvailable -> NetworkType.CELLULAR
+            availableTypes.contains(NetworkType.VPN) || vpnAvailable -> NetworkType.VPN
+            availableTypes.contains(NetworkType.WIFI) || wifiAvailable -> NetworkType.WIFI
+            availableTypes.contains(NetworkType.OTHER) -> NetworkType.OTHER
+            else -> NetworkType.NONE
         }
     }
     

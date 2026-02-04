@@ -631,10 +631,29 @@ class WebSocketService : Service() {
                     
                     android.util.Log.i("WebSocketService", "Service handling reconnection directly: $reason")
                     
-                    // REFACTORING: Service can reconnect without ViewModel
-                    // ViewModel is optional - only needed for message routing callbacks
-                    // If no ViewModel exists, messages will be queued until one registers
-                    val viewModelToUse = getRegisteredViewModels().firstOrNull() ?: headlessViewModel
+                    // CRITICAL FIX: Prefer primary ViewModel when reconnecting
+                    // This ensures the correct app instance handles reconnection
+                    // If multiple app instances exist, the primary one should reconnect
+                    val registeredViewModels = getRegisteredViewModels()
+                    val viewModelToUse = if (primaryViewModelId != null) {
+                        // Prefer primary ViewModel if available
+                        synchronized(callbacksLock) {
+                            webSocketReceiveCallbacks.firstOrNull { it.first == primaryViewModelId }?.second
+                        } ?: registeredViewModels.firstOrNull() ?: headlessViewModel
+                    } else {
+                        // No primary - use any registered ViewModel or headless
+                        registeredViewModels.firstOrNull() ?: headlessViewModel
+                    }
+                    
+                    // Log which ViewModel is being used for reconnection
+                    val viewModelId = if (viewModelToUse != null) {
+                        synchronized(callbacksLock) {
+                            webSocketReceiveCallbacks.firstOrNull { it.second == viewModelToUse }?.first
+                        } ?: if (viewModelToUse == headlessViewModel) "headless" else "unknown"
+                    } else {
+                        "none"
+                    }
+                    android.util.Log.i("WebSocketService", "Reconnecting using ViewModel: $viewModelId (primary: $primaryViewModelId, total registered: ${registeredViewModels.size})")
                     
                     // Connect - ViewModel is optional (null is fine, service handles everything)
                     connectWebSocket(homeserverUrl, authToken, viewModelToUse, reason)
@@ -1964,15 +1983,32 @@ class WebSocketService : Service() {
                         0L
                     }
                     
-                    if (timeSinceReconnect > 60_000) {
-                        // Reconnection stuck for >60s - reset and retry
-                        android.util.Log.w("WebSocketService", "Reconnection stuck for ${timeSinceReconnect}ms - resetting and retrying")
+                    // CRITICAL FIX: If reconnection is stuck for >30s, allow another attempt
+                    // This handles cases where one app instance's reconnection gets stuck
+                    // and another instance needs to take over
+                    if (timeSinceReconnect > 30_000) {
+                        // Reconnection stuck for >30s - reset and allow new reconnection
+                        android.util.Log.w("WebSocketService", "Reconnection stuck for ${timeSinceReconnect}ms - resetting to allow new reconnection attempt: $reason")
                         serviceInstance.isReconnecting = false
                         serviceInstance.reconnectionJob?.cancel()
                         serviceInstance.reconnectionJob = null
                         // Fall through to start new reconnection
+                    } else if (timeSinceReconnect > 10_000) {
+                        // Reconnection in progress for >10s but <30s - allow if this is a network change
+                        // Network changes should be able to interrupt a slow reconnection
+                        if (reason.contains("Network") || reason.contains("network")) {
+                            android.util.Log.w("WebSocketService", "Reconnection in progress for ${timeSinceReconnect}ms but network changed - interrupting: $reason")
+                            serviceInstance.isReconnecting = false
+                            serviceInstance.reconnectionJob?.cancel()
+                            serviceInstance.reconnectionJob = null
+                            // Fall through to start new reconnection
+                        } else {
+                            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Already reconnecting (${timeSinceReconnect}ms), dropping redundant request: $reason")
+                            return
+                        }
                     } else {
-                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Already reconnecting, dropping redundant request: $reason")
+                        // Reconnection just started (<10s) - don't interrupt
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Already reconnecting (${timeSinceReconnect}ms), dropping redundant request: $reason")
                         return
                     }
                 }

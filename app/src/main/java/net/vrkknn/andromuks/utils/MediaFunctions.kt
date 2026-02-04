@@ -412,8 +412,8 @@ fun MediaMessage(
     // Shared state to trigger menu from image long press
     var triggerMenuFromImage by remember { mutableStateOf(0) }
     
-    // Show image viewer dialog when image is tapped
-    if (showImageViewer && mediaMessage.msgType == "m.image") {
+    // Show image viewer dialog when image or sticker is tapped
+    if (showImageViewer && (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.sticker")) {
         ImageViewerDialog(
             mediaMessage = mediaMessage,
             homeserverUrl = homeserverUrl,
@@ -445,7 +445,7 @@ fun MediaMessage(
     
     // Calculate if image is small enough to wrap content (like stickers do)
     val density = LocalDensity.current
-    val imageWidthDp = if (mediaMessage.info.width > 0 && (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video")) {
+    val imageWidthDp = if (mediaMessage.info.width > 0 && (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video" || mediaMessage.msgType == "m.sticker")) {
         with(density) { mediaMessage.info.width.toDp() }
     } else null
     // If image is small (< 400dp), wrap content instead of using fillMaxWidth(0.8f)
@@ -858,7 +858,7 @@ private fun MediaContent(
     
     // Determine if we should show blurhash placeholder
     val shouldShowPlaceholder = !renderThumbnailsAlways && !isRevealed && 
-                                (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video")
+                                (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video" || mediaMessage.msgType == "m.sticker")
     
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1014,7 +1014,7 @@ private fun MediaContent(
                     // diskCachePolicy
                     // No need to manually download - would cause duplicate requests (Coil + okhttp)
 
-                    if (mediaMessage.msgType == "m.image") {
+                    if (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.sticker") {
                         // Debug logging
                         if (BuildConfig.DEBUG) Log.d(
                             "Andromuks",
@@ -1178,62 +1178,62 @@ private fun MediaContent(
                                 )
                             }
                         } else {
-                            // PERFORMANCE: Use AsyncImage with onSuccess to extract dimensions and adjust aspect ratio
-                            // Image fills frame width and maintains aspect ratio, clipped by frame
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(imageUrl ?: "")
-                                    .apply {
-                                        if (cachedFile == null) {
-                                            addHeader("Cookie", "gomuks_auth=$authToken")
-                                        }
+                        // PERFORMANCE: Use AsyncImage with onSuccess to extract dimensions and adjust aspect ratio
+                        // Image fills frame width and maintains aspect ratio, clipped by frame
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(imageUrl ?: "")
+                                .apply {
+                                    if (cachedFile == null) {
+                                        addHeader("Cookie", "gomuks_auth=$authToken")
                                     }
-                                    .memoryCachePolicy(CachePolicy.ENABLED)
-                                    .diskCachePolicy(CachePolicy.ENABLED)
-                                    .size(600, 600) // QUALITY IMPROVEMENT: Larger size for better quality
-                                    .build(),
-                                imageLoader = imageLoader,
-                                contentDescription = mediaMessage.filename,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(loadedAspectRatio)
-                                    .scale(1.02f) // Make image slightly larger than frame so it gets clipped
-                                    .combinedClickable(
-                                        onClick = { onImageClick() },
-                                        onLongClick = { onImageLongPress?.invoke() }
-                                    ),
-                                placeholder = blurHashPainter,
-                                error = blurHashPainter,
-                                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth, // Fill frame width, maintain aspect ratio
-                                onSuccess = { state ->
-                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
-                                    
-                                            // Extract actual image dimensions from loaded image
-                                            val painter = state.painter
-                                            val intrinsicSize = painter.intrinsicSize
-                                            if (intrinsicSize.width > 0 && intrinsicSize.height > 0 && !hasLoadedDimensions) {
-                                                val actualAspectRatio = intrinsicSize.width / intrinsicSize.height
+                                }
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .size(600, 600) // QUALITY IMPROVEMENT: Larger size for better quality
+                                .build(),
+                            imageLoader = imageLoader,
+                            contentDescription = mediaMessage.filename,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(loadedAspectRatio)
+                                .scale(1.02f) // Make image slightly larger than frame so it gets clipped
+                                .combinedClickable(
+                                    onClick = { onImageClick() },
+                                    onLongClick = { onImageLongPress?.invoke() }
+                                ),
+                            placeholder = blurHashPainter,
+                            error = blurHashPainter,
+                            contentScale = androidx.compose.ui.layout.ContentScale.FillWidth, // Fill frame width, maintain aspect ratio
+                            onSuccess = { state ->
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
+                                
+                                        // Extract actual image dimensions from loaded image
+                                        val painter = state.painter
+                                        val intrinsicSize = painter.intrinsicSize
+                                        if (intrinsicSize.width > 0 && intrinsicSize.height > 0 && !hasLoadedDimensions) {
+                                            val actualAspectRatio = intrinsicSize.width / intrinsicSize.height
+                                            if (BuildConfig.DEBUG) Log.d(
+                                                "Andromuks",
+                                                "Image loaded with dimensions: ${intrinsicSize.width}x${intrinsicSize.height}, aspectRatio=$actualAspectRatio (original from JSON: $aspectRatio, hasValidJsonDimensions: $hasValidJsonDimensions)"
+                                            )
+                                            // Only update if we didn't have valid dimensions from JSON
+                                            // This means JSON width/height were missing or invalid
+                                            if (!hasValidJsonDimensions) {
+                                                loadedAspectRatio = actualAspectRatio
+                                                hasLoadedDimensions = true
                                                 if (BuildConfig.DEBUG) Log.d(
                                                     "Andromuks",
-                                                    "Image loaded with dimensions: ${intrinsicSize.width}x${intrinsicSize.height}, aspectRatio=$actualAspectRatio (original from JSON: $aspectRatio, hasValidJsonDimensions: $hasValidJsonDimensions)"
+                                                    "Updated aspect ratio from loaded image: $actualAspectRatio"
                                                 )
-                                                // Only update if we didn't have valid dimensions from JSON
-                                                // This means JSON width/height were missing or invalid
-                                                if (!hasValidJsonDimensions) {
-                                                    loadedAspectRatio = actualAspectRatio
-                                                    hasLoadedDimensions = true
-                                                    if (BuildConfig.DEBUG) Log.d(
-                                                        "Andromuks",
-                                                        "Updated aspect ratio from loaded image: $actualAspectRatio"
-                                                    )
-                                                }
                                             }
-                                },
-                                onError = { },
-                                onLoading = { state ->
-                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "⏳ Image loading: $imageUrl, state: $state")
-                                }
-                            )
+                                        }
+                            },
+                            onError = { },
+                            onLoading = { state ->
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "⏳ Image loading: $imageUrl, state: $state")
+                            }
+                        )
                         }
                     } else if (mediaMessage.msgType == "m.video") {
                         // Check if we should show inline player or thumbnail
@@ -1253,27 +1253,27 @@ private fun MediaContent(
                                 modifier = Modifier
                             )
                         } else {
-                            // Video thumbnail with play button overlay
-                            // Fill frame width and maintain aspect ratio, clipped by frame
-                            
-                            // State to track loaded thumbnail dimensions for dynamic aspect ratio adjustment
-                            var loadedThumbnailAspectRatio by remember { mutableFloatStateOf(aspectRatio) }
-                            var hasLoadedThumbnailDimensions by remember { mutableStateOf(false) }
-                            
-                            // Check if video has a thumbnail
-                            val thumbnailUrl = mediaMessage.info.thumbnailUrl
-                            
-                            // Check if JSON dimensions were actually valid for video
-                            val hasValidVideoJsonDimensions = 
-                                (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0 && 
-                                 mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight!! > 0) ||
-                                (mediaMessage.info.width > 0 && mediaMessage.info.height > 0)
-                            
-                            // Reset when thumbnail URL changes
-                            LaunchedEffect(thumbnailUrl) {
-                                loadedThumbnailAspectRatio = aspectRatio
-                                hasLoadedThumbnailDimensions = false
-                            }
+                        // Video thumbnail with play button overlay
+                        // Fill frame width and maintain aspect ratio, clipped by frame
+                        
+                        // State to track loaded thumbnail dimensions for dynamic aspect ratio adjustment
+                        var loadedThumbnailAspectRatio by remember { mutableFloatStateOf(aspectRatio) }
+                        var hasLoadedThumbnailDimensions by remember { mutableStateOf(false) }
+                        
+                        // Check if video has a thumbnail
+                        val thumbnailUrl = mediaMessage.info.thumbnailUrl
+                        
+                        // Check if JSON dimensions were actually valid for video
+                        val hasValidVideoJsonDimensions = 
+                            (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0 && 
+                             mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight!! > 0) ||
+                            (mediaMessage.info.width > 0 && mediaMessage.info.height > 0)
+                        
+                        // Reset when thumbnail URL changes
+                        LaunchedEffect(thumbnailUrl) {
+                            loadedThumbnailAspectRatio = aspectRatio
+                            hasLoadedThumbnailDimensions = false
+                        }
                             
                             // Get blurhash for video
                             val videoBlurHash = mediaMessage.info.thumbnailBlurHash ?: mediaMessage.info.blurHash
@@ -1324,8 +1324,8 @@ private fun MediaContent(
                                         )
                                     )
                             }
-                            
-                            Box(
+                        
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(loadedThumbnailAspectRatio)
@@ -1532,33 +1532,33 @@ private fun MediaContent(
                                     }
                                 } else {
                                     // No thumbnail available, show placeholder
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(aspectRatio)
-                                            .combinedClickable(
-                                                onClick = { onImageClick() },
-                                                onLongClick = { onImageLongPress?.invoke() }
-                                            )
-                                    ) {
-                                        Text(
-                                            text = "🎥",
-                                            style = MaterialTheme.typography.headlineMedium
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(aspectRatio)
+                                        .combinedClickable(
+                                            onClick = { onImageClick() },
+                                            onLongClick = { onImageLongPress?.invoke() }
                                         )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = mediaMessage.filename,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
+                                ) {
+                                    Text(
+                                        text = "🎥",
+                                        style = MaterialTheme.typography.headlineMedium
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = mediaMessage.filename,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                     }
                                 }
+                                }
                             }
-                        }
                         }
                     }
                 }
@@ -2383,7 +2383,7 @@ private suspend fun saveImageToGallery(
  * @param onDismiss Callback when the dialog should be dismissed
  */
 @Composable
-private fun ImageViewerDialog(
+internal fun ImageViewerDialog(
     mediaMessage: MediaMessage,
     homeserverUrl: String,
     authToken: String,
@@ -3596,7 +3596,7 @@ fun VideoPlayerDialog(
                 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
                 LinearWavyProgressIndicator(
                     progress = { progressState.value },
-                    modifier = Modifier
+                modifier = Modifier
                         .fillMaxWidth()
                         .height(6.dp) // Slightly taller for better visibility
                         .padding(horizontal = 16.dp),
