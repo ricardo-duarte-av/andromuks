@@ -782,6 +782,8 @@ fun MessageBubbleWithMenu(
     
     var bubbleBounds by remember { mutableStateOf(Rect.Zero) }
     var longPressPosition by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
+    var isScrolling by remember { mutableStateOf(false) } // Track if user is scrolling
+    var isPressActive by remember { mutableStateOf(false) } // Track if press is still active
     val hapticFeedback = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
     var deletedLoading by remember { mutableStateOf(false) }
@@ -942,34 +944,30 @@ fun MessageBubbleWithMenu(
                     bubbleBounds = layoutCoordinates.boundsInWindow()
                     //android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Bubble bounds: $bubbleBounds")
                 }
-                .pointerInput(Unit) {
-                    var pressJob: kotlinx.coroutines.Job? = null
-                    val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.SupervisorJob())
-                    
-                    detectTapGestures(
-                        onTap = { offset ->
-                            pressJob?.cancel()
-                            if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Regular tap detected")
-                            onBubbleClick?.invoke()
-                        },
-                        onPress = { offset ->
-                            pressJob?.cancel()
-                            val pressPosition = offset
-                            pressJob = scope.launch {
-                                kotlinx.coroutines.delay(500) // Long press duration
-                                // Long press detected
-                                if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Long press detected at $pressPosition")
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                // Convert local offset to window coordinates
-                                longPressPosition = androidx.compose.ui.geometry.Offset(
-                                    bubbleBounds.left + pressPosition.x,
-                                    bubbleBounds.top + pressPosition.y
-                                )
-                                showMenu = true
-                            }
+                .combinedClickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {
+                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Regular tap detected")
+                        onBubbleClick?.invoke()
+                    },
+                    onLongClick = {
+                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Long press detected via combinedClickable")
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        // Use bubble center - we can track coordinates later if needed
+                        if (bubbleBounds.width > 0 && bubbleBounds.height > 0) {
+                            longPressPosition = androidx.compose.ui.geometry.Offset(
+                                bubbleBounds.left + (bubbleBounds.width / 2),
+                                bubbleBounds.top + (bubbleBounds.height / 2)
+                            )
+                        } else {
+                            // Fallback if bounds not available yet
+                            longPressPosition = androidx.compose.ui.geometry.Offset(0f, 0f)
                         }
-                    )
-                },
+                        showMenu = true
+                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: showMenu set to true, longPressPosition=$longPressPosition")
+                    }
+                ),
             color = bubbleColorAdjusted,
             shape = bubbleShape,
             tonalElevation = 0.dp,  // No elevation/shadow
