@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -974,6 +975,34 @@ fun MessageBubbleWithMenu(
         
         // Horizontal icon-only menu with fullscreen scrim overlay
         if (showMenu) {
+            // Calculate menu width once (outside offset block for reuse)
+            val historyButtonEnabled = hasBeenEdited && onShowEditHistory != null
+            val viewOriginalButtonEnabled = isRedacted && appViewModel != null
+            
+            // Code button is always shown, React + Reply are always shown
+            val totalButtonCount = 1 + // Code button (always shown)
+                2 + // React + Reply (always shown)
+                (if (canEdit) 1 else 0) +
+                (if (canDelete) 1 else 0) +
+                (if (viewOriginalButtonEnabled) 1 else 0) +
+                (if (historyButtonEnabled) 1 else 0)
+            
+            // Calculate actual menu width:
+            // - Each button is 40.dp
+            // - Spacing between buttons is 4.dp (N-1 spaces for N buttons)
+            // - Horizontal padding is 8.dp on each side = 16.dp total
+            val buttonSize = 40.dp
+            val buttonSpacing = 4.dp
+            val horizontalPadding = 16.dp // 8.dp on each side
+            val calculatedMenuWidth = buttonSize * totalButtonCount + 
+                buttonSpacing * (totalButtonCount - 1) + 
+                horizontalPadding
+            
+            // Calculate effective menu width (clamped to screen bounds)
+            val margin = 8.dp
+            val maxMenuWidth = with(density) { screenWidth.toDp() - (margin * 2) }
+            val effectiveMenuWidth = calculatedMenuWidth.coerceAtMost(maxMenuWidth)
+            
             // Use Popup to create a fullscreen overlay independent of parent layout
             Popup(
                 onDismissRequest = {
@@ -1005,32 +1034,35 @@ fun MessageBubbleWithMenu(
                     // Card with menu buttons positioned above bubble
                     Card(
                         modifier = Modifier
+                            .width(effectiveMenuWidth) // Use exact calculated width (clamped to screen)
                             .offset {
                                 with(density) {
-                                    // Calculate menu position relative to bubble
-                                    // Dynamically calculate width based on number of buttons
-                                    val historyButtonEnabled = hasBeenEdited && onShowEditHistory != null
-                                    val buttonCount = 2 + // React + Reply (always shown)
-                                        (if (canEdit) 1 else 0) +
-                                        (if (canDelete) 1 else 0) +
-                                        (if (historyButtonEnabled) 1 else 0)
-                                    val menuWidth = ((44 * buttonCount).dp + 16.dp).toPx() // 44dp per button + padding
+                                    val menuWidthPx = effectiveMenuWidth.toPx()
                                     val menuHeight = 50.dp.toPx()
                                     val bubbleCenterX = bubbleBounds.left + (bubbleBounds.width / 2)
-                                    val menuX = bubbleCenterX - (menuWidth / 2)
                                     val menuY = bubbleBounds.top - menuHeight - 8.dp.toPx()
+                                    val marginPx = margin.toPx()
+                                    
+                                    // Try to center menu on bubble
+                                    var menuX = bubbleCenterX - (menuWidthPx / 2)
                                     
                                     // Clamp to keep menu on screen (both left AND right edges)
-                                    val margin = 8.dp.toPx()
-                                    val clampedX = menuX
-                                        .coerceAtLeast(margin)  // Don't go past left edge
-                                        .coerceAtMost(screenWidth - menuWidth - margin)  // Don't go past right edge
-                                    val clampedY = menuY.coerceAtLeast(margin)
+                                    // First check right edge, then left edge
+                                    if (menuX + menuWidthPx > screenWidth - marginPx) {
+                                        // Menu would overflow on the right, align to right edge
+                                        menuX = screenWidth - menuWidthPx - marginPx
+                                    }
+                                    if (menuX < marginPx) {
+                                        // Menu would overflow on the left, align to left edge
+                                        menuX = marginPx
+                                    }
                                     
-                                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Menu position: x=$clampedX, y=$clampedY, menuWidth=$menuWidth, screenWidth=$screenWidth, buttonCount=$buttonCount")
+                                    val clampedY = menuY.coerceAtLeast(marginPx)
+                                    
+                                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Menu position: x=$menuX, y=$clampedY, menuWidth=$menuWidthPx, screenWidth=$screenWidth, totalButtonCount=$totalButtonCount, bubbleCenterX=$bubbleCenterX")
                                     
                                     IntOffset(
-                                        x = clampedX.toInt(),
+                                        x = menuX.toInt(),
                                         y = clampedY.toInt()
                                     )
                                 }
