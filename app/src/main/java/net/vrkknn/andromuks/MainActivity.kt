@@ -853,8 +853,29 @@ fun AppNavigation(
                 val spacesLoaded = appViewModel.spacesLoaded
                 
                 // Periodically check if startup is complete (when state changes)
-                androidx.compose.runtime.LaunchedEffect(initialSyncComplete, spacesLoaded, appViewModel.roomListUpdateCounter) {
+                // CRITICAL: Also check initialSyncProcessingComplete to ensure all queued messages are processed
+                val initialSyncProcessingComplete = appViewModel.initialSyncProcessingComplete
+                val currentUserProfile = appViewModel.currentUserProfile
+                val currentUserId = appViewModel.currentUserId
+                
+                androidx.compose.runtime.LaunchedEffect(
+                    initialSyncComplete, 
+                    initialSyncProcessingComplete, 
+                    spacesLoaded, 
+                    appViewModel.roomListUpdateCounter,
+                    currentUserProfile,
+                    currentUserId
+                ) {
                     appViewModel.checkStartupComplete()
+                }
+                
+                // SAFETY: Timeout fallback - if startup takes too long (30 seconds), log warning
+                // This helps diagnose infinite stalls (but doesn't force completion - let checkStartupComplete handle it)
+                androidx.compose.runtime.LaunchedEffect(Unit) {
+                    kotlinx.coroutines.delay(30000) // 30 second timeout
+                    if (!appViewModel.isStartupComplete) {
+                        android.util.Log.w("Andromuks", "🟦 MainActivity: Startup timeout (30s) - still waiting for startup to complete. Check logs for missing conditions.")
+                    }
                 }
                 
                 // CRITICAL FIX: Initialize showRoomList based on isStartupComplete to prevent flash when navigating back
@@ -862,20 +883,46 @@ fun AppNavigation(
                 var showRoomList by remember(isStartupComplete) { 
                     mutableStateOf(isStartupComplete) // If already complete, show immediately
                 }
-                var hasAppliedDelay by remember { mutableStateOf(isStartupComplete) } // If already complete, skip delay
+                var hasAppliedDelay by remember(isStartupComplete) { 
+                    mutableStateOf(isStartupComplete) // If already complete, skip delay
+                }
                 
+                // CRITICAL FIX: When isStartupComplete becomes true, immediately show room list
+                // Only apply delay on FIRST startup (when composable is created with isStartupComplete=false)
                 androidx.compose.runtime.LaunchedEffect(isStartupComplete) {
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d("Andromuks", "🟦 MainActivity: LaunchedEffect(isStartupComplete=$isStartupComplete) - showRoomList=$showRoomList, hasAppliedDelay=$hasAppliedDelay")
+                    }
                     if (isStartupComplete) {
+                        // CRITICAL: If startup was already complete when composable was created,
+                        // hasAppliedDelay will be true, so we skip the delay
+                        // If startup just completed, hasAppliedDelay will be false, so we apply delay
                         if (!hasAppliedDelay) {
                             // First time startup - wait 300ms for background work to settle
+                            if (BuildConfig.DEBUG) {
+                                android.util.Log.d("Andromuks", "🟦 MainActivity: First time startup - applying 300ms delay")
+                            }
                             delay(300)
                             hasAppliedDelay = true
                         }
                         // Show room list (immediately if navigating back, after delay if first startup)
                         showRoomList = true
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d("Andromuks", "🟦 MainActivity: Set showRoomList=true (isStartupComplete=$isStartupComplete, hadDelay=$hasAppliedDelay)")
+                        }
                     } else {
                         showRoomList = false
                         hasAppliedDelay = false // Reset delay flag if startup resets
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d("Andromuks", "🟦 MainActivity: Reset showRoomList=false (isStartupComplete=$isStartupComplete)")
+                        }
+                    }
+                }
+                
+                // DEBUG: Log when conditions change to diagnose stalls
+                androidx.compose.runtime.LaunchedEffect(isStartupComplete, showRoomList) {
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d("Andromuks", "🟦 MainActivity: State check - isStartupComplete=$isStartupComplete, showRoomList=$showRoomList, willShowLoading=${!isStartupComplete || !showRoomList}")
                     }
                 }
                 

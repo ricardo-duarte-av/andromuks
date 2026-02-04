@@ -15,8 +15,14 @@ android {
         targetSdk = 36
         // Increment versionCode for each release (must be higher than previous version)
         // Uses BUILD_NUMBER env var if set (for CI/CD), otherwise uses timestamp-based version
-        versionCode = System.getenv("BUILD_NUMBER")?.toIntOrNull() 
-            ?: ((System.currentTimeMillis() / 1000).toInt()) // Unix timestamp in seconds (fits in Int until 2038)
+        //versionCode = System.getenv("BUILD_NUMBER")?.toIntOrNull() 
+        //    ?: ((System.currentTimeMillis() / 1000).toInt()) // Unix timestamp in seconds (fits in Int until 2038)
+
+        val now = System.currentTimeMillis()
+        // Epoch offset: 2024-01-01 to reduce size
+        val epochOffset = 1704067200000L
+        versionCode = ((now - epochOffset) / 1000).toInt()
+
         // Update versionName for each release (e.g., 1.0, 1.1, 1.2, 2.0)
         versionName = "1.0.1"
 
