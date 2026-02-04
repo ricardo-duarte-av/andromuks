@@ -66,6 +66,55 @@ object AvatarUtils {
     }
     
     /**
+     * Sanitizes a Matrix room ID or user ID for use as Android shortcut ID or notification channel ID.
+     * Android requires IDs to be stable, safe strings without special characters that could cause issues.
+     * 
+     * Rules:
+     * - Removes or replaces special characters (!, :, @, etc.)
+     * - Ensures ID is valid for Android's ID requirements
+     * - Maintains uniqueness by preserving alphanumeric characters
+     * - Limits length to prevent platform issues
+     * 
+     * @param roomId The Matrix room ID (e.g., "!abc123:matrix.org") or user ID
+     * @param maxLength Maximum length for the sanitized ID (default 100, Android limit is ~1000 but shorter is safer)
+     * @return Sanitized ID safe for use in shortcuts and channels (e.g., "abc123_matrix_org")
+     */
+    fun sanitizeIdForAndroid(roomId: String, maxLength: Int = 100): String {
+        if (roomId.isEmpty()) return "unknown"
+        
+        // Replace special characters with safe alternatives
+        // ! -> removed (room IDs start with !)
+        // : -> _ (separator)
+        // @ -> removed (user IDs start with @)
+        // Keep alphanumeric and underscore
+        val sanitized = roomId
+            .removePrefix("!")  // Remove leading ! from room IDs
+            .removePrefix("@")   // Remove leading @ from user IDs
+            .replace(":", "_")   // Replace : with _
+            .replace("/", "_")  // Replace / with _
+            .replace("?", "_")   // Replace ? with _
+            .replace("&", "_")   // Replace & with _
+            .replace("=", "_")   // Replace = with _
+            .replace(" ", "_")   // Replace spaces with _
+            .filter { it.isLetterOrDigit() || it == '_' || it == '-' } // Keep only safe characters
+        
+        // Ensure it's not empty after sanitization
+        val result = if (sanitized.isEmpty()) {
+            // Fallback: use hash of original ID
+            "id_${roomId.hashCode().toString().replace("-", "n")}"
+        } else {
+            sanitized
+        }
+        
+        // Limit length to prevent platform issues
+        return if (result.length > maxLength) {
+            result.take(maxLength - 8) + "_" + result.hashCode().toString().take(7).replace("-", "n")
+        } else {
+            result
+        }
+    }
+    
+    /**
      * Converts an MXC URL to a proper HTTP URL for loading avatars
      * @param mxcUrl The MXC URL from the room data (e.g., "mxc://nexy7574.co.uk/CedROJ82UFmQys8c6nOzlBsL0W4TeIsJ")
      * @param homeserverUrl The homeserver URL (e.g., "https://webmuks.aguiarvieira.pt")

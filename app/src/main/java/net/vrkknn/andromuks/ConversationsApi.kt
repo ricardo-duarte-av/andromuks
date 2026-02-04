@@ -544,6 +544,63 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     }
     
     /**
+     * CRITICAL FIX FOR ANDROID AUTO: Synchronously update a single shortcut before posting notification.
+     * This ensures the shortcut exists when Android Auto checks for conversation recognition.
+     * 
+     * This is a blocking call that waits for the shortcut to be published before returning.
+     * Use this when posting notifications to ensure Android Auto can recognize the conversation.
+     * 
+     * @param room The room to update/create shortcut for
+     */
+    suspend fun updateShortcutForNotificationSync(room: RoomItem) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) {
+            return
+        }
+        
+        // CRITICAL: Initialize cache if needed (synchronously)
+        if (!cacheInitialized) {
+            initializeShortcutCache()
+            cacheInitialized = true
+        }
+        
+        // Process the room synchronously
+        withContext(Dispatchers.IO) {
+            try {
+                // Get current shortcut count from our cache
+                val currentShortcutCount = lastShortcutStableIds.size
+                
+                // Skip rooms without valid timestamp
+                if (room.sortingTimestamp == null || room.sortingTimestamp <= 0) {
+                    return@withContext
+                }
+                
+                val isInShortcuts = lastShortcutStableIds.contains(room.id)
+                
+                if (isInShortcuts) {
+                    // Room already in shortcuts - update and move to top
+                    updateSingleShortcut(room)
+                } else {
+                    // Room not in shortcuts
+                    if (currentShortcutCount < MAX_SHORTCUTS) {
+                        // Not full yet - just add
+                        addShortcut(room)
+                    } else {
+                        // Full - remove oldest, then add new
+                        removeOldestShortcut()
+                        addShortcut(room)
+                    }
+                }
+                
+                lastShortcutUpdateTime = System.currentTimeMillis()
+                
+                if (BuildConfig.DEBUG) Log.d(TAG, "Synchronously updated shortcut for notification: ${room.id}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error synchronously updating shortcut for notification", e)
+            }
+        }
+    }
+    
+    /**
      * Process sync rooms after cache is initialized
      */
     private fun processSyncRooms(syncRooms: List<RoomItem>) {
@@ -1120,6 +1177,9 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             createFallbackShortcutIconCompat(shortcut.roomName, shortcut.roomId)
         }
         
+        // NOTE: We use roomId directly as shortcut ID. Android allows special characters in shortcut IDs.
+        // The key is ensuring the shortcut ID matches exactly what's used in setShortcutId() in notifications.
+        // Channel IDs are sanitized separately (see EnhancedNotificationDisplay.kt).
         return ShortcutInfoCompat.Builder(context, shortcut.roomId)
             .setShortLabel(shortcut.roomName)
             .setLongLabel(shortcut.roomName)

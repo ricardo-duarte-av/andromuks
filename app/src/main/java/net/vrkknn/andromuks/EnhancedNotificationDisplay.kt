@@ -172,31 +172,40 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             
-            // Create a unique channel ID for this conversation
-            val conversationChannelId = "${CONVERSATION_CHANNEL_ID}_$roomId"
+            // CRITICAL FIX FOR ANDROID AUTO: Sanitize channel ID to ensure it's safe for Android platform
+            // Android requires channel IDs to be stable strings without special characters
+            // Channel IDs have length limits and character restrictions
+            val sanitizedRoomId = net.vrkknn.andromuks.utils.AvatarUtils.sanitizeIdForAndroid(roomId, maxLength = 50)
+            val conversationChannelId = "${CONVERSATION_CHANNEL_ID}_$sanitizedRoomId"
             
             // Check if channel already exists
             val existingChannel = notificationManager.getNotificationChannel(conversationChannelId)
             
-            // CRITICAL FIX: If channel exists with correct importance, skip recreation to avoid dismissing notifications
-            // Only delete and recreate if importance is too low (which should be rare)
-            if (existingChannel != null && existingChannel.importance >= NotificationManager.IMPORTANCE_HIGH) {
-                // Channel already exists with correct importance - no need to recreate
-                // This prevents notifications from being dismissed on every update
-                if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "Conversation channel already exists with correct importance: $conversationChannelId - skipping recreation")
+            // CRITICAL FIX FOR ANDROID AUTO: Be very conservative about channel recreation
+            // Deleting channels dismisses all notifications, which breaks Android Auto conversation tracking
+            // Only recreate if absolutely necessary (channel doesn't exist or is completely broken)
+            if (existingChannel != null) {
+                // Channel exists - check if it's usable
+                val isUsable = existingChannel.importance >= NotificationManager.IMPORTANCE_DEFAULT
+                
+                if (isUsable) {
+                    // Channel exists and is usable - don't touch it to avoid dismissing notifications
+                    // This is critical for Android Auto to maintain conversation state
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "Conversation channel already exists and is usable: $conversationChannelId (importance: ${existingChannel.importance}) - skipping recreation to preserve notifications")
+                    }
+                    return
+                } else {
+                    // Channel exists but is too low priority - only recreate if it's completely unusable
+                    // IMPORTANCE_LOW or below means notifications won't show, so we must recreate
+                    if (BuildConfig.DEBUG) {
+                        Log.w(TAG, "Channel exists with unusable importance (${existingChannel.importance}), must recreate: $conversationChannelId")
+                        Log.w(TAG, "WARNING: This will dismiss all notifications using this channel - Android Auto may lose conversation state")
+                    }
+                    // WARNING: This will dismiss all notifications using this channel
+                    // But it's necessary if importance is too low for notifications to work
+                    notificationManager.deleteNotificationChannel(conversationChannelId)
                 }
-                return
-            }
-            
-            // Only delete and recreate if channel doesn't exist or has low importance
-            if (existingChannel != null && existingChannel.importance < NotificationManager.IMPORTANCE_HIGH) {
-                if (BuildConfig.DEBUG) {
-                    Log.w(TAG, "Channel exists with low importance (${existingChannel.importance}), deleting and recreating: $conversationChannelId")
-                }
-                // WARNING: This will dismiss all notifications using this channel
-                // But it's necessary to restore proper importance
-                notificationManager.deleteNotificationChannel(conversationChannelId)
             }
             
             // Choose sound based on room type
@@ -499,16 +508,11 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 notificationData.body
             }
             
-            // CRITICAL: Update shortcut before entering synchronized block
-            // Android's notification ranking system requires the shortcut to exist
-            // and be registered before the notification is posted to recognize it as a conversation
-            // This ensures "Ranking is not conversation" errors don't occur
+            // CRITICAL FIX FOR ANDROID AUTO: Update shortcut SYNCHRONOUSLY before posting notification.
+            // Android Auto requires the shortcut to exist when the notification is posted to recognize it as a conversation.
+            // Using the synchronous update ensures the shortcut is published before we try to retrieve it.
             // Must be done OUTSIDE synchronized block because it's a suspend function
-            // CRITICAL FIX: Use updateShortcutsFromSyncRooms instead of updateConversationShortcutsSync
-            // This does incremental updates and preserves existing shortcuts with avatars
-            // updateConversationShortcutsSync replaces ALL shortcuts, which can overwrite shortcuts
-            // that have avatars with fallback icons if the avatar isn't available at notification time
-            if (BuildConfig.DEBUG) Log.d(TAG, "Updating conversation shortcuts before notification display - room: ${notificationData.roomId}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Synchronously updating conversation shortcut before notification display - room: ${notificationData.roomId}")
             val roomItem = RoomItem(
                 id = notificationData.roomId,
                 name = notificationData.roomName ?: notificationData.roomId,
@@ -519,12 +523,14 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 avatarUrl = notificationData.roomAvatarUrl,
                 sortingTimestamp = notificationData.timestamp ?: System.currentTimeMillis()
             )
-            conversationsApi?.updateShortcutsFromSyncRooms(listOf(roomItem))
-            if (BuildConfig.DEBUG) Log.d(TAG, "Conversation shortcuts updated - room: ${notificationData.roomId}")
+            // CRITICAL: Use synchronous update to ensure shortcut exists before notification is posted
+            conversationsApi?.updateShortcutForNotificationSync(roomItem)
+            if (BuildConfig.DEBUG) Log.d(TAG, "Conversation shortcut synchronously updated - room: ${notificationData.roomId}")
             
             // CRITICAL: Get shortcut using ALL flags to ensure we get the active shortcut
             // Android's notification ranking system requires the shortcut to be "active"
             // Using FLAG_MATCH_DYNAMIC | FLAG_MATCH_PINNED | FLAG_MATCH_MANIFEST ensures we get it
+            // Now that we've updated synchronously, the shortcut should exist
             val shortcutInfo = conversationsApi?.let { api ->
                 try {
                     // Try to get from active shortcuts first (most reliable for ranking system)
@@ -544,7 +550,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         }
                         existingShortcut
                     } else {
-                        if (BuildConfig.DEBUG) Log.w(TAG, "WARNING: Shortcut not found after sync update - notification may not be recognized as conversation")
+                        if (BuildConfig.DEBUG) Log.w(TAG, "WARNING: Shortcut not found after synchronous update - notification may not be recognized as conversation")
                         null
                     }
                 } catch (e: Exception) {
@@ -612,7 +618,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 // Use conversation channel for all notifications
                 // CRITICAL: Always use the conversation channel ID to ensure consistent notification updates
                 // The channel should exist after createConversationChannel, but we have a fallback just in case
-                val conversationChannelId = "${CONVERSATION_CHANNEL_ID}_${notificationData.roomId}"
+                // CRITICAL FIX FOR ANDROID AUTO: Use sanitized channel ID (must match what createConversationChannel uses)
+                val sanitizedRoomId = net.vrkknn.andromuks.utils.AvatarUtils.sanitizeIdForAndroid(notificationData.roomId, maxLength = 50)
+                val conversationChannelId = "${CONVERSATION_CHANNEL_ID}_$sanitizedRoomId"
                 val channelId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                     val channel = notificationManager.getNotificationChannel(conversationChannelId)
@@ -1451,8 +1459,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 if (BuildConfig.DEBUG) Log.d(TAG, "Reply already present in notification, skipping duplicate entry")
             }
             
-            // Get the channel ID from the notification
-            val channelId = "${CONVERSATION_CHANNEL_ID}_${roomId}"
+            // Get the channel ID from the notification (must use sanitized ID to match channel creation)
+            val sanitizedRoomId = net.vrkknn.andromuks.utils.AvatarUtils.sanitizeIdForAndroid(roomId, maxLength = 50)
+            val channelId = "${CONVERSATION_CHANNEL_ID}_$sanitizedRoomId"
             
             // Get shortcut info for the notification
             val shortcutId = roomId
