@@ -781,6 +781,7 @@ fun MessageBubbleWithMenu(
     var deletedReason by remember { mutableStateOf<String?>(null) }
     
     var bubbleBounds by remember { mutableStateOf(Rect.Zero) }
+    var longPressPosition by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
     val hapticFeedback = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
     var deletedLoading by remember { mutableStateOf(false) }
@@ -941,19 +942,34 @@ fun MessageBubbleWithMenu(
                     bubbleBounds = layoutCoordinates.boundsInWindow()
                     //android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Bubble bounds: $bubbleBounds")
                 }
-                .combinedClickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = {
-                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Regular tap detected")
-                        onBubbleClick?.invoke()
-                    },
-                    onLongClick = {
-                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Long press detected")
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        showMenu = true
-                    }
-                ),
+                .pointerInput(Unit) {
+                    var pressJob: kotlinx.coroutines.Job? = null
+                    val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.SupervisorJob())
+                    
+                    detectTapGestures(
+                        onTap = { offset ->
+                            pressJob?.cancel()
+                            if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Regular tap detected")
+                            onBubbleClick?.invoke()
+                        },
+                        onPress = { offset ->
+                            pressJob?.cancel()
+                            val pressPosition = offset
+                            pressJob = scope.launch {
+                                kotlinx.coroutines.delay(500) // Long press duration
+                                // Long press detected
+                                if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Long press detected at $pressPosition")
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                // Convert local offset to window coordinates
+                                longPressPosition = androidx.compose.ui.geometry.Offset(
+                                    bubbleBounds.left + pressPosition.x,
+                                    bubbleBounds.top + pressPosition.y
+                                )
+                                showMenu = true
+                            }
+                        }
+                    )
+                },
             color = bubbleColorAdjusted,
             shape = bubbleShape,
             tonalElevation = 0.dp,  // No elevation/shadow
@@ -1039,12 +1055,24 @@ fun MessageBubbleWithMenu(
                                 with(density) {
                                     val menuWidthPx = effectiveMenuWidth.toPx()
                                     val menuHeight = 50.dp.toPx()
-                                    val bubbleCenterX = bubbleBounds.left + (bubbleBounds.width / 2)
-                                    val menuY = bubbleBounds.top - menuHeight - 8.dp.toPx()
                                     val marginPx = margin.toPx()
                                     
-                                    // Try to center menu on bubble
-                                    var menuX = bubbleCenterX - (menuWidthPx / 2)
+                                    // Use long-press position if available, otherwise fall back to bubble center
+                                    val anchorX = longPressPosition?.x 
+                                        ?: (bubbleBounds.left + (bubbleBounds.width / 2))
+                                    val anchorY = longPressPosition?.y 
+                                        ?: bubbleBounds.top
+                                    
+                                    // Position menu above the long-press point (above user's finger)
+                                    // In Android coordinate system: Y=0 at top, increases downward
+                                    // To position above: subtract menu height + spacing from anchor Y
+                                    val spacingAboveFinger = 64.dp.toPx() // Extra space above finger (large spacing to ensure menu is clearly above finger)
+                                    val menuY = anchorY - menuHeight - spacingAboveFinger
+                                    
+                                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Menu Y calculation - anchorY=$anchorY, menuHeight=$menuHeight, spacing=$spacingAboveFinger, finalMenuY=$menuY")
+                                    
+                                    // Try to center menu on long-press point
+                                    var menuX = anchorX - (menuWidthPx / 2)
                                     
                                     // Clamp to keep menu on screen (both left AND right edges)
                                     // First check right edge, then left edge
@@ -1059,7 +1087,7 @@ fun MessageBubbleWithMenu(
                                     
                                     val clampedY = menuY.coerceAtLeast(marginPx)
                                     
-                                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Menu position: x=$menuX, y=$clampedY, menuWidth=$menuWidthPx, screenWidth=$screenWidth, totalButtonCount=$totalButtonCount, bubbleCenterX=$bubbleCenterX")
+                                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Menu position: x=$menuX, y=$clampedY, menuWidth=$menuWidthPx, screenWidth=$screenWidth, totalButtonCount=$totalButtonCount, anchorX=$anchorX, longPressPosition=$longPressPosition")
                                     
                                     IntOffset(
                                         x = menuX.toInt(),
