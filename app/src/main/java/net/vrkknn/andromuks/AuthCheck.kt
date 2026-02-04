@@ -369,7 +369,13 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
     }
 
     AndromuksTheme {
-        if (appViewModel.isLoading) {
+        // CRITICAL FIX: Always show StartupLoadingScreen until we're definitely on room_list
+        // This prevents flash during navigation transition
+        val currentRoute = navController.currentBackStackEntry?.destination?.route
+        val isOnRoomList = currentRoute == "room_list"
+        val shouldShowLoading = !isOnRoomList || appViewModel.isLoading || !appViewModel.isStartupComplete
+        
+        if (shouldShowLoading) {
             StartupLoadingScreen(
                 progressMessages = appViewModel.startupProgressMessages,
                 modifier = modifier

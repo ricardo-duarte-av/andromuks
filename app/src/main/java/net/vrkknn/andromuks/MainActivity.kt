@@ -14,11 +14,14 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -774,6 +777,7 @@ fun AppNavigation(
         navController = navController,
         startDestination = "auth_check",
         modifier = modifier
+            .background(androidx.compose.material3.MaterialTheme.colorScheme.background)
     ) {
         composable("login") { LoginScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
         composable("auth_check") { AuthCheckScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
@@ -791,6 +795,14 @@ fun AppNavigation(
         }
         composable(
             route = "room_list",
+            enterTransition = {
+                // CRITICAL FIX: Fade in from auth_check to prevent white flash
+                if (initialState.destination.route == "auth_check") {
+                    fadeIn(animationSpec = tween(durationMillis = 200))
+                } else {
+                    null
+                }
+            },
             exitTransition = {
                 if (targetState.destination.route == "room_timeline/{roomId}") {
                     slideOutHorizontally(
@@ -812,47 +824,64 @@ fun AppNavigation(
                 }
             }
         ) {
-            // Show startup loading screen until startup is complete
-            val isStartupComplete = appViewModel.isStartupComplete
-            val progressMessages = appViewModel.startupProgressMessages
-            val initialSyncComplete = appViewModel.initialSyncComplete
-            val spacesLoaded = appViewModel.spacesLoaded
-            
-            // Periodically check if startup is complete (when state changes)
-            androidx.compose.runtime.LaunchedEffect(initialSyncComplete, spacesLoaded, appViewModel.roomListUpdateCounter) {
-                appViewModel.checkStartupComplete()
-            }
-            
-            // Add a small delay after startup is marked complete to allow background work to settle
-            // This prevents ANR when the room list is first displayed with many rooms
-            // CRITICAL FIX: Only apply delay on FIRST startup, not when navigating back
-            // If isStartupComplete is already true when composable is first created, show immediately
-            var showRoomList by remember { mutableStateOf(isStartupComplete) }
-            var hasAppliedDelay by remember { mutableStateOf(false) }
-            
-            androidx.compose.runtime.LaunchedEffect(isStartupComplete) {
-                if (isStartupComplete) {
-                    if (!hasAppliedDelay) {
-                        // First time startup - wait 300ms for background work to settle
-                        delay(300)
-                        hasAppliedDelay = true
-                    }
-                    // Show room list (immediately if navigating back, after delay if first startup)
-                    showRoomList = true
-                } else {
-                    showRoomList = false
+            // CRITICAL FIX: Always show StartupLoadingScreen initially to prevent white flash during navigation
+            // Use Box with background to ensure no white flash even during transition
+            androidx.compose.foundation.layout.Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(androidx.compose.material3.MaterialTheme.colorScheme.background)
+            ) {
+                // Show startup loading screen until startup is complete
+                val isStartupComplete = appViewModel.isStartupComplete
+                val progressMessages = appViewModel.startupProgressMessages
+                val initialSyncComplete = appViewModel.initialSyncComplete
+                val spacesLoaded = appViewModel.spacesLoaded
+                
+                // Periodically check if startup is complete (when state changes)
+                androidx.compose.runtime.LaunchedEffect(initialSyncComplete, spacesLoaded, appViewModel.roomListUpdateCounter) {
+                    appViewModel.checkStartupComplete()
                 }
-            }
-            
-            if (!isStartupComplete || !showRoomList) {
-                // Show loading screen with progress messages
-                net.vrkknn.andromuks.ui.components.StartupLoadingScreen(
-                    progressMessages = progressMessages,
-                    modifier = modifier
-                )
-            } else {
-                // Show room list when startup is complete and delay has passed (first time) or immediately (navigation back)
-                RoomListScreen(navController = navController, modifier = modifier, appViewModel = appViewModel)
+                
+                // CRITICAL FIX: Always show StartupLoadingScreen initially to prevent flash during navigation
+                // Only show room list after startup is complete AND we've explicitly set showRoomList = true
+                var showRoomList by remember { mutableStateOf(false) }
+                var hasAppliedDelay by remember { mutableStateOf(false) }
+                
+                androidx.compose.runtime.LaunchedEffect(isStartupComplete) {
+                    if (isStartupComplete) {
+                        if (!hasAppliedDelay) {
+                            // First time startup - wait 300ms for background work to settle
+                            delay(300)
+                            hasAppliedDelay = true
+                        }
+                        // Show room list (immediately if navigating back, after delay if first startup)
+                        showRoomList = true
+                    } else {
+                        showRoomList = false
+                    }
+                }
+                
+                // CRITICAL FIX: Always show StartupLoadingScreen until explicitly ready to show room list
+                // This prevents any flash during navigation or initial render
+                // Add fade out animation for smooth transition
+                AnimatedVisibility(
+                    visible = !isStartupComplete || !showRoomList,
+                    exit = fadeOut(animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing))
+                ) {
+                    // Show loading screen with progress messages
+                    net.vrkknn.andromuks.ui.components.StartupLoadingScreen(
+                        progressMessages = progressMessages,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                
+                AnimatedVisibility(
+                    visible = isStartupComplete && showRoomList,
+                    enter = fadeIn(animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing))
+                ) {
+                    // Show room list when startup is complete and delay has passed (first time) or immediately (navigation back)
+                    RoomListScreen(navController = navController, modifier = Modifier.fillMaxSize(), appViewModel = appViewModel)
+                }
             }
         }
         composable("simple_room_list") {
