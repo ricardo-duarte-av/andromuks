@@ -72,6 +72,21 @@ class MainActivity : ComponentActivity() {
         // Initialize crash handler
         CrashHandler.initialize(this)
         
+        // CRITICAL: Clear last_received_request_id on cold start
+        // This ensures we don't use stale values from previous sessions
+        // Only clear if there's no active WebSocket connection (true cold start)
+        val isWebSocketConnected = net.vrkknn.andromuks.WebSocketService.isWebSocketConnected()
+        if (!isWebSocketConnected) {
+            if (BuildConfig.DEBUG) {
+                Log.d("Andromuks", "MainActivity: Cold start detected (no active WebSocket) - clearing last_received_request_id")
+            }
+            net.vrkknn.andromuks.WebSocketService.clearLastReceivedRequestId(this)
+        } else {
+            if (BuildConfig.DEBUG) {
+                Log.d("Andromuks", "MainActivity: onCreate - WebSocket already connected (not a cold start)")
+            }
+        }
+        
         enableEdgeToEdge()
 
         pendingShareIntent = intent.takeIf { isShareIntent(it) }
@@ -842,10 +857,12 @@ fun AppNavigation(
                     appViewModel.checkStartupComplete()
                 }
                 
-                // CRITICAL FIX: Always show StartupLoadingScreen initially to prevent flash during navigation
-                // Only show room list after startup is complete AND we've explicitly set showRoomList = true
-                var showRoomList by remember { mutableStateOf(false) }
-                var hasAppliedDelay by remember { mutableStateOf(false) }
+                // CRITICAL FIX: Initialize showRoomList based on isStartupComplete to prevent flash when navigating back
+                // If startup is already complete, show room list immediately (no delay needed)
+                var showRoomList by remember(isStartupComplete) { 
+                    mutableStateOf(isStartupComplete) // If already complete, show immediately
+                }
+                var hasAppliedDelay by remember { mutableStateOf(isStartupComplete) } // If already complete, skip delay
                 
                 androidx.compose.runtime.LaunchedEffect(isStartupComplete) {
                     if (isStartupComplete) {
@@ -858,6 +875,7 @@ fun AppNavigation(
                         showRoomList = true
                     } else {
                         showRoomList = false
+                        hasAppliedDelay = false // Reset delay flag if startup resets
                     }
                 }
                 

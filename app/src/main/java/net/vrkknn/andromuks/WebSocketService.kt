@@ -1290,6 +1290,9 @@ class WebSocketService : Service() {
             serviceInstance.waitingForInitComplete = true
             serviceInstance.runIdReceived = false
             serviceInstance.runIdReceivedTime = 0
+            // CRITICAL: Track if we're reconnecting with last_received_event (backend won't send init_complete)
+            // This is set when we connect with last_received_event in the URL (in NetworkUtils)
+            // Don't reset it here - it's set by NetworkUtils when building the URL
             // Start timeout for run_id (2 seconds) - if not received, connection is broken
             serviceInstance.startRunIdTimeout()
             // Don't start init_complete timeout yet - wait for run_id first
@@ -1852,6 +1855,21 @@ class WebSocketService : Service() {
                 android.util.Log.d("WebSocketService", "Cleared last_received_request_id (cold start detected)")
             }
         }
+        
+        /**
+         * Set flag indicating we're reconnecting with last_received_event
+         * When true, backend won't send init_complete - first sync_complete acts as init_complete
+         */
+        fun setReconnectingWithLastReceivedEvent(value: Boolean) {
+            instance?.isReconnectingWithLastReceivedEvent = value
+        }
+        
+        /**
+         * Check if we're reconnecting with last_received_event
+         */
+        fun isReconnectingWithLastReceivedEvent(): Boolean {
+            return instance?.isReconnectingWithLastReceivedEvent ?: false
+        }
 
         /**
          * Start ping loop immediately after init_complete so small/no-traffic accounts don’t wait for the first sync_complete.
@@ -2315,6 +2333,7 @@ class WebSocketService : Service() {
     private var isAppVisible = false
     private var initCompleteRetryCount: Int = 0 // Track retry count for exponential backoff
     private var waitingForInitComplete: Boolean = false // Track if we're waiting for init_complete
+    private var isReconnectingWithLastReceivedEvent: Boolean = false // Track if we're reconnecting with last_received_event (backend won't send init_complete)
     
     // Notification state cache for idempotent updates
     private var lastNotificationText: String? = null

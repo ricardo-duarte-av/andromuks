@@ -21,6 +21,7 @@ import okio.IOException
 import org.json.JSONObject
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.WebSocketService
+import net.vrkknn.andromuks.WebSocketService.ConnectionState
 
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -209,7 +210,7 @@ fun buildRequest(url: String, credentials: String): Request {
 
 suspend fun waitForBackendHealth(
     homeserverUrl: String,
-    delayMillis: Long = 5_000L,
+    delayMillis: Long = 1_000L, // Reduced from 5s to 1s for faster reconnections
     loggerTag: String = "NetworkUtils"
 ) {
     Log.i(loggerTag, "waitForBackendHealth: Starting backend health check for $homeserverUrl")
@@ -278,22 +279,40 @@ fun connectToWebsocket(
     val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
     val runId = prefs.getString("ws_run_id", "") ?: ""
     
-    // CRITICAL: Only include last_received_event on reconnections (when run_id exists)
-    // This makes reconnections snappier by telling the backend where we left off
-    val isReconnection = runId.isNotEmpty()
-    val lastReceivedRequestId = if (isReconnection) {
+    // CRITICAL: Detect true reconnection vs cold start using allRooms as source of truth
+    // A reconnection means:
+    // 1. run_id exists in SharedPreferences (from previous session)
+    // 2. AND allRooms is populated (app has data from previous session)
+    // 
+    // A cold start means:
+    // 1. App process was killed and restarted
+    // 2. allRooms is empty (no data from previous session)
+    // 3. Even if run_id exists in SharedPreferences, it's from a previous session
+    //
+    // We check if allRooms is populated to distinguish:
+    // - If allRooms is populated, it's a reconnection → use last_received_request_id
+    // - If allRooms is empty, it's a cold start → don't use last_received_request_id
+    val hasPopulatedRooms = appViewModel?.allRooms?.isNotEmpty() ?: false
+    
+    val isTrueReconnection = runId.isNotEmpty() && hasPopulatedRooms
+    
+    val lastReceivedRequestId = if (isTrueReconnection) {
+        // True reconnection: app has data from previous session, use last_received_request_id
         net.vrkknn.andromuks.WebSocketService.getLastReceivedRequestId(context)
     } else {
-        // CRITICAL: Cold start - clear last_received_request_id from SharedPreferences
-        // This ensures we don't use stale values on initial connections
-        net.vrkknn.andromuks.WebSocketService.clearLastReceivedRequestId(context)
-        0 // Initial connection - don't pass last_received_event
+        // Cold start or first connection: don't use last_received_request_id
+        // (MainActivity.onCreate already cleared it, but be safe)
+        if (runId.isEmpty()) {
+            // First connection ever - clear just to be safe
+            net.vrkknn.andromuks.WebSocketService.clearLastReceivedRequestId(context)
+        }
+        0 // Don't pass last_received_event
     }
     
     if (BuildConfig.DEBUG) {
         Log.d(
             "NetworkUtils",
-            "WebSocket URL params - runId: '$runId', reason: $reason, isReconnection: $isReconnection, last_received_request_id: $lastReceivedRequestId"
+            "WebSocket URL params - runId: '$runId', reason: $reason, isTrueReconnection: $isTrueReconnection (hasPopulatedRooms: $hasPopulatedRooms), last_received_request_id: $lastReceivedRequestId"
         )
     }
     
@@ -345,10 +364,14 @@ fun connectToWebsocket(
         // Note: request_id can be negative (and usually is), so check != 0 instead of > 0
         if (lastReceivedRequestId != 0) {
             queryParams.add("last_received_event=$lastReceivedRequestId")
+            // CRITICAL: Mark that we're reconnecting with last_received_event
+            // Backend won't send init_complete in this case - first sync_complete acts as init_complete
+            WebSocketService.setReconnectingWithLastReceivedEvent(true)
             if (BuildConfig.DEBUG) {
-                Log.d("NetworkUtils", "Added last_received_event=$lastReceivedRequestId to query parameters (reconnection)")
+                Log.d("NetworkUtils", "Added last_received_event=$lastReceivedRequestId to query parameters (reconnection - backend will skip init_complete)")
             }
         } else {
+            WebSocketService.setReconnectingWithLastReceivedEvent(false)
             if (BuildConfig.DEBUG) {
                 Log.d("NetworkUtils", "No last_received_request_id available - reconnecting without last_received_event parameter")
             }
@@ -541,6 +564,20 @@ fun connectToWebsocket(
                         }
                     }
                     "sync_complete" -> {
+                        // CRITICAL: On reconnections with last_received_event, backend doesn't send init_complete
+                        // The first sync_complete acts as init_complete - mark connection as CONNECTED
+                        val isReconnectingWithLastReceivedEvent = WebSocketService.isReconnectingWithLastReceivedEvent()
+                        val connectionState = WebSocketService.getConnectionState()
+                        if (isReconnectingWithLastReceivedEvent && connectionState == ConnectionState.CONNECTING) {
+                            if (BuildConfig.DEBUG) {
+                                Log.i("NetworkUtils", "Reconnection with last_received_event: First sync_complete received - treating as init_complete")
+                            }
+                            // Treat first sync_complete as init_complete
+                            WebSocketService.onInitCompleteReceived()
+                            // Clear the flag so subsequent sync_complete messages are treated normally
+                            WebSocketService.setReconnectingWithLastReceivedEvent(false)
+                        }
+                        
                         // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                             val registeredViewModels = WebSocketService.getRegisteredViewModels()
@@ -742,6 +779,20 @@ fun connectToWebsocket(
                                     }
                                 }
                                 "sync_complete" -> {
+                                    // CRITICAL: On reconnections with last_received_event, backend doesn't send init_complete
+                                    // The first sync_complete acts as init_complete - mark connection as CONNECTED
+                                    val isReconnectingWithLastReceivedEvent = WebSocketService.isReconnectingWithLastReceivedEvent()
+                                    val connectionState = WebSocketService.getConnectionState()
+                                    if (isReconnectingWithLastReceivedEvent && connectionState == ConnectionState.CONNECTING) {
+                                        if (BuildConfig.DEBUG) {
+                                            Log.i("NetworkUtils", "Reconnection with last_received_event (compressed): First sync_complete received - treating as init_complete")
+                                        }
+                                        // Treat first sync_complete as init_complete
+                                        WebSocketService.onInitCompleteReceived()
+                                        // Clear the flag so subsequent sync_complete messages are treated normally
+                                        WebSocketService.setReconnectingWithLastReceivedEvent(false)
+                                    }
+                                    
                                     // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                                         val registeredViewModels = WebSocketService.getRegisteredViewModels()
