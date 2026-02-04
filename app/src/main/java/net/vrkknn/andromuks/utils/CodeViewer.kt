@@ -1,17 +1,27 @@
 package net.vrkknn.andromuks.utils
 
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.ClipData
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -32,21 +42,37 @@ fun CodeViewer(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     BackHandler(onBack = onDismiss)
+    
+    // Fix issue #1: Unescape forward slashes that JSONObject.toString() escapes as \/
+    val unescapedCode = remember(code) {
+        code.replace("\\/", "/")
+    }
+    
+    // Copy all functionality
+    val copyAllToClipboard: () -> Unit = {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("Code", unescapedCode)
+        clipboard.setPrimaryClip(clip)
+    }
     
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
+            decorFitsSystemWindows = true  // Fix issue #4: Respect system windows
         )
     ) {
         Surface(
-            modifier = modifier.fillMaxSize(),
+            modifier = modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .windowInsetsPadding(WindowInsets.navigationBars),
             color = MaterialTheme.colorScheme.surface
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Header with close button
+                // Header with copy all button
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -62,8 +88,11 @@ fun CodeViewer(
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.weight(1f)
                         )
-                        TextButton(onClick = onDismiss) {
-                            Text("Close")
+                        TextButton(onClick = {
+                            copyAllToClipboard()
+                            onDismiss()
+                        }) {
+                            Text("Copy all")
                         }
                     }
                 }
@@ -76,7 +105,7 @@ fun CodeViewer(
                 ) {
                     val verticalScrollState = rememberScrollState()
                     val horizontalScrollState = rememberScrollState()
-                    val lines = code.lines()
+                    val lines = unescapedCode.lines()
                     
                     // Vertical scroll container
                     Column(
@@ -91,7 +120,7 @@ fun CodeViewer(
                                 .fillMaxWidth()
                                 .horizontalScroll(horizontalScrollState)
                         ) {
-                            // Line numbers column
+                            // Line numbers column - NOT selectable
                             Column(
                                 modifier = Modifier.width(56.dp)
                             ) {
@@ -111,18 +140,21 @@ fun CodeViewer(
                                 }
                             }
                             
-                            // Code content column - no wrapping, natural width for horizontal scrolling
-                            Column {
-                                lines.forEach { line ->
-                                    Text(
-                                        text = line,
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontFamily = FontFamily.Monospace,
-                                            fontSize = 12.sp
-                                        ),
-                                        overflow = TextOverflow.Visible,
-                                        softWrap = false
-                                    )
+                            // Code content column - selectable, no wrapping, natural width for horizontal scrolling
+                            // Fix issue #2: Wrap code in SelectionContainer to make it selectable
+                            SelectionContainer {
+                                Column {
+                                    lines.forEach { line ->
+                                        Text(
+                                            text = line,
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 12.sp
+                                            ),
+                                            overflow = TextOverflow.Visible,
+                                            softWrap = false
+                                        )
+                                    }
                                 }
                             }
                         }
