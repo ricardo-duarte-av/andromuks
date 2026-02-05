@@ -1105,6 +1105,20 @@ class AppViewModel : ViewModel() {
     var processedSyncCompleteCount by mutableStateOf(0)
         private set
     
+    // CRITICAL FIX: Track loading of all room states (for bridge badges) after init_complete
+    // This must complete before allowing other commands and before navigating to RoomListScreen
+    private var allRoomStatesRequested = false
+    private var allRoomStatesLoaded = false
+    private val pendingRoomStateResponses = mutableSetOf<String>() // Track which rooms we're waiting for
+    private var totalRoomStateRequests = 0
+    private var completedRoomStateRequests = 0
+    
+    // CRITICAL FIX: Block sending commands to backend until init_complete arrives and all initial sync_complete messages are processed
+    // This prevents get_room_state commands from being sent before rooms are populated from sync_complete
+    // Only applies on initial connection (not reconnections with last_received_event)
+    private var canSendCommandsToBackend = false
+    private val pendingCommandsQueue = mutableListOf<Triple<String, Int, Map<String, Any>>>() // Queue for commands blocked before init_complete
+    
     // Startup progress messages for loading screen (last 10 messages, newest on top)
     private val _startupProgressMessages = mutableStateListOf<String>()
     val startupProgressMessages: List<String> get() = _startupProgressMessages
@@ -1157,7 +1171,8 @@ class AppViewModel : ViewModel() {
                          initialSyncProcessingComplete && // All queued messages must be processed
                          spacesLoaded &&
                          hasRoomsOrProcessingComplete && // Have rooms OR all processing is complete (handles zero rooms case)
-                         (currentUserProfile != null || currentUserId.isBlank()) // Profile loaded OR not logged in
+                         (currentUserProfile != null || currentUserId.isBlank()) && // Profile loaded OR not logged in
+                         allRoomStatesLoaded // CRITICAL: Wait for all room states to load (for bridge badges)
         
         if (BuildConfig.DEBUG && nowComplete != wasComplete) {
             android.util.Log.d("Andromuks", "🟦 checkStartupComplete: nowComplete=$nowComplete (init=$initializationComplete, sync=$initialSyncComplete, processing=$initialSyncProcessingComplete, spaces=$spacesLoaded, rooms=${roomMap.size}, profile=${currentUserProfile != null})")
@@ -1170,6 +1185,7 @@ class AppViewModel : ViewModel() {
                 if (!spacesLoaded) missing.add("spacesLoaded")
                 if (!hasRoomsOrProcessingComplete) missing.add("rooms/processing")
                 if (currentUserProfile == null && currentUserId.isNotBlank()) missing.add("profile")
+                if (!allRoomStatesLoaded) missing.add("allRoomStatesLoaded")
                 android.util.Log.d("Andromuks", "🟦 checkStartupComplete: BLOCKED - missing: ${missing.joinToString(", ")}")
             }
         }
@@ -5177,7 +5193,11 @@ class AppViewModel : ViewModel() {
                                     android.util.Log.d("Andromuks", "🟣 onInitComplete: Setting initialSyncComplete=true, spacesLoaded=true, processingComplete=true (empty queue)")
                                     initialSyncComplete = true
                                     spacesLoaded = true
-                                    checkStartupComplete() // Check if startup is complete
+                                    
+                                    // CRITICAL FIX: Don't allow commands yet - wait for all room states to load first
+                                    // canSendCommandsToBackend will be set after all room states are loaded
+                                    
+                                    checkStartupComplete() // Check if startup is complete (will wait for all room states)
                                     android.util.Log.d("Andromuks", "🟣 onInitComplete: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null}")
                                 }
                             }
@@ -5205,7 +5225,12 @@ class AppViewModel : ViewModel() {
                             }
                             android.util.Log.d("Andromuks", "🟣 Initial sync processing: All messages processed - processingComplete=true (early unblock already set initialSyncComplete)")
                         }
-                        checkStartupComplete() // Check if startup is complete (will now pass since processingComplete=true)
+                        
+                        // CRITICAL FIX: Don't allow commands yet - wait for all room states to load first
+                        // canSendCommandsToBackend will be set after all room states are loaded
+                        // This ensures bridge badges are loaded before other commands can be sent
+                        
+                        checkStartupComplete() // Check if startup is complete (will wait for all room states)
                         android.util.Log.d("Andromuks", "🟣 Initial sync processing: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null} - Room list can now be shown")
                         }
                     }
@@ -5213,30 +5238,17 @@ class AppViewModel : ViewModel() {
         
         // Mark initialization as complete - from now on, all sync_complete messages are real-time updates
         initializationComplete = true
+        
+        // CRITICAL FIX: Don't allow commands yet - wait for all room states to load first
+        // canSendCommandsToBackend will be set after all room states are loaded in loadAllRoomStatesAfterInitComplete()
+        
         checkStartupComplete() // Check if startup is complete
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Initialization complete - future sync_complete messages will trigger UI updates")
         
-        // CRITICAL FIX: Trigger deferred room state requests after initial sync completes
-        // These were deferred during initial sync to prevent overwhelming the system with 580+ get_room_state requests
-        // Now that initial sync is complete, we can load bridge protocol avatars lazily
-        viewModelScope.launch(Dispatchers.Default) {
-            delay(2000) // Wait 2 seconds for UI to settle before loading bridge avatars
-            val deferredRooms = navigationCache.values
-                .filter { !it.essentialDataLoaded }
-                .map { it.roomId }
-                .filter { !pendingRoomStateRequests.contains(it) }
-                .take(50) // Load in batches of 50 to avoid overwhelming the system
-            
-            if (deferredRooms.isNotEmpty()) {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Loading ${deferredRooms.size} deferred room state requests (bridge avatars) after initial sync")
-                }
-                deferredRooms.forEach { roomId ->
-                    requestRoomState(roomId)
-                    delay(50) // Small delay between requests to avoid overwhelming the backend
-                }
-            }
-        }
+        // CRITICAL FIX: Request get_room_state for ALL rooms after init_complete and sync_complete processing
+        // This ensures bridge badges are loaded before navigating to RoomListScreen
+        // These requests are exempt from the canSendCommandsToBackend blocking
+        loadAllRoomStatesAfterInitComplete()
         
         // Reset reconnection state now that init_complete has arrived
         // This is safe to call now because connection is confirmed healthy
@@ -6763,6 +6775,31 @@ class AppViewModel : ViewModel() {
         // Reset sync progress counters
         pendingSyncCompleteCount = 0
         processedSyncCompleteCount = 0
+        
+        // CRITICAL FIX: Block commands on initial connection only (not reconnections with last_received_event)
+        // On reconnections with last_received_event, backend doesn't send init_complete, so we can't block
+        val isReconnecting = WebSocketService.isReconnectingWithLastReceivedEvent()
+        canSendCommandsToBackend = isReconnecting // Allow commands immediately on reconnection
+        synchronized(pendingCommandsQueue) {
+            pendingCommandsQueue.clear()
+        }
+        
+        // Reset room state loading state
+        allRoomStatesRequested = false
+        allRoomStatesLoaded = isReconnecting // On reconnection, mark as loaded (we skip loading)
+        totalRoomStateRequests = 0
+        completedRoomStateRequests = 0
+        synchronized(pendingRoomStateResponses) {
+            pendingRoomStateResponses.clear()
+        }
+        
+        if (BuildConfig.DEBUG) {
+            if (isReconnecting) {
+                android.util.Log.d("Andromuks", "AppViewModel: Reconnection detected - allowing commands immediately (no init_complete will be sent)")
+            } else {
+                android.util.Log.d("Andromuks", "AppViewModel: Initial connection - blocking commands until init_complete + all sync_complete + all room states processed")
+            }
+        }
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Initial sync phase started - will queue sync_complete messages until init_complete")
         
         // CRITICAL FIX: Process deferred emoji pack requests when WebSocket is set
@@ -11549,6 +11586,49 @@ class AppViewModel : ViewModel() {
         pendingRoomStateRequests.remove(roomId)
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling room state response for room: $roomId")
         
+        // CRITICAL FIX: Track completion of initial room state loading
+        if (allRoomStatesRequested && !allRoomStatesLoaded) {
+            var wasInPendingSet = false
+            synchronized(pendingRoomStateResponses) {
+                wasInPendingSet = pendingRoomStateResponses.remove(roomId)
+            }
+            
+            // Only count rooms that were part of the initial load
+            if (wasInPendingSet) {
+                completedRoomStateRequests++
+                
+                // Update progress message
+                val progress = if (totalRoomStateRequests > 0) {
+                    "$completedRoomStateRequests / $totalRoomStateRequests"
+                } else {
+                    "$completedRoomStateRequests"
+                }
+                addStartupProgressMessage("Loading bridge info for all rooms... $progress")
+                
+                // Check if all room states are loaded
+                val remaining = synchronized(pendingRoomStateResponses) {
+                    pendingRoomStateResponses.size
+                }
+                
+                if (remaining == 0) {
+                    // All room states loaded!
+                    allRoomStatesLoaded = true
+                    addStartupProgressMessage("Bridge info loaded for all rooms")
+                    
+                    // NOW allow commands to be sent
+                    canSendCommandsToBackend = true
+                    flushPendingCommandsQueue()
+                    
+                    // Check if startup is complete (will now pass)
+                    checkStartupComplete()
+                    
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d("Andromuks", "AppViewModel: All room states loaded ($completedRoomStateRequests/$totalRoomStateRequests) - commands now allowed, startup can complete")
+                    }
+                }
+            }
+        }
+        
         // NAVIGATION PERFORMANCE: Update navigation state cache when essential data is loaded
         val currentState = navigationCache[roomId] ?: RoomNavigationState(roomId)
         navigationCache[roomId] = currentState.copy(
@@ -14031,6 +14111,23 @@ class AppViewModel : ViewModel() {
             return WebSocketResult.NOT_CONNECTED
         }
         
+        // CRITICAL FIX: Block commands until init_complete arrives and all initial sync_complete messages are processed
+        // This prevents get_room_state commands from being sent before rooms are populated from sync_complete
+        // Only applies on initial connection (not reconnections with last_received_event)
+        // EXCEPTION: Allow get_room_state commands during initial room state loading (they're exempt from blocking)
+        val isInitialRoomStateLoading = allRoomStatesRequested && !allRoomStatesLoaded
+        val isExemptCommand = command == "get_room_state" && isInitialRoomStateLoading
+        
+        if (!canSendCommandsToBackend && !isExemptCommand) {
+            synchronized(pendingCommandsQueue) {
+                pendingCommandsQueue.add(Triple(command, requestId, data))
+            }
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "AppViewModel: Command $command (requestId: $requestId) queued - waiting for init_complete + sync_complete processing (${pendingCommandsQueue.size} commands queued)")
+            }
+            return WebSocketResult.NOT_CONNECTED
+        }
+        
         // REMOVED: Queue flushing blocking behavior
         // Webmuks can handle out-of-order messages and responses are matched by request_id
         // There's no need to block new commands while retrying old ones
@@ -14105,6 +14202,115 @@ class AppViewModel : ViewModel() {
         return when (command) {
             "get_profile", "get_room_state" -> true // These can use cached data
             else -> false
+        }
+    }
+    
+    /**
+     * CRITICAL FIX: Flush pending commands queue after init_complete and all sync_complete messages are processed
+     * This sends all commands that were blocked during initial connection
+     */
+    private fun flushPendingCommandsQueue() {
+        val commandsToFlush = synchronized(pendingCommandsQueue) {
+            val commands = pendingCommandsQueue.toList()
+            pendingCommandsQueue.clear()
+            commands
+        }
+        
+        if (commandsToFlush.isNotEmpty()) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "AppViewModel: Flushing ${commandsToFlush.size} queued commands after init_complete + sync_complete processing")
+            }
+            
+            // Send all queued commands
+            for ((command, requestId, data) in commandsToFlush) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Flushing queued command: $command (requestId: $requestId)")
+                }
+                // Recursively call sendWebSocketCommand - it will now succeed since canSendCommandsToBackend is true
+                sendWebSocketCommand(command, requestId, data)
+            }
+        }
+    }
+    
+    /**
+     * CRITICAL FIX: Request get_room_state for ALL rooms after init_complete and sync_complete processing
+     * This ensures bridge badges are loaded before navigating to RoomListScreen
+     * These requests are exempt from the canSendCommandsToBackend blocking
+     */
+    private fun loadAllRoomStatesAfterInitComplete() {
+        // Only run on initial connection (not reconnections)
+        val isReconnecting = WebSocketService.isReconnectingWithLastReceivedEvent()
+        if (isReconnecting) {
+            // On reconnection, allow commands immediately (no need to load all room states)
+            canSendCommandsToBackend = true
+            flushPendingCommandsQueue()
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "AppViewModel: Reconnection detected - skipping all room state loading, allowing commands immediately")
+            }
+            return
+        }
+        
+        viewModelScope.launch(Dispatchers.Default) {
+            // Wait a moment for sync_complete processing to finish
+            delay(500)
+            
+            // Get all rooms from roomMap
+            val allRoomIds = synchronized(roomMap) {
+                roomMap.keys.toList()
+            }
+            
+            if (allRoomIds.isEmpty()) {
+                // No rooms - allow commands immediately
+                allRoomStatesLoaded = true
+                canSendCommandsToBackend = true
+                flushPendingCommandsQueue()
+                checkStartupComplete()
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: No rooms to load - allowing commands immediately")
+                }
+                return@launch
+            }
+            
+            // Mark that we're requesting all room states
+            allRoomStatesRequested = true
+            totalRoomStateRequests = allRoomIds.size
+            completedRoomStateRequests = 0
+            
+            synchronized(pendingRoomStateResponses) {
+                pendingRoomStateResponses.clear()
+                pendingRoomStateResponses.addAll(allRoomIds)
+            }
+            
+            addStartupProgressMessage("Loading bridge info for all rooms... 0 / ${allRoomIds.size}")
+            
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "AppViewModel: Requesting room state for ALL ${allRoomIds.size} rooms (bridge badges)")
+            }
+            
+            // Request room state for all rooms with small delays to avoid overwhelming backend
+            allRoomIds.forEachIndexed { index, roomId ->
+                // Skip if already requested
+                if (!pendingRoomStateRequests.contains(roomId)) {
+                    requestRoomState(roomId)
+                } else {
+                    // Already requested - remove from pending set and increment counter
+                    synchronized(pendingRoomStateResponses) {
+                        pendingRoomStateResponses.remove(roomId)
+                    }
+                    completedRoomStateRequests++
+                }
+                
+                // Small delay every 10 requests to avoid overwhelming backend
+                if ((index + 1) % 10 == 0) {
+                    delay(100)
+                } else {
+                    delay(20) // Very small delay between requests
+                }
+            }
+            
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "AppViewModel: Finished sending all room state requests (${allRoomIds.size} rooms). Waiting for responses...")
+            }
         }
     }
     
