@@ -4723,7 +4723,20 @@ class AppViewModel : ViewModel() {
                     // WRITE-ONLY BRIDGE INFO: Preserve bridge protocol avatar if it was previously set
                     // Bridge info comes from get_room_state (m.bridge event), not from sync_complete
                     // Once set, it's never removed (will be resolved on app restart if room is no longer bridged)
-                    bridgeProtocolAvatarUrl = room.bridgeProtocolAvatarUrl ?: existingRoom.bridgeProtocolAvatarUrl
+                    // CRITICAL OPTIMIZATION: Also check SharedPreferences cache for bridge info
+                    bridgeProtocolAvatarUrl = run {
+                        val cachedBridgeAvatar = appContext?.let { context ->
+                            net.vrkknn.andromuks.utils.BridgeInfoCache.getBridgeAvatarUrl(context, room.id)
+                        }
+                        val cachedBridgeAvatarUrl = if (cachedBridgeAvatar != null && cachedBridgeAvatar.isNotEmpty()) {
+                            cachedBridgeAvatar
+                        } else {
+                            null
+                        }
+                        room.bridgeProtocolAvatarUrl 
+                            ?: existingRoom.bridgeProtocolAvatarUrl 
+                            ?: cachedBridgeAvatarUrl
+                    }
                 )
                 // Log if favorite status was preserved (for debugging)
                 if (existingRoom.isFavourite && !room.isFavourite && updatedRoom.isFavourite) {
@@ -4733,10 +4746,32 @@ class AppViewModel : ViewModel() {
                 // Update singleton cache
                 RoomListCache.updateRoom(updatedRoom)
             } else {
-                roomMap[room.id] = room
+                // New room - check SharedPreferences cache for bridge info
+                val cachedBridgeAvatar = appContext?.let { context ->
+                    net.vrkknn.andromuks.utils.BridgeInfoCache.getBridgeAvatarUrl(context, room.id)
+                }
+                val cachedBridgeAvatarUrl = if (cachedBridgeAvatar != null && cachedBridgeAvatar.isNotEmpty()) {
+                    cachedBridgeAvatar
+                } else {
+                    null
+                }
+                
+                val roomWithBridgeInfo = if (cachedBridgeAvatarUrl != null) {
+                    room.copy(bridgeProtocolAvatarUrl = cachedBridgeAvatarUrl)
+                } else {
+                    room
+                }
+                
+                roomMap[room.id] = roomWithBridgeInfo
                 // Update singleton cache
-                RoomListCache.updateRoom(room)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name} (unread: ${room.unreadCount})")
+                RoomListCache.updateRoom(roomWithBridgeInfo)
+                if (BuildConfig.DEBUG) {
+                    if (cachedBridgeAvatarUrl != null) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name} (unread: ${room.unreadCount}) with cached bridge avatar")
+                    } else {
+                        android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name} (unread: ${room.unreadCount})")
+                    }
+                }
             }
         }
         
@@ -4744,9 +4779,25 @@ class AppViewModel : ViewModel() {
         // Not all 588 rooms - only rooms that were just added
         // Add new rooms
         syncResult.newRooms.forEach { room ->
-            roomMap[room.id] = room
+            // Check SharedPreferences cache for bridge info
+            val cachedBridgeAvatar = appContext?.let { context ->
+                net.vrkknn.andromuks.utils.BridgeInfoCache.getBridgeAvatarUrl(context, room.id)
+            }
+            val cachedBridgeAvatarUrl = if (cachedBridgeAvatar != null && cachedBridgeAvatar.isNotEmpty()) {
+                cachedBridgeAvatar
+            } else {
+                null
+            }
+            
+            val roomWithBridgeInfo = if (cachedBridgeAvatarUrl != null) {
+                room.copy(bridgeProtocolAvatarUrl = cachedBridgeAvatarUrl)
+            } else {
+                room
+            }
+            
+            roomMap[room.id] = roomWithBridgeInfo
             // Update singleton cache
-            RoomListCache.updateRoom(room)
+            RoomListCache.updateRoom(roomWithBridgeInfo)
             
             // CRITICAL FIX: Only mark as "newly joined" if initial sync is complete
             // During initial sync, all rooms are "new" because roomMap is empty, but they're not actually newly joined
@@ -11839,6 +11890,13 @@ class AppViewModel : ViewModel() {
                 roomListUpdateCounter++
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated roomMap with bridge info for $roomId, triggered UI update")
             }
+            
+            // CRITICAL FIX: Save bridge info to SharedPreferences cache for future initial connections
+            // This allows us to skip get_room_state requests for rooms we already know about
+            appContext?.let { context ->
+                val avatarUrlToSave = finalBridgeProtocolAvatarUrl ?: ""
+                net.vrkknn.andromuks.utils.BridgeInfoCache.saveBridgeAvatarUrl(context, roomId, avatarUrlToSave)
+            }
         } else {
             // Room doesn't exist in roomMap yet - store bridge info for later
             // This can happen if get_room_state arrives before sync_complete creates the room
@@ -11853,6 +11911,13 @@ class AppViewModel : ViewModel() {
                 // No room yet; remember as DM so when the room is added it will be treated as direct.
                 directMessageRoomIds = directMessageRoomIds + roomId
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Recorded $roomId as DM via bridge room_type (no room object yet)")
+            }
+            
+            // CRITICAL FIX: Save bridge info to SharedPreferences even if room doesn't exist yet
+            // This ensures we cache the info for when the room is created
+            appContext?.let { context ->
+                val avatarUrlToSave = bridgeProtocolAvatarUrl ?: ""
+                net.vrkknn.andromuks.utils.BridgeInfoCache.saveBridgeAvatarUrl(context, roomId, avatarUrlToSave)
             }
         }
 
@@ -14271,24 +14336,78 @@ class AppViewModel : ViewModel() {
                 return@launch
             }
             
-            // Mark that we're requesting all room states
+            // CRITICAL OPTIMIZATION: Check SharedPreferences cache to skip rooms we already know about
+            // Only request get_room_state for rooms not in cache (new rooms)
+            val context = appContext ?: return@launch
+            val uncachedRoomIds = allRoomIds.filter { roomId ->
+                !net.vrkknn.andromuks.utils.BridgeInfoCache.isCached(context, roomId)
+            }
+            
+            // Load cached bridge info into roomMap for rooms that are cached
+            val cachedCount = allRoomIds.size - uncachedRoomIds.size
+            if (cachedCount > 0) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Loading ${cachedCount} cached bridge info entries from SharedPreferences")
+                }
+                
+                allRoomIds.forEach { roomId ->
+                    if (net.vrkknn.andromuks.utils.BridgeInfoCache.isCached(context, roomId)) {
+                        val cachedAvatarUrl = net.vrkknn.andromuks.utils.BridgeInfoCache.getBridgeAvatarUrl(context, roomId)
+                        // cachedAvatarUrl will be empty string if not bridged, or mxc:// URL if bridged
+                        val bridgeAvatarUrl = if (cachedAvatarUrl != null && cachedAvatarUrl.isNotEmpty()) {
+                            cachedAvatarUrl
+                        } else {
+                            null
+                        }
+                        
+                        // Update roomMap with cached bridge info
+                        val existing = roomMap[roomId]
+                        if (existing != null && existing.bridgeProtocolAvatarUrl != bridgeAvatarUrl) {
+                            val updatedRoom = existing.copy(bridgeProtocolAvatarUrl = bridgeAvatarUrl)
+                            roomMap[roomId] = updatedRoom
+                            allRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
+                            invalidateRoomSectionCache()
+                            roomListUpdateCounter++
+                        }
+                    }
+                }
+            }
+            
+            if (uncachedRoomIds.isEmpty()) {
+                // All rooms are cached - no need to request room states
+                allRoomStatesLoaded = true
+                canSendCommandsToBackend = true
+                flushPendingCommandsQueue()
+                checkStartupComplete()
+                addStartupProgressMessage("Bridge info loaded for all rooms (from cache)")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: All ${allRoomIds.size} rooms are cached - skipping room state requests")
+                }
+                return@launch
+            }
+            
+            // Mark that we're requesting room states (only for uncached rooms)
             allRoomStatesRequested = true
-            totalRoomStateRequests = allRoomIds.size
+            totalRoomStateRequests = uncachedRoomIds.size
             completedRoomStateRequests = 0
             
             synchronized(pendingRoomStateResponses) {
                 pendingRoomStateResponses.clear()
-                pendingRoomStateResponses.addAll(allRoomIds)
+                pendingRoomStateResponses.addAll(uncachedRoomIds)
             }
             
-            addStartupProgressMessage("Loading bridge info for all rooms... 0 / ${allRoomIds.size}")
+            if (cachedCount > 0) {
+                addStartupProgressMessage("Loading bridge info for ${uncachedRoomIds.size} new rooms (${cachedCount} cached)... 0 / ${uncachedRoomIds.size}")
+            } else {
+                addStartupProgressMessage("Loading bridge info for ${uncachedRoomIds.size} new rooms... 0 / ${uncachedRoomIds.size}")
+            }
             
             if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "AppViewModel: Requesting room state for ALL ${allRoomIds.size} rooms (bridge badges)")
+                android.util.Log.d("Andromuks", "AppViewModel: Requesting room state for ${uncachedRoomIds.size} uncached rooms (${cachedCount} already cached)")
             }
             
-            // Request room state for all rooms with small delays to avoid overwhelming backend
-            allRoomIds.forEachIndexed { index, roomId ->
+            // Request room state only for uncached rooms with small delays to avoid overwhelming backend
+            uncachedRoomIds.forEachIndexed { index, roomId ->
                 // Skip if already requested
                 if (!pendingRoomStateRequests.contains(roomId)) {
                     requestRoomState(roomId)
@@ -14309,7 +14428,7 @@ class AppViewModel : ViewModel() {
             }
             
             if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "AppViewModel: Finished sending all room state requests (${allRoomIds.size} rooms). Waiting for responses...")
+                android.util.Log.d("Andromuks", "AppViewModel: Finished sending room state requests for ${uncachedRoomIds.size} uncached rooms. Waiting for responses...")
             }
         }
     }
