@@ -5898,8 +5898,15 @@ class AppViewModel : ViewModel() {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Set spacesLoaded=true (have ${roomMap.size} rooms)")
                 }
                 
+                // CRITICAL FIX: When attaching to existing WebSocket, room states have already been loaded by the primary instance
+                // Set allRoomStatesLoaded = true to allow startup completion
+                if (!allRoomStatesLoaded) {
+                    allRoomStatesLoaded = true
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Set allRoomStatesLoaded=true (room states already loaded by primary instance)")
+                }
+                
                 // CRITICAL FIX: Check if startup is complete now that we have room data
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Checking startup complete - initializationComplete=$initializationComplete, initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded, roomMap.size=${roomMap.size}")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Checking startup complete - initializationComplete=$initializationComplete, initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded, allRoomStatesLoaded=$allRoomStatesLoaded, roomMap.size=${roomMap.size}")
                 checkStartupComplete()
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: After checkStartupComplete - isStartupComplete=$isStartupComplete")
                 
