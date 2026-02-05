@@ -15886,30 +15886,6 @@ class AppViewModel : ViewModel() {
     
 }
 
-@Composable
-fun AppViewModel.rememberRoomListUiState(): State<RoomListUiState> {
-    // derivedStateOf automatically tracks all state reads inside its lambda
-    // When currentUserProfile (or any other dependency) changes, derivedStateOf will recompute
-    return remember {
-        derivedStateOf {
-            RoomListUiState(
-                currentUserProfile = currentUserProfile,
-                currentUserId = currentUserId,
-                imageAuthToken = imageAuthToken,
-                isProcessingPendingItems = isProcessingPendingItems,
-                spacesLoaded = spacesLoaded,
-                initialSyncComplete = initialSyncComplete,
-                roomListUpdateCounter = roomListUpdateCounter,
-                roomSummaryUpdateCounter = roomSummaryUpdateCounter,
-                currentSpaceId = currentSpaceId,
-                notificationActionInProgress = notificationActionInProgress,
-                timestampUpdateCounter = timestampUpdateCounter,
-                pendingSyncCompleteCount = pendingSyncCompleteCount,
-                processedSyncCompleteCount = processedSyncCompleteCount
-            )
-        }
-    }
-}
 
 data class SingleEventLoadResult(
     val event: TimelineEvent?,
