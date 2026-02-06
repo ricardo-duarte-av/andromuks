@@ -1292,10 +1292,23 @@ fun RoomTimelineScreen(
         }
     var lastInitialScrollSize by remember(roomId) { mutableStateOf(0) }
 
-    // Get member map that observes memberUpdateCounter and includes global cache fallback for TimelineEventItem profile updates
-    val memberMap = remember(roomId, appViewModel.memberUpdateCounter, sortedEvents) {
-        appViewModel.getMemberMapWithFallback(roomId, sortedEvents)
+    // Get base member map that observes memberUpdateCounter
+    // CRITICAL FIX: Don't depend on sortedEvents directly to avoid infinite recomposition loop
+    val memberMap = remember(roomId, appViewModel.memberUpdateCounter) {
+        appViewModel.getMemberMap(roomId)
     }
+    
+    // CRITICAL FIX: Use simple size-based key to avoid expensive operations during composition
+    // Processing all senders with map/distinct/sorted can block UI thread and cause ANR
+    // Using just size is sufficient - if size changes, we need to recompute anyway
+    val sortedEventsSize = sortedEvents.size
+    
+    // CRITICAL FIX: Don't call getMemberMapWithFallback during composition - it's too expensive
+    // getMemberMapWithFallback iterates over all events and calls ProfileCache for each sender
+    // This blocks the UI thread during initial render when 94 events are being composed
+    // Instead, use base memberMap and let TimelineEventItem handle fallback profiles individually
+    // TimelineEventItem already has LaunchedEffect to request profiles on-demand (non-blocking)
+    val memberMapWithFallback = memberMap
 
     // List state and auto-scroll to bottom when data loads/changes
     val listState = rememberLazyListState()
@@ -2331,7 +2344,7 @@ fun RoomTimelineScreen(
                                             timelineEvents = timelineEvents,
                                             homeserverUrl = homeserverUrl,
                                             authToken = authToken,
-                                            userProfileCache = memberMap,
+                                            userProfileCache = memberMapWithFallback,
                                             isMine = isMine,
                                             myUserId = myUserId,
                                             isConsecutive = isConsecutive,
@@ -2505,7 +2518,7 @@ fun RoomTimelineScreen(
                                 if (replyingToEvent != null) {
                                     ReplyPreviewInput(
                                         event = replyingToEvent!!,
-                                        userProfileCache = memberMap, // Use reactive memberMap instead of static userProfileCache
+                                        userProfileCache = memberMapWithFallback, // Use reactive memberMap with fallback profiles
                                         onCancel = { replyingToEvent = null },
                                         appViewModel = appViewModel,
                                         roomId = roomId

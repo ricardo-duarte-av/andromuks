@@ -1174,10 +1174,14 @@ class AppViewModel : ViewModel() {
                          (currentUserProfile != null || currentUserId.isBlank()) && // Profile loaded OR not logged in
                          allRoomStatesLoaded // CRITICAL: Wait for all room states to load (for bridge badges)
         
-        if (BuildConfig.DEBUG && nowComplete != wasComplete) {
-            android.util.Log.d("Andromuks", "🟦 checkStartupComplete: nowComplete=$nowComplete (init=$initializationComplete, sync=$initialSyncComplete, processing=$initialSyncProcessingComplete, spaces=$spacesLoaded, rooms=${roomMap.size}, profile=${currentUserProfile != null})")
+        // CRITICAL FIX: Always log when startup is blocked (not just on state change)
+        // This helps debug intermittent race conditions
+        if (BuildConfig.DEBUG) {
+            if (nowComplete != wasComplete) {
+                android.util.Log.d("Andromuks", "🟦 checkStartupComplete: nowComplete=$nowComplete (init=$initializationComplete, sync=$initialSyncComplete, processing=$initialSyncProcessingComplete, spaces=$spacesLoaded, rooms=${roomMap.size}, profile=${currentUserProfile != null}, allRoomStates=$allRoomStatesLoaded)")
+            }
             if (!nowComplete) {
-                // Log which condition is blocking startup
+                // Log which condition is blocking startup (always log, not just on state change)
                 val missing = mutableListOf<String>()
                 if (!initializationComplete) missing.add("initializationComplete")
                 if (!initialSyncComplete) missing.add("initialSyncComplete")
@@ -1186,7 +1190,9 @@ class AppViewModel : ViewModel() {
                 if (!hasRoomsOrProcessingComplete) missing.add("rooms/processing")
                 if (currentUserProfile == null && currentUserId.isNotBlank()) missing.add("profile")
                 if (!allRoomStatesLoaded) missing.add("allRoomStatesLoaded")
-                android.util.Log.d("Andromuks", "🟦 checkStartupComplete: BLOCKED - missing: ${missing.joinToString(", ")}")
+                if (missing.isNotEmpty()) {
+                    android.util.Log.d("Andromuks", "🟦 checkStartupComplete: BLOCKED - missing: ${missing.joinToString(", ")}")
+                }
             }
         }
         
@@ -5202,6 +5208,10 @@ class AppViewModel : ViewModel() {
                                                 android.util.Log.d("Andromuks", "🟣 onInitComplete: EARLY UNBLOCK - $reason, have $roomCount rooms - Setting initialSyncComplete=true to unblock UI (processing continues in background)")
                                                 initialSyncComplete = true
                                                 spacesLoaded = true
+                                                // CRITICAL FIX: Allow commands immediately on early unblock
+                                                // Don't wait for all room states - bridge badges can load in background
+                                                canSendCommandsToBackend = true
+                                                flushPendingCommandsQueue()
                                                 // Don't call checkStartupComplete() here - it will wait for initialSyncProcessingComplete
                                                 // This ensures UI shows early but room list waits for all processing
                                                 android.util.Log.d("Andromuks", "🟣 onInitComplete: EARLY UNBLOCK - UI can show early, but room list will wait for all ${queuedMessages.size} messages to process")
@@ -5230,6 +5240,10 @@ class AppViewModel : ViewModel() {
                                         android.util.Log.d("Andromuks", "🟣 onInitComplete: Finished processing ${queuedMessages.size} messages (early unblock didn't trigger) - Setting initialSyncComplete=true, spacesLoaded=true, processingComplete=true")
                                         initialSyncComplete = true
                                         spacesLoaded = true
+                                        // CRITICAL FIX: Allow commands immediately after initial sync completes
+                                        // Don't wait for all room states - bridge badges can load in background
+                                        canSendCommandsToBackend = true
+                                        flushPendingCommandsQueue()
                                         checkStartupComplete() // Check if startup is complete
                                         android.util.Log.d("Andromuks", "🟣 onInitComplete: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null} - UI can now be shown")
                                     }
@@ -5245,10 +5259,12 @@ class AppViewModel : ViewModel() {
                                     initialSyncComplete = true
                                     spacesLoaded = true
                                     
-                                    // CRITICAL FIX: Don't allow commands yet - wait for all room states to load first
-                                    // canSendCommandsToBackend will be set after all room states are loaded
+                                    // CRITICAL FIX: Allow commands immediately after initial sync completes
+                                    // Don't wait for all room states - bridge badges can load in background
+                                    canSendCommandsToBackend = true
+                                    flushPendingCommandsQueue()
                                     
-                                    checkStartupComplete() // Check if startup is complete (will wait for all room states)
+                                    checkStartupComplete() // Check if startup is complete
                                     android.util.Log.d("Andromuks", "🟣 onInitComplete: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null}")
                                 }
                             }
@@ -5261,8 +5277,11 @@ class AppViewModel : ViewModel() {
                         // Room data is already parsed and in memory, so UI can be shown immediately
                         // CRITICAL: Ensure profile is loaded before marking processing complete
                         ensureCurrentUserProfileLoaded()
-                        initialSyncProcessingComplete = true
                         withContext(Dispatchers.Main) {
+                        // CRITICAL FIX: Set all state flags on Main thread to ensure proper visibility
+                        // Set initialSyncProcessingComplete FIRST on Main thread to ensure checkStartupComplete() sees it
+                        initialSyncProcessingComplete = true
+                        
                         // CRITICAL FIX: If early unblock didn't set initialSyncComplete, set it now
                         // If early unblock already set it, just ensure spacesLoaded is set
                         if (!initialSyncComplete) {
@@ -5277,12 +5296,18 @@ class AppViewModel : ViewModel() {
                             android.util.Log.d("Andromuks", "🟣 Initial sync processing: All messages processed - processingComplete=true (early unblock already set initialSyncComplete)")
                         }
                         
-                        // CRITICAL FIX: Don't allow commands yet - wait for all room states to load first
-                        // canSendCommandsToBackend will be set after all room states are loaded
+                        // CRITICAL FIX: Allow commands immediately after initial sync completes
+                        // Don't wait for all room states - bridge badges can load in background
+                        if (!canSendCommandsToBackend) {
+                            canSendCommandsToBackend = true
+                            flushPendingCommandsQueue()
+                        }
                         // This ensures bridge badges are loaded before other commands can be sent
                         
-                        checkStartupComplete() // Check if startup is complete (will wait for all room states)
-                        android.util.Log.d("Andromuks", "🟣 Initial sync processing: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null} - Room list can now be shown")
+                        // CRITICAL FIX: Call checkStartupComplete() AFTER all state is set on Main thread
+                        // This ensures proper visibility and prevents race conditions
+                        checkStartupComplete()
+                        android.util.Log.d("Andromuks", "🟣 Initial sync processing: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null}, isStartupComplete=$isStartupComplete - Room list can now be shown")
                         }
                     }
                 }
