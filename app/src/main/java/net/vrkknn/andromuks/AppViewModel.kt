@@ -11687,32 +11687,95 @@ class AppViewModel : ViewModel() {
                 val receipts = data.optJSONObject("receipts")
                 if (receipts != null) {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts from paginate response for room: $roomId")
-                    // Process receipts in background to avoid blocking UI thread during bubble animation
+                    // CRITICAL FIX: Parse receipts in background, but apply changes on main thread
+                    // This prevents "concurrent change during composition" errors when Compose reads readReceipts
                     viewModelScope.launch(Dispatchers.Default) {
                         try {
-                            var hasReceiptChanges = false
+                            // Parse receipts data in background (extract changes)
+                            val receiptsCopy = receipts.toString() // Deep copy JSON to avoid thread issues
+                            val parsedReceipts = org.json.JSONObject(receiptsCopy)
                             
-                            synchronized(readReceiptsLock) {
-                                // Use processReadReceiptsFromPaginate - paginate responses are authoritative
-                                hasReceiptChanges = ReceiptFunctions.processReadReceiptsFromPaginate(
-                                    receipts, 
-                                    readReceipts, 
-                                    { } // Update counter after processing (on main thread)
-                                )
-                                
-                                // Update singleton cache after processing receipts
-                                ReadReceiptCache.setAll(readReceipts.mapValues { it.value.toList() })
+                            // Build the authoritative receipts map in background (no reading from readReceipts)
+                            val authoritativeReceipts = mutableMapOf<String, MutableList<ReadReceipt>>()
+                            
+                            val keys = parsedReceipts.keys()
+                            while (keys.hasNext()) {
+                                val eventId = keys.next()
+                                val receiptsArray = parsedReceipts.optJSONArray(eventId)
+                                if (receiptsArray != null) {
+                                    val receiptsList = mutableListOf<ReadReceipt>()
+                                    
+                                    for (i in 0 until receiptsArray.length()) {
+                                        val receiptJson = receiptsArray.optJSONObject(i)
+                                        if (receiptJson != null) {
+                                            val receipt = ReadReceipt(
+                                                userId = receiptJson.optString("user_id", ""),
+                                                eventId = receiptJson.optString("event_id", ""),
+                                                timestamp = receiptJson.optLong("timestamp", 0),
+                                                receiptType = receiptJson.optString("receipt_type", "")
+                                            )
+                                            
+                                            if (receipt.userId.isNotBlank() && receipt.eventId.isNotBlank()) {
+                                                receiptsList.add(receipt)
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Store authoritative receipts (empty list means remove)
+                                    authoritativeReceipts[eventId] = receiptsList
+                                }
                             }
                             
-                            // Apply updates on main thread after processing (only if there were changes)
-                            if (hasReceiptChanges) {
-                                withContext(Dispatchers.Main) {
-                                    try {
-                                        // Single UI update after all processing
-                                        readReceiptsUpdateCounter++
-                                    } catch (e: Exception) {
-                                        android.util.Log.e("Andromuks", "AppViewModel: Error updating receipt state on main thread", e)
+                            // Apply changes on main thread to avoid concurrent modification during composition
+                            withContext(Dispatchers.Main) {
+                                try {
+                                    var hasChanges = false
+                                    
+                                    synchronized(readReceiptsLock) {
+                                        // Apply all changes atomically on main thread
+                                        authoritativeReceipts.forEach { (eventId, receipts) ->
+                                            val existingReceipts = readReceipts[eventId]
+                                            val receiptsChanged = existingReceipts == null || 
+                                                existingReceipts.size != receipts.size ||
+                                                existingReceipts.any { existing ->
+                                                    !receipts.any { auth ->
+                                                        auth.userId == existing.userId && 
+                                                        auth.timestamp == existing.timestamp &&
+                                                        auth.eventId == existing.eventId
+                                                    }
+                                                } ||
+                                                receipts.any { auth ->
+                                                    !existingReceipts.any { existing ->
+                                                        existing.userId == auth.userId && 
+                                                        existing.timestamp == auth.timestamp &&
+                                                        existing.eventId == auth.eventId
+                                                    }
+                                                }
+                                            
+                                            if (receiptsChanged) {
+                                                if (receipts.isEmpty()) {
+                                                    readReceipts.remove(eventId)
+                                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ReceiptFunctions: Removed all receipts for eventId=$eventId (server says none)")
+                                                } else {
+                                                    readReceipts[eventId] = receipts
+                                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ReceiptFunctions: Replaced receipts for eventId=$eventId with ${receipts.size} receipts from paginate")
+                                                }
+                                                hasChanges = true
+                                            }
+                                        }
+                                        
+                                        // Update singleton cache after processing receipts (only if there were changes)
+                                        if (hasChanges) {
+                                            ReadReceiptCache.setAll(readReceipts.mapValues { it.value.toList() })
+                                        }
                                     }
+                                    
+                                    // Single UI update after all processing (only if there were changes)
+                                    if (hasChanges) {
+                                        readReceiptsUpdateCounter++
+                                    }
+                                } catch (e: Exception) {
+                                    android.util.Log.e("Andromuks", "AppViewModel: Error updating receipt state on main thread", e)
                                 }
                             }
                         } catch (e: Exception) {
