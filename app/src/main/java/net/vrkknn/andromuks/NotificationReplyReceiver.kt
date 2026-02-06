@@ -67,37 +67,42 @@ class NotificationReplyReceiver : BroadcastReceiver() {
         val cutoffTime = now - DEDUP_WINDOW_MS
         recentProcessedReplies.entries.removeAll { it.value < cutoffTime }
         
-        // Delegate to the same action flow used by PendingIntent so we don't double-send
-        val forwardIntent = Intent("net.vrkknn.andromuks.ACTION_REPLY").apply {
-            setPackage(context.packageName)
+        // CRITICAL FIX: Try to send message directly via WebSocketService if available
+        // This works even when MainActivity is not running
+        val registeredViewModels = WebSocketService.getRegisteredViewModels()
+        val viewModel = registeredViewModels.firstOrNull()
+        
+        if (viewModel != null) {
+            if (BuildConfig.DEBUG) Log.d(TAG, "Found registered ViewModel, sending message directly (MainActivity may not be running)")
+            // Send message directly via ViewModel - this adds to FIFO buffer
+            viewModel.sendMessageFromNotification(roomId, replyText) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "Message sent successfully via ViewModel")
+            }
+            return
+        }
+        
+        // Fallback: Start MainActivity with reply data if no ViewModel is available
+        // MainActivity will process the reply when it starts
+        if (BuildConfig.DEBUG) Log.d(TAG, "No ViewModel available, starting MainActivity with reply data")
+        val mainActivityIntent = Intent(context, MainActivity::class.java).apply {
+            action = "net.vrkknn.andromuks.ACTION_REPLY"
             putExtra("room_id", roomId)
             putExtra("event_id", intent.getStringExtra("event_id"))
             putExtra("from_reply_receiver", true)
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
-
+        
         val resultsBundle = Bundle().apply {
             putCharSequence(KEY_REPLY_TEXT, replyText)
         }
         RemoteInput.addResultsToIntent(
             arrayOf(RemoteInput.Builder(KEY_REPLY_TEXT).setLabel("Reply").build()),
-            forwardIntent,
+            mainActivityIntent,
             resultsBundle
         )
         
-        // CRITICAL FIX: Use ordered broadcast with explicit parameters to ensure MainActivity receives it first
-        // This prevents multiple receivers from processing the same reply (causing 3x sends)
-        // MainActivity will call abortBroadcast() to prevent other receivers from processing
-        context.sendOrderedBroadcast(
-            forwardIntent,
-            null,  // permission
-            null,  // resultReceiver (not needed)
-            null,  // scheduler (use default)
-            0,     // initialCode (0 = no result code needed)
-            null,  // initialData
-            null   // initialExtras
-        )
-        if (BuildConfig.DEBUG) Log.d(TAG, "Forwarded reply via ordered ACTION_REPLY broadcast for roomId: $roomId")
+        context.startActivity(mainActivityIntent)
+        if (BuildConfig.DEBUG) Log.d(TAG, "Started MainActivity with reply data for roomId: $roomId")
     }
     
     private fun getReplyText(intent: Intent): String? {

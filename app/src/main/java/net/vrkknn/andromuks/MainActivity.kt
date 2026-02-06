@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var notificationActionReceiver: BroadcastReceiver
     private var viewModelVisibilitySynced = false
     private var pendingShareIntent: Intent? = null
+    private var pendingReplyIntent: Intent? = null
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -90,6 +91,13 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         pendingShareIntent = intent.takeIf { isShareIntent(it) }
+        
+        // Handle ACTION_REPLY from notification when MainActivity is started from NotificationReplyReceiver
+        if (intent.action == "net.vrkknn.andromuks.ACTION_REPLY") {
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - ACTION_REPLY received")
+            // Store the reply intent to process after ViewModel is initialized
+            pendingReplyIntent = intent
+        }
         
         // CRITICAL FIX: Handle process death recovery when app is recreated from service notification
         // After ~6 hours, Android may kill the app process but keep the service running
@@ -230,6 +238,22 @@ class MainActivity : ComponentActivity() {
                             pendingShareIntent?.let { storedIntent ->
                                 processShareIntent(storedIntent)
                                 pendingShareIntent = null
+                            }
+                            
+                            // Process pending reply intent if MainActivity was started from NotificationReplyReceiver
+                            pendingReplyIntent?.let { replyIntent ->
+                                val roomId = replyIntent.getStringExtra("room_id")
+                                val replyText = getReplyText(replyIntent)
+                                
+                                if (roomId != null && replyText != null) {
+                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Processing pending reply for room: $roomId")
+                                    appViewModel.sendMessageFromNotification(roomId, replyText) {
+                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Pending reply message sent successfully")
+                                    }
+                                } else {
+                                    Log.w("Andromuks", "MainActivity: Pending reply missing data - roomId: $roomId, replyText: $replyText")
+                                }
+                                pendingReplyIntent = null
                             }
                         }
 
@@ -568,6 +592,23 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+
+        // Handle ACTION_REPLY from notification when MainActivity is already running
+        if (intent.action == "net.vrkknn.andromuks.ACTION_REPLY") {
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - ACTION_REPLY received")
+            val roomId = intent.getStringExtra("room_id")
+            val replyText = getReplyText(intent)
+            
+            if (roomId != null && replyText != null && ::appViewModel.isInitialized) {
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - Processing reply for room: $roomId")
+                appViewModel.sendMessageFromNotification(roomId, replyText) {
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - Reply message sent successfully")
+                }
+            } else {
+                Log.w("Andromuks", "MainActivity: onNewIntent - Missing data or ViewModel not initialized - roomId: $roomId, replyText: $replyText")
+            }
+            return
+        }
 
         if (isShareIntent(intent)) {
             if (::appViewModel.isInitialized) {

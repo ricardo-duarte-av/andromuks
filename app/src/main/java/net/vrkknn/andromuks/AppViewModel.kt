@@ -988,9 +988,19 @@ class AppViewModel : ViewModel() {
     
     private val pendingNotificationActions = mutableListOf<PendingNotificationAction>()
     
-    // Deduplication for notification replies to prevent duplicate sends
-    // Key: "roomId|text", Value: timestamp when sent
-    private val recentNotificationReplies = mutableMapOf<String, Long>()
+    // FIFO buffer for notification replies - allows duplicates, processes in order
+    // Messages are added by notification replies and removed when sent to WebSocket
+    class PendingNotificationMessage(
+        val roomId: String,
+        val text: String,
+        val timestamp: Long,
+        val onComplete: (() -> Unit)? = null
+    )
+    
+    // FIFO queue: oldest messages first, removed when sent to WebSocket
+    private val pendingNotificationMessages = mutableListOf<PendingNotificationMessage>()
+    private val pendingNotificationMessagesLock = Any() // Lock for thread safety
+    
     private val notificationActionCompletionCallbacks = mutableMapOf<Int, () -> Unit>()
     private fun beginNotificationAction() {
         activeNotificationActionCount++
@@ -5328,6 +5338,10 @@ class AppViewModel : ViewModel() {
             android.util.Log.i("Andromuks", "AppViewModel: Clearing certificate error state (connection succeeded)")
             setCertificateErrorState(false, null)
         }
+        
+        // Process all pending notification messages from FIFO buffer
+        // WebSocket is now healthy (connected and init_complete received)
+        processPendingNotificationMessages()
         
         // Now that all rooms are loaded, populate space edges
         addStartupProgressMessage("Processing space edges...")
@@ -9685,92 +9699,82 @@ class AppViewModel : ViewModel() {
     fun sendMessageFromNotification(roomId: String, text: String, onComplete: (() -> Unit)? = null) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendMessageFromNotification called for room $roomId, text: '$text'")
         
-        // DEDUPLICATION: Check if we've sent this exact message recently
-        // CRITICAL FIX: Synchronize deduplication check and send to prevent race conditions
-        val dedupKey = "$roomId|$text"
         val now = System.currentTimeMillis()
         
-        synchronized(recentNotificationReplies) {
-            val lastSentTime = recentNotificationReplies[dedupKey]
-            
-            if (lastSentTime != null && (now - lastSentTime) < Companion.NOTIFICATION_REPLY_DEDUP_WINDOW_MS) {
-                val timeSinceLastSend = now - lastSentTime
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping duplicate notification reply - sent ${timeSinceLastSend}ms ago (dedup window: ${Companion.NOTIFICATION_REPLY_DEDUP_WINDOW_MS}ms)")
-                // Call completion callback even for duplicates to prevent UI stalling
-                onComplete?.invoke()
-                return
-            }
-            
-            // Mark this reply as processing (not sent yet - will be removed on failure)
-            recentNotificationReplies[dedupKey] = now
-            
-            // Clean up old entries (keep only recent entries within dedup window)
-            val cutoffTime = now - Companion.NOTIFICATION_REPLY_DEDUP_WINDOW_MS
-            recentNotificationReplies.entries.removeAll { it.value < cutoffTime }
+        // Add to FIFO buffer - allows duplicates, only notification replies can add
+        synchronized(pendingNotificationMessagesLock) {
+            val pendingMessage = PendingNotificationMessage(
+                roomId = roomId,
+                text = text,
+                timestamp = now,
+                onComplete = onComplete
+            )
+            pendingNotificationMessages.add(pendingMessage)
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added message to FIFO buffer (queue size: ${pendingNotificationMessages.size})")
         }
         
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing notification reply (dedup key: $dedupKey)")
-        
-        // Check websocket state
-        if (!isWebSocketConnected() || !spacesLoaded) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket not ready yet, queueing notification action")
-            
-            // DEDUPLICATION: Check if this exact action is already queued (prevent duplicate queueing)
-            val isAlreadyQueued = pendingNotificationActions.any { 
-                it.type == "send_message" && it.roomId == roomId && it.text == text 
-            }
-            
-            if (isAlreadyQueued) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Duplicate notification action already queued, skipping (roomId: $roomId, text: '$text')")
-                // Call completion callback even for duplicates to prevent UI stalling
-                onComplete?.invoke()
-                return
-            }
-            
-            // Queue the action to be executed when WebSocket is ready
-            // (Foreground service maintains connection, this should be rare - only during initial startup)
-            pendingNotificationActions.add(
-                PendingNotificationAction(
-                    type = "send_message",
-                    roomId = roomId,
-                    text = text,
-                    onComplete = onComplete
-                )
-            )
-            
-            // If callback provided and WebSocket not ready, call it immediately to prevent UI stalling
-            if (onComplete != null) {
-                android.util.Log.w("Andromuks", "AppViewModel: WebSocket not ready, calling completion callback immediately to prevent UI stalling")
-                onComplete()
-            }
+        // Check WebSocket health - if healthy, process immediately; if unhealthy, store in buffer
+        if (isWebSocketHealthy()) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket is healthy, processing message immediately")
+            processNextPendingNotificationMessage()
+        } else {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket is unhealthy, message stored in buffer (will process when healthy)")
+            // Call completion callback immediately to prevent UI stalling
+            onComplete?.invoke()
+        }
+    }
+    
+    /**
+     * Check if WebSocket is healthy (connected and initialized)
+     */
+    private fun isWebSocketHealthy(): Boolean {
+        return isWebSocketConnected() && spacesLoaded && canSendCommandsToBackend
+    }
+    
+    /**
+     * Process the next pending notification message from the FIFO buffer
+     * Removes the message from the buffer when sent to WebSocket
+     */
+    private fun processNextPendingNotificationMessage() {
+        if (!isWebSocketHealthy()) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket not healthy, skipping message processing")
             return
         }
         
-        // WebSocket is ready (maintained by foreground service), send message directly
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending message from notification (WebSocket maintained by service)")
-        val messageRequestId = requestIdCounter++
+        val message = synchronized(pendingNotificationMessagesLock) {
+            if (pendingNotificationMessages.isEmpty()) {
+                null
+            } else {
+                pendingNotificationMessages.removeAt(0) // FIFO: remove oldest
+            }
+        }
         
-        messageRequests[messageRequestId] = roomId
+        if (message == null) {
+            return
+        }
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing pending notification message (roomId: ${message.roomId}, text: '${message.text}', queue size: ${pendingNotificationMessages.size})")
+        
+        // Send message to WebSocket
+        val messageRequestId = requestIdCounter++
+        messageRequests[messageRequestId] = message.roomId
         pendingSendCount++
         beginNotificationAction()
+        
         val completionWrapper: () -> Unit = {
-            onComplete?.invoke()
+            message.onComplete?.invoke()
             endNotificationAction()
         }
         notificationActionCompletionCallbacks[messageRequestId] = completionWrapper
         
-        // Set up timeout to prevent infinite stalling - use IO dispatcher to avoid background throttling
-        // Use shorter timeout when app is in background to handle throttling issues
+        // Set up timeout
         viewModelScope.launch(Dispatchers.IO) {
-            val timeoutMs = if (isAppVisible) 30000L else 10000L // 10s timeout in background
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting message send timeout to ${timeoutMs}ms (app visible: $isAppVisible)")
+            val timeoutMs = if (isAppVisible) 30000L else 10000L
             delay(timeoutMs)
-            // Switch to Main dispatcher only for the final callback
             withContext(Dispatchers.Main) {
                 if (notificationActionCompletionCallbacks.containsKey(messageRequestId)) {
-                    android.util.Log.w("Andromuks", "AppViewModel: Message send timeout after ${timeoutMs}ms for requestId=$messageRequestId, calling completion callback")
+                    android.util.Log.w("Andromuks", "AppViewModel: Message send timeout after ${timeoutMs}ms for requestId=$messageRequestId")
                     notificationActionCompletionCallbacks.remove(messageRequestId)?.invoke()
-                    // Also clean up from messageRequests and pendingSendCount
                     messageRequests.remove(messageRequestId)
                     if (pendingSendCount > 0) {
                         pendingSendCount--
@@ -9780,8 +9784,8 @@ class AppViewModel : ViewModel() {
         }
         
         val commandData = mapOf(
-            "room_id" to roomId,
-            "text" to text,
+            "room_id" to message.roomId,
+            "text" to message.text,
             "mentions" to mapOf(
                 "user_ids" to emptyList<String>(),
                 "room" to false
@@ -9791,34 +9795,16 @@ class AppViewModel : ViewModel() {
         
         val result = sendWebSocketCommand("send_message", messageRequestId, commandData)
         
-        // Handle immediate failure cases
+        // Handle immediate failure - message already removed from buffer, so just log
         if (result != WebSocketResult.SUCCESS) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to send message from notification, result: $result")
+            android.util.Log.w("Andromuks", "AppViewModel: Failed to send pending notification message, result: $result")
             
-            // CRITICAL FIX #1: Remove deduplication entry on failure to allow retry
-            synchronized(recentNotificationReplies) {
-                recentNotificationReplies.remove(dedupKey)
-            }
-            
-            // CRITICAL FIX #2: Queue for retry when WebSocket reconnects (if not connected)
+            // If WebSocket is not connected, re-add message to buffer for retry when healthy
             if (result == WebSocketResult.NOT_CONNECTED) {
-                // Check if already queued to prevent duplicates
-                val isAlreadyQueued = pendingNotificationActions.any { 
-                    it.type == "send_message" && it.roomId == roomId && it.text == text 
-                }
-                
-                if (!isAlreadyQueued) {
-                    pendingNotificationActions.add(
-                        PendingNotificationAction(
-                            type = "send_message",
-                            roomId = roomId,
-                            text = text,
-                            onComplete = onComplete
-                        )
-                    )
-                    android.util.Log.i("Andromuks", "AppViewModel: Queued notification reply for retry when WebSocket reconnects (roomId: $roomId)")
-                } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Notification reply already queued, skipping duplicate queue")
+                synchronized(pendingNotificationMessagesLock) {
+                    // Re-add to front of queue (FIFO) so it's retried first
+                    pendingNotificationMessages.add(0, message)
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Re-added message to FIFO buffer for retry (queue size: ${pendingNotificationMessages.size})")
                 }
             }
             
@@ -9830,8 +9816,13 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        // No shutdown needed - foreground service keeps WebSocket open
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Message sent, WebSocket remains connected via service")
+        // Message successfully sent - continue processing next message in buffer
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Message sent successfully, processing next in buffer if any")
+        
+        // Process next message in buffer if WebSocket is still healthy
+        if (isWebSocketHealthy()) {
+            processNextPendingNotificationMessage()
+        }
     }
     
     /**
@@ -11131,12 +11122,70 @@ class AppViewModel : ViewModel() {
      * send_complete has negative request_id (spontaneous from server)
      * Matches to original message by transaction_id stored in operation data
      */
+    /**
+     * Process all pending notification messages from FIFO buffer
+     * Called when WebSocket becomes healthy (after init_complete)
+     * Processes messages in order with delays between them
+     */
+    private fun processPendingNotificationMessages() {
+        if (!isWebSocketHealthy()) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket not healthy, skipping pending notification messages processing")
+            return
+        }
+        
+        val messageCount = synchronized(pendingNotificationMessagesLock) {
+            pendingNotificationMessages.size
+        }
+        
+        if (messageCount == 0) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No pending notification messages to process")
+            return
+        }
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing $messageCount pending notification messages from FIFO buffer")
+        
+        // Process messages sequentially with delays
+        viewModelScope.launch(Dispatchers.IO) {
+            var processed = 0
+            while (true) {
+                if (!isWebSocketHealthy()) {
+                    if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: WebSocket became unhealthy during processing, stopping (processed $processed/$messageCount)")
+                    break
+                }
+                
+                val hasMore = synchronized(pendingNotificationMessagesLock) {
+                    pendingNotificationMessages.isNotEmpty()
+                }
+                
+                if (!hasMore) {
+                    break
+                }
+                
+                // Process next message
+                withContext(Dispatchers.Main) {
+                    processNextPendingNotificationMessage()
+                }
+                
+                processed++
+                
+                // Delay between messages for easier processing (500ms)
+                if (processed < messageCount) {
+                    delay(500L)
+                }
+            }
+            
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Finished processing pending notification messages ($processed/$messageCount processed)")
+        }
+    }
+    
     fun handleSendComplete(eventData: JSONObject, error: String?) {
         val transactionId = eventData.optString("transaction_id", "")
         if (transactionId.isEmpty()) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.3 - send_complete has no transaction_id, cannot match to original message")
             return
         }
+        
+        // Messages are already removed from buffer when sent, so no cleanup needed here
         
         // Find operation by transaction_id (stored when response was received)
         val operation = pendingWebSocketOperations.find { 
