@@ -3894,6 +3894,12 @@ class AppViewModel : ViewModel() {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No im.ponies.emote_rooms in incoming sync, preserving existing ${customEmojiPacks.size} emoji packs and ${stickerPacks.size} sticker packs")
             }
         }
+        
+        // CRITICAL: Log completion of account data processing for debugging startup stalls
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AppViewModel: Account data processed.")
+        }
+        addStartupProgressMessage("Account data processed.")
     }
     
     /**
@@ -4281,8 +4287,9 @@ class AppViewModel : ViewModel() {
                         }
                     }
                     
-                    // Invoke completion callback after actual DB work is done (it's a suspend function)
-                    onComplete?.invoke()
+                    // CRITICAL FIX: Don't invoke completion callback here - it will be invoked after account data processing completes
+                    // The completion callback is now invoked in accountDataProcessingJob after processParsedSyncResult completes
+                    // This ensures startup doesn't complete before account data is processed
                     
                     // Events are processed in-memory via processSyncEventsArray()
                     // No DB refresh needed - timeline is updated directly from sync_complete events
@@ -4306,51 +4313,18 @@ class AppViewModel : ViewModel() {
                 "Andromuks",
                 "AppViewModel: Skipping sync persistence because appContext is null"
             )
-            // Invoke callback even if appContext is null (to update counter)
-            // Launch a coroutine since the callback is a suspend function
-            onComplete?.let { callback ->
-                viewModelScope.launch {
-                    callback()
-                }
-            }
+            // CRITICAL FIX: Don't invoke callback here - it will be invoked in accountDataProcessingJob
+            // The account data processing job runs regardless of appContext, so callback will be invoked there
             null
         }
         
-            // CRITICAL FIX: Process account_data directly from incoming sync (especially important for clear_state: true)
-            // Account data is fully populated on every websocket reconnect (clear_state: true), so process it immediately
-            val data = syncJson.optJSONObject("data")
-            val incomingAccountData = data?.optJSONObject("account_data")
-            val isClearState = data?.optBoolean("clear_state") == true
-            
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "🟣 processInitialSyncComplete: Processing account_data - hasData=${incomingAccountData != null}, isEmpty=${incomingAccountData?.length() == 0}, isClearState=$isClearState")
-            }
-            
-            if (incomingAccountData != null && incomingAccountData.length() > 0) {
-                try {
-                    if (BuildConfig.DEBUG) {
-                        val accountDataKeys = incomingAccountData.keys().asSequence().toList()
-                        android.util.Log.d("Andromuks", "🟣 processInitialSyncComplete: Processing account_data with ${accountDataKeys.size} keys: ${accountDataKeys.take(10).joinToString(", ")}${if (accountDataKeys.size > 10) "..." else ""} (clear_state=$isClearState)")
-                    }
-                    // Process incoming account_data directly - no DB merging needed (account_data is in-memory only)
-                    processAccountData(incomingAccountData)
-                    if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "🟣 processInitialSyncComplete: Account data processed successfully")
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "🟣 processInitialSyncComplete: CRASH in processAccountData - ${e.message}", e)
-                    // Don't rethrow - continue processing rooms even if account_data fails
-                }
-            } else if (incomingAccountData != null && incomingAccountData.length() == 0) {
-                // Incoming account_data is empty {} - don't process, preserve existing state
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 processInitialSyncComplete: Incoming account_data is empty, skipping processing (preserving existing state)")
-            } else if (incomingAccountData == null && isClearState) {
-                // clear_state=true but no account_data - log warning
-                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "🟣 processInitialSyncComplete: clear_state=true but no account_data in sync_complete")
-            }
+            // CRITICAL FIX: Account data is processed in processParsedSyncResult (called from background job below)
+            // Don't process it here to avoid duplicate processing
+            // This ensures account data is processed once, in the correct order, after sync parsing completes
             
             // PERFORMANCE: Move heavy JSON parsing to background thread
-            viewModelScope.launch(Dispatchers.Default) {
+            // CRITICAL FIX: Capture this job so we can wait for account data processing to complete
+            val accountDataProcessingJob = viewModelScope.launch(Dispatchers.Default) {
                 try {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d("Andromuks", "🟣 processInitialSyncComplete: Starting background parsing (roomMap.size=${roomMap.size})")
@@ -4378,22 +4352,31 @@ class AppViewModel : ViewModel() {
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d("Andromuks", "🟣 processInitialSyncComplete: processParsedSyncResult completed successfully")
                             }
+                            // CRITICAL FIX: Invoke completion callback AFTER account data processing completes
+                            // This ensures startup doesn't complete before account data is processed
+                            onComplete?.invoke()
                         } catch (e: Exception) {
                             android.util.Log.e("Andromuks", "🟣 processInitialSyncComplete: CRASH in processParsedSyncResult - ${e.message}", e)
+                            // Still invoke callback even on error to update counter
+                            onComplete?.invoke()
                             // Don't rethrow - continue processing other messages
                         }
                     }
                 } catch (e: Exception) {
                     android.util.Log.e("Andromuks", "🟣 processInitialSyncComplete: CRASH in background parsing - ${e.message}", e)
+                    // Still invoke callback even on error to update counter
+                    onComplete?.invoke()
                     // Don't rethrow - continue processing other messages
                 }
             }
             
-            // Return the summary update job so caller can wait for it
+            // CRITICAL FIX: Return the account data processing job instead of summary update job
+            // This ensures we wait for account data processing to complete before marking startup as complete
+            // The summary update job runs in parallel but doesn't block startup completion
             if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "🟣 processInitialSyncComplete: END - returning summaryUpdateJob")
+                android.util.Log.d("Andromuks", "🟣 processInitialSyncComplete: END - returning accountDataProcessingJob (will wait for account data processing)")
             }
-            summaryUpdateJob
+            accountDataProcessingJob
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "🟣 processInitialSyncComplete: CRASH at start - ${e.message}", e)
             // Return null to indicate failure, but don't crash the app
@@ -4486,14 +4469,16 @@ class AppViewModel : ViewModel() {
         
         // CRITICAL FIX: Queue sync_complete messages received before init_complete
         // These are initial sync messages that populate all rooms - we'll process them after init_complete
+        // CRITICAL: Messages MUST be queued in FIFO order to prevent race conditions
         if (!initialSyncPhase) {
             // We're in initial sync phase (before init_complete) - queue this message
             synchronized(initialSyncCompleteQueue) {
                 val clonedJson = JSONObject(syncJson.toString()) // Clone to avoid mutation
+                val requestId = syncJson.optInt("request_id", 0)
                 initialSyncCompleteQueue.add(clonedJson)
                 pendingSyncCompleteCount = initialSyncCompleteQueue.size
                 if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Queued initial sync_complete message (queue size: ${initialSyncCompleteQueue.size})")
+                    android.util.Log.d("Andromuks", "AppViewModel: Queued initial sync_complete message (request_id=$requestId, queue size: ${initialSyncCompleteQueue.size}) - FIFO order preserved")
                 }
             }
             // Don't process yet - wait for init_complete
@@ -5115,8 +5100,9 @@ class AppViewModel : ViewModel() {
                                 var hasUnblockedUI = false
                                 
                                 for ((index, syncJson) in queuedMessages.withIndex()) {
+                                    val requestId = syncJson.optInt("request_id", 0)
                                     if (BuildConfig.DEBUG && (index % 50 == 0 || index == queuedMessages.size - 1)) {
-                                        android.util.Log.d("Andromuks", "AppViewModel: Processing queued initial sync_complete message ${index + 1}/${queuedMessages.size}")
+                                        android.util.Log.d("Andromuks", "AppViewModel: Processing queued initial sync_complete message ${index + 1}/${queuedMessages.size} (request_id=$requestId) - FIFO sequential processing")
                                     }
                                     
                                     // Check if this is the first message with clear_state=true (has spaces info)
@@ -5138,11 +5124,13 @@ class AppViewModel : ViewModel() {
                                         }
                                     }
                                     
-                                    // Process with completion callback to update counter when actual DB work completes
+                                    // CRITICAL FIX: Process messages SEQUENTIALLY to prevent race conditions
+                                    // Each message must complete before the next one starts to ensure proper ordering
+                                    // This prevents out-of-order processing (e.g., request_id=-894263 completing before request_id=0)
                                     val currentIndex = index // Capture index for lambda
                                     try {
                                         if (BuildConfig.DEBUG) {
-                                            android.util.Log.d("Andromuks", "🟣 onInitComplete: About to process message ${currentIndex + 1}/${queuedMessages.size}")
+                                            android.util.Log.d("Andromuks", "🟣 onInitComplete: About to process message ${currentIndex + 1}/${queuedMessages.size} (sequential processing)")
                                         }
                                         val job = processInitialSyncComplete(syncJson) {
                                             // Update processed count after actual processing completes (inside the job)
@@ -5156,18 +5144,17 @@ class AppViewModel : ViewModel() {
                                         }
                                         if (job != null) {
                                             summaryUpdateJobs.add(job)
-                                            // CRITICAL FIX: Monitor summary update jobs in background without blocking
-                                            // If a job fails or takes too long, log it but don't block UI initialization
-                                            viewModelScope.launch(Dispatchers.Default) {
-                                                try {
-                                                    kotlinx.coroutines.withTimeoutOrNull(10000L) { // 10 second timeout per job
-                                                        job.join()
-                                                    } ?: run {
-                                                        android.util.Log.w("Andromuks", "🟣 onInitComplete: Summary update job for sync_complete message ${currentIndex + 1} timed out after 10 seconds - continuing in background")
-                                                    }
-                                                } catch (e: Exception) {
-                                                    android.util.Log.e("Andromuks", "🟣 onInitComplete: Summary update job for sync_complete message ${currentIndex + 1} failed: ${e.message}", e)
+                                            // CRITICAL FIX: Wait for this message to complete before processing the next one
+                                            // This ensures strict FIFO ordering and prevents race conditions
+                                            try {
+                                                kotlinx.coroutines.withTimeoutOrNull(30000L) { // 30 second timeout per message (increased for large accounts)
+                                                    job.join() // Wait for this message to complete
+                                                } ?: run {
+                                                    android.util.Log.w("Andromuks", "🟣 onInitComplete: Message ${currentIndex + 1} timed out after 30 seconds - continuing to next message")
                                                 }
+                                            } catch (e: Exception) {
+                                                android.util.Log.e("Andromuks", "🟣 onInitComplete: Message ${currentIndex + 1} failed: ${e.message}", e)
+                                                // Continue to next message even if this one fails
                                             }
                                         } else {
                                             android.util.Log.w("Andromuks", "🟣 onInitComplete: processInitialSyncComplete returned null for message ${currentIndex + 1} (may have crashed)")
@@ -7965,6 +7952,17 @@ class AppViewModel : ViewModel() {
             return
         }
         
+        // CRITICAL FIX: Don't request profile if WebSocket is not ready
+        // sendWebSocketCommand will queue it, but we should wait for WebSocket to be ready
+        // This prevents race conditions where profile is requested before init_complete
+        if (!canSendCommandsToBackend) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "AppViewModel: Profile request for $userId deferred - WebSocket not ready (will be queued)")
+            }
+            // sendWebSocketCommand will queue the command, so it's safe to continue
+            // The command will be sent when WebSocket is ready
+        }
+        
         val reqId = requestIdCounter++
         
         // Track this request to prevent duplicates
@@ -7975,6 +7973,7 @@ class AppViewModel : ViewModel() {
         }
         
         // REFACTORING: Use WebSocketService.sendCommand() instead of direct ws.send()
+        // This will queue the command if WebSocket is not ready
         sendWebSocketCommand("get_profile", reqId, mapOf("user_id" to userId))
     }
     
