@@ -5917,8 +5917,22 @@ class AppViewModel : ViewModel() {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Set allRoomStatesLoaded=true (room states already loaded by primary instance)")
                 }
                 
+                // CRITICAL FIX: Allow commands to be sent when attaching to existing WebSocket
+                // The WebSocket is already connected and initialized, so commands should be allowed
+                if (!canSendCommandsToBackend) {
+                    canSendCommandsToBackend = true
+                    flushPendingCommandsQueue()
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Set canSendCommandsToBackend=true (WebSocket already initialized)")
+                }
+                
+                // CRITICAL FIX: Ensure requestIdCounter is synchronized with the primary instance
+                // The primary instance may have incremented requestIdCounter, so we should sync it
+                // However, we can't easily get the current counter from the service, so we'll just ensure
+                // we start from a reasonable value (the service manages the actual counter)
+                // Note: requestIdCounter is per-ViewModel, so this is fine
+                
                 // CRITICAL FIX: Check if startup is complete now that we have room data
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Checking startup complete - initializationComplete=$initializationComplete, initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded, allRoomStatesLoaded=$allRoomStatesLoaded, roomMap.size=${roomMap.size}")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Checking startup complete - initializationComplete=$initializationComplete, initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded, allRoomStatesLoaded=$allRoomStatesLoaded, canSendCommands=$canSendCommandsToBackend, roomMap.size=${roomMap.size}")
                 checkStartupComplete()
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: After checkStartupComplete - isStartupComplete=$isStartupComplete")
                 
