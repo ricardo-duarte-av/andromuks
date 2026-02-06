@@ -6598,6 +6598,7 @@ class AppViewModel : ViewModel() {
     private val getRoomSummaryRequests = mutableMapOf<Int, (Pair<net.vrkknn.andromuks.utils.RoomSummary?, String?>?) -> Unit>() // requestId -> callback
     private val joinRoomCallbacks = mutableMapOf<Int, (Pair<String?, String?>?) -> Unit>() // requestId -> callback
     private val roomSpecificStateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for get_specific_room_state requests)
+    private val roomSpecificProfileCallbacks = mutableMapOf<Int, (String?, String?) -> Unit>() // requestId -> (displayName, avatarUrl) callback
     private val fullMemberListRequests = mutableMapOf<Int, String>() // requestId -> roomId (for get_room_state with include_members requests)
     private val mentionsRequests = mutableMapOf<Int, Unit>() // requestId -> Unit (for get_mentions requests)
     private val mentionEventRequests = mutableMapOf<Int, Pair<String, String>>() // requestId -> (roomId, eventId) for fetching reply targets
@@ -6611,6 +6612,15 @@ class AppViewModel : ViewModel() {
     // OPPORTUNISTIC PROFILE LOADING: Track pending on-demand profile requests
     private val pendingProfileRequests = mutableSetOf<String>() // "roomId:userId" keys for pending profile requests
     private val profileRequests = mutableMapOf<Int, String>() // requestId -> "roomId:userId" for on-demand profile requests
+    
+    // CRITICAL FIX: Track profile request metadata for timeout handling and cleanup
+    private data class ProfileRequestMetadata(
+        val requestId: Int,
+        val timestamp: Long,
+        val userId: String,
+        val roomId: String
+    )
+    private val profileRequestMetadata = mutableMapOf<String, ProfileRequestMetadata>() // "roomId:userId" -> metadata
     
     // Local echoes removed: status/error helpers no longer used.
 
@@ -9272,9 +9282,11 @@ class AppViewModel : ViewModel() {
     }
 
     fun requestUserProfileOnDemand(userId: String, roomId: String) {
-        // Check if we already have this profile in cache
+        // CRITICAL FIX: Check if we have a valid profile (not just non-null)
+        // A profile with blank displayName should still be requested to get the actual name
         val existingProfile = getUserProfile(userId, roomId)
-        if (existingProfile != null) {
+        if (existingProfile != null && !existingProfile.displayName.isNullOrBlank()) {
+            // Profile exists and has a valid display name - skip request
             //android.util.Log.d("Andromuks", "AppViewModel: Profile already cached for $userId, skipping request")
             return
         }
@@ -9290,7 +9302,13 @@ class AppViewModel : ViewModel() {
         
         val currentTime = System.currentTimeMillis()
         val lastRequestTime = recentProfileRequestTimes[requestKey]
-        if (lastRequestTime != null && (currentTime - lastRequestTime) < PROFILE_REQUEST_THROTTLE_MS) {
+        // CRITICAL FIX: Only throttle if we have a recent successful request
+        // If the last request failed (no response), don't throttle to allow retry
+        // We check if the request is still pending - if it's not pending but was recent, it succeeded
+        val wasRecentRequest = lastRequestTime != null && (currentTime - lastRequestTime) < PROFILE_REQUEST_THROTTLE_MS
+        val isStillPending = pendingProfileRequests.contains(requestKey)
+        if (wasRecentRequest && !isStillPending) {
+            // Recent successful request - throttle
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile request throttled for $userId (requested ${currentTime - lastRequestTime}ms ago)")
             return
         }
@@ -9298,6 +9316,18 @@ class AppViewModel : ViewModel() {
         // Clean up old throttle entries (older than throttle window) to prevent memory leaks
         val cutoffTime = currentTime - PROFILE_REQUEST_THROTTLE_MS
         recentProfileRequestTimes.entries.removeAll { (_, timestamp) -> timestamp < cutoffTime }
+        
+        // CRITICAL FIX: Clean up stale pending requests (older than 30 seconds)
+        // This handles cases where requests failed silently or responses were lost
+        val staleCutoffTime = currentTime - 30000L // 30 seconds
+        val staleRequests = pendingProfileRequests.filter { key ->
+            val requestTime = recentProfileRequestTimes[key] ?: 0L
+            requestTime > 0 && requestTime < staleCutoffTime
+        }
+        staleRequests.forEach { key ->
+            pendingProfileRequests.remove(key)
+            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Cleaned up stale profile request for $key (older than 30s)")
+        }
         
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting profile on-demand (network) for $userId in room $roomId")
         
@@ -9313,6 +9343,14 @@ class AppViewModel : ViewModel() {
         pendingProfileRequests.add(requestKey)
         recentProfileRequestTimes[requestKey] = currentTime // Record request time for throttling
         roomSpecificStateRequests[requestId] = roomId  // Use roomSpecificStateRequests for get_specific_room_state responses
+        
+        // CRITICAL FIX: Store request metadata for timeout handling
+        profileRequestMetadata[requestKey] = ProfileRequestMetadata(
+            requestId = requestId,
+            timestamp = currentTime,
+            userId = userId,
+            roomId = roomId
+        )
         
         // Request specific room state for this user
         sendWebSocketCommand("get_specific_room_state", requestId, mapOf(
@@ -9345,7 +9383,10 @@ class AppViewModel : ViewModel() {
         val requestKey = "$roomId:$userId"
         val currentTime = System.currentTimeMillis()
         val lastRequestTime = recentProfileRequestTimes[requestKey] ?: 0L
-        if (currentTime - lastRequestTime < PROFILE_REQUEST_THROTTLE_MS) {
+        // CRITICAL FIX: Only throttle if we have a recent successful request (not still pending)
+        val wasRecentRequest = currentTime - lastRequestTime < PROFILE_REQUEST_THROTTLE_MS
+        val isStillPending = pendingProfileRequests.contains(requestKey)
+        if (wasRecentRequest && !isStillPending) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping room-specific profile request for $userId in $roomId (throttled)")
             return
         }
@@ -9363,6 +9404,14 @@ class AppViewModel : ViewModel() {
         recentProfileRequestTimes[requestKey] = currentTime
         roomSpecificStateRequests[requestId] = roomId
         
+        // CRITICAL FIX: Store request metadata for timeout handling
+        profileRequestMetadata[requestKey] = ProfileRequestMetadata(
+            requestId = requestId,
+            timestamp = currentTime,
+            userId = userId,
+            roomId = roomId
+        )
+        
         // Request specific room state for this user
         sendWebSocketCommand("get_specific_room_state", requestId, mapOf(
             "keys" to listOf(mapOf(
@@ -9373,6 +9422,36 @@ class AppViewModel : ViewModel() {
         ))
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent room-specific profile request with ID $requestId for $userId in room $roomId")
+    }
+    
+    /**
+     * Request per-room member state for a user with callback.
+     * This is used by UserInfoScreen to get room-specific display name and avatar.
+     */
+    fun requestPerRoomMemberState(
+        roomId: String,
+        userId: String,
+        callback: (displayName: String?, avatarUrl: String?) -> Unit
+    ) {
+        if (!isWebSocketConnected()) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, cannot request per-room member state")
+            callback(null, null)
+            return
+        }
+        
+        val requestId = requestIdCounter++
+        roomSpecificStateRequests[requestId] = roomId
+        roomSpecificProfileCallbacks[requestId] = callback
+        
+        sendWebSocketCommand("get_specific_room_state", requestId, mapOf(
+            "keys" to listOf(mapOf(
+                "room_id" to roomId,
+                "type" to "m.room.member",
+                "state_key" to userId
+            ))
+        ))
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent per-room member state request with ID $requestId for $userId in room $roomId")
     }
     
     /**
@@ -12266,9 +12345,40 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        // Clean up profile request tracking - we need to find the user ID from the response data
-        // This will be cleaned up properly when we process the member events
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Will clean up pendingProfileRequests after processing member events")
+        // Check if this is a per-room profile callback request
+        val profileCallback = roomSpecificProfileCallbacks.remove(requestId)
+        if (profileCallback != null) {
+            when (data) {
+                is JSONArray -> {
+                    if (data.length() > 0) {
+                        val event = data.getJSONObject(0)
+                        val content = event.optJSONObject("content")
+                        if (content != null) {
+                            val displayName = content.optString("displayname")?.takeIf { it.isNotBlank() }
+                            val avatarUrl = content.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Per-room profile callback - displayName: $displayName, avatarUrl: $avatarUrl")
+                            profileCallback(displayName, avatarUrl)
+                        } else {
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Per-room profile callback - no content in event")
+                            profileCallback(null, null)
+                        }
+                    } else {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Per-room profile callback - empty response")
+                        profileCallback(null, null)
+                    }
+                }
+                else -> {
+                    if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Per-room profile callback - unexpected data type: ${data::class.java.simpleName}")
+                    profileCallback(null, null)
+                }
+            }
+            return
+        }
+        
+        // CRITICAL FIX: Find the user ID from request metadata to clean up pending requests
+        // This ensures cleanup even if response is empty or doesn't contain member events
+        val metadataForRequest = profileRequestMetadata.entries.find { it.value.requestId == requestId }
+        val userIdFromRequest = metadataForRequest?.value?.userId
         
         when (data) {
             is JSONArray -> {
@@ -12276,12 +12386,35 @@ class AppViewModel : ViewModel() {
                 // Parse member events from the response
                 parseMemberEventsForProfileUpdate(roomId, data)
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: parseMemberEventsForProfileUpdate completed")
+                
+                // CRITICAL FIX: Clean up pending request even if response was empty
+                // This handles cases where user doesn't exist in room or response is empty
+                if (data.length() == 0 && userIdFromRequest != null) {
+                    val requestKey = "$roomId:$userIdFromRequest"
+                    pendingProfileRequests.remove(requestKey)
+                    profileRequestMetadata.remove(requestKey)
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleaned up pending profile request for empty response: $requestKey")
+                }
             }
             is JSONObject -> {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room specific state response is JSONObject, expected JSONArray")
+                // CRITICAL FIX: Clean up on unexpected response format
+                if (userIdFromRequest != null) {
+                    val requestKey = "$roomId:$userIdFromRequest"
+                    pendingProfileRequests.remove(requestKey)
+                    profileRequestMetadata.remove(requestKey)
+                    if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Cleaned up pending profile request for unexpected response format: $requestKey")
+                }
             }
             else -> {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleRoomSpecificStateResponse: ${data::class.java.simpleName}")
+                // CRITICAL FIX: Clean up on unhandled response type
+                if (userIdFromRequest != null) {
+                    val requestKey = "$roomId:$userIdFromRequest"
+                    pendingProfileRequests.remove(requestKey)
+                    profileRequestMetadata.remove(requestKey)
+                    if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Cleaned up pending profile request for unhandled response type: $requestKey")
+                }
             }
         }
     }
@@ -12650,6 +12783,7 @@ class AppViewModel : ViewModel() {
                 if (stateKey.isNotEmpty()) {
                     val requestKey = "$roomId:$stateKey"
                     pendingProfileRequests.remove(requestKey)
+                    profileRequestMetadata.remove(requestKey) // CRITICAL FIX: Also clean up metadata
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleaned up pendingProfileRequests for $requestKey")
                 }
             }
@@ -14989,12 +15123,13 @@ class AppViewModel : ViewModel() {
     /**
      * Requests complete user profile information (profile, encryption info, mutual rooms)
      */
-    fun requestFullUserInfo(userId: String, callback: (net.vrkknn.andromuks.utils.UserProfileInfo?, String?) -> Unit) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting full user info for: $userId")
+    fun requestFullUserInfo(userId: String, forceRefresh: Boolean = false, callback: (net.vrkknn.andromuks.utils.UserProfileInfo?, String?) -> Unit) {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting full user info for: $userId (forceRefresh: $forceRefresh)")
         
         var displayName: String? = null
         var avatarUrl: String? = null
         var timezone: String? = null
+        var pronouns: List<net.vrkknn.andromuks.utils.UserPronouns>? = null
         var encryptionInfo: net.vrkknn.andromuks.utils.UserEncryptionInfo? = null
         var mutualRooms: List<String> = emptyList()
         
@@ -15020,8 +15155,11 @@ class AppViewModel : ViewModel() {
                     displayName = displayName,
                     avatarUrl = avatarUrl,
                     timezone = timezone,
+                    pronouns = pronouns,
                     encryptionInfo = encryptionInfo,
-                    mutualRooms = mutualRooms
+                    mutualRooms = mutualRooms,
+                    roomDisplayName = null, // Per-room profile will be loaded separately if roomId is provided
+                    roomAvatarUrl = null
                 )
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Full user info completed for $userId")
                 callback(profileInfo, null)
@@ -15030,7 +15168,7 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // Request 1: Profile
+        // Request 1: Profile (always request fresh from backend - get_profile always fetches latest data)
         val profileRequestId = requestIdCounter++
         profileRequests[profileRequestId] = userId
         sendWebSocketCommand("get_profile", profileRequestId, mapOf(
@@ -15082,7 +15220,30 @@ class AppViewModel : ViewModel() {
                 displayName = profileData.optString("displayname")?.takeIf { it.isNotBlank() }
                 avatarUrl = profileData.optString("avatar_url")?.takeIf { it.isNotBlank() }
                 timezone = profileData.optString("us.cloke.msc4175.tz")?.takeIf { it.isNotBlank() }
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile data received for $userId - display: $displayName, avatar: ${avatarUrl != null}, timezone: $timezone")
+                
+                // Extract pronouns from io.fsky.nyx.pronouns array
+                val pronounsArray = profileData.optJSONArray("io.fsky.nyx.pronouns")
+                if (pronounsArray != null && pronounsArray.length() > 0) {
+                    val pronounsList = mutableListOf<net.vrkknn.andromuks.utils.UserPronouns>()
+                    for (i in 0 until pronounsArray.length()) {
+                        val pronounObj = pronounsArray.optJSONObject(i)
+                        if (pronounObj != null) {
+                            val language = pronounObj.optString("language", "en")
+                            val summary = pronounObj.optString("summary", "")
+                            if (summary.isNotBlank()) {
+                                pronounsList.add(net.vrkknn.andromuks.utils.UserPronouns(
+                                    language = language,
+                                    summary = summary
+                                ))
+                            }
+                        }
+                    }
+                    if (pronounsList.isNotEmpty()) {
+                        pronouns = pronounsList
+                    }
+                }
+                
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile data received for $userId - display: $displayName, avatar: ${avatarUrl != null}, timezone: $timezone, pronouns: ${pronouns?.size ?: 0}")
             } else {
                 android.util.Log.w("Andromuks", "AppViewModel: Profile data is null for $userId")
             }
@@ -15107,8 +15268,11 @@ class AppViewModel : ViewModel() {
                         displayName = displayName,
                         avatarUrl = avatarUrl,
                         timezone = timezone,
+                        pronouns = pronouns,
                         encryptionInfo = encryptionInfo,
-                        mutualRooms = mutualRooms
+                        mutualRooms = mutualRooms,
+                        roomDisplayName = null, // Per-room profile will be loaded separately if roomId is provided
+                        roomAvatarUrl = null
                     )
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Returning partial user info after timeout for $userId")
                     callback(profileInfo, null)

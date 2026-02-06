@@ -24,8 +24,48 @@ import androidx.navigation.NavOptionsBuilder
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.RoomItem
 import net.vrkknn.andromuks.ui.components.AvatarImage
-import net.vrkknn.andromuks.ui.components.FullImageDialog
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.automirrored.filled.RotateLeft
+import androidx.compose.material.icons.automirrored.filled.RotateRight
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.size.Size
+import coil.size.Precision
+import coil.request.CachePolicy
+import net.vrkknn.andromuks.utils.AvatarUtils
+import net.vrkknn.andromuks.utils.IntelligentMediaCache
+import net.vrkknn.andromuks.utils.ImageLoaderSingleton
+import net.vrkknn.andromuks.utils.MediaUtils
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import android.content.ContentValues
+import android.provider.MediaStore
+import android.os.Environment
+import android.net.Uri
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.background
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.statusBars
 
 
 import org.json.JSONObject
@@ -75,6 +115,14 @@ data class DeviceInfo(
 )
 
 /**
+ * Data class for user pronouns
+ */
+data class UserPronouns(
+    val language: String,
+    val summary: String
+)
+
+/**
  * Data class for complete user profile info
  */
 data class UserProfileInfo(
@@ -82,8 +130,11 @@ data class UserProfileInfo(
     val displayName: String?,
     val avatarUrl: String?,
     val timezone: String?,
+    val pronouns: List<UserPronouns>?,
     val encryptionInfo: UserEncryptionInfo?,
-    val mutualRooms: List<String>
+    val mutualRooms: List<String>,
+    val roomDisplayName: String? = null, // Per-room display name
+    val roomAvatarUrl: String? = null // Per-room avatar URL
 )
 
 /**
@@ -109,6 +160,7 @@ fun UserInfoScreen(
     
     // Dialog state
     var showDeviceListDialog by remember { mutableStateOf(false) }
+    var showSharedRoomsDialog by remember { mutableStateOf(false) }
     
     // Current time state for user's timezone
     var currentTimeInUserTz by remember { mutableStateOf("") }
@@ -120,81 +172,35 @@ fun UserInfoScreen(
     }
     val effectiveRoomId = roomId ?: roomIdFromState
     
-    // Request all user info when screen is created
+    // CRITICAL FIX: Always request fresh profile data from backend (never use cache)
+    // This ensures we get the latest profile info including pronouns, timezone, etc.
     LaunchedEffect(userId, effectiveRoomId) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UserInfoScreen: Requesting user info for $userId${if (effectiveRoomId != null) " in room $effectiveRoomId" else ""}")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UserInfoScreen: Requesting FRESH user info for $userId${if (effectiveRoomId != null) " in room $effectiveRoomId" else ""} (bypassing cache)")
         
-        // OPTIMIZATION: Check room-specific cache first if effectiveRoomId is provided, otherwise check global cache
-        val cachedProfile = appViewModel.getUserProfile(userId, roomId = effectiveRoomId)
-        if (cachedProfile != null) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UserInfoScreen: Found ${if (effectiveRoomId != null) "room-specific" else "cached"} profile for $userId")
-            // Prefill with cached data while loading full info in background
-            userProfileInfo = net.vrkknn.andromuks.utils.UserProfileInfo(
-                userId = userId,
-                displayName = cachedProfile.displayName?.takeIf { it.isNotBlank() } ?: usernameFromMatrixId(userId),
-                avatarUrl = cachedProfile.avatarUrl,
-                timezone = null,
-                encryptionInfo = null,
-                mutualRooms = emptyList()
-            )
-            isLoading = false // Show cached data immediately
-        }
-        
-        // If roomId is provided, request room-specific profile from backend
-        if (effectiveRoomId != null) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UserInfoScreen: Requesting room-specific profile for $userId in room $effectiveRoomId")
-            appViewModel.requestRoomSpecificUserProfile(effectiveRoomId, userId)
-        }
-        
-        // Request full user info to get complete data (timezone, encryption, mutual rooms)
-        // Note: requestFullUserInfo uses get_profile which returns global profile, but we'll
-        // override displayName and avatarUrl with room-specific values if available
-        appViewModel.requestFullUserInfo(userId) { profileInfo, error ->
+        // Always request fresh data - don't use cached profile
+        // Request full user info to get complete data (timezone, pronouns, encryption, mutual rooms)
+        // This always makes a fresh get_profile request to the backend
+        appViewModel.requestFullUserInfo(userId, forceRefresh = true) { profileInfo, error ->
             isLoading = false
             if (error != null) {
                 errorMessage = error
                 android.util.Log.e("Andromuks", "UserInfoScreen: Error loading user info: $error")
             } else {
-                // Re-check room-specific profile in case it was updated from the backend request
-                val roomSpecificProfile = if (effectiveRoomId != null) {
-                    appViewModel.getUserProfile(userId, roomId = effectiveRoomId)
-                } else {
-                    null
-                }
-                
-                // If we have room-specific profile data, use it for display name and avatar
-                // but keep the global data for timezone, encryption, and mutual rooms
-                val finalProfileInfo = if (effectiveRoomId != null && roomSpecificProfile != null && profileInfo != null) {
-                    profileInfo.copy(
-                        displayName = roomSpecificProfile.displayName?.takeIf { it.isNotBlank() } ?: profileInfo.displayName,
-                        avatarUrl = roomSpecificProfile.avatarUrl ?: profileInfo.avatarUrl
-                    )
-                } else {
-                    profileInfo
-                }
-                userProfileInfo = finalProfileInfo?.copy(
-                    displayName = finalProfileInfo.displayName?.takeIf { it.isNotBlank() } ?: usernameFromMatrixId(userId)
+                userProfileInfo = profileInfo?.copy(
+                    displayName = profileInfo.displayName?.takeIf { it.isNotBlank() } ?: usernameFromMatrixId(userId)
                 )
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UserInfoScreen: Loaded user info successfully${if (effectiveRoomId != null && roomSpecificProfile != null) " (using room-specific display name/avatar)" else ""}")
-            }
-        }
-    }
-    
-    // Also observe member updates to refresh UI when room-specific profile arrives
-    LaunchedEffect(effectiveRoomId, appViewModel.memberUpdateCounter) {
-        if (effectiveRoomId != null && userProfileInfo != null) {
-            // Re-check room-specific profile when member cache updates
-            val updatedRoomSpecificProfile = appViewModel.getUserProfile(userId, roomId = effectiveRoomId)
-            if (updatedRoomSpecificProfile != null && userProfileInfo != null) {
-                val currentProfile = userProfileInfo!!
-                // Only update if profile data actually changed
-                if (currentProfile.displayName != updatedRoomSpecificProfile.displayName ||
-                    currentProfile.avatarUrl != updatedRoomSpecificProfile.avatarUrl) {
-                    userProfileInfo = currentProfile.copy(
-                        displayName = updatedRoomSpecificProfile.displayName ?: currentProfile.displayName,
-                        avatarUrl = updatedRoomSpecificProfile.avatarUrl ?: currentProfile.avatarUrl
-                    )
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UserInfoScreen: Updated room-specific profile from backend response")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UserInfoScreen: Loaded fresh user info successfully with pronouns: ${profileInfo?.pronouns?.size ?: 0}, timezone: ${profileInfo?.timezone}")
+                
+                // Request per-room profile if we have a roomId
+                if (effectiveRoomId != null && profileInfo != null) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UserInfoScreen: Requesting per-room profile for $userId in room $effectiveRoomId")
+                    appViewModel.requestPerRoomMemberState(effectiveRoomId, userId) { roomDisplayName, roomAvatarUrl ->
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UserInfoScreen: Received per-room profile - displayName: $roomDisplayName, avatarUrl: $roomAvatarUrl")
+                        userProfileInfo = userProfileInfo?.copy(
+                            roomDisplayName = roomDisplayName,
+                            roomAvatarUrl = roomAvatarUrl
+                        )
+                    }
                 }
             }
         }
@@ -254,20 +260,20 @@ fun UserInfoScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // User Avatar - made bigger
+                // User Avatar - made larger (use room avatar if available, otherwise global)
+                val avatarUrlToUse = userProfileInfo!!.roomAvatarUrl ?: userProfileInfo!!.avatarUrl
                 Box(
                     modifier = Modifier
-                        .size(160.dp)
-                        .clickable(enabled = userProfileInfo!!.avatarUrl != null) {
-                            val avatarUrl = userProfileInfo!!.avatarUrl
-                            if (!avatarUrl.isNullOrBlank()) {
+                        .size(220.dp)
+                        .clickable(enabled = avatarUrlToUse != null) {
+                            if (!avatarUrlToUse.isNullOrBlank()) {
                                 val fullUrl = AvatarUtils.getFullImageUrl(
                                     context,
-                                    avatarUrl,
+                                    avatarUrlToUse,
                                     appViewModel.homeserverUrl
                                 ) ?: AvatarUtils.getAvatarUrl(
                                     context,
-                                    avatarUrl,
+                                    avatarUrlToUse,
                                     appViewModel.homeserverUrl
                                 )
                                 
@@ -292,13 +298,13 @@ fun UserInfoScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     AvatarImage(
-                        mxcUrl = userProfileInfo!!.avatarUrl,
+                        mxcUrl = avatarUrlToUse,
                         homeserverUrl = appViewModel.homeserverUrl,
                         authToken = appViewModel.authToken,
-                        fallbackText = userProfileInfo!!.displayName ?: usernameFromMatrixId(userId),
-                        size = 160.dp,
+                        fallbackText = (userProfileInfo!!.roomDisplayName ?: userProfileInfo!!.displayName) ?: usernameFromMatrixId(userId),
+                        size = 220.dp,
                         userId = userId,
-                        displayName = userProfileInfo!!.displayName
+                        displayName = userProfileInfo!!.roomDisplayName ?: userProfileInfo!!.displayName
                     )
                 }
                 
@@ -307,13 +313,35 @@ fun UserInfoScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    // User Display Name
+                    // Per-room display name (if available) or global display name
+                    val displayNameToShow = userProfileInfo!!.roomDisplayName ?: userProfileInfo!!.displayName ?: usernameFromMatrixId(userId)
+                    val isRoomSpecific = userProfileInfo!!.roomDisplayName != null
+                    
                     Text(
-                        text = userProfileInfo!!.displayName ?: usernameFromMatrixId(userId),
+                        text = displayNameToShow,
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center
                     )
+                    
+                    // Show room-specific indicator if per-room profile is available
+                    if (isRoomSpecific && effectiveRoomId != null) {
+                        Text(
+                            text = "Room-specific profile",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            textAlign = TextAlign.Center
+                        )
+                        // Also show global display name if different
+                        if (userProfileInfo!!.displayName != null && userProfileInfo!!.displayName != userProfileInfo!!.roomDisplayName) {
+                            Text(
+                                text = "Global: ${userProfileInfo!!.displayName}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
                     
                     // Matrix User ID
                     Text(
@@ -324,28 +352,72 @@ fun UserInfoScreen(
                     )
                 }
                 
-                // Time in user's timezone
-                if (userProfileInfo!!.timezone != null && currentTimeInUserTz.isNotEmpty()) {
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer
-                        ),
-                        shape = RoundedCornerShape(8.dp)
+                // Pronouns and Timezone on the same line
+                val pronouns = userProfileInfo!!.pronouns
+                val hasPronouns = pronouns != null && pronouns.isNotEmpty()
+                val hasTimezone = userProfileInfo!!.timezone != null && currentTimeInUserTz.isNotEmpty()
+                
+                if (hasPronouns || hasTimezone) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = currentTimeInUserTz,
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = userProfileInfo!!.timezone!!,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
+                        // Pronouns
+                        if (hasPronouns) {
+                            val pronounsText = pronouns!!
+                                .joinToString(", ") { it.summary }
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                                ),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "Pronouns",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                    Text(
+                                        text = pronounsText,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                }
+                            }
+                        }
+                        
+                        // Time in user's timezone
+                        if (hasTimezone) {
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                                ),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = currentTimeInUserTz,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                    Text(
+                                        text = userProfileInfo!!.timezone!!,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -413,46 +485,13 @@ fun UserInfoScreen(
                         }
                         Text(buttonText)
                     }
-                }
-                
-                // Shared Rooms Section
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    HorizontalDivider()
                     
-                    Text(
-                        text = "Shared Rooms (${userProfileInfo!!.mutualRooms.size})",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    
-                    // Scrollable room list in a card
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
-                        ),
-                        shape = RoundedCornerShape(12.dp)
+                    // Shared Rooms Button
+                    Button(
+                        onClick = { showSharedRoomsDialog = true },
+                        modifier = Modifier.weight(1f)
                     ) {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            items(userProfileInfo!!.mutualRooms) { roomId ->
-                                SharedRoomItem(
-                                    roomId = roomId,
-                                    appViewModel = appViewModel,
-                                    navController = navController
-                                )
-                            }
-                        }
+                        Text("Shared Rooms (${userProfileInfo!!.mutualRooms.size})")
                     }
                 }
             }
@@ -469,13 +508,73 @@ fun UserInfoScreen(
     }
     
     if (showFullAvatarDialog && fullAvatarUrl != null) {
-        FullImageDialog(
+        AvatarViewerDialog(
             imageUrl = fullAvatarUrl!!,
+            avatarMxcUrl = userProfileInfo?.roomAvatarUrl ?: userProfileInfo?.avatarUrl,
+            homeserverUrl = appViewModel.homeserverUrl,
             authToken = appViewModel.authToken,
-            onDismiss = { showFullAvatarDialog = false },
-            contentDescription = userProfileInfo?.displayName ?: userId
+            displayName = userProfileInfo?.roomDisplayName ?: userProfileInfo?.displayName ?: userId,
+            onDismiss = { showFullAvatarDialog = false }
         )
     }
+    
+    // Shared Rooms Dialog
+    if (showSharedRoomsDialog && userProfileInfo != null) {
+        SharedRoomsDialog(
+            mutualRooms = userProfileInfo!!.mutualRooms,
+            appViewModel = appViewModel,
+            navController = navController,
+            onDismiss = { showSharedRoomsDialog = false }
+        )
+    }
+}
+
+/**
+ * Dialog to display shared rooms list
+ */
+@Composable
+fun SharedRoomsDialog(
+    mutualRooms: List<String>,
+    appViewModel: AppViewModel,
+    navController: NavController,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { 
+            Text("Shared Rooms (${mutualRooms.size})")
+        },
+        text = {
+            if (mutualRooms.isEmpty()) {
+                Text(
+                    text = "No shared rooms",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp),
+                    contentPadding = PaddingValues(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(mutualRooms) { roomId ->
+                        SharedRoomItem(
+                            roomId = roomId,
+                            appViewModel = appViewModel,
+                            navController = navController
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
 }
 
 /**
@@ -500,7 +599,11 @@ fun SharedRoomItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp),
+            .clickable {
+                val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+                navController.navigate("room_timeline/$encodedRoomId")
+            }
+            .padding(vertical = 6.dp, horizontal = 8.dp),
         verticalAlignment = Alignment.Top
     ) {
         AvatarImage(
@@ -753,6 +856,291 @@ fun DeviceInfoCard(device: DeviceInfo) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+        }
+    }
+}
+
+/**
+ * Avatar viewer dialog with rotation and download support
+ */
+@Composable
+fun AvatarViewerDialog(
+    imageUrl: String,
+    avatarMxcUrl: String?,
+    homeserverUrl: String,
+    authToken: String,
+    displayName: String,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val imageLoader = remember { ImageLoaderSingleton.get(context) }
+    
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
+    var rotationDegrees by remember { mutableFloatStateOf(0f) }
+    
+    // Animate rotation smoothly
+    val animatedRotation by animateFloatAsState(
+        targetValue = rotationDegrees,
+        animationSpec = tween(durationMillis = 300),
+        label = "rotation"
+    )
+    val normalizedRotation = (animatedRotation % 360f + 360f) % 360f
+    
+    val transformableState = rememberTransformableState { zoomChange, offsetChange, _ ->
+        scale = (scale * zoomChange).coerceIn(0.5f, 5f)
+        val panScale = scale
+        val maxPan = 4000f * scale
+        offsetX = (offsetX + offsetChange.x * panScale).coerceIn(-maxPan, maxPan)
+        offsetY = (offsetY + offsetChange.y * panScale).coerceIn(-maxPan, maxPan)
+    }
+    
+    // Check for cached file
+    var cachedFile by remember { mutableStateOf<File?>(null) }
+    LaunchedEffect(avatarMxcUrl) {
+        if (avatarMxcUrl != null) {
+            cachedFile = IntelligentMediaCache.getCachedFile(context, avatarMxcUrl)
+        }
+    }
+    
+    val finalImageUrl = remember(imageUrl, cachedFile) {
+        cachedFile?.absolutePath ?: imageUrl
+    }
+    
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .clickable(onClick = onDismiss)
+        ) {
+            // Image with zoom, pan, and rotation
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offsetX,
+                        translationY = offsetY,
+                        rotationZ = normalizedRotation
+                    )
+                    .transformable(state = transformableState)
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = {
+                                // Reset zoom and pan on tap
+                                scale = 1f
+                                offsetX = 0f
+                                offsetY = 0f
+                            }
+                        )
+                    }
+            ) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(finalImageUrl)
+                        .apply {
+                            if (cachedFile == null && finalImageUrl.startsWith("http")) {
+                                addHeader("Cookie", "gomuks_auth=$authToken")
+                            }
+                        }
+                        .size(Size.ORIGINAL)
+                        .precision(Precision.EXACT)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .build(),
+                    imageLoader = imageLoader,
+                    contentDescription = displayName,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            
+            // Top toolbar with action buttons
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(horizontal = 8.dp)
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                // Rotate Left button
+                IconButton(
+                    onClick = {
+                        rotationDegrees = rotationDegrees - 90f
+                        scale = 1f
+                        offsetX = 0f
+                        offsetY = 0f
+                    },
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.RotateLeft,
+                        contentDescription = "Rotate Left",
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                
+                // Rotate Right button
+                IconButton(
+                    onClick = {
+                        rotationDegrees = rotationDegrees + 90f
+                        scale = 1f
+                        offsetX = 0f
+                        offsetY = 0f
+                    },
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.RotateRight,
+                        contentDescription = "Rotate Right",
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                
+                // Save button
+                IconButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            saveAvatarToGallery(
+                                context = context,
+                                cachedFile = cachedFile,
+                                imageUrl = finalImageUrl,
+                                filename = "${displayName}_avatar.jpg",
+                                authToken = authToken
+                            )
+                        }
+                    },
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Save,
+                        contentDescription = "Save to Gallery",
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                
+                // Close button
+                IconButton(
+                    onClick = onDismiss,
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Close",
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Save avatar image to gallery
+ */
+private suspend fun saveAvatarToGallery(
+    context: Context,
+    cachedFile: File?,
+    imageUrl: String,
+    filename: String,
+    authToken: String
+) = withContext(Dispatchers.IO) {
+    try {
+        var imageFile: File? = cachedFile
+        
+        // Download if needed
+        if (imageFile == null && imageUrl.startsWith("http")) {
+            val client = OkHttpClient()
+            val request = Request.Builder()
+                .url(imageUrl)
+                .addHeader("Cookie", "gomuks_auth=$authToken")
+                .build()
+            
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                response.body?.byteStream()?.use { input ->
+                    val tempFile = File(context.cacheDir, "temp_avatar_${System.currentTimeMillis()}.jpg")
+                    java.io.FileOutputStream(tempFile).use { output ->
+                        input.copyTo(output)
+                    }
+                    imageFile = tempFile
+                }
+            }
+        } else if (imageFile == null && imageUrl.startsWith("/")) {
+            imageFile = File(imageUrl)
+        }
+        
+        if (imageFile == null || !imageFile!!.exists()) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Failed to save avatar", Toast.LENGTH_SHORT).show()
+            }
+            return@withContext
+        }
+        
+        // Save to MediaStore
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Andromuks")
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+        }
+        
+        val uri = context.contentResolver.insert(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            contentValues
+        ) ?: throw Exception("Failed to create MediaStore entry")
+        
+        // Copy file
+        context.contentResolver.openOutputStream(uri)?.use { output ->
+            imageFile!!.inputStream().use { input ->
+                input.copyTo(output)
+            }
+        }
+        
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            contentValues.clear()
+            contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            context.contentResolver.update(uri, contentValues, null, null)
+        }
+        
+        withContext(Dispatchers.Main) {
+            Toast.makeText(context, "Avatar saved to gallery", Toast.LENGTH_SHORT).show()
+        }
+    } catch (e: Exception) {
+        Log.e("Andromuks", "Error saving avatar to gallery", e)
+        withContext(Dispatchers.Main) {
+            Toast.makeText(context, "Error saving avatar: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 }
