@@ -7904,7 +7904,8 @@ class AppViewModel : ViewModel() {
             else -> false // Hide "Network restored" and other spam
         }
 
-        if (shouldShowToast) {
+        // Only show toasts in debug builds to avoid UX disruption in production
+        if (shouldShowToast && BuildConfig.DEBUG) {
             appContext?.let { context ->
                 viewModelScope.launch(Dispatchers.Main) {
                     android.widget.Toast.makeText(

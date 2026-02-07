@@ -2296,8 +2296,14 @@ class WebSocketService : Service() {
     /**
      * Show a Toast notification for WebSocket actions (for debugging stuck connections)
      * Debounced to prevent too many toasts (Android has limits)
+     * Only shows in debug builds to avoid UX disruption in production
      */
     private fun showWebSocketToast(message: String) {
+        // Only show toasts in debug builds
+        if (!BuildConfig.DEBUG) {
+            return
+        }
+        
         try {
             val now = System.currentTimeMillis()
             // Debounce: Only show if message changed or enough time passed
