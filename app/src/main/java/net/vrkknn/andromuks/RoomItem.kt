@@ -50,6 +50,7 @@ enum class RoomSectionType {
     DIRECT_CHATS,
     UNREAD,
     FAVOURITES,
+    BRIDGES,
     MENTIONS
 }
 

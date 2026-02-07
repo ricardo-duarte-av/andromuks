@@ -16,6 +16,7 @@ import net.vrkknn.andromuks.BuildConfig
 object BridgeInfoCache {
     private const val PREFS_NAME = "AndromuksAppPrefs"
     private const val BRIDGE_INFO_PREFIX = "bridge_avatar_"
+    private const val BRIDGE_DISPLAY_NAME_PREFIX = "bridge_displayname_"
     
     /**
      * Get bridge protocol avatar URL for a room from cache
@@ -32,6 +33,22 @@ object BridgeInfoCache {
         
         val avatarUrl = prefs.getString(key, null) ?: ""
         return avatarUrl // Empty string means "not bridged", non-empty means "bridged with this avatar"
+    }
+    
+    /**
+     * Get bridge protocol display name for a room from cache
+     * @return Display name (e.g., "WhatsApp", "Telegram") if room is bridged, null if not cached or not bridged
+     */
+    fun getBridgeDisplayName(context: Context, roomId: String): String? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val key = BRIDGE_DISPLAY_NAME_PREFIX + roomId
+        
+        if (!prefs.contains(key)) {
+            return null // Not cached
+        }
+        
+        val displayName = prefs.getString(key, null) ?: ""
+        return displayName.takeIf { it.isNotEmpty() } // Return null if empty (not bridged)
     }
     
     /**
@@ -65,14 +82,33 @@ object BridgeInfoCache {
     }
     
     /**
+     * Save bridge protocol display name for a room
+     * @param displayName Display name (e.g., "WhatsApp", "Telegram") if room is bridged, empty string if not bridged
+     */
+    fun saveBridgeDisplayName(context: Context, roomId: String, displayName: String) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val key = BRIDGE_DISPLAY_NAME_PREFIX + roomId
+        
+        val editor = prefs.edit()
+        editor.putString(key, displayName)
+        editor.apply() // Use apply() for async write (not critical path)
+        
+        if (BuildConfig.DEBUG && displayName.isNotEmpty()) {
+            android.util.Log.d("Andromuks", "BridgeInfoCache: Saved bridge display name for $roomId: $displayName")
+        }
+    }
+    
+    /**
      * Remove bridge info for a room (e.g., when room is left)
      */
     fun removeBridgeInfo(context: Context, roomId: String) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val key = BRIDGE_INFO_PREFIX + roomId
+        val avatarKey = BRIDGE_INFO_PREFIX + roomId
+        val displayNameKey = BRIDGE_DISPLAY_NAME_PREFIX + roomId
         
         val editor = prefs.edit()
-        editor.remove(key)
+        editor.remove(avatarKey)
+        editor.remove(displayNameKey)
         editor.apply()
         
         if (BuildConfig.DEBUG) {
@@ -87,8 +123,10 @@ object BridgeInfoCache {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val editor = prefs.edit()
         
-        // Get all keys with bridge prefix
-        val allKeys = prefs.all.keys.filter { it.startsWith(BRIDGE_INFO_PREFIX) }
+        // Get all keys with bridge prefix (both avatar and display name)
+        val allKeys = prefs.all.keys.filter { 
+            it.startsWith(BRIDGE_INFO_PREFIX) || it.startsWith(BRIDGE_DISPLAY_NAME_PREFIX) 
+        }
         allKeys.forEach { key ->
             editor.remove(key)
         }

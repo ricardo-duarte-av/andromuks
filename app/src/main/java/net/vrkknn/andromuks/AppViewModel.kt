@@ -713,6 +713,10 @@ class AppViewModel : ViewModel() {
     var currentSpaceId by mutableStateOf<String?>(null)
         private set
     
+    // Bridge navigation state
+    var currentBridgeId by mutableStateOf<String?>(null)
+        private set
+    
     // Store space edges data for later processing
     private var storedSpaceEdges: JSONObject? = null
     
@@ -1239,6 +1243,13 @@ class AppViewModel : ViewModel() {
     fun changeSelectedSection(section: RoomSectionType) {
         val previousSection = selectedSection
         selectedSection = section
+        // Exit space/bridge when switching to a different section
+        if (section != RoomSectionType.SPACES && currentSpaceId != null) {
+            currentSpaceId = null
+        }
+        if (section != RoomSectionType.BRIDGES && currentBridgeId != null) {
+            currentBridgeId = null
+        }
         // Reset space navigation when switching tabs
         if (section != RoomSectionType.SPACES) {
             currentSpaceId = null
@@ -1262,6 +1273,18 @@ class AppViewModel : ViewModel() {
     
     fun exitSpace() {
         currentSpaceId = null
+        roomListUpdateCounter++
+        updateCounter++ // Keep for backward compatibility temporarily
+    }
+    
+    fun enterBridge(bridgeId: String) {
+        currentBridgeId = bridgeId
+        roomListUpdateCounter++
+        updateCounter++ // Keep for backward compatibility temporarily
+    }
+    
+    fun exitBridge() {
+        currentBridgeId = null
         roomListUpdateCounter++
         updateCounter++ // Keep for backward compatibility temporarily
     }
@@ -1753,6 +1776,69 @@ class AppViewModel : ViewModel() {
                     rooms = cachedFavouriteRooms,
                     unreadCount = unreadFavouriteCount
                 )
+            }
+            RoomSectionType.BRIDGES -> {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: BRIDGES section - currentBridgeId = $currentBridgeId")
+                
+                // Group rooms by bridgeProtocolAvatarUrl to create pseudo-spaces
+                val bridgedRooms = roomsWithoutSpaces.filter { it.bridgeProtocolAvatarUrl != null }
+                val bridgeGroups = bridgedRooms.groupBy { it.bridgeProtocolAvatarUrl!! }
+                
+                // Create pseudo-spaces (SpaceItem) for each bridge
+                // Group by bridgeProtocolAvatarUrl - each unique avatar URL represents a different bridge protocol
+                val bridgeSpaces = bridgeGroups.map { (bridgeAvatarUrl, rooms) ->
+                    // Derive bridge name from the first room's bridge info if available
+                    // Since we're grouping by avatar URL, all rooms in this group share the same bridge protocol
+                    val bridgeName = rooms.firstOrNull()?.let { room ->
+                        // Try to get bridge display name from SharedPreferences cache first (fastest)
+                        val context = appContext
+                        if (context != null) {
+                            val cachedDisplayName = net.vrkknn.andromuks.utils.BridgeInfoCache.getBridgeDisplayName(context, room.id)
+                            if (cachedDisplayName != null) {
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: BRIDGES - Found cached display name for room ${room.id}: $cachedDisplayName")
+                                return@let cachedDisplayName
+                            }
+                        }
+                        
+                        // Fallback: try to get from room state cache
+                        getBridgeDisplayNameFromRoomState(room.id) ?: "Bridge"
+                    } ?: "Bridge"
+                    
+                    if (BuildConfig.DEBUG && bridgeName == "Bridge") {
+                        android.util.Log.d("Andromuks", "AppViewModel: BRIDGES - Using fallback name 'Bridge' for bridge with avatar $bridgeAvatarUrl (room: ${rooms.firstOrNull()?.id})")
+                    }
+                    
+                    SpaceItem(
+                        id = bridgeAvatarUrl, // Use avatar URL as unique identifier
+                        name = bridgeName,
+                        avatarUrl = bridgeAvatarUrl,
+                        rooms = rooms
+                    )
+                }
+                
+                if (currentBridgeId != null) {
+                    // Show rooms within the selected bridge
+                    val selectedBridge = bridgeSpaces.find { it.id == currentBridgeId }
+                    val bridgeRooms = selectedBridge?.rooms ?: emptyList()
+                    // Enrich bridge rooms with latest list summaries
+                    val enrichedBridgeRooms = bridgeRooms.mapNotNull { room ->
+                        roomMap[room.id] ?: allRooms.firstOrNull { it.id == room.id } ?: room
+                    }
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Selected bridge = $selectedBridge, rooms.size = ${bridgeRooms.size}, enriched.size=${enrichedBridgeRooms.size}")
+                    RoomSection(
+                        type = RoomSectionType.BRIDGES,
+                        rooms = enrichedBridgeRooms,
+                        spaces = emptyList()
+                    )
+                } else {
+                    // Show list of bridges
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Showing bridge list with ${bridgeSpaces.size} bridges")
+                    RoomSection(
+                        type = RoomSectionType.BRIDGES,
+                        rooms = emptyList(),
+                        spaces = bridgeSpaces
+                    )
+                }
             }
         }
     }
@@ -12032,6 +12118,8 @@ class AppViewModel : ViewModel() {
         
         // Extract bridge protocol avatar URL for room list badge display
         val bridgeProtocolAvatarUrl = bridgeInfo?.protocol?.avatarUrl
+        // Extract bridge protocol display name
+        val bridgeDisplayName = bridgeInfo?.displayName
         
         // If bridge metadata says this is a DM, mark the room as direct (helps bridged DMs show in Direct tab).
         val bridgeSaysDm = bridgeInfo?.roomType?.equals("dm", ignoreCase = true) == true ||
@@ -12091,6 +12179,10 @@ class AppViewModel : ViewModel() {
             appContext?.let { context ->
                 val avatarUrlToSave = finalBridgeProtocolAvatarUrl ?: ""
                 net.vrkknn.andromuks.utils.BridgeInfoCache.saveBridgeAvatarUrl(context, roomId, avatarUrlToSave)
+                // Also save display name if available
+                if (bridgeDisplayName != null) {
+                    net.vrkknn.andromuks.utils.BridgeInfoCache.saveBridgeDisplayName(context, roomId, bridgeDisplayName)
+                }
             }
         } else {
             // Room doesn't exist in roomMap yet - store bridge info for later
@@ -12113,6 +12205,11 @@ class AppViewModel : ViewModel() {
             appContext?.let { context ->
                 val avatarUrlToSave = bridgeProtocolAvatarUrl ?: ""
                 net.vrkknn.andromuks.utils.BridgeInfoCache.saveBridgeAvatarUrl(context, roomId, avatarUrlToSave)
+                // Also save display name if available
+                val bridgeDisplayName = bridgeInfo?.displayName
+                if (bridgeDisplayName != null) {
+                    net.vrkknn.andromuks.utils.BridgeInfoCache.saveBridgeDisplayName(context, roomId, bridgeDisplayName)
+                }
             }
         }
 
@@ -12128,6 +12225,52 @@ class AppViewModel : ViewModel() {
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Parsed room state for $roomId (not current room) - Name: $name, Bridge Protocol Avatar: $bridgeProtocolAvatarUrl")
         }
+    }
+    
+    /**
+     * Get bridge display name from a room's cached state or SharedPreferences cache
+     * Returns the protocol display name (e.g., "WhatsApp", "Telegram", "Discord") or null if not found
+     */
+    private fun getBridgeDisplayNameFromRoomState(roomId: String): String? {
+        // First try to get from SharedPreferences cache (fastest, always available if cached)
+        val context = appContext
+        if (context != null) {
+            val cachedDisplayName = net.vrkknn.andromuks.utils.BridgeInfoCache.getBridgeDisplayName(context, roomId)
+            if (cachedDisplayName != null) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: getBridgeDisplayNameFromRoomState - Found cached display name for room $roomId: $cachedDisplayName")
+                return cachedDisplayName
+            }
+        }
+        
+        // Fallback: try to parse from room state cache
+        val roomStateEvents = roomStatesCache[roomId]
+        if (roomStateEvents == null) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: getBridgeDisplayNameFromRoomState - No cached state for room $roomId")
+            return null
+        }
+        
+        // Find bridge event in room state
+        for (i in 0 until roomStateEvents.length()) {
+            val event = roomStateEvents.optJSONObject(i) ?: continue
+            val eventType = event.optString("type")
+            
+            if (eventType == "m.bridge" || eventType == "uk.half-shot.bridge") {
+                val bridgeInfo = parseBridgeInfoEvent(event)
+                val displayName = bridgeInfo?.displayName
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: getBridgeDisplayNameFromRoomState - Found bridge for room $roomId: displayName=$displayName, protocol=${bridgeInfo?.protocol?.id}, protocolDisplayName=${bridgeInfo?.protocol?.displayName}")
+                
+                // Cache the display name for future use
+                val contextForCache = appContext
+                if (displayName != null && contextForCache != null) {
+                    net.vrkknn.andromuks.utils.BridgeInfoCache.saveBridgeDisplayName(contextForCache, roomId, displayName)
+                }
+                
+                return displayName
+            }
+        }
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: getBridgeDisplayNameFromRoomState - No bridge event found in cached state for room $roomId (${roomStateEvents.length()} events)")
+        return null
     }
     
     private fun parseBridgeInfoEvent(event: JSONObject): BridgeInfo? {

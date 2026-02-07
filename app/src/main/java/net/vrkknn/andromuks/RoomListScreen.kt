@@ -124,6 +124,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Tag
+import androidx.compose.material.icons.filled.Link
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
@@ -248,8 +249,8 @@ fun RoomListScreen(
 
     // Initial load is now handled in the LaunchedEffect below that also handles cleanup and sorting
     
-    // Refresh stableSection from in-memory data when counters or space selection change
-    LaunchedEffect(roomListUpdateCounter, uiState.roomSummaryUpdateCounter, uiState.currentSpaceId) {
+    // Refresh stableSection from in-memory data when counters or space/bridge selection change
+    LaunchedEffect(roomListUpdateCounter, uiState.roomSummaryUpdateCounter, uiState.currentSpaceId, appViewModel.currentBridgeId) {
         // If initial sync isn't complete yet and we already have data, keep current UI to avoid flicker.
         if (!uiState.initialSyncComplete) {
             val hadContent = stableSection.rooms.isNotEmpty() || stableSection.spaces.isNotEmpty()
@@ -1212,6 +1213,82 @@ fun RoomListScreen(
                                 }
                             )
                         }
+                        RoomSectionType.BRIDGES -> {
+                            val currentBridgeId = appViewModel.currentBridgeId
+                            val isInBridge = currentBridgeId != null
+                            
+                            // CRITICAL: Get bridges directly from viewmodel, not from targetSection
+                            // When entering a bridge, targetSection.spaces becomes empty, breaking the exit animation
+                            // Get bridges from viewmodel so animation always has content
+                            val bridgesForAnimation = remember(targetSection.spaces, isInBridge) {
+                                // Use bridges from targetSection - they're the pseudo-spaces we created
+                                targetSection.spaces.map { bridge ->
+                                    SpaceItem(
+                                        id = bridge.id,
+                                        name = bridge.name,
+                                        avatarUrl = bridge.avatarUrl,
+                                        rooms = bridge.rooms
+                                    )
+                                }
+                            }
+                            
+                            // Use Box with AnimatedVisibility for both pieces so both can animate simultaneously
+                            // This creates the "Zoom Through" / Container Transform effect (same as Spaces)
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                // Bridge list - visible when NOT in a bridge
+                                // Use bridgesForAnimation which is always populated from targetSection
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = !isInBridge,
+                                    exit = slideOutVertically(
+                                        targetOffsetY = { -it }, // Slide up (negative offset = upward) when entering bridge
+                                        animationSpec = tween(1000, easing = FastOutSlowInEasing)
+                                    ) + fadeOut(animationSpec = tween(1000, easing = FastOutSlowInEasing)),
+                                    enter = slideInVertically(
+                                        initialOffsetY = { -it }, // Slide down from top (negative offset = from above) when exiting bridge
+                                        animationSpec = tween(1000, easing = FastOutSlowInEasing)
+                                    ) + fadeIn(animationSpec = tween(1000, easing = FastOutSlowInEasing)),
+                                    label = "BridgeListTransition"
+                                ) {
+                                    BridgesListContent(
+                                        bridges = bridgesForAnimation,
+                                        searchQuery = searchQuery,
+                                        appViewModel = appViewModel,
+                                        authToken = authToken,
+                                        navController = navController,
+                                        listState = currentListState
+                                    )
+                                }
+                                
+                                // Rooms - visible when IN a bridge
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = isInBridge,
+                                    exit = scaleOut(
+                                        targetScale = 0.0f, // Zoom out completely when exiting bridge
+                                        animationSpec = tween(1000, easing = FastOutSlowInEasing)
+                                    ) + fadeOut(animationSpec = tween(1000, easing = FastOutSlowInEasing)),
+                                    enter = scaleIn(
+                                        initialScale = 0.0f, // Zoom in from nothing when entering bridge
+                                        animationSpec = tween(1000, easing = FastOutSlowInEasing)
+                                    ) + fadeIn(animationSpec = tween(1000, easing = FastOutSlowInEasing)),
+                                    label = "BridgeRoomsTransition"
+                                ) {
+                                    RoomListContent(
+                                        rooms = targetSection.rooms,
+                                        searchQuery = searchQuery,
+                                        appViewModel = appViewModel,
+                                        authToken = authToken,
+                                        navController = navController,
+                                        timestampUpdateTrigger = smartTimestampUpdateCounter,
+                                        hapticFeedback = hapticFeedback,
+                                        listState = currentListState,
+                                        onInviteClick = { invite ->
+                                            inviteToJoin = invite
+                                            showRoomJoiner = true
+                                        }
+                                    )
+                                }
+                            }
+                        }
                         RoomSectionType.MENTIONS -> {
                             // Mentions are accessed via the header button, not through tabs
                             // Show empty state (should not normally be reached)
@@ -1960,6 +2037,15 @@ fun TabBar(
                 hasHighlights = appViewModel.hasFavouritesHighlights()
             )
             
+            TabButton(
+                icon = Icons.Filled.Link,
+                label = "Bridges",
+                isSelected = currentSection.type == RoomSectionType.BRIDGES,
+                onClick = {
+                    onSectionSelected(RoomSectionType.BRIDGES)
+                }
+            )
+            
         }
     }
 }
@@ -2042,10 +2128,12 @@ fun RoomListContent(
 ) {
     val context = LocalContext.current
     
-    // Handle Android back key when inside a space
-    androidx.activity.compose.BackHandler(enabled = appViewModel.currentSpaceId != null) {
+    // Handle Android back key when inside a space or bridge
+    androidx.activity.compose.BackHandler(enabled = appViewModel.currentSpaceId != null || appViewModel.currentBridgeId != null) {
         if (appViewModel.currentSpaceId != null) {
             appViewModel.exitSpace()
+        } else if (appViewModel.currentBridgeId != null) {
+            appViewModel.exitBridge()
         }
     }
     
@@ -2274,6 +2362,48 @@ fun SpacesListContent(
                 isSelected = false,
                 onClick = { 
                     appViewModel.enterSpace(space.id)
+                },
+                homeserverUrl = appViewModel.homeserverUrl,
+                authToken = authToken
+            )
+        }
+    }
+}
+
+@Composable
+fun BridgesListContent(
+    bridges: List<SpaceItem>,
+    searchQuery: String,
+    appViewModel: AppViewModel,
+    authToken: String,
+    navController: NavController,
+    listState: LazyListState
+) {
+    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "BridgesListContent: Displaying ${bridges.size} bridges")
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Top,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            top = 8.dp,
+            bottom = 8.dp
+        )
+    ) {
+        val filteredBridges = if (searchQuery.isBlank()) {
+            bridges
+        } else {
+            bridges.filter { bridge ->
+                bridge.name.contains(searchQuery, ignoreCase = true)
+            }
+        }
+        
+        items(filteredBridges.size) { idx ->
+            val bridge = filteredBridges[idx]
+            SpaceListItem(
+                space = bridge,
+                isSelected = false,
+                onClick = { 
+                    appViewModel.enterBridge(bridge.id)
                 },
                 homeserverUrl = appViewModel.homeserverUrl,
                 authToken = authToken
