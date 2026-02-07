@@ -459,30 +459,31 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     if (mxcUrl != null && httpUrl != null) {
                         // Check cache first
                         val cachedFile = MediaCache.getCachedFile(context, mxcUrl)
-                        if (cachedFile != null) {
+                        val imageFile = if (cachedFile != null && cachedFile.exists()) {
                             if (BuildConfig.DEBUG) Log.d(TAG, "Using cached image: ${cachedFile.absolutePath}")
-                            // Use FileProvider to create a content:// URI that can be accessed by the notification system
-                            FileProvider.getUriForFile(
-                                context,
-                                "pt.aguiarvieira.andromuks.fileprovider",
-                                cachedFile
-                            )
+                            cachedFile
                         } else {
                             // Download and cache
                             if (BuildConfig.DEBUG) Log.d(TAG, "Downloading image from: $httpUrl")
                             val downloadedFile = IntelligentMediaCache.downloadAndCache(context, mxcUrl, httpUrl, authToken)
-                            if (downloadedFile != null) {
+                            if (downloadedFile != null && downloadedFile.exists()) {
                                 if (BuildConfig.DEBUG) Log.d(TAG, "Downloaded image to cache: ${downloadedFile.absolutePath}")
-                                // Use FileProvider to create a content:// URI that can be accessed by the notification system
-                                FileProvider.getUriForFile(
-                                    context,
-                                    "pt.aguiarvieira.andromuks.fileprovider",
-                                    downloadedFile
-                                )
+                                downloadedFile
                             } else {
                                 Log.w(TAG, "Failed to download image for notification")
                                 null
                             }
+                        }
+                        
+                        if (imageFile != null) {
+                            // Use FileProvider to create a content:// URI that can be accessed by the notification system
+                            FileProvider.getUriForFile(
+                                context,
+                                "pt.aguiarvieira.andromuks.fileprovider",
+                                imageFile
+                            )
+                        } else {
+                            null
                         }
                     } else {
                         Log.w(TAG, "Could not parse image URL: ${notificationData.image}")
@@ -595,12 +596,26 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 // Add message to style
                 val message = if (hasImage && imageUri != null) {
                     // Image message with downloaded image
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Adding image message to notification with URI: $imageUri")
+                    // CRITICAL FIX: Use specific MIME type instead of "image/*" for better image display
+                    // Also provide a better message text that indicates an image was sent
+                    val imageMessageText = notificationData.body.takeIf { it.isNotBlank() } ?: "📷 Photo"
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Adding image message to notification with URI: $imageUri, text: $imageMessageText")
+                    
+                    // Detect MIME type from file extension or use a common default
+                    val mimeType = when {
+                        notificationData.image.contains(".jpg", ignoreCase = true) || 
+                        notificationData.image.contains(".jpeg", ignoreCase = true) -> "image/jpeg"
+                        notificationData.image.contains(".png", ignoreCase = true) -> "image/png"
+                        notificationData.image.contains(".gif", ignoreCase = true) -> "image/gif"
+                        notificationData.image.contains(".webp", ignoreCase = true) -> "image/webp"
+                        else -> "image/jpeg" // Default to JPEG for better compatibility
+                    }
+                    
                     MessagingStyle.Message(
-                        "[Image]",
+                        imageMessageText,
                         notificationData.timestamp ?: System.currentTimeMillis(),
                         messagePerson // Always use messagePerson, even for DMs
-                    ).setData("image/*", imageUri)
+                    ).setData(mimeType, imageUri)
                 } else {
                     // Text message
                     MessagingStyle.Message(
@@ -771,16 +786,32 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     .build()
                 
                 // Grant URI permission for image if present
+                // CRITICAL FIX: Grant permissions to multiple packages that might need to access the image
+                // System UI, notification service, and Android Auto all need access
                 if (imageUri != null) {
-                try {
+                    try {
                         if (BuildConfig.DEBUG) Log.d(TAG, "Granting URI permission for notification image: $imageUri")
-                        context.grantUriPermission(
+                        val packagesToGrant = listOf(
                             "com.android.systemui",  // System UI package for notifications
-                            imageUri,
-                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            "com.google.android.projection.gearhead",  // Android Auto
+                            "com.google.android.gms",  // Google Play Services (for Auto)
+                            context.packageName  // Our own package (for notification updates)
                         )
+                        for (packageName in packagesToGrant) {
+                            try {
+                                context.grantUriPermission(
+                                    packageName,
+                                    imageUri,
+                                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                )
+                                if (BuildConfig.DEBUG) Log.d(TAG, "Granted URI permission to: $packageName")
+                            } catch (e: Exception) {
+                                // Some packages might not exist on all devices - that's okay
+                                if (BuildConfig.DEBUG) Log.d(TAG, "Could not grant URI permission to $packageName (may not exist): ${e.message}")
+                            }
+                        }
                     } catch (e: Exception) {
-                        Log.w(TAG, "Could not grant URI permission for notification image", e)
+                        Log.w(TAG, "Error granting URI permission for notification image", e)
                     }
                 }
                 
