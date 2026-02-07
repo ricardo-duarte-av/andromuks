@@ -9,6 +9,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -153,6 +156,7 @@ fun UserInfoScreen(
     val coroutineScope = rememberCoroutineScope()
     var showFullAvatarDialog by remember { mutableStateOf(false) }
     var fullAvatarUrl by remember { mutableStateOf<String?>(null) }
+    var viewingGlobalAvatar by remember { mutableStateOf(false) } // Track which avatar is being viewed
     // State to hold user info
     var userProfileInfo by remember { mutableStateOf<UserProfileInfo?>(null) }
     var isLoading by remember { mutableStateOf(true) }
@@ -283,6 +287,7 @@ fun UserInfoScreen(
                                 
                                 if (fullUrl != null) {
                                     fullAvatarUrl = fullUrl
+                                    viewingGlobalAvatar = false // Main avatar (room-specific if available)
                                     showFullAvatarDialog = true
                                 } else {
                                     Toast.makeText(
@@ -306,6 +311,7 @@ fun UserInfoScreen(
                     val hasRoomSpecificDisplayName = roomDisplayName != null && roomDisplayName != globalDisplayName
                     val displayNameForAvatar = if (hasRoomSpecificDisplayName) roomDisplayName else (globalDisplayName ?: usernameFromMatrixId(userId))
                     
+                    // Main avatar (room-specific if available, otherwise global)
                     AvatarImage(
                         mxcUrl = avatarUrlToUse,
                         homeserverUrl = appViewModel.homeserverUrl,
@@ -315,6 +321,58 @@ fun UserInfoScreen(
                         userId = userId,
                         displayName = displayNameForAvatar
                     )
+                    
+                    // Show global avatar as badge in top-right corner if we have room-specific avatar
+                    if (hasRoomSpecificAvatar && globalAvatarUrl != null) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .size(80.dp) // Badge size
+                                .padding(4.dp)
+                                .clickable(enabled = true) {
+                                    // Open global avatar in viewer
+                                    val fullUrl = AvatarUtils.getFullImageUrl(
+                                        context,
+                                        globalAvatarUrl,
+                                        appViewModel.homeserverUrl
+                                    ) ?: AvatarUtils.getAvatarUrl(
+                                        context,
+                                        globalAvatarUrl,
+                                        appViewModel.homeserverUrl
+                                    )
+                                    
+                                    if (fullUrl != null) {
+                                        fullAvatarUrl = fullUrl
+                                        viewingGlobalAvatar = true // Global avatar badge
+                                        showFullAvatarDialog = true
+                                    } else {
+                                        Toast.makeText(
+                                            context,
+                                            "Full-size avatar unavailable",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape),
+                                color = MaterialTheme.colorScheme.surface
+                            ) {
+                                AvatarImage(
+                                    mxcUrl = globalAvatarUrl,
+                                    homeserverUrl = appViewModel.homeserverUrl,
+                                    authToken = appViewModel.authToken,
+                                    fallbackText = globalDisplayName ?: usernameFromMatrixId(userId),
+                                    size = 80.dp,
+                                    userId = userId,
+                                    displayName = globalDisplayName
+                                )
+                            }
+                        }
+                    }
                 }
                 
                 // User Display Name and Matrix ID - reduced spacing
@@ -527,13 +585,27 @@ fun UserInfoScreen(
     }
     
     if (showFullAvatarDialog && fullAvatarUrl != null) {
+        val avatarMxcUrl = if (viewingGlobalAvatar) {
+            userProfileInfo?.avatarUrl
+        } else {
+            userProfileInfo?.roomAvatarUrl ?: userProfileInfo?.avatarUrl
+        }
+        val displayName = if (viewingGlobalAvatar) {
+            userProfileInfo?.displayName ?: userId
+        } else {
+            userProfileInfo?.roomDisplayName ?: userProfileInfo?.displayName ?: userId
+        }
+        
         AvatarViewerDialog(
             imageUrl = fullAvatarUrl!!,
-            avatarMxcUrl = userProfileInfo?.roomAvatarUrl ?: userProfileInfo?.avatarUrl,
+            avatarMxcUrl = avatarMxcUrl,
             homeserverUrl = appViewModel.homeserverUrl,
             authToken = appViewModel.authToken,
-            displayName = userProfileInfo?.roomDisplayName ?: userProfileInfo?.displayName ?: userId,
-            onDismiss = { showFullAvatarDialog = false }
+            displayName = displayName,
+            onDismiss = { 
+                showFullAvatarDialog = false
+                viewingGlobalAvatar = false
+            }
         )
     }
     
