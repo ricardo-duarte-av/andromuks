@@ -8659,8 +8659,8 @@ class AppViewModel : ViewModel() {
             val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
             val isActivelyCached = RoomTimelineCache.isRoomActivelyCached(roomId)
             
-            if (cachedEventCount >= 10 && isActivelyCached) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room $roomId already in cache ($cachedEventCount events, actively cached), skipping preemptive pagination")
+            if (cachedEventCount >= 50 && isActivelyCached) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room $roomId already in cache ($cachedEventCount events >= 50, actively cached), skipping preemptive pagination")
                 return@launch
             }
             
@@ -8803,32 +8803,32 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        // GUARD: Check if a paginate request is already pending for this room (atomic check-and-set)
-        // This prevents multiple paginate requests when requestRoomTimeline is called multiple times
-        val wasAdded = roomsWithPendingPaginate.add(roomId)
-        if (!wasAdded) {
-            // Room already has a pending paginate request
-            android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: Paginate already pending - roomId=$roomId, isRefreshingSameRoom=$isRefreshingSameRoom")
-            // Still set loading state and clear timeline if needed
-            if (!isRefreshingSameRoom) {
+        // CRITICAL FIX: When cache is insufficient (< 50 events, which is half of paginate limit), always paginate when opening a room
+        // This ensures rooms with evicted cache or minimal cache still get populated
+        // AUTO_PAGINATION_ENABLED only controls automatic pagination for loading more history, not initial pagination
+        // We request 100 events via paginate, so if we have less than half (50), we should paginate
+        val currentCachedCount = RoomTimelineCache.getCachedEventCount(roomId)
+        val cacheInsufficient = currentCachedCount < 50
+        
+        if (cacheInsufficient && !isRefreshingSameRoom) {
+            // Cache is insufficient - send paginate request to populate it
+            // GUARD: Check if a paginate request is already pending for this room (atomic check-and-set)
+            val wasAdded = roomsWithPendingPaginate.add(roomId)
+            if (!wasAdded) {
+                // Room already has a pending paginate request
+                android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: Paginate already pending - roomId=$roomId")
                 timelineEvents = emptyList()
                 isTimelineLoading = true
-                android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: Set loading state - roomId=$roomId, isTimelineLoading=$isTimelineLoading")
+                return
             }
-            android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: EXIT (paginate already pending) - roomId=$roomId")
-            return
-        }
-        
-        // Only send paginate when opening a new room (not refreshing the same room)
-        if (!isRefreshingSameRoom) {
+            
             val paginateRequestId = requestIdCounter++
             timelineRequests[paginateRequestId] = roomId
-            android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: Sending paginate - roomId=$roomId, requestId=$paginateRequestId, limit=$INITIAL_ROOM_PAGINATE_LIMIT, isTimelineLoading=$isTimelineLoading")
+            android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: Cache insufficient ($currentCachedCount < 50) - sending paginate - roomId=$roomId, requestId=$paginateRequestId, limit=$INITIAL_ROOM_PAGINATE_LIMIT")
             
             // Set loading state BEFORE sending command
             timelineEvents = emptyList()
             isTimelineLoading = true
-            android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: Set loading=true - roomId=$roomId, isTimelineLoading=$isTimelineLoading")
             
             val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
                 "room_id" to roomId,
@@ -8837,39 +8837,17 @@ class AppViewModel : ViewModel() {
                 "reset" to false
             ))
             
-            android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: sendWebSocketCommand returned - roomId=$roomId, requestId=$paginateRequestId, result=$result")
-            
             if (result == WebSocketResult.SUCCESS) {
                 // PROACTIVE CACHE MANAGEMENT: Mark room as actively cached so SyncIngestor knows to update it
                 RoomTimelineCache.markRoomAsCached(roomId)
-                markInitialPaginate(roomId, "cache_miss")
+                markInitialPaginate(roomId, "cache_insufficient")
                 android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: Paginate sent successfully - roomId=$roomId, requestId=$paginateRequestId, marked as actively cached, waiting for response...")
             } else {
                 android.util.Log.w("Andromuks", "🟢 requestRoomTimeline: FAILED to send paginate - roomId=$roomId, requestId=$paginateRequestId, result=$result, removing from tracking")
-                // Remove from tracking if send failed
                 timelineRequests.remove(paginateRequestId)
                 roomsWithPendingPaginate.remove(roomId)
                 isTimelineLoading = false
-                android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: Set loading=false (send failed) - roomId=$roomId, isTimelineLoading=$isTimelineLoading")
             }
-        } else {
-            // Not sending paginate, so remove from tracking
-            roomsWithPendingPaginate.remove(roomId)
-        }
-        
-        // Set loading state and clear timeline when cache is empty and we're waiting for paginate response
-        // Only clear timeline if we're opening a different room, or if timeline is already empty
-        // This prevents clearing timeline when resuming from background for the same room
-        if (isRefreshingSameRoom) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Preserving existing timeline on resume (${timelineEvents.size} events) - will fetch new events in background")
-            // Don't clear timelineEvents - keep existing events visible
-            // Don't set loading to true - keep UI responsive
-            // Don't clear internal structures - they're still needed for the existing timeline
-            isTimelineLoading = false
-        } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Clearing timeline - opening new room or timeline empty, waiting for paginate response")
-            timelineEvents = emptyList()
-            isTimelineLoading = true
             
             // Reset pagination state for new room
             smallestRowId = -1L
@@ -8879,48 +8857,27 @@ class AppViewModel : ViewModel() {
             // Clear edit chain mapping when opening a new room
             eventChainMap.clear()
             editEventsMap.clear()
-            
-            // Clear optimized version cache when opening a new room
             MessageVersionsCache.clear()
-            // editToOriginal is computed from messageVersions, no need to clear separately
-            // redactionCache is computed from messageVersions, no need to clear separately
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared version cache for new room: $roomId")
-            
-            // Clear message reactions when switching rooms
             MessageReactionsCache.clear()
-        messageReactions = emptyMap()
+            messageReactions = emptyMap()
             roomsWithLoadedReactions.remove(roomId)
-        }
-        
-        // Ensure member cache exists for this room (singleton cache handles this automatically)
-        
-        // NAVIGATION PERFORMANCE: Partial loading - only request what's not already available
-        val missNavigationState = getRoomNavigationState(roomId)
-        
-        // Load essential data first (room state without members) - only if not already loaded
-        if (missNavigationState?.essentialDataLoaded != true && !pendingRoomStateRequests.contains(roomId)) {
-            requestRoomState(roomId)
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Requested essential room state")
-        }
-        
-        // OPPORTUNISTIC PROFILE LOADING: Skip member data loading to prevent OOM
-        // Member profiles will be loaded on-demand when actually needed for rendering
-        if (missNavigationState?.memberDataLoaded != true) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SKIPPING member data loading (using opportunistic loading)")
-            // Mark as loaded to prevent repeated attempts
-            navigationCache[roomId] = missNavigationState?.copy(memberDataLoaded = true) ?: RoomNavigationState(roomId, memberDataLoaded = true)
-        }
-        
-        val currentCachedCount = RoomTimelineCache.getCachedEventCount(roomId)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION NOTE - Cache miss with $currentCachedCount events available.")
-        
-        // Auto paginate disabled: do not request from server even on cache miss.
-        if (currentCachedCount == 0) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cache empty for $roomId - auto paginate disabled; waiting for manual refresh.")
-            isTimelineLoading = false
+            
+            // Load essential data
+            val missNavigationState = getRoomNavigationState(roomId)
+            if (missNavigationState?.essentialDataLoaded != true && !pendingRoomStateRequests.contains(roomId)) {
+                requestRoomState(roomId)
+            }
+            
             return
+        }
+        
+        // Cache is sufficient OR we're refreshing the same room - handle accordingly
+        if (isRefreshingSameRoom) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Preserving existing timeline on resume (${timelineEvents.size} events)")
+            isTimelineLoading = false
         } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cache has $currentCachedCount events - waiting for manual refresh to request additional history.")
+            // Cache has >= 50 events but wasn't actively cached - use it
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cache has $currentCachedCount events (>= 50) but wasn't actively cached - using cache")
             isTimelineLoading = false
         }
     }
@@ -9085,8 +9042,9 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Cache check - roomId=$roomId, cachedEventCount=$cachedEventCount, isActivelyCached=${RoomTimelineCache.isRoomActivelyCached(roomId)}")
             
             // OPTIMIZATION #4: Use the exact same logic as requestRoomTimeline for consistency
-            if (cachedEventCount >= 10) {
-                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Using cache (>=10 events) - roomId=$roomId, cachedEventCount=$cachedEventCount")
+            // We request 100 events via paginate, so if we have >= 50 (half), use cache
+            if (cachedEventCount >= 50) {
+                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Using cache (>=50 events) - roomId=$roomId, cachedEventCount=$cachedEventCount")
                 // OPTIMIZATION #4: Use cached data immediately (same threshold as requestRoomTimeline)
                 // Get cached events using the same method as requestRoomTimeline
                 val cachedEvents = RoomTimelineCache.getCachedEvents(roomId)
@@ -9211,7 +9169,7 @@ class AppViewModel : ViewModel() {
                     android.util.Log.w("Andromuks", "🔵 navigateToRoomWithCache: Cache miss - roomId=$roomId, cachedEventCount=$cachedEventCount but getCachedEvents returned null")
                 }
             } else {
-                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Cache insufficient - roomId=$roomId, cachedEventCount=$cachedEventCount (<10), will request timeline")
+                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Cache insufficient - roomId=$roomId, cachedEventCount=$cachedEventCount (<50), will request timeline")
             }
             
             // OPTIMIZATION #4: Fallback to regular requestRoomTimeline if no cache
