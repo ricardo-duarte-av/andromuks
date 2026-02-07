@@ -1303,12 +1303,29 @@ fun RoomTimelineScreen(
     // Using just size is sufficient - if size changes, we need to recompute anyway
     val sortedEventsSize = sortedEvents.size
     
-    // CRITICAL FIX: Don't call getMemberMapWithFallback during composition - it's too expensive
-    // getMemberMapWithFallback iterates over all events and calls ProfileCache for each sender
-    // This blocks the UI thread during initial render when 94 events are being composed
-    // Instead, use base memberMap and let TimelineEventItem handle fallback profiles individually
-    // TimelineEventItem already has LaunchedEffect to request profiles on-demand (non-blocking)
-    val memberMapWithFallback = memberMap
+    // CRITICAL FIX: Ensure current user profile is included in memberMapWithFallback
+    // The current user's profile might not be in the room's member map if there's no m.room.member event for them
+    // This fixes the issue where own messages show username instead of display name/avatar
+    val memberMapWithFallback = remember(memberMap, appViewModel.currentUserProfile, myUserId) {
+        val enhancedMap = memberMap.toMutableMap()
+        
+        // If current user is not in member map but we have currentUserProfile, add it
+        if (myUserId.isNotBlank() && !enhancedMap.containsKey(myUserId)) {
+            val currentProfile = appViewModel.currentUserProfile
+            if (currentProfile != null) {
+                enhancedMap[myUserId] = MemberProfile(
+                    displayName = currentProfile.displayName,
+                    avatarUrl = currentProfile.avatarUrl
+                )
+                if (BuildConfig.DEBUG) Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Added current user profile to memberMapWithFallback - userId: $myUserId, displayName: ${currentProfile.displayName}"
+                )
+            }
+        }
+        
+        enhancedMap
+    }
 
     // List state and auto-scroll to bottom when data loads/changes
     val listState = rememberLazyListState()

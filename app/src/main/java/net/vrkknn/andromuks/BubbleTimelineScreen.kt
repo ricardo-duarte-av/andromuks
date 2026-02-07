@@ -1248,8 +1248,32 @@ fun BubbleTimelineScreen(
     var lastInitialScrollSize by remember(roomId) { mutableStateOf(0) }
 
     // Get member map that observes memberUpdateCounter and includes global cache fallback for TimelineEventItem profile updates
-    val memberMap = remember(roomId, appViewModel.memberUpdateCounter, sortedEvents) {
+    val baseMemberMap = remember(roomId, appViewModel.memberUpdateCounter, sortedEvents) {
         appViewModel.getMemberMapWithFallback(roomId, sortedEvents)
+    }
+    
+    // CRITICAL FIX: Ensure current user profile is included in memberMap
+    // The current user's profile might not be in the room's member map if there's no m.room.member event for them
+    // This fixes the issue where own messages show username instead of display name/avatar
+    val memberMap = remember(baseMemberMap, appViewModel.currentUserProfile, myUserId) {
+        val enhancedMap = baseMemberMap.toMutableMap()
+        
+        // If current user is not in member map but we have currentUserProfile, add it
+        if (myUserId.isNotBlank() && !enhancedMap.containsKey(myUserId)) {
+            val currentProfile = appViewModel.currentUserProfile
+            if (currentProfile != null) {
+                enhancedMap[myUserId] = MemberProfile(
+                    displayName = currentProfile.displayName,
+                    avatarUrl = currentProfile.avatarUrl
+                )
+                if (BuildConfig.DEBUG) Log.d(
+                    "Andromuks",
+                    "BubbleTimelineScreen: Added current user profile to memberMap - userId: $myUserId, displayName: ${currentProfile.displayName}"
+                )
+            }
+        }
+        
+        enhancedMap
     }
 
     // List state and auto-scroll to bottom when data loads/changes
