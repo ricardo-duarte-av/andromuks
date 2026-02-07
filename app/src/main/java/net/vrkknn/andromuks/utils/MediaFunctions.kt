@@ -1100,15 +1100,15 @@ private fun MediaContent(
                                 if (BuildConfig.DEBUG && blurHashForDisplay == null) {
                                     Log.d("Andromuks", "No BlurHash available, using simple fallback")
                                 }
-                                BitmapPainter(
-                                    BlurHashUtils.createPlaceholderBitmap(
-                                        blurHashWidth,
-                                        blurHashHeight,
-                                        androidx.compose.ui.graphics.Color.Gray
-                                    )
-                                )
+                                        BitmapPainter(
+                                            BlurHashUtils.createPlaceholderBitmap(
+                                                blurHashWidth,
+                                                blurHashHeight,
+                                                androidx.compose.ui.graphics.Color.Gray
+                                            )
+                                        )
+                                    }
                             }
-                        }
 
                         if (BuildConfig.DEBUG) Log.d("Andromuks", "BlurHash painter created")
 
@@ -1320,11 +1320,11 @@ private fun MediaContent(
                                     decodedVideoBlurHashBitmap = null // Reset while decoding
                                     withContext(Dispatchers.Default) {
                                         val bitmap = BlurHashUtils.decodeBlurHash(videoBlurHash!!, videoBlurHashWidth, videoBlurHashHeight)
-                                        if (bitmap != null) {
+                                    if (bitmap != null) {
                                             decodedVideoBlurHashBitmap = bitmap.asImageBitmap()
                                         }
                                     }
-                                } else {
+                                    } else {
                                     decodedVideoBlurHashBitmap = null
                                 }
                             }
@@ -1333,12 +1333,12 @@ private fun MediaContent(
                                 decodedVideoBlurHashBitmap?.let { imageBitmap ->
                                     BitmapPainter(imageBitmap)
                                 } ?: BitmapPainter(
-                                    BlurHashUtils.createPlaceholderBitmap(
-                                        videoBlurHashWidth,
-                                        videoBlurHashHeight,
-                                        androidx.compose.ui.graphics.Color.Gray
+                                        BlurHashUtils.createPlaceholderBitmap(
+                                            videoBlurHashWidth,
+                                            videoBlurHashHeight,
+                                            androidx.compose.ui.graphics.Color.Gray
+                                        )
                                     )
-                                )
                             }
                         
                         Box(
