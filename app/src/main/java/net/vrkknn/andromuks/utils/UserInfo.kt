@@ -260,8 +260,12 @@ fun UserInfoScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // User Avatar - made larger (use room avatar if available, otherwise global)
-                val avatarUrlToUse = userProfileInfo!!.roomAvatarUrl ?: userProfileInfo!!.avatarUrl
+                // User Avatar - made larger (use room avatar if different from global, otherwise global)
+                val roomAvatarUrl = userProfileInfo!!.roomAvatarUrl?.takeIf { !it.isNullOrBlank() }
+                val globalAvatarUrl = userProfileInfo!!.avatarUrl?.takeIf { !it.isNullOrBlank() }
+                val hasRoomSpecificAvatar = roomAvatarUrl != null && roomAvatarUrl != globalAvatarUrl
+                val avatarUrlToUse = if (hasRoomSpecificAvatar) roomAvatarUrl else globalAvatarUrl
+                
                 Box(
                     modifier = Modifier
                         .size(220.dp)
@@ -297,14 +301,19 @@ fun UserInfoScreen(
                         },
                     contentAlignment = Alignment.Center
                 ) {
+                    val roomDisplayName = userProfileInfo!!.roomDisplayName?.takeIf { !it.isNullOrBlank() }
+                    val globalDisplayName = userProfileInfo!!.displayName?.takeIf { !it.isNullOrBlank() }
+                    val hasRoomSpecificDisplayName = roomDisplayName != null && roomDisplayName != globalDisplayName
+                    val displayNameForAvatar = if (hasRoomSpecificDisplayName) roomDisplayName else (globalDisplayName ?: usernameFromMatrixId(userId))
+                    
                     AvatarImage(
                         mxcUrl = avatarUrlToUse,
                         homeserverUrl = appViewModel.homeserverUrl,
                         authToken = appViewModel.authToken,
-                        fallbackText = (userProfileInfo!!.roomDisplayName ?: userProfileInfo!!.displayName) ?: usernameFromMatrixId(userId),
+                        fallbackText = displayNameForAvatar,
                         size = 220.dp,
                         userId = userId,
-                        displayName = userProfileInfo!!.roomDisplayName ?: userProfileInfo!!.displayName
+                        displayName = displayNameForAvatar
                     )
                 }
                 
@@ -314,8 +323,18 @@ fun UserInfoScreen(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     // Per-room display name (if available) or global display name
-                    val displayNameToShow = userProfileInfo!!.roomDisplayName ?: userProfileInfo!!.displayName ?: usernameFromMatrixId(userId)
-                    val isRoomSpecific = userProfileInfo!!.roomDisplayName != null
+                    val roomDisplayName = userProfileInfo!!.roomDisplayName?.takeIf { !it.isNullOrBlank() }
+                    val globalDisplayName = userProfileInfo!!.displayName?.takeIf { !it.isNullOrBlank() }
+                    val roomAvatarUrl = userProfileInfo!!.roomAvatarUrl?.takeIf { !it.isNullOrBlank() }
+                    val globalAvatarUrl = userProfileInfo!!.avatarUrl?.takeIf { !it.isNullOrBlank() }
+                    
+                    // Determine if we have a room-specific profile (different from global)
+                    val hasRoomSpecificDisplayName = roomDisplayName != null && roomDisplayName != globalDisplayName
+                    val hasRoomSpecificAvatar = roomAvatarUrl != null && roomAvatarUrl != globalAvatarUrl
+                    val hasRoomSpecificProfile = hasRoomSpecificDisplayName || hasRoomSpecificAvatar
+                    
+                    // Use room-specific if available and different, otherwise use global
+                    val displayNameToShow = if (hasRoomSpecificDisplayName) roomDisplayName else (globalDisplayName ?: usernameFromMatrixId(userId))
                     
                     Text(
                         text = displayNameToShow,
@@ -324,8 +343,8 @@ fun UserInfoScreen(
                         textAlign = TextAlign.Center
                     )
                     
-                    // Show room-specific indicator if per-room profile is available
-                    if (isRoomSpecific && effectiveRoomId != null) {
+                    // Show room-specific indicator ONLY if we have a room-specific profile (different from global)
+                    if (hasRoomSpecificProfile) {
                         Text(
                             text = "Room-specific profile",
                             style = MaterialTheme.typography.labelSmall,
@@ -333,9 +352,9 @@ fun UserInfoScreen(
                             textAlign = TextAlign.Center
                         )
                         // Also show global display name if different
-                        if (userProfileInfo!!.displayName != null && userProfileInfo!!.displayName != userProfileInfo!!.roomDisplayName) {
+                        if (globalDisplayName != null && globalDisplayName != displayNameToShow) {
                             Text(
-                                text = "Global: ${userProfileInfo!!.displayName}",
+                                text = "Global: $globalDisplayName",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center
