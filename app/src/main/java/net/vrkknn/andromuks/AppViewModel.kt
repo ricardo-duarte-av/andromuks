@@ -15407,6 +15407,7 @@ class AppViewModel : ViewModel() {
         var pronouns: List<net.vrkknn.andromuks.utils.UserPronouns>? = null
         var encryptionInfo: net.vrkknn.andromuks.utils.UserEncryptionInfo? = null
         var mutualRooms: List<String> = emptyList()
+        var arbitraryFields: Map<String, Any> = emptyMap()
         
         var profileCompleted = false
         var encryptionCompleted = false
@@ -15434,7 +15435,8 @@ class AppViewModel : ViewModel() {
                     encryptionInfo = encryptionInfo,
                     mutualRooms = mutualRooms,
                     roomDisplayName = null, // Per-room profile will be loaded separately if roomId is provided
-                    roomAvatarUrl = null
+                    roomAvatarUrl = null,
+                    arbitraryFields = arbitraryFields
                 )
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Full user info completed for $userId")
                 callback(profileInfo, null)
@@ -15518,7 +15520,30 @@ class AppViewModel : ViewModel() {
                     }
                 }
                 
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile data received for $userId - display: $displayName, avatar: ${avatarUrl != null}, timezone: $timezone, pronouns: ${pronouns?.size ?: 0}")
+                // Extract all arbitrary fields (everything except known fields)
+                val knownKeys = setOf("displayname", "avatar_url", "us.cloke.msc4175.tz", "io.fsky.nyx.pronouns")
+                val arbitraryFieldsMap = mutableMapOf<String, Any>()
+                val keys = profileData.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    if (!knownKeys.contains(key)) {
+                        val value = profileData.get(key)
+                        // Convert JSON types to Kotlin types
+                        when (value) {
+                            is org.json.JSONArray -> arbitraryFieldsMap[key] = value
+                            is org.json.JSONObject -> arbitraryFieldsMap[key] = value
+                            is String -> arbitraryFieldsMap[key] = value
+                            is Number -> arbitraryFieldsMap[key] = value
+                            is Boolean -> arbitraryFieldsMap[key] = value
+                            else -> arbitraryFieldsMap[key] = value.toString()
+                        }
+                    }
+                }
+                
+                // Store arbitrary fields in outer variable
+                arbitraryFields = arbitraryFieldsMap
+                
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile data received for $userId - display: $displayName, avatar: ${avatarUrl != null}, timezone: $timezone, pronouns: ${pronouns?.size ?: 0}, arbitraryFields: ${arbitraryFieldsMap.size}")
             } else {
                 android.util.Log.w("Andromuks", "AppViewModel: Profile data is null for $userId")
             }
@@ -15547,7 +15572,8 @@ class AppViewModel : ViewModel() {
                         encryptionInfo = encryptionInfo,
                         mutualRooms = mutualRooms,
                         roomDisplayName = null, // Per-room profile will be loaded separately if roomId is provided
-                        roomAvatarUrl = null
+                        roomAvatarUrl = null,
+                        arbitraryFields = arbitraryFields
                     )
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Returning partial user info after timeout for $userId")
                     callback(profileInfo, null)

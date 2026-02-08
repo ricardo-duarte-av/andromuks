@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.border
@@ -72,6 +74,7 @@ import androidx.compose.foundation.layout.statusBars
 
 
 import org.json.JSONObject
+import org.json.JSONArray
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -137,8 +140,122 @@ data class UserProfileInfo(
     val encryptionInfo: UserEncryptionInfo?,
     val mutualRooms: List<String>,
     val roomDisplayName: String? = null, // Per-room display name
-    val roomAvatarUrl: String? = null // Per-room avatar URL
+    val roomAvatarUrl: String? = null, // Per-room avatar URL
+    val arbitraryFields: Map<String, Any> = emptyMap() // All other profile fields not explicitly handled
 )
+
+/**
+ * Composable to display an arbitrary profile field
+ */
+@Composable
+fun ArbitraryFieldCard(key: String, value: Any) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = key,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            
+            // Render value based on type
+            when (value) {
+                is org.json.JSONArray -> {
+                    // Handle array of objects (like pronouns format)
+                    if (value.length() > 0) {
+                        val firstItem = value.optJSONObject(0)
+                        if (firstItem != null && firstItem.has("language") && firstItem.has("summary")) {
+                            // Format similar to pronouns
+                            val items = mutableListOf<String>()
+                            for (i in 0 until value.length()) {
+                                val item = value.optJSONObject(i)
+                                if (item != null) {
+                                    val summary = item.optString("summary", "")
+                                    if (summary.isNotBlank()) {
+                                        items.add(summary)
+                                    }
+                                }
+                            }
+                            if (items.isNotEmpty()) {
+                                Text(
+                                    text = items.joinToString(", "),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                Text(
+                                    text = value.toString(),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else {
+                            // Generic array
+                            Text(
+                                text = value.toString(),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "[]",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                is org.json.JSONObject -> {
+                    Text(
+                        text = value.toString(2), // Pretty print with 2-space indent
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                is String -> {
+                    Text(
+                        text = value,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                is Number -> {
+                    Text(
+                        text = value.toString(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                is Boolean -> {
+                    Text(
+                        text = if (value) "Yes" else "No",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                else -> {
+                    Text(
+                        text = value.toString(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
 
 /**
  * User Info Screen - displays detailed information about a user
@@ -256,10 +373,12 @@ fun UserInfoScreen(
                 )
             }
         } else if (userProfileInfo != null) {
+            val scrollState = rememberScrollState()
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
+                    .verticalScroll(scrollState)
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -569,6 +688,28 @@ fun UserInfoScreen(
                         modifier = Modifier.weight(1f)
                     ) {
                         Text("Shared Rooms (${userProfileInfo!!.mutualRooms.size})")
+                    }
+                }
+                
+                // Arbitrary profile fields
+                val arbitraryFields = userProfileInfo!!.arbitraryFields
+                if (arbitraryFields.isNotEmpty()) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    
+                    Text(
+                        text = "Additional Profile Information",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        arbitraryFields.toSortedMap().forEach { (key, value) ->
+                            ArbitraryFieldCard(key = key, value = value)
+                        }
                     }
                 }
             }
