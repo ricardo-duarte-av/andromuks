@@ -6604,6 +6604,65 @@ class AppViewModel : ViewModel() {
         }
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Appended ${trulyNewEvents.size} events to cached room $roomId")
+        
+        // Check for missing m.in_reply_to targets after adding events from sync_complete
+        // If a message references a reply target that's not in the cache, fetch it via get_event
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                // Re-check cache after adding new events to ensure we have the latest state
+                val cachedEvents = RoomTimelineCache.getCachedEvents(roomId) ?: emptyList()
+                val cachedEventIds = cachedEvents.map { it.eventId }.toSet()
+                val missingReplyTargets = mutableSetOf<Pair<String, String>>() // (roomId, eventId)
+                
+                // Check all newly added events for m.in_reply_to references
+                for (event in newEvents) {
+                    // Check for m.in_reply_to in both content and decrypted
+                    val replyToEventId = event.content?.optJSONObject("m.relates_to")?.optJSONObject("m.in_reply_to")?.optString("event_id")
+                        ?: event.decrypted?.optJSONObject("m.relates_to")?.optJSONObject("m.in_reply_to")?.optString("event_id")
+                    
+                    if (replyToEventId != null && replyToEventId.isNotBlank()) {
+                        // Check if the reply target is in the cache
+                        if (!cachedEventIds.contains(replyToEventId)) {
+                            missingReplyTargets.add(Pair(event.roomId, replyToEventId))
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Missing reply target event_id=$replyToEventId for event ${event.eventId} in room ${event.roomId} (from sync_complete)")
+                        }
+                    }
+                }
+                
+                // Fetch missing reply targets via get_event
+                if (missingReplyTargets.isNotEmpty()) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Fetching ${missingReplyTargets.size} missing reply target events via get_event (from sync_complete)")
+                    
+                    for ((targetRoomId, targetEventId) in missingReplyTargets) {
+                        // Use a suspend function to fetch the event
+                        val deferred = CompletableDeferred<TimelineEvent?>()
+                        withContext(Dispatchers.Main) {
+                            getEvent(targetRoomId, targetEventId) { event ->
+                                deferred.complete(event)
+                            }
+                        }
+                        
+                        val fetchedEvent = withTimeoutOrNull(5000L) {
+                            deferred.await()
+                        }
+                        
+                        if (fetchedEvent != null) {
+                            // Add the fetched event to the cache
+                            val memberMap = RoomMemberCache.getRoomMembers(targetRoomId)
+                            val eventsJsonArray = org.json.JSONArray()
+                            eventsJsonArray.put(fetchedEvent.toRawJsonObject())
+                            RoomTimelineCache.addEventsFromSync(targetRoomId, eventsJsonArray, memberMap)
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Fetched and cached missing reply target event_id=$targetEventId for room $targetRoomId (from sync_complete)")
+                        } else {
+                            android.util.Log.w("Andromuks", "AppViewModel: Failed to fetch missing reply target event_id=$targetEventId for room $targetRoomId (timeout or error, from sync_complete)")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Error checking for missing reply targets from sync_complete", e)
+            }
+        }
+        
         return true
     }
     
@@ -11787,8 +11846,104 @@ class AppViewModel : ViewModel() {
                 val eventsArray = data.optJSONArray("events")
                 if (eventsArray != null) {
                     android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: JSONObject with events array - roomId=$roomId, requestId=$requestId, events.length=${eventsArray.length()}")
+                    
+                    // CRITICAL: Process related_events FIRST before processing main events
+                    // This ensures that when main events are processed and rendered, the reply targets
+                    // from related_events are already in the cache and can be found immediately
+                    val relatedEventsArray = data.optJSONArray("related_events")
+                    if (relatedEventsArray != null && relatedEventsArray.length() > 0) {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing ${relatedEventsArray.length()} related_events from paginate response for room $roomId (BEFORE main events)")
+                        val memberMap = RoomMemberCache.getRoomMembers(roomId)
+                        RoomTimelineCache.addEventsFromSync(roomId, relatedEventsArray, memberMap)
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added ${relatedEventsArray.length()} related_events to timeline cache for room $roomId")
+                        // CRITICAL: Increment timelineUpdateCounter so reply previews can reactively find events in related_events
+                        // This ensures that when related_events are added to the cache, composables that are looking for reply targets
+                        // will re-check the cache and find the newly added events
+                        timelineUpdateCounter++
+                    }
+                    
+                    // NOW process main events array - related_events are already in cache
                     totalReactionsProcessed = processEventsArray(eventsArray)
                     android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: processEventsArray completed - roomId=$roomId, requestId=$requestId, reactionsProcessed=$totalReactionsProcessed, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading")
+                    
+                    // After processing all events, check for missing m.in_reply_to targets
+                    // If a message references a reply target that's not in the cache, fetch it via get_event
+                    viewModelScope.launch(Dispatchers.Default) {
+                        try {
+                            // Re-check cache after adding related_events to ensure we have the latest state
+                            val cachedEvents = RoomTimelineCache.getCachedEvents(roomId) ?: emptyList()
+                            val cachedEventIds = cachedEvents.map { it.eventId }.toSet()
+                            val missingReplyTargets = mutableSetOf<Pair<String, String>>() // (roomId, eventId)
+                            
+                            // Check all events in the response for m.in_reply_to references
+                            for (i in 0 until eventsArray.length()) {
+                                val eventJson = eventsArray.optJSONObject(i) ?: continue
+                                val event = TimelineEvent.fromJson(eventJson)
+                                
+                                // Check for m.in_reply_to in both content and decrypted
+                                val replyToEventId = event.content?.optJSONObject("m.relates_to")?.optJSONObject("m.in_reply_to")?.optString("event_id")
+                                    ?: event.decrypted?.optJSONObject("m.relates_to")?.optJSONObject("m.in_reply_to")?.optString("event_id")
+                                
+                                if (replyToEventId != null && replyToEventId.isNotBlank()) {
+                                    // Check if the reply target is in the cache
+                                    if (!cachedEventIds.contains(replyToEventId)) {
+                                        missingReplyTargets.add(Pair(event.roomId, replyToEventId))
+                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Missing reply target event_id=$replyToEventId for event ${event.eventId} in room ${event.roomId}")
+                                    }
+                                }
+                            }
+                            
+                            // Also check related_events for m.in_reply_to references
+                            if (relatedEventsArray != null) {
+                                for (i in 0 until relatedEventsArray.length()) {
+                                    val eventJson = relatedEventsArray.optJSONObject(i) ?: continue
+                                    val event = TimelineEvent.fromJson(eventJson)
+                                    
+                                    val replyToEventId = event.content?.optJSONObject("m.relates_to")?.optJSONObject("m.in_reply_to")?.optString("event_id")
+                                        ?: event.decrypted?.optJSONObject("m.relates_to")?.optJSONObject("m.in_reply_to")?.optString("event_id")
+                                    
+                                    if (replyToEventId != null && replyToEventId.isNotBlank()) {
+                                        if (!cachedEventIds.contains(replyToEventId)) {
+                                            missingReplyTargets.add(Pair(event.roomId, replyToEventId))
+                                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Missing reply target event_id=$replyToEventId for related event ${event.eventId} in room ${event.roomId}")
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Fetch missing reply targets via get_event
+                            if (missingReplyTargets.isNotEmpty()) {
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Fetching ${missingReplyTargets.size} missing reply target events via get_event")
+                                
+                                for ((targetRoomId, targetEventId) in missingReplyTargets) {
+                                    // Use a suspend function to fetch the event
+                                    val deferred = CompletableDeferred<TimelineEvent?>()
+                                    withContext(Dispatchers.Main) {
+                                        getEvent(targetRoomId, targetEventId) { event ->
+                                            deferred.complete(event)
+                                        }
+                                    }
+                                    
+                                    val fetchedEvent = withTimeoutOrNull(5000L) {
+                                        deferred.await()
+                                    }
+                                    
+                                    if (fetchedEvent != null) {
+                                        // Add the fetched event to the cache
+                                        val memberMap = RoomMemberCache.getRoomMembers(targetRoomId)
+                                        val eventsJsonArray = org.json.JSONArray()
+                                        eventsJsonArray.put(fetchedEvent.toRawJsonObject())
+                                        RoomTimelineCache.addEventsFromSync(targetRoomId, eventsJsonArray, memberMap)
+                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Fetched and cached missing reply target event_id=$targetEventId for room $targetRoomId")
+                                    } else {
+                                        android.util.Log.w("Andromuks", "AppViewModel: Failed to fetch missing reply target event_id=$targetEventId for room $targetRoomId (timeout or error)")
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("Andromuks", "AppViewModel: Error checking for missing reply targets", e)
+                        }
+                    }
                 } else {
                     android.util.Log.w("Andromuks", "🟡 handleTimelineResponse: JSONObject did not contain 'events' array - roomId=$roomId, requestId=$requestId, keys=${data.keys().asSequence().toList()}")
                 }

@@ -179,7 +179,7 @@ fun ReplyPreview(
                 }
             }
         }
-    } ?: "Message not found"
+    } ?: "Reply to unknown event"
     
     val memberProfile = userProfileCache[originalSender]
     val senderName = memberProfile?.displayName ?: originalSender

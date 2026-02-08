@@ -491,6 +491,59 @@ class SyncIngestor(private val context: Context) {
             // No DB persistence needed - all data is in-memory only
         }
         
+        // CRITICAL: Process related_events FIRST before processing main events
+        // This ensures that when main events are processed and rendered, the reply targets
+        // from related_events are already in the cache and can be found immediately
+        val relatedEventsArray = roomObj.optJSONArray("related_events")
+        val relatedEventsList = mutableListOf<TimelineEvent>()
+        if (relatedEventsArray != null && relatedEventsArray.length() > 0) {
+            val listener = cacheUpdateListener
+            val isRoomCached = listener?.getCachedRoomIds()?.contains(roomId) == true
+            
+            if (isRoomCached) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Processing ${relatedEventsArray.length()} related_events from sync_complete for room $roomId (BEFORE main events)")
+                
+                // Parse related_events and collect them in a separate list first
+                for (i in 0 until relatedEventsArray.length()) {
+                    val eventJson = relatedEventsArray.optJSONObject(i) ?: continue
+                    val timelineRowid = eventJson.optLong("timeline_rowid", -1)
+                    
+                    val sourceLabel = "related_events[$i]"
+                    val eventId = eventJson.optString("event_id") ?: "<missing>"
+                    
+                    val timelineEvent = try {
+                        parseEventFromJson(
+                            roomId = roomId,
+                            eventJson = eventJson,
+                            timelineRowid = timelineRowid,
+                            source = sourceLabel,
+                            existingTimelineRowCache = existingTimelineRowCache
+                        )
+                    } catch (e: Exception) {
+                        logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_exception", e)
+                        null
+                    }
+                    
+                    if (timelineEvent != null) {
+                        // Track edit/redaction/reaction flags
+                        if (timelineEvent.type == "m.room.redaction" || timelineEvent.type == "m.reaction") {
+                            hasEditRedactionReaction = true
+                        }
+                        if (timelineEvent.relationType == "m.replace") {
+                            hasEditRedactionReaction = true
+                        }
+                        relatedEventsList.add(timelineEvent)
+                        hasPersistedEvents = true
+                    }
+                }
+                
+                // Prepend related_events to the cache update list (they'll be processed first)
+                eventsForCacheUpdate.addAll(0, relatedEventsList)
+                
+                if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Added ${relatedEventsList.size} related_events to cache update for room $roomId (at beginning of list)")
+            }
+        }
+        
         // 2. Process timeline events - only update cache if room is cached, no DB persistence
         val timeline = roomObj.optJSONArray("timeline")
         if (timeline != null) {
@@ -611,6 +664,9 @@ class SyncIngestor(private val context: Context) {
         
         // No longer persisting receipts - they're received from paginate and sync_complete
         // Receipts are available in the sync_complete response when needed
+        
+        // Note: related_events are now processed FIRST (before timeline and events arrays)
+        // to ensure reply targets are in cache when main events are processed
         
         // 4. Room summaries are no longer persisted to DB - they're built in-memory from sync_complete
         // via SpaceRoomParser.parseSyncUpdate() which creates RoomItem objects with all needed data.

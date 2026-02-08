@@ -76,6 +76,12 @@ import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import net.vrkknn.andromuks.utils.EditHistoryDialog
 import androidx.compose.ui.tooling.preview.Preview
 import org.json.JSONObject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.wrapContentWidth
+import net.vrkknn.andromuks.RoomTimelineCache
+import net.vrkknn.andromuks.RoomMemberCache
 
 private val AvatarGap = 4.dp
 private val AvatarColumnWidth = 32.dp // Wider column to prevent timestamp wrapping
@@ -830,10 +836,12 @@ private fun RoomMessageContent(
 
     // Check if this is a reply message
     val replyInfo = event.getReplyInfo()
-    val originalEvent =
-        replyInfo?.let { reply ->
-            timelineEvents.find<TimelineEvent> { it.eventId == reply.eventId }
-        }
+    val originalEvent = rememberReplyTargetEvent(
+        replyInfo = replyInfo,
+        timelineEvents = timelineEvents,
+        roomId = event.roomId,
+        appViewModel = appViewModel
+    )
 
     // Check if it's a sticker message (sent via send_message with base_content)
     if (msgType == "m.sticker") {
@@ -1683,6 +1691,88 @@ private fun RoomTextMessageContent(
             }
         }
     }
+}
+
+/**
+ * Finds the reply target event by checking:
+ * 1. timelineEvents (currently displayed events)
+ * 2. RoomTimelineCache (all cached events for the room) - checked reactively
+ * 3. Fetching via get_event if not found
+ * 
+ * Returns null if the event cannot be found or fetched.
+ */
+@Composable
+private fun rememberReplyTargetEvent(
+    replyInfo: ReplyInfo?,
+    timelineEvents: List<TimelineEvent>,
+    roomId: String,
+    appViewModel: AppViewModel?
+): TimelineEvent? {
+    if (replyInfo == null) return null
+    
+    // State to track fetched event
+    var fetchedEvent by remember(replyInfo.eventId) { mutableStateOf<TimelineEvent?>(null) }
+    var isFetching by remember(replyInfo.eventId) { mutableStateOf(false) }
+    var fetchFailed by remember(replyInfo.eventId) { mutableStateOf(false) }
+    
+    // Track timeline update counter to reactively check cache when timeline updates
+    val timelineUpdateCounter = appViewModel?.timelineUpdateCounter ?: 0
+    
+    // First, check timelineEvents (currently displayed events)
+    val eventInTimeline = remember(replyInfo.eventId, timelineEvents) {
+        timelineEvents.find { it.eventId == replyInfo.eventId }
+    }
+    if (eventInTimeline != null) {
+        return eventInTimeline
+    }
+    
+    // Second, check RoomTimelineCache (all cached events) - check reactively using timelineUpdateCounter
+    // This ensures we re-check when related_events are added to the cache
+    val eventInCache = remember(replyInfo.eventId, roomId, timelineUpdateCounter) {
+        RoomTimelineCache.getCachedEvents(roomId)?.find { it.eventId == replyInfo.eventId }
+    }
+    if (eventInCache != null) {
+        return eventInCache
+    }
+    
+    // Third, if we have appViewModel, try fetching via get_event
+    // Only fetch if we haven't already fetched, aren't currently fetching, and haven't failed
+    if (appViewModel != null && fetchedEvent == null && !isFetching && !fetchFailed) {
+        LaunchedEffect(replyInfo.eventId, roomId) {
+            // Double-check inside LaunchedEffect to avoid race conditions
+            if (fetchedEvent != null || isFetching || fetchFailed) {
+                return@LaunchedEffect
+            }
+            
+            isFetching = true
+            if (BuildConfig.DEBUG) {
+                Log.d("Andromuks", "TimelineEventItem: Reply target event ${replyInfo.eventId} not found in timeline or cache, fetching via get_event")
+            }
+            
+            appViewModel.getEvent(roomId, replyInfo.eventId) { event ->
+                isFetching = false
+                if (event != null) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d("Andromuks", "TimelineEventItem: Successfully fetched reply target event ${replyInfo.eventId}")
+                    }
+                    // Add the fetched event to the cache
+                    val memberMap = RoomMemberCache.getRoomMembers(roomId)
+                    val eventsJsonArray = org.json.JSONArray()
+                    eventsJsonArray.put(event.toRawJsonObject())
+                    RoomTimelineCache.addEventsFromSync(roomId, eventsJsonArray, memberMap)
+                    fetchedEvent = event
+                } else {
+                    if (BuildConfig.DEBUG) {
+                        Log.w("Andromuks", "TimelineEventItem: Failed to fetch reply target event ${replyInfo.eventId}")
+                    }
+                    fetchFailed = true
+                }
+            }
+        }
+    }
+    
+    // Return fetched event if available, otherwise null (will show "Reply to unknown event")
+    return fetchedEvent
 }
 
 @Composable
