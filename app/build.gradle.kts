@@ -21,7 +21,13 @@ android {
         val now = System.currentTimeMillis()
         // Epoch offset: 2024-01-01 to reduce size
         val epochOffset = 1704067200000L
-        versionCode = ((now - epochOffset) / 1000).toInt()
+
+        // Value to make it larger than 1.0.1
+        val playStoreOffset = 1800000000 
+
+        // Final value calculation.
+        versionCode = playStoreOffset + ((now - epochOffset) / 1000).toInt()
+
 
         // Update versionName for each release (e.g., 1.0, 1.1, 1.2, 2.0)
         versionName = "1.0.2"
