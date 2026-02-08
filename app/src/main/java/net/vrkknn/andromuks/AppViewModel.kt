@@ -836,6 +836,9 @@ class AppViewModel : ViewModel() {
     
     // Internal storage for emoji frequencies: list of [emoji, count] pairs
     private var recentEmojiFrequencies = mutableListOf<Pair<String, Int>>()
+    // Track whether we've loaded the full recent emoji list from the server
+    // This prevents sending incomplete updates that would reset the server's full list
+    private var hasLoadedRecentEmojisFromServer = false
     
     // Mentions state - list of mention events with room info
     var mentionEvents by mutableStateOf<List<MentionEvent>>(emptyList())
@@ -3848,29 +3851,40 @@ class AppViewModel : ViewModel() {
                     // Sort by frequency (descending) to ensure proper order
                     val sortedFrequencies = frequencies.sortedByDescending { it.second }
                     if (sortedFrequencies.isNotEmpty()) {
-                        // Store frequencies and update UI list
+                        // CRITICAL FIX: Always trust the server's data as the source of truth.
+                        // The server always sends the FULL list in account_data (not partial updates),
+                        // so we should always replace our local list with what the server sends.
+                        // This ensures we stay in sync with the server and other clients.
                         recentEmojiFrequencies = sortedFrequencies.toMutableList()
-                        val emojisList = sortedFrequencies.map { it.first }
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${sortedFrequencies.size} recent emojis from account_data (server is source of truth): ${sortedFrequencies.take(5).joinToString(", ") { "${it.first}(${it.second})" }}${if (sortedFrequencies.size > 5) "..." else ""}")
+                        val emojisList = recentEmojiFrequencies.map { it.first }
                         RecentEmojisCache.set(emojisList)
                         recentEmojis = emojisList
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${sortedFrequencies.size} recent emojis from account_data: ${sortedFrequencies.take(5).joinToString(", ") { "${it.first}(${it.second})" }}${if (sortedFrequencies.size > 5) "..." else ""}")
+                        // Mark that we've loaded the full list from the server
+                        hasLoadedRecentEmojisFromServer = true
                     } else {
                         // Key is present but array is empty - clear recent emojis
                         recentEmojiFrequencies.clear()
                         RecentEmojisCache.clear()
                         recentEmojis = emptyList()
+                        // Still mark as loaded (server has empty list, which is valid)
+                        hasLoadedRecentEmojisFromServer = true
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: io.element.recent_emoji is present but empty, cleared recent emojis")
                     }
                 } else {
                     // Key is present but content/array is null or empty - clear recent emojis
                     recentEmojiFrequencies.clear()
                     recentEmojis = emptyList()
+                    // Still mark as loaded (server has empty/null list, which is valid)
+                    hasLoadedRecentEmojisFromServer = true
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: io.element.recent_emoji is present but empty/null, cleared recent emojis")
                 }
             } else {
                 // Key is present but value is null - clear recent emojis
                 recentEmojiFrequencies.clear()
                 recentEmojis = emptyList()
+                // Still mark as loaded (server has null value, which is valid)
+                hasLoadedRecentEmojisFromServer = true
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: io.element.recent_emoji is null, cleared recent emojis")
             }
         } else {
@@ -4527,6 +4541,7 @@ class AppViewModel : ViewModel() {
         // authoritative dataset sent after clear_state=true.
         recentEmojiFrequencies.clear()
         recentEmojis = emptyList()
+        hasLoadedRecentEmojisFromServer = false
         directMessageRoomIds = emptySet()
         directMessageUserMap = emptyMap()
         EmojiPacksCache.clear()
@@ -10024,49 +10039,53 @@ class AppViewModel : ViewModel() {
     }
     
     fun updateRecentEmojis(emoji: String) {
-        // Find existing emoji in frequencies
-        val existingIndex = recentEmojiFrequencies.indexOfFirst { it.first == emoji }
+        // CRITICAL: Do NOT update recentEmojiFrequencies here - it will be updated when we receive sync_complete from the server.
+        // We only read from it to create the updated list to send, and update the UI optimistically for better UX.
+        
+        if (!hasLoadedRecentEmojisFromServer) {
+            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Skipping updateRecentEmojis - haven't loaded full recent emoji list from server yet. Will update after sync completes.")
+            return
+        }
+        
+        // Create a copy of the current frequencies (from server) and update it
+        val currentFrequencies = recentEmojiFrequencies.toMutableList()
+        val existingIndex = currentFrequencies.indexOfFirst { it.first == emoji }
         
         if (existingIndex >= 0) {
             // Emoji exists - increment its count
-            val existingPair = recentEmojiFrequencies[existingIndex]
+            val existingPair = currentFrequencies[existingIndex]
             val newCount = existingPair.second + 1
-            recentEmojiFrequencies[existingIndex] = Pair(emoji, newCount)
+            currentFrequencies[existingIndex] = Pair(emoji, newCount)
         } else {
             // New emoji - add with count 1
-            recentEmojiFrequencies.add(Pair(emoji, 1))
+            currentFrequencies.add(Pair(emoji, 1))
         }
         
-        // Sort by frequency (descending), then by insertion order (maintain order for same frequency)
-        // We'll sort by count descending, keeping the order stable
-        val sortedFrequencies = recentEmojiFrequencies.sortedByDescending { it.second }
+        // Sort by frequency (descending)
+        val sortedFrequencies = currentFrequencies.sortedByDescending { it.second }
         
         // Keep only top 20
         val updatedFrequencies = sortedFrequencies.take(20)
         
         // CRITICAL SAFEGUARD: Ensure we never have an empty list after update
-        // This should never happen since we always add or increment, but defensive check prevents data loss
         if (updatedFrequencies.isEmpty()) {
-            android.util.Log.e("Andromuks", "AppViewModel: updateRecentEmojis resulted in empty list for emoji '$emoji' - this should never happen! Adding emoji with count 1")
-            val fallbackFrequencies = listOf(Pair(emoji, 1))
-            recentEmojiFrequencies = fallbackFrequencies.toMutableList()
-            val emojisList = fallbackFrequencies.map { it.first }
-            RecentEmojisCache.set(emojisList)
-            recentEmojis = emojisList
-            sendAccountDataUpdate(fallbackFrequencies)
+            android.util.Log.e("Andromuks", "AppViewModel: updateRecentEmojis resulted in empty list for emoji '$emoji' - this should never happen!")
             return
         }
         
-        // Update internal storage and UI list
-        recentEmojiFrequencies = updatedFrequencies.toMutableList()
-                        val emojisList = updatedFrequencies.map { it.first }
-                        RecentEmojisCache.set(emojisList)
-                        recentEmojis = emojisList
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AppViewModel: Preparing to send emoji update - current list has ${recentEmojiFrequencies.size} emojis, updated list will have ${updatedFrequencies.size} emojis")
+            android.util.Log.d("Andromuks", "AppViewModel: Emoji '$emoji' will have count ${updatedFrequencies.find { it.first == emoji }?.second ?: 1}")
+            android.util.Log.d("Andromuks", "AppViewModel: Full list being sent: ${updatedFrequencies.joinToString(", ") { "${it.first}(${it.second})" }}")
+        }
         
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated recent emojis, ${updatedFrequencies.size} total, emoji '$emoji' now has count ${updatedFrequencies.find { it.first == emoji }?.second ?: 1}")
-        
-        // Send to server
+        // Send the updated list to the server
         sendAccountDataUpdate(updatedFrequencies)
+        
+        // Update UI optimistically for better UX (but don't update recentEmojiFrequencies - server will send it back)
+        val emojisList = updatedFrequencies.map { it.first }
+        RecentEmojisCache.set(emojisList)
+        recentEmojis = emojisList
     }
     
     private fun sendAccountDataUpdate(frequencies: List<Pair<String, Int>>) {
@@ -10091,7 +10110,11 @@ class AppViewModel : ViewModel() {
             )
         )
         
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: set_account_data with data: $commandData")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: set_account_data with ${frequencies.size} emojis")
+            android.util.Log.d("Andromuks", "AppViewModel: Emojis being sent: ${frequencies.joinToString(", ") { "${it.first}(${it.second})" }}")
+            android.util.Log.d("Andromuks", "AppViewModel: Full command data: $commandData")
+        }
         sendWebSocketCommand("set_account_data", accountDataRequestId, commandData)
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $accountDataRequestId")
     }

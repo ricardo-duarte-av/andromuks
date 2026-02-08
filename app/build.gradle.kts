@@ -30,7 +30,7 @@ android {
 
 
         // Update versionName for each release (e.g., 1.0, 1.1, 1.2, 2.0)
-        versionName = "1.0.2"
+        versionName = "1.0.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
