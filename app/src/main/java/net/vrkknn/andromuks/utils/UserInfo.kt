@@ -560,8 +560,9 @@ fun UserInfoScreen(
                     ) {
                         // Pronouns
                         if (hasPronouns) {
-                            val pronounsText = pronouns!!
-                                .joinToString(", ") { it.summary }
+                            val pronounsList = pronouns!!
+                            val languages = pronounsList.map { it.language }.distinct()
+                            val pronounsText = pronounsList.joinToString(", ") { it.summary }
                             Card(
                                 modifier = Modifier.weight(1f),
                                 colors = CardDefaults.cardColors(
@@ -571,13 +572,21 @@ fun UserInfoScreen(
                             ) {
                                 Column(
                                     modifier = Modifier.padding(12.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
+                                    horizontalAlignment = Alignment.Start,
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Text(
                                         text = "Pronouns",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSecondaryContainer
                                     )
+                                    if (languages.isNotEmpty()) {
+                                        Text(
+                                            text = "Language: ${languages.joinToString(", ")}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                    }
                                     Text(
                                         text = pronounsText,
                                         style = MaterialTheme.typography.bodyLarge,
@@ -599,17 +608,23 @@ fun UserInfoScreen(
                             ) {
                                 Column(
                                     modifier = Modifier.padding(12.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
+                                    horizontalAlignment = Alignment.Start,
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Text(
-                                        text = currentTimeInUserTz,
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Bold,
+                                        text = "Timezone",
+                                        style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSecondaryContainer
                                     )
                                     Text(
                                         text = userProfileInfo!!.timezone!!,
                                         style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                    Text(
+                                        text = currentTimeInUserTz,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.Medium,
                                         color = MaterialTheme.colorScheme.onSecondaryContainer
                                     )
                                 }

@@ -15496,7 +15496,9 @@ class AppViewModel : ViewModel() {
             if (profileData != null) {
                 displayName = profileData.optString("displayname")?.takeIf { it.isNotBlank() }
                 avatarUrl = profileData.optString("avatar_url")?.takeIf { it.isNotBlank() }
-                timezone = profileData.optString("us.cloke.msc4175.tz")?.takeIf { it.isNotBlank() }
+                // Support both timezone field formats: prefer m.tz (standardized) over us.cloke.msc4175.tz (legacy)
+                timezone = profileData.optString("m.tz")?.takeIf { it.isNotBlank() }
+                    ?: profileData.optString("us.cloke.msc4175.tz")?.takeIf { it.isNotBlank() }
                 
                 // Extract pronouns from io.fsky.nyx.pronouns array
                 val pronounsArray = profileData.optJSONArray("io.fsky.nyx.pronouns")
@@ -15521,7 +15523,7 @@ class AppViewModel : ViewModel() {
                 }
                 
                 // Extract all arbitrary fields (everything except known fields)
-                val knownKeys = setOf("displayname", "avatar_url", "us.cloke.msc4175.tz", "io.fsky.nyx.pronouns")
+                val knownKeys = setOf("displayname", "avatar_url", "us.cloke.msc4175.tz", "m.tz", "io.fsky.nyx.pronouns")
                 val arbitraryFieldsMap = mutableMapOf<String, Any>()
                 val keys = profileData.keys()
                 while (keys.hasNext()) {
