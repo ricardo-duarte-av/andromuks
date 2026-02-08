@@ -151,18 +151,40 @@ object SpaceRoomParser {
         syncJson: JSONObject, 
         memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null, 
         appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
-        existingRooms: Map<String, net.vrkknn.andromuks.RoomItem>? = null
+        existingRooms: Map<String, net.vrkknn.andromuks.RoomItem>? = null,
+        isClearState: Boolean = false
     ): SyncUpdateResult {
         val data = syncJson.optJSONObject("data") ?: return SyncUpdateResult(emptyList(), emptyList(), emptyList())
         
-        // Parse spaces from sync data (only if top_level_spaces is present)
+        // Parse spaces from sync data
         val discoveredSpaceIds = mutableSetOf<String>()
+        
+        // CRITICAL: If clear_state=true, always clear spaces (even if top_level_spaces is null/empty)
+        // The clear_state message has all keys null/empty, and subsequent messages will repopulate
+        if (isClearState) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceRoomParser: clear_state=true - clearing all spaces (will be repopulated by subsequent sync_complete messages)")
+            appViewModel?.updateAllSpaces(emptyList())
+        }
+        
+        // Process top_level_spaces if present (in clear_state message or subsequent messages)
         val topLevelSpaces = data.optJSONArray("top_level_spaces")
         if (topLevelSpaces != null) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceRoomParser: top_level_spaces found with ${topLevelSpaces.length()} items (clear_state=$isClearState)")
             // Only parse basic space info, don't populate edges yet
             val spaces = parseSpacesBasic(data)
-            //android.util.Log.d("Andromuks", "SpaceRoomParser: Parsed ${spaces.size} spaces from sync data (basic info only)")
-            appViewModel?.updateAllSpaces(spaces)
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceRoomParser: Parsed ${spaces.size} spaces from sync data (clear_state=$isClearState)")
+            if (spaces.isNotEmpty() && BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "SpaceRoomParser: Space names: ${spaces.map { it.name }.joinToString(", ")}")
+            }
+            
+            // SAFETY FIX: Only update allSpaces if we have spaces (non-empty list)
+            // This prevents clearing spaces when backend sends empty array in normal syncs
+            if (spaces.isNotEmpty()) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceRoomParser: Calling updateAllSpaces with ${spaces.size} spaces")
+                appViewModel?.updateAllSpaces(spaces)
+            } else {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceRoomParser: Skipping updateAllSpaces - received empty spaces array (clear_state=$isClearState)")
+            }
             discoveredSpaceIds.addAll(spaces.map { it.id })
             
             // Store space edges for later processing after init_complete
@@ -179,10 +201,9 @@ object SpaceRoomParser {
                     }
                 }
             }
-        } //else {
-            //android.util.Log.d("Andromuks", "SpaceRoomParser: No top_level_spaces in this sync, keeping existing spaces")
-            // Don't update space edges here - they will be populated after init_complete
-        //}
+        } else {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceRoomParser: No top_level_spaces in this sync_complete (clear_state=$isClearState)")
+        } // else: top_level_spaces is null - don't update, preserve existing spaces
         
         // Debug: Log member cache contents
         //Log.d("Andromuks", "SpaceRoomParser: Member cache has ${memberCache?.size ?: 0} rooms")

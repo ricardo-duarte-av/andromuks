@@ -1237,6 +1237,10 @@ class AppViewModel : ViewModel() {
     }
     
     fun updateAllSpaces(spaces: List<SpaceItem>) {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: updateAllSpaces called - setting allSpaces from ${allSpaces.size} to ${spaces.size} spaces")
+        if (spaces.isNotEmpty() && BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AppViewModel: updateAllSpaces - space names: ${spaces.map { it.name }.joinToString(", ")}")
+        }
         allSpaces = spaces
         roomListUpdateCounter++
         updateCounter++ // Keep for backward compatibility temporarily
@@ -4442,11 +4446,15 @@ class AppViewModel : ViewModel() {
                     // Parse sync data on background thread (200-500ms for large accounts)
                     // IMPORTANT: use snapshot to avoid ConcurrentModification when roomMap is cleared/reset concurrently.
                     val existingRoomsSnapshot = synchronized(roomMap) { HashMap(roomMap) }
+                    // Check if this is a clear_state sync (initial sync messages are typically clear_state)
+                    val data = syncJson.optJSONObject("data")
+                    val isClearState = data?.optBoolean("clear_state") == true
                     val syncResult = SpaceRoomParser.parseSyncUpdate(
                         syncJson, 
                         RoomMemberCache.getAllMembers(), 
                         this@AppViewModel,
-                        existingRooms = existingRoomsSnapshot // Pass snapshot to avoid concurrent modification
+                        existingRooms = existingRoomsSnapshot, // Pass snapshot to avoid concurrent modification
+                        isClearState = isClearState
                     )
                     
                     if (BuildConfig.DEBUG) {
@@ -4706,12 +4714,17 @@ class AppViewModel : ViewModel() {
         // Multiple sync_complete messages can arrive rapidly, and concurrent processing can cause messages to be missed
         viewModelScope.launch(Dispatchers.Default) {
             syncCompleteProcessingMutex.withLock {
+                // Check if this is a clear_state sync
+                val data = syncJson.optJSONObject("data")
+                val isClearState = data?.optBoolean("clear_state") == true
+                
                 // Parse sync data on background thread (200-500ms for large accounts)
                 val syncResult = SpaceRoomParser.parseSyncUpdate(
                     syncJson,
                     RoomMemberCache.getAllMembers(),
                     this@AppViewModel,
-                    existingRooms = synchronized(roomMap) { HashMap(roomMap) } // snapshot to avoid ConcurrentModification
+                    existingRooms = synchronized(roomMap) { HashMap(roomMap) }, // snapshot to avoid ConcurrentModification
+                    isClearState = isClearState
                 )
                 
                 // SpaceRoomParser parses all room data including message previews and metadata
