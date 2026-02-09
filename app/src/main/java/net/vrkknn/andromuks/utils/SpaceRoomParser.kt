@@ -162,7 +162,8 @@ object SpaceRoomParser {
         // CRITICAL: If clear_state=true, always clear spaces (even if top_level_spaces is null/empty)
         // The clear_state message has all keys null/empty, and subsequent messages will repopulate
         if (isClearState) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceRoomParser: clear_state=true - clearing all spaces (will be repopulated by subsequent sync_complete messages)")
+            val currentSpacesSize = appViewModel?.allSpaces?.size ?: 0
+            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "SpaceRoomParser: clear_state=true - clearing $currentSpacesSize spaces (will be repopulated by subsequent sync_complete messages)")
             appViewModel?.updateAllSpaces(emptyList())
         }
         
@@ -180,30 +181,35 @@ object SpaceRoomParser {
             // SAFETY FIX: Only update allSpaces if we have spaces (non-empty list)
             // This prevents clearing spaces when backend sends empty array in normal syncs
             if (spaces.isNotEmpty()) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceRoomParser: Calling updateAllSpaces with ${spaces.size} spaces")
+                val currentSpacesSize = appViewModel?.allSpaces?.size ?: 0
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceRoomParser: Calling updateAllSpaces with ${spaces.size} spaces (current: $currentSpacesSize, clear_state=$isClearState)")
                 appViewModel?.updateAllSpaces(spaces)
             } else {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceRoomParser: Skipping updateAllSpaces - received empty spaces array (clear_state=$isClearState)")
+                val currentSpacesSize = appViewModel?.allSpaces?.size ?: 0
+                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "SpaceRoomParser: ⚠️ Received empty spaces array (clear_state=$isClearState, current spaces: $currentSpacesSize) - preserving existing spaces")
             }
             discoveredSpaceIds.addAll(spaces.map { it.id })
-            
-            // Store space edges for later processing after init_complete
-            val spaceEdges = data.optJSONObject("space_edges")
-            if (spaceEdges != null) {
-                //android.util.Log.d("Andromuks", "SpaceRoomParser: Storing space_edges for later processing")
-                appViewModel?.storeSpaceEdges(spaceEdges)
-                // Keys of space_edges are also space IDs (can include nested spaces)
-                val edgeKeys = spaceEdges.keys()
-                while (edgeKeys.hasNext()) {
-                    val id = edgeKeys.next()
-                    if (!id.isNullOrBlank()) {
-                        discoveredSpaceIds.add(id)
-                    }
-                }
-            }
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceRoomParser: No top_level_spaces in this sync_complete (clear_state=$isClearState)")
         } // else: top_level_spaces is null - don't update, preserve existing spaces
+        
+        // CRITICAL FIX: Store space_edges even if top_level_spaces is null
+        // This allows space edges to update existing spaces even when top_level_spaces isn't present
+        // Space edges can arrive in separate sync_complete messages and should be processed
+        val spaceEdges = data.optJSONObject("space_edges")
+        if (spaceEdges != null) {
+            val currentSpacesSize = appViewModel?.allSpaces?.size ?: 0
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceRoomParser: Storing space_edges (current spaces: $currentSpacesSize, top_level_spaces was ${if (topLevelSpaces != null) "present" else "null"})")
+            appViewModel?.storeSpaceEdges(spaceEdges)
+            // Keys of space_edges are also space IDs (can include nested spaces)
+            val edgeKeys = spaceEdges.keys()
+            while (edgeKeys.hasNext()) {
+                val id = edgeKeys.next()
+                if (!id.isNullOrBlank()) {
+                    discoveredSpaceIds.add(id)
+                }
+            }
+        }
         
         // Debug: Log member cache contents
         //Log.d("Andromuks", "SpaceRoomParser: Member cache has ${memberCache?.size ?: 0} rooms")

@@ -722,11 +722,13 @@ fun RoomListScreen(
         refreshing = refreshing,
         onRefresh = {
             refreshing = true
-            // CRITICAL FIX: Navigate to auth_check (StartupLoadingScreen) to properly close and recreate WebSocket
-            // This ensures the refresh works correctly instead of leaving a spinner
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Pull-to-refresh triggered - navigating to auth_check for proper WebSocket restart")
-            // Close WebSocket connection before navigating
-            appViewModel.clearWebSocket("Pull-to-refresh")
+            // CRITICAL FIX: Use performFullRefresh() to properly clear all state and reset lastReceivedRequestId
+            // This ensures we reconnect without last_received_id to get a full payload (like cold start)
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Pull-to-refresh triggered - performing full refresh")
+            // Clear lastReceivedRequestId from SharedPreferences so reconnect doesn't use it
+            net.vrkknn.andromuks.WebSocketService.clearLastReceivedRequestId(context)
+            // Perform full refresh which clears all state and triggers reconnection
+            appViewModel.performFullRefresh()
             // Navigate to auth_check which will handle WebSocket reconnection and show StartupLoadingScreen
             navController.navigate("auth_check") {
                 // Clear back stack so user doesn't go back to stale room_list

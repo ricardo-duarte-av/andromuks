@@ -1237,14 +1237,19 @@ class AppViewModel : ViewModel() {
     }
     
     fun updateAllSpaces(spaces: List<SpaceItem>) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: updateAllSpaces called - setting allSpaces from ${allSpaces.size} to ${spaces.size} spaces")
+        val previousSize = allSpaces.size
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: updateAllSpaces called - setting allSpaces from $previousSize to ${spaces.size} spaces")
         if (spaces.isNotEmpty() && BuildConfig.DEBUG) {
             android.util.Log.d("Andromuks", "AppViewModel: updateAllSpaces - space names: ${spaces.map { it.name }.joinToString(", ")}")
+        }
+        if (previousSize > 0 && spaces.isEmpty() && BuildConfig.DEBUG) {
+            android.util.Log.w("Andromuks", "AppViewModel: ⚠️ WARNING - updateAllSpaces clearing spaces from $previousSize to 0! Stack trace:")
+            Thread.dumpStack()
         }
         allSpaces = spaces
         roomListUpdateCounter++
         updateCounter++ // Keep for backward compatibility temporarily
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: allSpaces set to ${spaces.size} spaces")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: allSpaces set to ${spaces.size} spaces (was $previousSize)")
     }
     
     fun changeSelectedSection(section: RoomSectionType) {
@@ -1356,6 +1361,10 @@ class AppViewModel : ViewModel() {
         RoomTimelineCache.clearAll()
         // Processed timeline state is cleared by RoomTimelineCache.clearAll()
         lastReceivedRequestId = 0
+        // CRITICAL: Also clear lastReceivedRequestId from SharedPreferences so reconnect doesn't use it
+        appContext?.let { context ->
+            WebSocketService.clearLastReceivedRequestId(context)
+        }
         
         val preservedRunId = currentRunId
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: State reset complete - run_id preserved: $preservedRunId")
@@ -4323,6 +4332,19 @@ class AppViewModel : ViewModel() {
             }
             
             handleSyncToDeviceEvents(syncJson)
+            
+            // CRITICAL FIX: handleClearStateReset must be called BEFORE parsing for queued messages
+            // This ensures state is cleared atomically before processing the message
+            val data = syncJson.optJSONObject("data")
+            val isClearState = data?.optBoolean("clear_state") == true
+            if (isClearState) {
+                val requestId = syncJson.optInt("request_id", 0)
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.w("Andromuks", "🟣 processInitialSyncComplete: clear_state=true in queued message - clearing state (request_id=$requestId)")
+                }
+                handleClearStateReset()
+            }
+            
             // Update last sync timestamp immediately (this is lightweight)
             lastSyncTimestamp = System.currentTimeMillis()
             
@@ -4446,9 +4468,7 @@ class AppViewModel : ViewModel() {
                     // Parse sync data on background thread (200-500ms for large accounts)
                     // IMPORTANT: use snapshot to avoid ConcurrentModification when roomMap is cleared/reset concurrently.
                     val existingRoomsSnapshot = synchronized(roomMap) { HashMap(roomMap) }
-                    // Check if this is a clear_state sync (initial sync messages are typically clear_state)
-                    val data = syncJson.optJSONObject("data")
-                    val isClearState = data?.optBoolean("clear_state") == true
+                    // isClearState was already determined above (before handleClearStateReset)
                     val syncResult = SpaceRoomParser.parseSyncUpdate(
                         syncJson, 
                         RoomMemberCache.getAllMembers(), 
@@ -4526,6 +4546,10 @@ class AppViewModel : ViewModel() {
      * Events, profile info, and media cache remain untouched.
      */
     private fun clearDerivedStateInMemory() {
+        val previousSpacesSize = allSpaces.size
+        if (BuildConfig.DEBUG && previousSpacesSize > 0) {
+            android.util.Log.w("Andromuks", "AppViewModel: clearDerivedStateInMemory - clearing $previousSpacesSize spaces")
+        }
         roomMap.clear()
         allRooms = emptyList()
         invalidateRoomSectionCache()
@@ -4580,11 +4604,6 @@ class AppViewModel : ViewModel() {
      */
     fun updateRoomsFromSyncJsonAsync(syncJson: JSONObject) {
         handleSyncToDeviceEvents(syncJson)
-        // If server asks us to clear state, drop all derived room/space state (keep events/profile/media).
-        val isClearState = syncJson.optJSONObject("data")?.optBoolean("clear_state") == true
-        if (isClearState) {
-            handleClearStateReset()
-        }
         
         // CRITICAL FIX: Queue sync_complete messages received before init_complete
         // These are initial sync messages that populate all rooms - we'll process them after init_complete
@@ -4712,11 +4731,23 @@ class AppViewModel : ViewModel() {
         // PERFORMANCE: Move heavy JSON parsing to background thread
         // CRITICAL FIX: Serialize sync_complete processing to prevent race conditions
         // Multiple sync_complete messages can arrive rapidly, and concurrent processing can cause messages to be missed
+        // CRITICAL FIX: handleClearStateReset must be called INSIDE the mutex to ensure atomic processing
         viewModelScope.launch(Dispatchers.Default) {
             syncCompleteProcessingMutex.withLock {
                 // Check if this is a clear_state sync
                 val data = syncJson.optJSONObject("data")
                 val isClearState = data?.optBoolean("clear_state") == true
+                
+                // CRITICAL FIX: handleClearStateReset must be called INSIDE the mutex
+                // This ensures it happens atomically with message processing and prevents race conditions
+                // where a later clear_state message could clear spaces while an earlier message is still processing
+                if (isClearState) {
+                    val requestId = syncJson.optInt("request_id", 0)
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.w("Andromuks", "AppViewModel: clear_state=true received AFTER init_complete - clearing state atomically within mutex (request_id=$requestId)")
+                    }
+                    handleClearStateReset()
+                }
                 
                 // Parse sync data on background thread (200-500ms for large accounts)
                 val syncResult = SpaceRoomParser.parseSyncUpdate(
