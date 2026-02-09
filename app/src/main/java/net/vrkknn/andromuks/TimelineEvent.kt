@@ -219,7 +219,8 @@ data class ReadReceipt(
     val userId: String,
     val eventId: String,
     val timestamp: Long,
-    val receiptType: String
+    val receiptType: String,
+    val roomId: String = "" // Room ID to prevent cross-room receipt corruption
 )
 
 @Immutable

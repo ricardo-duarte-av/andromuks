@@ -111,12 +111,17 @@ fun SystemEventNarrator(
     val highlightValue = highlightAnim.value
     
     // Get read receipts for this event
+    // CRITICAL FIX: Filter receipts to ensure they belong to this event
     val readReceipts = remember(event.eventId, appViewModel?.readReceiptsUpdateCounter) {
         if (appViewModel != null) {
-            ReceiptFunctions.getReadReceipts(
+            val allReceipts = ReceiptFunctions.getReadReceipts(
                 event.eventId,
                 appViewModel.getReadReceiptsMap()
             )
+            // Filter receipts to ensure they're for this specific event (eventId must match)
+            allReceipts.filter { receipt ->
+                receipt.eventId == event.eventId
+            }
         } else {
             emptyList()
         }

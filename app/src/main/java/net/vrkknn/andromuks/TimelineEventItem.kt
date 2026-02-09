@@ -3084,13 +3084,22 @@ fun TimelineEventItem(
 
     // Calculate read receipts and recalculate when receipts are updated
     // OPTIMIZED: Use separate readReceiptsUpdateCounter to avoid unnecessary recomposition of timeline
+    // CRITICAL FIX: Filter receipts to ensure they belong to this event's room
+    // EventIds are globally unique, but we verify the receipt's eventId matches to prevent cross-room leakage
     val readReceipts =
-        remember(event.eventId, appViewModel?.readReceiptsUpdateCounter) {
+        remember(event.eventId, event.roomId, appViewModel?.readReceiptsUpdateCounter) {
             if (appViewModel != null) {
-                net.vrkknn.andromuks.utils.ReceiptFunctions.getReadReceipts(
+                val allReceipts = net.vrkknn.andromuks.utils.ReceiptFunctions.getReadReceipts(
                     event.eventId,
                     appViewModel.getReadReceiptsMap()
                 )
+                // CRITICAL FIX: Filter receipts by both eventId AND roomId
+                // This ensures receipts from other rooms (with same eventId) don't show up
+                // Also handles backward compatibility: receipts without roomId (empty string) are shown for the current room
+                allReceipts.filter { receipt ->
+                    receipt.eventId == event.eventId && 
+                    (receipt.roomId == event.roomId || receipt.roomId.isBlank()) // Match roomId or allow empty (backward compat)
+                }
             } else {
                 emptyList()
             }

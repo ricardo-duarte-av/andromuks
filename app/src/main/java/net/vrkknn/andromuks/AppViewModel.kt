@@ -2807,16 +2807,37 @@ class AppViewModel : ViewModel() {
                 if (cachedReceipts.isNotEmpty()) {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache called - current receipts: ${readReceipts.size} events, cache: ${cachedReceipts.size} events")
                     
-                    // Replace readReceipts with data from cache
-                    readReceipts.clear()
-                    cachedReceipts.forEach { (eventId, receipts) ->
-                        if (receipts.isNotEmpty()) {
-                            readReceipts[eventId] = receipts.toMutableList()
+                    // CRITICAL FIX: Merge cache with existing receipts instead of replacing
+                    // This prevents overwriting fresh receipts from paginate/sync_complete
+                    // Only add receipts from cache that don't already exist (by eventId)
+                    var hasChanges = false
+                    cachedReceipts.forEach { (eventId, cachedReceiptsList) ->
+                        if (cachedReceiptsList.isNotEmpty()) {
+                            val existingReceipts = readReceipts[eventId]
+                            if (existingReceipts == null || existingReceipts.isEmpty()) {
+                                // No existing receipts for this event - add from cache
+                                readReceipts[eventId] = cachedReceiptsList.toMutableList()
+                                hasChanges = true
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache - added ${cachedReceiptsList.size} receipts for eventId=$eventId from cache")
+                            } else {
+                                // Receipts already exist - merge (add receipts from cache that don't exist yet)
+                                val existingUserIds = existingReceipts.map { it.userId }.toSet()
+                                val newReceipts = cachedReceiptsList.filter { it.userId !in existingUserIds }
+                                if (newReceipts.isNotEmpty()) {
+                                    existingReceipts.addAll(newReceipts)
+                                    hasChanges = true
+                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache - merged ${newReceipts.size} new receipts for eventId=$eventId from cache (${existingReceipts.size} total)")
+                                }
+                            }
                         }
                     }
                     
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache - populated readReceipts with ${cachedReceipts.size} events from cache")
-                    readReceiptsUpdateCounter++
+                    if (hasChanges) {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache - merged cache with existing receipts, total events: ${readReceipts.size}")
+                        readReceiptsUpdateCounter++
+                    } else {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache - no changes (all cache receipts already in readReceipts)")
+                    }
                 } else {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache - cache is empty, no receipts to populate")
                 }
@@ -4824,6 +4845,52 @@ class AppViewModel : ViewModel() {
         // (in the background thread, before processParsedSyncResult runs)
         // This ensures invites are loaded before the UI checks for them
         
+        // CRITICAL FIX: Process read receipts from sync_complete for ALL rooms, not just the currently open one
+        // This ensures receipts are updated even when rooms are not currently open
+        // Receipts are stored globally (by eventId) but should be updated whenever sync_complete arrives
+        val data = syncJson.optJSONObject("data")
+        if (data != null) {
+            val rooms = data.optJSONObject("rooms")
+            if (rooms != null) {
+                val roomKeys = rooms.keys()
+                while (roomKeys.hasNext()) {
+                    val roomId = roomKeys.next()
+                    val roomData = rooms.optJSONObject(roomId) ?: continue
+                    val receipts = roomData.optJSONObject("receipts")
+                    if (receipts != null && receipts.length() > 0) {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processParsedSyncResult - Processing read receipts from sync_complete for room: $roomId (${receipts.length()} event receipts)")
+                        synchronized(readReceiptsLock) {
+                            // Use processReadReceiptsFromSyncComplete - sync_complete moves receipts
+                            // CRITICAL FIX: Pass roomId to prevent cross-room receipt corruption
+                            ReceiptFunctions.processReadReceiptsFromSyncComplete(
+                                receipts, 
+                                readReceipts, 
+                                { readReceiptsUpdateCounter++ },
+                                { userId, previousEventId, newEventId ->
+                                    // Track receipt movement for animation (thread-safe)
+                                    synchronized(readReceiptsLock) {
+                                        receiptMovements[userId] = Triple(previousEventId, newEventId, System.currentTimeMillis())
+                                    }
+                                    receiptAnimationTrigger = System.currentTimeMillis()
+                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Receipt movement detected: $userId from $previousEventId to $newEventId")
+                                },
+                                roomId = roomId // Pass room ID to prevent cross-room corruption
+                            )
+                            
+                            // Update singleton cache after processing receipts
+                            val receiptsForCache = readReceipts.mapValues { it.value.toList() }
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updating ReadReceiptCache with ${receiptsForCache.size} events (${receiptsForCache.values.sumOf { it.size }} total receipts) from sync_complete for room: $roomId")
+                            ReadReceiptCache.setAll(receiptsForCache)
+                            if (BuildConfig.DEBUG) {
+                                val cacheAfter = ReadReceiptCache.getAllReceipts()
+                                android.util.Log.d("Andromuks", "AppViewModel: ReadReceiptCache after update: ${cacheAfter.size} events (${cacheAfter.values.sumOf { it.size }} total receipts)")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
         // Populate member cache from sync data and check for changes
         val oldMemberStateHash = generateMemberStateHash()
         populateMemberCacheFromSync(syncJson)
@@ -4832,7 +4899,6 @@ class AppViewModel : ViewModel() {
         val hasRoomChanges = syncResult.updatedRooms.isNotEmpty() ||
                 syncResult.newRooms.isNotEmpty() ||
                 syncResult.removedRoomIds.isNotEmpty()
-        val data = syncJson.optJSONObject("data")
         val accountData = data?.optJSONObject("account_data")
         // CRITICAL FIX: account_data is ALWAYS present in sync_complete (usually as {} for no updates)
         // Empty {} means "no updates" - preserve existing state
@@ -11942,6 +12008,136 @@ class AppViewModel : ViewModel() {
                     totalReactionsProcessed = processEventsArray(eventsArray)
                     android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: processEventsArray completed - roomId=$roomId, requestId=$requestId, reactionsProcessed=$totalReactionsProcessed, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading")
                     
+                    // CRITICAL: Process read receipts AFTER events are fully processed
+                    // This ensures that when receipts are applied, the events they reference are already in the timeline
+                    // Similar to how related_events are processed BEFORE main events, receipts should be processed AFTER
+                    val receipts = data.optJSONObject("receipts")
+                    if (receipts != null && receipts.length() > 0) {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts from paginate response for room: $roomId (AFTER events processed) - ${receipts.length()} event groups, total events in timeline: ${timelineEvents.size}")
+                        // Process receipts in background for parsing, but ensure events are already processed
+                        viewModelScope.launch(Dispatchers.Default) {
+                            try {
+                                // Parse receipts data in background (extract changes)
+                                val receiptsCopy = receipts.toString() // Deep copy JSON to avoid thread issues
+                                val parsedReceipts = org.json.JSONObject(receiptsCopy)
+                                
+                                // Build the authoritative receipts map in background (no reading from readReceipts)
+                                // PAGINATE IS AUTHORITATIVE: Accept all receipts as-is from the server, no deduplication needed
+                                // The server's paginate response is the source of truth - if it says event X has 6 receipts, we show 6 receipts
+                                val authoritativeReceipts = mutableMapOf<String, MutableList<ReadReceipt>>()
+                                val keys = parsedReceipts.keys()
+                                
+                                while (keys.hasNext()) {
+                                    val eventId = keys.next()
+                                    val receiptsArray = parsedReceipts.optJSONArray(eventId)
+                                    if (receiptsArray != null) {
+                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing receipts for eventId=$eventId, roomId=$roomId - ${receiptsArray.length()} receipts in array")
+                                        val receiptsForEvent = mutableListOf<ReadReceipt>()
+
+                                        for (i in 0 until receiptsArray.length()) {
+                                            val receiptJson = receiptsArray.optJSONObject(i)
+                                            if (receiptJson != null) {
+                                                val receipt = ReadReceipt(
+                                                    userId = receiptJson.optString("user_id", ""),
+                                                    eventId = receiptJson.optString("event_id", ""),
+                                                    timestamp = receiptJson.optLong("timestamp", 0),
+                                                    receiptType = receiptJson.optString("receipt_type", ""),
+                                                    roomId = roomId // Store room ID for consistency (paginate is authoritative but roomId helps with filtering)
+                                                )
+                                                
+                                                // Validate receipt has required fields and eventId matches
+                                                if (receipt.userId.isNotBlank() && receipt.eventId.isNotBlank() && receipt.eventId == eventId) {
+                                                    receiptsForEvent.add(receipt)
+                                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added receipt for eventId=$eventId, userId=${receipt.userId}, timestamp=${receipt.timestamp}, roomId=$roomId")
+                                                } else {
+                                                    if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Invalid receipt - eventId=$eventId, receiptEventId=${receipt.eventId}, userId=${receipt.userId}, roomId=$roomId")
+                                                }
+                                            }
+                                        }
+                                        
+                                        // Store all receipts for this event
+                                        authoritativeReceipts[eventId] = receiptsForEvent
+                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Final receipts for eventId=$eventId, roomId=$roomId: ${receiptsForEvent.size} receipts")
+                                    } else {
+                                        // Event has no receipts array - mark as empty (remove existing receipts)
+                                        authoritativeReceipts[eventId] = mutableListOf()
+                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Event $eventId has no receipts array - marking as empty")
+                                    }
+                                }
+                                
+                                val totalReceipts = authoritativeReceipts.values.sumOf { it.size }
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processed $totalReceipts total receipts from paginate, distributed across ${authoritativeReceipts.size} events")
+                                
+                                // Apply changes on main thread to avoid concurrent modification during composition
+                                withContext(Dispatchers.Main) {
+                                    try {
+                                        var hasChanges = false
+                                        
+                                        synchronized(readReceiptsLock) {
+                                            // Apply all changes atomically on main thread
+                                            authoritativeReceipts.forEach { (eventId, receipts) ->
+                                                val existingReceipts = readReceipts[eventId]
+                                                // CRITICAL FIX: Include roomId in comparison to properly detect changes
+                                                // Old receipts might have empty roomId, new ones have roomId set
+                                                val receiptsChanged = existingReceipts == null || 
+                                                    existingReceipts.size != receipts.size ||
+                                                    existingReceipts.any { existing ->
+                                                        !receipts.any { auth ->
+                                                            auth.userId == existing.userId && 
+                                                            auth.timestamp == existing.timestamp &&
+                                                            auth.eventId == existing.eventId &&
+                                                            auth.roomId == existing.roomId // Compare roomId
+                                                        }
+                                                    } ||
+                                                    receipts.any { auth ->
+                                                        !existingReceipts.any { existing ->
+                                                            existing.userId == auth.userId && 
+                                                            existing.timestamp == auth.timestamp &&
+                                                            existing.eventId == auth.eventId &&
+                                                            existing.roomId == auth.roomId // Compare roomId
+                                                        }
+                                                    }
+                                                
+                                                if (receiptsChanged) {
+                                                    if (receipts.isEmpty()) {
+                                                        readReceipts.remove(eventId)
+                                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ReceiptFunctions: Removed all receipts for eventId=$eventId, roomId=$roomId (server says none)")
+                                                    } else {
+                                                        readReceipts[eventId] = receipts
+                                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ReceiptFunctions: Replaced receipts for eventId=$eventId, roomId=$roomId with ${receipts.size} receipts from paginate")
+                                                    }
+                                                    hasChanges = true
+                                                }
+                                            }
+                                            
+                                            // Update singleton cache after processing receipts (only if there were changes)
+                                            if (hasChanges) {
+                                                val receiptsForCache = readReceipts.mapValues { it.value.toList() }
+                                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updating ReadReceiptCache with ${receiptsForCache.size} events (${receiptsForCache.values.sumOf { it.size }} total receipts) from paginate for room: $roomId")
+                                                ReadReceiptCache.setAll(receiptsForCache)
+                                                if (BuildConfig.DEBUG) {
+                                                    val cacheAfter = ReadReceiptCache.getAllReceipts()
+                                                    android.util.Log.d("Andromuks", "AppViewModel: ReadReceiptCache after update: ${cacheAfter.size} events (${cacheAfter.values.sumOf { it.size }} total receipts)")
+                                                }
+                                            }
+                                        }
+                                        
+                                        // Single UI update after all processing (only if there were changes)
+                                        if (hasChanges) {
+                                            readReceiptsUpdateCounter++
+                                        }
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("Andromuks", "AppViewModel: Error updating receipt state on main thread", e)
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.e("Andromuks", "AppViewModel: Error processing receipts in background", e)
+                            }
+                        }
+                    } else {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No receipts found in paginate response for room: $roomId")
+                    }
+                    
                     // After processing all events, check for missing m.in_reply_to targets
                     // If a message references a reply target that's not in the cache, fetch it via get_event
                     viewModelScope.launch(Dispatchers.Default) {
@@ -12057,107 +12253,8 @@ class AppViewModel : ViewModel() {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping has_more parsing for background prefetch request")
                 }
                 
-                // Process read receipts from timeline response (in background to avoid blocking animation)
-                // PAGINATE IS AUTHORITATIVE: Accept receipts as-is from the server
-                val receipts = data.optJSONObject("receipts")
-                if (receipts != null) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts from paginate response for room: $roomId")
-                    // CRITICAL FIX: Parse receipts in background, but apply changes on main thread
-                    // This prevents "concurrent change during composition" errors when Compose reads readReceipts
-                    viewModelScope.launch(Dispatchers.Default) {
-                        try {
-                            // Parse receipts data in background (extract changes)
-                            val receiptsCopy = receipts.toString() // Deep copy JSON to avoid thread issues
-                            val parsedReceipts = org.json.JSONObject(receiptsCopy)
-                            
-                            // Build the authoritative receipts map in background (no reading from readReceipts)
-                            val authoritativeReceipts = mutableMapOf<String, MutableList<ReadReceipt>>()
-                            
-                            val keys = parsedReceipts.keys()
-                            while (keys.hasNext()) {
-                                val eventId = keys.next()
-                                val receiptsArray = parsedReceipts.optJSONArray(eventId)
-                                if (receiptsArray != null) {
-                                    val receiptsList = mutableListOf<ReadReceipt>()
-                                    
-                                    for (i in 0 until receiptsArray.length()) {
-                                        val receiptJson = receiptsArray.optJSONObject(i)
-                                        if (receiptJson != null) {
-                                            val receipt = ReadReceipt(
-                                                userId = receiptJson.optString("user_id", ""),
-                                                eventId = receiptJson.optString("event_id", ""),
-                                                timestamp = receiptJson.optLong("timestamp", 0),
-                                                receiptType = receiptJson.optString("receipt_type", "")
-                                            )
-                                            
-                                            if (receipt.userId.isNotBlank() && receipt.eventId.isNotBlank()) {
-                                                receiptsList.add(receipt)
-                                            }
-                                        }
-                                    }
-                                    
-                                    // Store authoritative receipts (empty list means remove)
-                                    authoritativeReceipts[eventId] = receiptsList
-                                }
-                            }
-                            
-                            // Apply changes on main thread to avoid concurrent modification during composition
-                            withContext(Dispatchers.Main) {
-                                try {
-                                    var hasChanges = false
-                                    
-                                    synchronized(readReceiptsLock) {
-                                        // Apply all changes atomically on main thread
-                                        authoritativeReceipts.forEach { (eventId, receipts) ->
-                                            val existingReceipts = readReceipts[eventId]
-                                            val receiptsChanged = existingReceipts == null || 
-                                                existingReceipts.size != receipts.size ||
-                                                existingReceipts.any { existing ->
-                                                    !receipts.any { auth ->
-                                                        auth.userId == existing.userId && 
-                                                        auth.timestamp == existing.timestamp &&
-                                                        auth.eventId == existing.eventId
-                                                    }
-                                                } ||
-                                                receipts.any { auth ->
-                                                    !existingReceipts.any { existing ->
-                                                        existing.userId == auth.userId && 
-                                                        existing.timestamp == auth.timestamp &&
-                                                        existing.eventId == auth.eventId
-                                                    }
-                                                }
-                                            
-                                            if (receiptsChanged) {
-                                                if (receipts.isEmpty()) {
-                                                    readReceipts.remove(eventId)
-                                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ReceiptFunctions: Removed all receipts for eventId=$eventId (server says none)")
-                                                } else {
-                                                    readReceipts[eventId] = receipts
-                                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ReceiptFunctions: Replaced receipts for eventId=$eventId with ${receipts.size} receipts from paginate")
-                                                }
-                                                hasChanges = true
-                                            }
-                                        }
-                                        
-                                        // Update singleton cache after processing receipts (only if there were changes)
-                                        if (hasChanges) {
-                                            ReadReceiptCache.setAll(readReceipts.mapValues { it.value.toList() })
-                                        }
-                                    }
-                                    
-                                    // Single UI update after all processing (only if there were changes)
-                                    if (hasChanges) {
-                                        readReceiptsUpdateCounter++
-                                    }
-                                } catch (e: Exception) {
-                                    android.util.Log.e("Andromuks", "AppViewModel: Error updating receipt state on main thread", e)
-                                }
-                            }
-                        } catch (e: Exception) {
-                            android.util.Log.e("Andromuks", "AppViewModel: Error processing receipts in background", e)
-                        }
-                    }
-                }
+                // NOTE: Receipts are now processed AFTER events (see above, after processEventsArray completes)
+                // This ensures events are in the timeline before receipts are applied
             }
             else -> {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleTimelineResponse: ${data::class.java.simpleName}")
@@ -13428,32 +13525,9 @@ class AppViewModel : ViewModel() {
                         processSyncEventsArray(events, roomId)
                     }
                     
-                    // Process read receipts from sync_complete (incremental updates - move receipts)
-                    val receipts = roomData.optJSONObject("receipts")
-                    if (receipts != null) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts from sync_complete for room: $roomId - found ${receipts.length()} event receipts")
-                        synchronized(readReceiptsLock) {
-                            // Use processReadReceiptsFromSyncComplete - sync_complete moves receipts
-                            ReceiptFunctions.processReadReceiptsFromSyncComplete(
-                                receipts, 
-                                readReceipts, 
-                                { readReceiptsUpdateCounter++ },
-                                { userId, previousEventId, newEventId ->
-                                    // Track receipt movement for animation (thread-safe)
-                                    synchronized(readReceiptsLock) {
-                                        receiptMovements[userId] = Triple(previousEventId, newEventId, System.currentTimeMillis())
-                                    }
-                                    receiptAnimationTrigger = System.currentTimeMillis()
-                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Receipt movement detected: $userId from $previousEventId to $newEventId")
-                                }
-                            )
-                            
-                            // Update singleton cache after processing receipts
-                            ReadReceiptCache.setAll(readReceipts.mapValues { it.value.toList() })
-                        }
-                    } else {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No receipts found in sync_complete for room: $roomId")
-                    }
+                    // NOTE: Read receipts are now processed for ALL rooms in processParsedSyncResult()
+                    // This ensures receipts are updated even when rooms are not currently open
+                    // No need to process receipts here - they're already handled globally
                 }
             }
         }
