@@ -476,6 +476,7 @@ fun RoomListScreen(
             // Load rooms from singleton cache to populate roomMap
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: RoomMap has $initialRoomCount rooms but cache has $cacheRoomCount rooms (likely from notification/shortcut navigation), loading from singleton cache")
             appViewModel.populateRoomMapFromCache()
+            appViewModel.populateSpacesFromCache()
             appViewModel.forceRoomListSort() // Update allRooms after cache load
             val loadedSnapshot = appViewModel.getCurrentRoomSection()
             stableSection = loadedSnapshot

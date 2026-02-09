@@ -1247,9 +1247,11 @@ class AppViewModel : ViewModel() {
             Thread.dumpStack()
         }
         allSpaces = spaces
+        // CRITICAL: Also update singleton cache so spaces persist across ViewModel instances
+        SpaceListCache.updateSpaces(spaces)
         roomListUpdateCounter++
         updateCounter++ // Keep for backward compatibility temporarily
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: allSpaces set to ${spaces.size} spaces (was $previousSize)")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: allSpaces set to ${spaces.size} spaces (was $previousSize), cache updated")
     }
     
     fun changeSelectedSection(section: RoomSectionType) {
@@ -2754,6 +2756,43 @@ class AppViewModel : ViewModel() {
             }
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to populate roomMap from cache", e)
+        }
+    }
+    
+    /**
+     * Populates allSpaces and storedSpaceEdges from singleton SpaceListCache.
+     * This ensures spaces persist across ViewModel instances (e.g., when opening from notification).
+     */
+    fun populateSpacesFromCache() {
+        try {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateSpacesFromCache called - current allSpaces size: ${allSpaces.size}, cache size: ${SpaceListCache.getSpaceCount()}")
+            
+            val cachedSpaces = SpaceListCache.getAllSpaces()
+            if (cachedSpaces.isNotEmpty()) {
+                // Populate allSpaces from singleton cache
+                allSpaces = cachedSpaces
+                
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateSpacesFromCache - populated allSpaces with ${cachedSpaces.size} spaces from cache")
+                
+                // Also restore space_edges if available
+                val cachedSpaceEdges = SpaceListCache.getSpaceEdges()
+                if (cachedSpaceEdges != null) {
+                    storedSpaceEdges = cachedSpaceEdges
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateSpacesFromCache - restored space_edges from cache")
+                }
+                
+                // Mark spaces as loaded since we restored them from cache
+                if (!spacesLoaded) {
+                    spacesLoaded = true
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateSpacesFromCache - marking spaces as loaded")
+                }
+                
+                roomListUpdateCounter++
+            } else {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateSpacesFromCache - cache is empty, spaces will be loaded from sync_complete")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to populate spaces from cache", e)
         }
     }
     
@@ -4586,6 +4625,9 @@ class AppViewModel : ViewModel() {
         // This ensures that when WebSocket reconnects after primary AppViewModel dies,
         // all AppViewModel instances (including new ones) start with a clean cache
         RoomListCache.clear()
+        // CRITICAL: Also clear SpaceListCache when clear_state=true is received
+        // This ensures spaces are repopulated from the fresh sync_complete messages
+        SpaceListCache.clear()
         ReadReceiptCache.clear()
         MessageReactionsCache.clear()
         RecentEmojisCache.clear()
@@ -5630,6 +5672,8 @@ class AppViewModel : ViewModel() {
     fun storeSpaceEdges(spaceEdges: JSONObject) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Storing space edges for later processing")
         storedSpaceEdges = spaceEdges
+        // CRITICAL: Also update singleton cache so space_edges persist across ViewModel instances
+        SpaceListCache.setSpaceEdges(spaceEdges)
         
         // Register edge keys as space IDs so filtering remains accurate even before processing edges.
         val edgeIds = mutableSetOf<String>()
@@ -6062,6 +6106,7 @@ class AppViewModel : ViewModel() {
                 // CRITICAL FIX: Populate roomMap from cache when attaching to existing WebSocket
                 // This ensures the new AppViewModel instance has room data from previous instances
                 populateRoomMapFromCache()
+                populateSpacesFromCache()
                 
                 // CRITICAL FIX: Set spacesLoaded if we have rooms (populateRoomMapFromCache already does this, but ensure it's set)
                 if (roomMap.isNotEmpty() && !spacesLoaded) {

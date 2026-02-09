@@ -189,6 +189,7 @@ class MainActivity : ComponentActivity() {
                             if (fromNotification || directNavigation) {
                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Opening from notification/shortcut - populating roomMap from singleton cache")
                                 appViewModel.populateRoomMapFromCache()
+                                appViewModel.populateSpacesFromCache()
                             }
                             
                             // Load cached user profiles on app startup

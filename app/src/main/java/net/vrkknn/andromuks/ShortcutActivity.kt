@@ -244,6 +244,7 @@ fun ShortcutNavigation(roomId: String) {
             LaunchedEffect(Unit) {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: Populating roomMap from singleton cache before RoomListScreen initialization")
                 appViewModel.populateRoomMapFromCache()
+                appViewModel.populateSpacesFromCache()
             }
             
             RoomListScreen(
