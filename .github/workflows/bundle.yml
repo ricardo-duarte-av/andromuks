@@ -1,0 +1,61 @@
+name: Bundle and upload to Play Console 
+
+env:
+  # The name of the main module repository
+  main_project_module: pt.aguiarvieira.andromuks
+
+  # The name of the Play Store
+  playstore_name: Andromuks
+
+on:
+
+  #pull_request:
+  #merge_group:
+  #push:
+  #  branches: [ main, develop, master ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set App ID
+        run: echo "APP_ID=pt.aguiarvieira.andromuks" >> $GITHUB_ENV
+
+      - name: Set Up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu' # See 'Supported distributions' for available options
+          java-version: '21'
+          cache: 'gradle'
+          
+      - name: Cache Gradle build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle/caches/build-cache
+          key: ${{ runner.os }}-gradle-build-cache-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-build-cache-
+            
+      - name: Change wrapper permissions
+        run: chmod +x ./gradlew
+
+      - name: Build release APK
+        run: ./gradlew bundle --stacktrace --no-daemon --parallel --build-cache
+
+      - name: Upload .aab to Internal Track
+        id: upload_internal
+        uses: KevinRohn/github-action-upload-play-store@v1.0.2
+        with:
+          service_account_json: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+          package_name: "pt.aguiarvieira.andromuks"
+          aab_file_path: "./build/outputs/bundle/release/app-release.aab"
+          track: "internal"
+          release_status: "completed"        
+
