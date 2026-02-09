@@ -2821,12 +2821,14 @@ class AppViewModel : ViewModel() {
                                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache - added ${cachedReceiptsList.size} receipts for eventId=$eventId from cache")
                             } else {
                                 // Receipts already exist - merge (add receipts from cache that don't exist yet)
+                                // CRITICAL FIX: Create a new list instead of modifying existing one to avoid concurrent modification during composition
                                 val existingUserIds = existingReceipts.map { it.userId }.toSet()
                                 val newReceipts = cachedReceiptsList.filter { it.userId !in existingUserIds }
                                 if (newReceipts.isNotEmpty()) {
-                                    existingReceipts.addAll(newReceipts)
+                                    // Create a new list instead of modifying the existing one
+                                    readReceipts[eventId] = (existingReceipts + newReceipts).toMutableList()
                                     hasChanges = true
-                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache - merged ${newReceipts.size} new receipts for eventId=$eventId from cache (${existingReceipts.size} total)")
+                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache - merged ${newReceipts.size} new receipts for eventId=$eventId from cache (${readReceipts[eventId]?.size} total)")
                                 }
                             }
                         }
