@@ -91,18 +91,44 @@ object RoomTimelineCache {
             // Check if cache memory usage exceeds threshold
             val currentMemoryUsageMB = estimateCacheMemoryUsageMB()
             if (currentMemoryUsageMB > MAX_CACHE_MEMORY_MB) {
-                if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "Evicting room ${eldest.key} from timeline cache (RAM usage: ${currentMemoryUsageMB}MB > ${MAX_CACHE_MEMORY_MB}MB limit)")
-                }
-                roomsInitialized.remove(eldest.key)
-                eldest.value.events.clear()
-                eldest.value.eventIds.clear()
+                val roomId = eldest.key
+                val roomCache = eldest.value
+                val eventIds = roomCache.eventIds.toSet() // Capture eventIds before clearing
                 
-                // Also clean up room-specific profiles from ProfileCache when timeline is evicted
-                // This prevents orphaned flattened profiles from accumulating when rooms are evicted
-                ProfileCache.clearRoom(eldest.key)
                 if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "Cleared room-specific profiles for evicted room ${eldest.key}")
+                    Log.d(TAG, "Evicting room $roomId from timeline cache (RAM usage: ${currentMemoryUsageMB}MB > ${MAX_CACHE_MEMORY_MB}MB limit, ${eventIds.size} events)")
+                }
+                
+                // Clear timeline cache for this room
+                roomsInitialized.remove(roomId)
+                roomCache.events.clear()
+                roomCache.eventIds.clear()
+                
+                // Clean up all related caches for this room
+                // 1. Profile cache (room-specific profiles)
+                ProfileCache.clearRoom(roomId)
+                
+                // 2. Room member cache
+                RoomMemberCache.clearRoom(roomId)
+                
+                // 3. Read receipts (by roomId and by eventIds for thorough cleanup)
+                ReadReceiptCache.clearRoom(roomId)
+                if (eventIds.isNotEmpty()) {
+                    ReadReceiptCache.clearForEventIds(eventIds)
+                }
+                
+                // 4. Message reactions (by eventIds)
+                if (eventIds.isNotEmpty()) {
+                    MessageReactionsCache.clearForEventIds(eventIds)
+                }
+                
+                // 5. Message versions (by eventIds)
+                if (eventIds.isNotEmpty()) {
+                    MessageVersionsCache.clearForEventIds(eventIds)
+                }
+                
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "Cleared all related caches for evicted room $roomId (profiles, members, receipts, reactions, versions)")
                 }
                 
                 return true
@@ -852,14 +878,40 @@ object RoomTimelineCache {
      */
     fun clearRoomCache(roomId: String) {
         synchronized(cacheLock) {
+            // Capture eventIds before removing the cache entry
+            val roomCache = roomEventsCache[roomId]
+            val eventIds = roomCache?.eventIds?.toSet() ?: emptySet()
+            
             synchronized(cacheStateLock) {
                 roomEventsCache.remove(roomId)
                 roomsInitialized.remove(roomId)
                 activelyCachedRooms.remove(roomId)
             }
-            // Also clean up room-specific profiles when room cache is cleared
+            
+            // Clean up all related caches for this room
+            // 1. Profile cache (room-specific profiles)
             ProfileCache.clearRoom(roomId)
-            if (BuildConfig.DEBUG) Log.d(TAG, "Cleared cache for room $roomId and marked as not cached (also cleared room-specific profiles)")
+            
+            // 2. Room member cache
+            RoomMemberCache.clearRoom(roomId)
+            
+            // 3. Read receipts (by roomId and by eventIds for thorough cleanup)
+            ReadReceiptCache.clearRoom(roomId)
+            if (eventIds.isNotEmpty()) {
+                ReadReceiptCache.clearForEventIds(eventIds)
+            }
+            
+            // 4. Message reactions (by eventIds)
+            if (eventIds.isNotEmpty()) {
+                MessageReactionsCache.clearForEventIds(eventIds)
+            }
+            
+            // 5. Message versions (by eventIds)
+            if (eventIds.isNotEmpty()) {
+                MessageVersionsCache.clearForEventIds(eventIds)
+            }
+            
+            if (BuildConfig.DEBUG) Log.d(TAG, "Cleared cache for room $roomId and marked as not cached (also cleared profiles, members, receipts, reactions, versions)")
         }
     }
     
@@ -871,9 +923,15 @@ object RoomTimelineCache {
             val allRoomIds = roomEventsCache.keys.toSet()
             roomEventsCache.clear()
             roomsInitialized.clear()
-            // Clear profiles for all rooms
+            
+            // Clear all related caches completely
             allRoomIds.forEach { ProfileCache.clearRoom(it) }
-            if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all room caches (also cleared all room-specific profiles)")
+            RoomMemberCache.clear()
+            ReadReceiptCache.clear()
+            MessageReactionsCache.clear()
+            MessageVersionsCache.clear()
+            
+            if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all room caches (also cleared all profiles, members, receipts, reactions, versions)")
         }
     }
     
@@ -890,24 +948,50 @@ object RoomTimelineCache {
                 if (openedRooms.isEmpty()) {
                     // No opened rooms - clear everything
                     val allRoomIds = roomEventsCache.keys.toSet()
+                    // Capture eventIds for all rooms before clearing
+                    val allEventIds = roomEventsCache.values.flatMap { it.eventIds }.toSet()
+                    
                     roomEventsCache.clear()
                     roomsInitialized.clear()
                     activelyCachedRooms.clear()
-                    // Clear profiles for all rooms
+                    
+                    // Clear all related caches for all rooms
                     allRoomIds.forEach { ProfileCache.clearRoom(it) }
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all room caches and marked all rooms as needing pagination (no opened rooms, also cleared all room-specific profiles)")
+                    RoomMemberCache.clear()
+                    ReadReceiptCache.clear()
+                    if (allEventIds.isNotEmpty()) {
+                        MessageReactionsCache.clearForEventIds(allEventIds)
+                        MessageVersionsCache.clearForEventIds(allEventIds)
+                    }
+                    
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all room caches and marked all rooms as needing pagination (no opened rooms, also cleared all profiles, members, receipts, reactions, versions)")
                 } else {
                     // Preserve caches for currently opened rooms
                     val roomsToClear = roomEventsCache.keys.filter { it !in openedRooms }.toSet()
                     val roomsToPreserve = roomEventsCache.keys.filter { it in openedRooms }.toSet()
+                
+                    // Collect eventIds for rooms being cleared
+                    val eventIdsToClear = roomsToClear.flatMap { roomId ->
+                        roomEventsCache[roomId]?.eventIds ?: emptySet()
+                    }.toSet()
                 
                     // Clear caches for non-opened rooms
                     for (roomId in roomsToClear) {
                         roomEventsCache.remove(roomId)
                         roomsInitialized.remove(roomId)
                         activelyCachedRooms.remove(roomId)
-                        // Also clear room-specific profiles for cleared rooms
+                        
+                        // Clear all related caches for this room
                         ProfileCache.clearRoom(roomId)
+                        RoomMemberCache.clearRoom(roomId)
+                        ReadReceiptCache.clearRoom(roomId)
+                    }
+                    
+                    // Clear event-specific caches for all cleared rooms' events
+                    if (eventIdsToClear.isNotEmpty()) {
+                        ReadReceiptCache.clearForEventIds(eventIdsToClear)
+                        MessageReactionsCache.clearForEventIds(eventIdsToClear)
+                        MessageVersionsCache.clearForEventIds(eventIdsToClear)
                     }
                 
                     // Preserve opened rooms:

@@ -79,5 +79,45 @@ object ReadReceiptCache {
             if (BuildConfig.DEBUG) Log.d(TAG, "ReadReceiptCache: Cleared all receipts")
         }
     }
+    
+    /**
+     * Clear receipts for a specific room (filters by ReadReceipt.roomId)
+     */
+    fun clearRoom(roomId: String) {
+        synchronized(cacheLock) {
+            var removedCount = 0
+            val iterator = receiptCache.entries.iterator()
+            while (iterator.hasNext()) {
+                val (eventId, receipts) = iterator.next()
+                // Filter out receipts that belong to this room
+                val filteredReceipts = receipts.filter { it.roomId != roomId }
+                if (filteredReceipts.isEmpty()) {
+                    // All receipts for this event were for this room - remove the event entry
+                    iterator.remove()
+                    removedCount++
+                } else if (filteredReceipts.size < receipts.size) {
+                    // Some receipts were for this room - update the list
+                    receiptCache[eventId] = filteredReceipts.toMutableList()
+                    removedCount++
+                }
+            }
+            if (BuildConfig.DEBUG) Log.d(TAG, "ReadReceiptCache: Cleared receipts for room $roomId (removed ${removedCount} event entries)")
+        }
+    }
+    
+    /**
+     * Clear receipts for specific event IDs (used when evicting a room)
+     */
+    fun clearForEventIds(eventIds: Set<String>) {
+        synchronized(cacheLock) {
+            var removedCount = 0
+            eventIds.forEach { eventId ->
+                if (receiptCache.remove(eventId) != null) {
+                    removedCount++
+                }
+            }
+            if (BuildConfig.DEBUG) Log.d(TAG, "ReadReceiptCache: Cleared receipts for ${removedCount} events (out of ${eventIds.size} requested)")
+        }
+    }
 }
 

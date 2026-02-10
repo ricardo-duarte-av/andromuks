@@ -3748,7 +3748,7 @@ class AppViewModel : ViewModel() {
         
         if (roomsWithMemberEvents.isEmpty()) {
             // No rooms with member events - nothing to process
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: MEMBER PROCESSING - No rooms with member events in this sync")
+            //if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: MEMBER PROCESSING - No rooms with member events in this sync")
             return
         }
         
@@ -4858,6 +4858,18 @@ class AppViewModel : ViewModel() {
                 while (roomKeys.hasNext()) {
                     val roomId = roomKeys.next()
                     val roomData = rooms.optJSONObject(roomId) ?: continue
+
+                    // Only process receipts for:
+                    // 1) Rooms that are actively cached (have a timeline cache), OR
+                    // 2) The room that is currently open in the UI.
+                    // This avoids wasting work on rooms whose timeline we are not keeping,
+                    // since paginate will provide authoritative receipts when they are opened.
+                    val isActivelyCached = RoomTimelineCache.isRoomActivelyCached(roomId)
+                    val isCurrentRoom = (currentRoomId == roomId)
+                    if (!isActivelyCached && !isCurrentRoom) {
+                        continue
+                    }
+
                     val receipts = roomData.optJSONObject("receipts")
                     if (receipts != null && receipts.length() > 0) {
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processParsedSyncResult - Processing read receipts from sync_complete for room: $roomId (${receipts.length()} event receipts)")
@@ -4865,8 +4877,8 @@ class AppViewModel : ViewModel() {
                             // Use processReadReceiptsFromSyncComplete - sync_complete moves receipts
                             // CRITICAL FIX: Pass roomId to prevent cross-room receipt corruption
                             ReceiptFunctions.processReadReceiptsFromSyncComplete(
-                                receipts, 
-                                readReceipts, 
+                                receipts,
+                                readReceipts,
                                 { readReceiptsUpdateCounter++ },
                                 { userId, previousEventId, newEventId ->
                                     // Track receipt movement for animation (thread-safe)
@@ -4878,7 +4890,7 @@ class AppViewModel : ViewModel() {
                                 },
                                 roomId = roomId // Pass room ID to prevent cross-room corruption
                             )
-                            
+
                             // Update singleton cache after processing receipts
                             val receiptsForCache = readReceipts.mapValues { it.value.toList() }
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updating ReadReceiptCache with ${receiptsForCache.size} events (${receiptsForCache.values.sumOf { it.size }} total receipts) from sync_complete for room: $roomId")
@@ -4920,10 +4932,10 @@ class AppViewModel : ViewModel() {
                     android.util.Log.d("Andromuks", "AppViewModel: processParsedSyncResult - Processing account_data with keys: ${accountDataKeys.joinToString(", ")} (clear_state=$isClearState)")
                 }
                 processAccountData(accountData)
-            } else {
-                // Account_data is empty {} - no updates, preserve existing state
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processParsedSyncResult - Incoming account_data is empty {}, preserving existing state")
-            }
+            } //else {
+            //    // Account_data is empty {} - no updates, preserve existing state
+            //    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processParsedSyncResult - Incoming account_data is empty {}, preserving existing state")
+            //}
         } else {
             // Account_data is null (special case: first clear_state message may have null)
             // This means "no account_data updates" - preserve existing state
@@ -5111,7 +5123,7 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Immediately updated UI after room removal (roomListUpdateCounter: $roomListUpdateCounter)")
         }
         
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Total rooms now: ${roomMap.size} (updated: ${syncResult.updatedRooms.size}, new: ${syncResult.newRooms.size}, removed: ${syncResult.removedRoomIds.size}) - sync message #$syncMessageCount [App visible: $isAppVisible]")
+        //if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Total rooms now: ${roomMap.size} (updated: ${syncResult.updatedRooms.size}, new: ${syncResult.newRooms.size}, removed: ${syncResult.removedRoomIds.size}) - sync message #$syncMessageCount [App visible: $isAppVisible]")
         
         // DETECT INVITES ACCEPTED ON OTHER DEVICES: Remove pending invites for rooms already joined
         if (pendingInvites.isNotEmpty()) {
@@ -5280,7 +5292,7 @@ class AppViewModel : ViewModel() {
         } else {
             // BATTERY OPTIMIZATION: App is in background - minimal processing for battery saving
             // We skip expensive operations like sorting and UI updates since no one is viewing the app
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: BATTERY SAVE MODE - App in background, skipping UI updates")
+            //if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: BATTERY SAVE MODE - App in background, skipping UI updates")
             
             // BATTERY OPTIMIZATION: Keep allRooms unsorted when backgrounded (skip expensive O(n log n) sort)
             // We only need sorted rooms when updating shortcuts (every 10 syncs) or when app becomes visible
@@ -15515,17 +15527,12 @@ class AppViewModel : ViewModel() {
             logActivity("Starting WebSocket Service", null)
             val intent = android.content.Intent(context, WebSocketService::class.java)
             try {
-                if (Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
-                    WebSocketService.shouldUseForegroundService()
-                ) {
-                    // Normal path on Android O+: request a foreground service start
-                    context.startForegroundService(intent)
-                } else {
-                    // Either pre-O, or we've previously been denied FGS for this process.
-                    // In that case, fall back to a regular service start to avoid
-                    // ForegroundServiceDidNotStartInTimeException.
-                    context.startService(intent)
-                }
+                // IMPORTANT: Use startService() even on Android O+.
+                // WebSocketService itself will call startForeground() when allowed.
+                // This avoids the strict timing contract of startForegroundService(),
+                // which causes ForegroundServiceDidNotStartInTimeException when
+                // Android refuses FGS (e.g. quota exhausted or policy).
+                context.startService(intent)
             } catch (e: Exception) {
                 android.util.Log.e("Andromuks", "AppViewModel: Failed to start WebSocketService", e)
             }

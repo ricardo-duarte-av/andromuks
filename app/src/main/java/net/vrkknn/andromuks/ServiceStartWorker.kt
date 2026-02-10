@@ -54,10 +54,14 @@ class ServiceStartWorker(
             
             // Start the foreground service
             val intent = Intent(applicationContext, WebSocketService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                applicationContext.startForegroundService(intent)
-            } else {
+            try {
+                // Use startService() even on Android O+; WebSocketService will promote itself
+                // to a foreground service when allowed. This avoids the strict timing
+                // requirement of startForegroundService(), which can crash the app if
+                // startForeground() is rejected or delayed.
                 applicationContext.startService(intent)
+            } catch (e: Exception) {
+                android.util.Log.e("ServiceStartWorker", "Failed to start WebSocketService from worker", e)
             }
             
             if (BuildConfig.DEBUG) Log.d(TAG, "WebSocketService start initiated: $reason")

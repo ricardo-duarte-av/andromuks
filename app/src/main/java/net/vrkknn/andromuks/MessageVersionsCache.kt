@@ -104,5 +104,44 @@ object MessageVersionsCache {
         if (BuildConfig.DEBUG) Log.d(TAG, "MessageVersionsCache: clearForRoom called for $roomId (clearing all - room tracking not implemented)")
         clear()
     }
+    
+    /**
+     * Clear versions for specific event IDs (used when evicting a room)
+     * This clears both the versions cache and related edit/redaction mappings
+     */
+    fun clearForEventIds(eventIds: Set<String>) {
+        synchronized(cacheLock) {
+            var removedVersions = 0
+            var removedEdits = 0
+            var removedRedactions = 0
+            
+            // Clear versions for the specified event IDs
+            eventIds.forEach { eventId ->
+                if (versionsCache.remove(eventId) != null) {
+                    removedVersions++
+                }
+                // Also remove from redaction cache
+                if (redactionCache.remove(eventId) != null) {
+                    removedRedactions++
+                }
+            }
+            
+            // Remove edit-to-original mappings where the original event was cleared
+            val editKeysToRemove = editToOriginal.entries.filter { it.value in eventIds }.map { it.key }
+            editKeysToRemove.forEach { editEventId ->
+                editToOriginal.remove(editEventId)
+                removedEdits++
+            }
+            
+            // Also remove edit-to-original mappings where the edit event itself was cleared
+            eventIds.forEach { eventId ->
+                if (editToOriginal.remove(eventId) != null) {
+                    removedEdits++
+                }
+            }
+            
+            if (BuildConfig.DEBUG) Log.d(TAG, "MessageVersionsCache: Cleared versions for ${removedVersions} events, ${removedEdits} edit mappings, ${removedRedactions} redactions (out of ${eventIds.size} requested)")
+        }
+    }
 }
 

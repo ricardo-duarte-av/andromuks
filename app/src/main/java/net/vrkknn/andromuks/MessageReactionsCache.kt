@@ -90,5 +90,20 @@ object MessageReactionsCache {
         if (BuildConfig.DEBUG) Log.d(TAG, "MessageReactionsCache: clearForRoom called for $roomId (clearing all - room tracking not implemented)")
         clear()
     }
+    
+    /**
+     * Clear reactions for specific event IDs (used when evicting a room)
+     */
+    fun clearForEventIds(eventIds: Set<String>) {
+        synchronized(cacheLock) {
+            var removedCount = 0
+            eventIds.forEach { eventId ->
+                if (reactionsCache.remove(eventId) != null) {
+                    removedCount++
+                }
+            }
+            if (BuildConfig.DEBUG) Log.d(TAG, "MessageReactionsCache: Cleared reactions for ${removedCount} events (out of ${eventIds.size} requested)")
+        }
+    }
 }
 

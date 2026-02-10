@@ -1232,21 +1232,30 @@ fun RoomTimelineScreen(
     // PERFORMANCE: Use background processing for heavy filtering and sorting operations
     var sortedEvents by remember { mutableStateOf<List<TimelineEvent>>(emptyList()) }
     
-    // Process timeline events in background when dependencies change
-    LaunchedEffect(timelineEvents, appViewModel.timelineUpdateCounter) {
-        if (BuildConfig.DEBUG) Log.d(
-            "Andromuks",
-            "RoomTimelineScreen: Processing timelineEvents update - size=${timelineEvents.size}, updateCounter=${appViewModel.timelineUpdateCounter}, roomId=$roomId"
-        )
+    // Process timeline events in background when this room's timeline changes.
+    // IMPORTANT: Do NOT key this effect on global counters (like timelineUpdateCounter),
+    // otherwise updates in other rooms would trigger unnecessary work here.
+    // PERFORMANCE: Gate logging on app visibility and current room, but still process events
+    // (needed for when app comes back to foreground)
+    LaunchedEffect(timelineEvents) {
+        val shouldLog = appViewModel.isAppVisible && appViewModel.currentRoomId == roomId
+        if (shouldLog && BuildConfig.DEBUG) {
+            Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Processing timelineEvents update - size=${timelineEvents.size}, updateCounter=${appViewModel.timelineUpdateCounter}, roomId=$roomId"
+            )
+        }
         sortedEvents = processTimelineEvents(
             timelineEvents = timelineEvents,
             allowedEventTypes = allowedEventTypes
         )
     }
 
-    // PERFORMANCE: Create timeline items with date dividers and pre-compute consecutive flags
+    // PERFORMANCE: Create timeline items with date dividers and pre-compute consecutive flags.
+    // Only depend on this room's sortedEvents; do NOT depend on global counters so that
+    // events in other rooms don't cause recomputation here.
     val timelineItems =
-        remember(sortedEvents, appViewModel.timelineUpdateCounter) {
+        remember(sortedEvents) {
             val items = mutableListOf<TimelineItem>()
             var lastDate: String? = null
             var previousEvent: TimelineEvent? = null
@@ -1605,7 +1614,9 @@ fun RoomTimelineScreen(
         }
     }
 
-    // Track last known timeline update counter to detect when timeline has been built
+    // Track last known timeline update counter to detect when timeline has been built.
+    // NOTE: This is read for heuristics inside effects but we avoid keying effects on it,
+    // so global timeline updates in other rooms don't force recomposition here.
     var lastKnownTimelineUpdateCounter by remember { mutableStateOf(appViewModel.timelineUpdateCounter) }
     
     // Auto-scroll to bottom only when attached (initial load or new messages while at bottom)
@@ -1613,7 +1624,6 @@ fun RoomTimelineScreen(
         timelineItems.size,
         isLoading,
         appViewModel.isPaginating,
-        appViewModel.timelineUpdateCounter,
         pendingNotificationJumpEventId
     ) {
         if (BuildConfig.DEBUG) Log.d(
@@ -1927,7 +1937,12 @@ fun RoomTimelineScreen(
     // Validate and request missing user profiles when timeline events change
     // This ensures all users in the timeline have complete profile data (display name, avatar)
     // Missing profiles are automatically requested from the server
-    LaunchedEffect(sortedEvents) {
+    // PERFORMANCE: Only run when app is visible and this is the current room
+    LaunchedEffect(sortedEvents, appViewModel.isAppVisible, appViewModel.currentRoomId) {
+        if (!appViewModel.isAppVisible || appViewModel.currentRoomId != roomId) {
+            return@LaunchedEffect
+        }
+        
         if (sortedEvents.isNotEmpty()) {
             if (BuildConfig.DEBUG) Log.d(
                 "Andromuks",
@@ -1939,7 +1954,12 @@ fun RoomTimelineScreen(
 
     // OPPORTUNISTIC PROFILE LOADING: Only request profiles when actually needed for rendering
     // This prevents loading 15,000+ profiles upfront for large rooms
-    LaunchedEffect(sortedEvents, roomId) {
+    // PERFORMANCE: Only run when app is visible and this is the current room
+    LaunchedEffect(sortedEvents, roomId, appViewModel.isAppVisible, appViewModel.currentRoomId) {
+        if (!appViewModel.isAppVisible || appViewModel.currentRoomId != roomId) {
+            return@LaunchedEffect
+        }
+        
         if (BuildConfig.DEBUG) Log.d(
             "Andromuks",
             "RoomTimelineScreen: Using opportunistic profile loading for $roomId (no bulk loading)"
@@ -1972,7 +1992,12 @@ fun RoomTimelineScreen(
     // This persists user profile data (display names, avatars) to disk for future app sessions
     // Only save profiles for users involved in the events being processed to avoid performance
     // issues
-    LaunchedEffect(appViewModel.memberUpdateCounter) {
+    // PERFORMANCE: Only run when app is visible and this is the current room
+    LaunchedEffect(appViewModel.memberUpdateCounter, appViewModel.isAppVisible, appViewModel.currentRoomId) {
+        if (!appViewModel.isAppVisible || appViewModel.currentRoomId != roomId) {
+            return@LaunchedEffect
+        }
+        
         // Only save profiles for users who are actually involved in the current timeline events
         val usersInTimeline = sortedEvents.map { it.sender }.distinct().toSet()
         if (usersInTimeline.isNotEmpty()) {
@@ -1990,11 +2015,11 @@ fun RoomTimelineScreen(
 
     // Ensure timeline reactively updates when new events arrive from sync
     // OPTIMIZED: Only track timelineEvents changes directly, updateCounter is handled by receipt updates
-    LaunchedEffect(timelineEvents) {
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Timeline events changed - timelineEvents.size: ${timelineEvents.size}, currentRoomId: ${appViewModel.currentRoomId}, roomId: $roomId")
-        
-        // Only react to changes for the current room
-        if (appViewModel.currentRoomId == roomId) {
+    // PERFORMANCE: Only log when app is visible and this is the current room
+    LaunchedEffect(timelineEvents, appViewModel.isAppVisible, appViewModel.currentRoomId) {
+        // Only react to changes for the current room and when app is visible
+        if (appViewModel.currentRoomId == roomId && appViewModel.isAppVisible) {
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Timeline events changed - timelineEvents.size: ${timelineEvents.size}, currentRoomId: ${appViewModel.currentRoomId}, roomId: $roomId")
             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Detected timeline update for current room $roomId with ${timelineEvents.size} events")
             
             // Force recomposition when timeline events change

@@ -430,28 +430,28 @@ class SyncIngestor(private val context: Context) {
             }
             
             // Enhanced logging to show what sync_complete actually contained
-            if (BuildConfig.DEBUG) {
-                val roomsWithoutEvents = roomsToProcess.size - roomsWithEvents.size
-                val summary = buildString {
-                    append("Ingested sync_complete: requestId=$requestId, since=$since, ")
-                    append("rooms=${roomsToProcess.size} (${roomsWithEvents.size} with events added to cache, $roomsWithoutEvents without events)")
-                    if (roomsWithoutEvents > 0) {
-                        append(" - Rooms without events: ")
-                        val roomsWithoutEventsList = roomsToProcess.filter { it !in roomsWithEvents }
-                        roomsWithoutEventsList.forEachIndexed { index, roomId ->
-                            if (index > 0) append(", ")
-                            val roomObj = roomsJson.optJSONObject(roomId)
-                            if (roomObj != null) {
-                                val contents = analyzeRoomContents(roomId, roomObj)
-                                append("$roomId($contents)")
-                            } else {
-                                append(roomId)
-                            }
-                        }
-                    }
-                }
-                Log.d(TAG, summary)
-            }
+            //if (BuildConfig.DEBUG) {
+            //   val roomsWithoutEvents = roomsToProcess.size - roomsWithEvents.size
+            //    val summary = buildString {
+            //        append("Ingested sync_complete: requestId=$requestId, since=$since, ")
+            //        append("rooms=${roomsToProcess.size} (${roomsWithEvents.size} with events added to cache, $roomsWithoutEvents without events)")
+            //        if (roomsWithoutEvents > 0) {
+            //            append(" - Rooms without events: ")
+            //            val roomsWithoutEventsList = roomsToProcess.filter { it !in roomsWithEvents }
+            //            roomsWithoutEventsList.forEachIndexed { index, roomId ->
+            //                if (index > 0) append(", ")
+            //                val roomObj = roomsJson.optJSONObject(roomId)
+            //                if (roomObj != null) {
+            //                    val contents = analyzeRoomContents(roomId, roomObj)
+            //                    append("$roomId($contents)")
+            //                } else {
+            //                    append(roomId)
+            //                }
+            //            }
+            //        }
+            //    }
+            //    Log.d(TAG, summary)
+            //}
         } else {
             if (BuildConfig.DEBUG) Log.d(TAG, "Ingested sync_complete: $requestId, 0 rooms (no rooms object)")
         }
