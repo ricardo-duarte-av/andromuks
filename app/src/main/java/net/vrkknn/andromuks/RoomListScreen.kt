@@ -111,6 +111,7 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -718,6 +719,7 @@ fun RoomListScreen(
     
     // Pull-to-refresh state
     var refreshing by remember { mutableStateOf(false) }
+    var showRefreshConfirmation by remember { mutableStateOf(false) }
     
     // Track if we're at the top of the current section's list
     // This ensures pull-to-refresh only works when gesture starts at the top
@@ -740,6 +742,25 @@ fun RoomListScreen(
         }
     }
     
+    // Function to perform the actual refresh
+    fun performRefresh() {
+        refreshing = true
+        // CRITICAL FIX: Use performFullRefresh() to properly clear all state and reset lastReceivedRequestId
+        // This ensures we reconnect without last_received_id to get a full payload (like cold start)
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Pull-to-refresh confirmed - performing full refresh")
+        // Clear lastReceivedRequestId from SharedPreferences so reconnect doesn't use it
+        net.vrkknn.andromuks.WebSocketService.clearLastReceivedRequestId(context)
+        // Perform full refresh which clears all state and triggers reconnection
+        appViewModel.performFullRefresh()
+        // Navigate to auth_check which will handle WebSocket reconnection and show StartupLoadingScreen
+        navController.navigate("auth_check") {
+            // Clear back stack so user doesn't go back to stale room_list
+            popUpTo(0) { inclusive = true }
+        }
+        // Reset refreshing state immediately since navigation will show loading screen
+        refreshing = false
+    }
+    
     val refreshState = rememberPullRefreshState(
         refreshing = refreshing,
         onRefresh = {
@@ -753,21 +774,9 @@ fun RoomListScreen(
                 return@rememberPullRefreshState
             }
             
-            refreshing = true
-            // CRITICAL FIX: Use performFullRefresh() to properly clear all state and reset lastReceivedRequestId
-            // This ensures we reconnect without last_received_id to get a full payload (like cold start)
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Pull-to-refresh triggered - performing full refresh")
-            // Clear lastReceivedRequestId from SharedPreferences so reconnect doesn't use it
-            net.vrkknn.andromuks.WebSocketService.clearLastReceivedRequestId(context)
-            // Perform full refresh which clears all state and triggers reconnection
-            appViewModel.performFullRefresh()
-            // Navigate to auth_check which will handle WebSocket reconnection and show StartupLoadingScreen
-            navController.navigate("auth_check") {
-                // Clear back stack so user doesn't go back to stale room_list
-                popUpTo(0) { inclusive = true }
-            }
-            // Reset refreshing state immediately since navigation will show loading screen
-            refreshing = false
+            // Show confirmation dialog instead of immediately refreshing
+            showRefreshConfirmation = true
+            refreshing = false // Reset refreshing state since we're showing dialog
         }
     )
     
@@ -1380,6 +1389,78 @@ fun RoomListScreen(
                         scaleY = scale
                     }
             )
+        }
+        
+        // Pull-to-refresh confirmation dialog
+        if (showRefreshConfirmation) {
+            Dialog(
+                onDismissRequest = { 
+                    showRefreshConfirmation = false
+                },
+                properties = DialogProperties(
+                    dismissOnBackPress = true,
+                    dismissOnClickOutside = true
+                )
+            ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(0.85f),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp)
+                    ) {
+                        // Title
+                        Text(
+                            text = "Reconnect?",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
+                        
+                        // Message
+                        Text(
+                            text = "This will disconnect and reconnect to the server, refreshing all room data. Continue?",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(bottom = 24.dp)
+                        )
+                        
+                        // Buttons row: OK on left, Cancel on right
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // OK button on the left
+                            Button(
+                                onClick = {
+                                    showRefreshConfirmation = false
+                                    performRefresh()
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                )
+                            ) {
+                                Text("OK")
+                            }
+                            // Cancel button on the right
+                            Button(
+                                onClick = { 
+                                    showRefreshConfirmation = false
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                )
+                            ) {
+                                Text("Cancel")
+                            }
+                        }
+                    }
+                }
+            }
         }
         
         // RoomJoinerScreen for invites
