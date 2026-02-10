@@ -29,7 +29,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import android.os.Build
-import android.util.Log
 import coil.compose.AsyncImage
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
@@ -41,6 +40,7 @@ import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.BlurHashUtils
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
+import net.vrkknn.andromuks.utils.CircleAvatarCache
 import androidx.compose.foundation.Image
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -57,7 +57,9 @@ fun AvatarImage(
     userId: String? = null,
     displayName: String? = null,
     blurHash: String? = null, // AVATAR LOADING OPTIMIZATION: BlurHash for placeholder
-    isVisible: Boolean = true // AVATAR LOADING OPTIMIZATION: Lazy loading control
+    isVisible: Boolean = true, // AVATAR LOADING OPTIMIZATION: Lazy loading control
+    useCircleCache: Boolean = false, // CIRCLE AVATAR CACHE: Use CircleAvatarCache for RoomListScreen
+    isScrollingFast: Boolean = false // PERFORMANCE: Suspend avatar loading during fast scrolling
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -66,9 +68,25 @@ fun AvatarImage(
     // Use shared ImageLoader singleton with optimized memory cache
     val imageLoader = remember { ImageLoaderSingleton.get(context) }
     
-    // Get avatar URL without preemptive loading - just check cache and convert MXC
-    val avatarUrl = remember(mxcUrl) {
-        AvatarUtils.getAvatarUrl(context, mxcUrl, homeserverUrl)
+    // Get avatar URL - use CircleAvatarCache if useCircleCache is true (for RoomListScreen)
+    // PERFORMANCE FIX: Use getAvatarUrlForRoomList which checks CircleAvatarCache first, avoiding double checks
+    var avatarUrl by remember(mxcUrl, useCircleCache) {
+        if (useCircleCache && mxcUrl != null) {
+            // For RoomListScreen: Check CircleAvatarCache -> MediaCache -> Coil -> Network
+            // Start with null, will be set async by LaunchedEffect
+            mutableStateOf<String?>(null)
+        } else {
+            // Normal flow: Check MediaCache -> Coil -> Network
+            mutableStateOf(AvatarUtils.getAvatarUrl(context, mxcUrl, homeserverUrl))
+        }
+    }
+    
+    // For RoomListScreen, check CircleAvatarCache first, then fall back to MediaCache
+    LaunchedEffect(mxcUrl, useCircleCache) {
+        if (useCircleCache && mxcUrl != null) {
+            // Use getAvatarUrlForRoomList which checks in correct order: CircleAvatarCache -> MediaCache -> Coil -> Network
+            avatarUrl = AvatarUtils.getAvatarUrlForRoomList(context, mxcUrl, homeserverUrl)
+        }
     }
     
     // CRITICAL FIX: Use a stable key (userId or fallbackText) instead of avatarUrl for state persistence
@@ -79,6 +97,9 @@ fun AvatarImage(
     // Track if the image failed to load - key by stableKey to persist across recompositions
     var imageLoadFailed by remember(stableKey) { mutableStateOf(false) }
     
+    // PERFORMANCE: Track if image has successfully loaded - once loaded, show it even during fast scrolling
+    var imageHasLoaded by remember(stableKey) { mutableStateOf(false) }
+    
     // CRITICAL FIX: Initialize shouldLoadImage based on avatarUrl, but persist state per stableKey
     // This prevents fallback flash: if avatarUrl exists, start with shouldLoadImage=true
     // State persists across recompositions based on stableKey (room/user ID), not avatarUrl
@@ -88,14 +109,17 @@ fun AvatarImage(
     }
     
     // AVATAR LOADING OPTIMIZATION: Update shouldLoadImage when visibility or avatarUrl changes
-    // This ensures shouldLoadImage is true when avatarUrl becomes available
-    LaunchedEffect(isVisible, avatarUrl) {
+    // PERFORMANCE: Only prevent LOADING during fast scrolling, not DISPLAY of already-loaded images
+    LaunchedEffect(isVisible, avatarUrl, isScrollingFast) {
         if (isVisible && avatarUrl != null) {
-            shouldLoadImage = true
+            // Only allow loading if not fast scrolling OR image has already loaded
+            // Once loaded, image stays visible even during fast scrolling
+            shouldLoadImage = !isScrollingFast || imageHasLoaded
         }
         // Don't reset shouldLoadImage when item becomes invisible - keep it true
         // This ensures cached images show instantly when scrolling back into view
     }
+    
     
     // AVATAR LOADING OPTIMIZATION: Generate placeholder from BlurHash if available
     val placeholderBitmap = remember(blurHash, size) {
@@ -105,9 +129,16 @@ fun AvatarImage(
         } else null
     }
     
-    val targetPixelSize = remember(size, density) {
+    val targetPixelSize = remember(size, density, useCircleCache) {
         val rawPx = with(density) { size.toPx() }.roundToInt()
-        max(rawPx, 64) // request at least 64px to keep clarity when density is low
+        // PERFORMANCE FIX: For RoomListScreen, request smaller images to reduce decoding overhead
+        // We only need 48dp = ~144px, not 512px. This reduces memory and decoding time.
+        if (useCircleCache) {
+            // Request exactly what we need (48dp = ~144px on most devices)
+            max(rawPx, 64).coerceAtMost(256) // Cap at 256px max for room list
+        } else {
+            max(rawPx, 64) // request at least 64px to keep clarity when density is low
+        }
     }
     
     // Compute fallback info
@@ -201,43 +232,97 @@ fun AvatarImage(
             }
             // Load the actual avatar image with lazy loading optimization
             else -> {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(avatarUrl)
-                        .apply {
-                            size(targetPixelSize)
-                            // Only add auth header for HTTP URLs, not for file:// URIs
-                            if (avatarUrl.startsWith("http")) {
-                                addHeader("Cookie", "gomuks_auth=$authToken")
-                            }
-                        }
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .build(),
-                    imageLoader = imageLoader,
-                    contentDescription = "Avatar",
-                    modifier = Modifier
-                        .size(size)
-                        .clip(CircleShape),
-                    contentScale = ContentScale.Crop,
-                    onSuccess = {
-                        imageLoadFailed = false
-                        // AVATAR LOADING OPTIMIZATION: Background caching with cleanup
-                        if (mxcUrl != null && avatarUrl.startsWith("http")) {
-                            coroutineScope.launch {
-                                // Check if already cached to avoid redundant downloads
-                                if (IntelligentMediaCache.getCachedFile(context, mxcUrl) == null) {
-                                    IntelligentMediaCache.downloadAndCache(context, mxcUrl, avatarUrl, authToken)
-                                    IntelligentMediaCache.cleanupCache(context)
+                // Store avatarUrl in local variable to avoid smart cast issues with delegated property
+                val currentAvatarUrl = avatarUrl
+                
+                if (currentAvatarUrl != null && shouldLoadImage) {
+                    // PERFORMANCE: Only render AsyncImage (which triggers loading) if shouldLoadImage is true
+                    // shouldLoadImage is false during fast scrolling (unless image already loaded)
+                    // Once image loads, it stays visible even during fast scrolling
+                    val avatarUrlForRequest = currentAvatarUrl // Non-null assertion for smart cast
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(avatarUrlForRequest)
+                            .apply {
+                                size(targetPixelSize)
+                                // Only add auth header for HTTP URLs, not for file:// URIs
+                                if (avatarUrlForRequest.startsWith("http")) {
+                                    addHeader("Cookie", "gomuks_auth=$authToken")
                                 }
                             }
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .build(),
+                        imageLoader = imageLoader,
+                        contentDescription = "Avatar",
+                        modifier = Modifier
+                            .size(size)
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Crop,
+                        onSuccess = {
+                            imageLoadFailed = false
+                            imageHasLoaded = true // Mark as loaded - will stay visible even during fast scrolling
+                            
+                            // CIRCLE AVATAR CACHE: Cache square thumbnail for RoomListScreen
+                            if (useCircleCache && mxcUrl != null) {
+                                coroutineScope.launch {
+                                    // Only cache if not already in CircleAvatarCache
+                                    val circleCached = CircleAvatarCache.getCachedFile(context, mxcUrl)
+                                    if (circleCached == null) {
+                                        // Only cache if we loaded from MediaCache or network (not from CircleAvatarCache)
+                                        // If avatarUrlForRequest is a file path and not from CircleAvatarCache, it's from MediaCache
+                                        val isFromCircleCache = avatarUrlForRequest.contains("circle_avatar_cache")
+                                        if (!isFromCircleCache) {
+                                            // Cache circular version - use the source URL that was actually loaded
+                                            CircleAvatarCache.cacheCircularAvatar(
+                                                context = context,
+                                                mxcUrl = mxcUrl,
+                                                sourceImageUrl = avatarUrlForRequest,
+                                                imageLoader = imageLoader,
+                                                authToken = authToken
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // AVATAR LOADING OPTIMIZATION: Background caching with cleanup
+                            // PERFORMANCE FIX: Skip MediaCache download if we loaded from CircleAvatarCache
+                            // This prevents the double cache check we saw in logs
+                            if (mxcUrl != null && avatarUrlForRequest.startsWith("http") && !useCircleCache) {
+                                // Only download to MediaCache if NOT using CircleAvatarCache
+                                // (CircleAvatarCache items are already processed, no need for MediaCache)
+                                coroutineScope.launch {
+                                    // Check if already cached to avoid redundant downloads
+                                    if (IntelligentMediaCache.getCachedFile(context, mxcUrl) == null) {
+                                        IntelligentMediaCache.downloadAndCache(context, mxcUrl, avatarUrlForRequest, authToken)
+                                        IntelligentMediaCache.cleanupCache(context)
+                                    }
+                                }
+                            }
+                        },
+                        onError = {
+                            // Mark as failed so fallback shows
+                            imageLoadFailed = true
                         }
-                    },
-                    onError = {
-                        // Mark as failed so fallback shows
-                        imageLoadFailed = true
+                    )
+                } else if (currentAvatarUrl != null && !imageHasLoaded) {
+                    // PERFORMANCE: During fast scrolling, show fallback if image hasn't loaded yet
+                    // Once image loads (imageHasLoaded = true), it will be shown above via AsyncImage
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = fallbackLetter,
+                            fontSize = fallbackFontSize,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            lineHeight = fallbackFontSize
+                        )
                     }
-                )
+                }
             }
         }
     }

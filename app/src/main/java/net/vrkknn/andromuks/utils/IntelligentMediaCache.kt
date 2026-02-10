@@ -128,11 +128,18 @@ object IntelligentMediaCache {
             )
             cacheEntries[mxcUrl] = updatedEntry
             
-            if (BuildConfig.DEBUG) Log.d(TAG, "Cache hit for $mxcUrl (access count: ${updatedEntry.accessCount})")
+            // PERFORMANCE: Reduce logging frequency to avoid log spam during fast scrolling
+            // Only log every 10th access to reduce overhead
+            if (BuildConfig.DEBUG && updatedEntry.accessCount % 10 == 0) {
+                Log.d(TAG, "Cache hit for $mxcUrl (access count: ${updatedEntry.accessCount})")
+            }
             return@withLock entry.file
         }
         
-        if (BuildConfig.DEBUG) Log.d(TAG, "Cache miss for $mxcUrl")
+        // PERFORMANCE: Only log misses in debug builds, and reduce frequency
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "Cache miss for $mxcUrl")
+        }
         return@withLock null
     }
     

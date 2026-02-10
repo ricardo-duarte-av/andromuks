@@ -719,9 +719,40 @@ fun RoomListScreen(
     // Pull-to-refresh state
     var refreshing by remember { mutableStateOf(false) }
     
+    // Track if we're at the top of the current section's list
+    // This ensures pull-to-refresh only works when gesture starts at the top
+    var isAtTopOfList by remember { mutableStateOf(true) }
+    var currentListStateForPullRefresh by remember { mutableStateOf<LazyListState?>(null) }
+    
+    // Update isAtTopOfList when section or scroll position changes
+    LaunchedEffect(displayedSection.type, listStates[displayedSection.type]) {
+        val listState = listStates[displayedSection.type]
+        currentListStateForPullRefresh = listState
+        
+        // Check if we're at the top (first item visible and no scroll offset)
+        snapshotFlow {
+            Pair(
+                listState?.firstVisibleItemIndex ?: -1,
+                listState?.firstVisibleItemScrollOffset ?: -1
+            )
+        }.collect { (firstIndex, scrollOffset) ->
+            isAtTopOfList = firstIndex == 0 && scrollOffset == 0
+        }
+    }
+    
     val refreshState = rememberPullRefreshState(
         refreshing = refreshing,
         onRefresh = {
+            // Double-check we're at the top before allowing refresh
+            val listState = currentListStateForPullRefresh
+            val actuallyAtTop = listState?.firstVisibleItemIndex == 0 && 
+                               listState.firstVisibleItemScrollOffset == 0
+            
+            if (!actuallyAtTop) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Pull-to-refresh blocked - not at top of list")
+                return@rememberPullRefreshState
+            }
+            
             refreshing = true
             // CRITICAL FIX: Use performFullRefresh() to properly clear all state and reset lastReceivedRequestId
             // This ensures we reconnect without last_received_id to get a full payload (like cold start)
@@ -825,11 +856,21 @@ fun RoomListScreen(
         toRemove.forEach { processedMessageSenders.remove(it) }
     }
     
+    // Only enable pull-to-refresh when at the top of the list
+    // This prevents accidental triggers when scrolling up from the middle
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .pullRefresh(refreshState)
+            .then(
+                // Only apply pullRefresh when we're at the top of the list
+                // This ensures the gesture must start at the top to trigger refresh
+                if (isAtTopOfList) {
+                    Modifier.pullRefresh(refreshState)
+                } else {
+                    Modifier
+                }
+            )
     ) {
         Column(
             modifier = Modifier
@@ -1484,7 +1525,9 @@ fun RoomListItem(
     timestampUpdateTrigger: Int = 0,
     appViewModel: AppViewModel,
     modifier: Modifier = Modifier,
-    isEnabled: Boolean = true
+    isEnabled: Boolean = true,
+    isScrollingFast: Boolean = false, // PERFORMANCE: Suspend avatar loading during fast scroll
+    shouldLoadAvatar: Boolean = true // PERFORMANCE: Load avatars for items below viewport
 ) {
     val context = LocalContext.current
     var showContextMenu by remember { mutableStateOf(false) }
@@ -1544,8 +1587,12 @@ fun RoomListItem(
                 size = 48.dp,
                 userId = room.id,
                 displayName = room.name,
-                // AVATAR LOADING OPTIMIZATION: Enable lazy loading for room list performance
-                isVisible = true // Room list items are visible when rendered in LazyColumn
+                // AVATAR LOADING OPTIMIZATION: Load avatars for visible items and items below viewport
+                isVisible = shouldLoadAvatar, // Load for visible items + 25 items below viewport
+                // CIRCLE AVATAR CACHE: Use CircleAvatarCache for room avatars to avoid repeated clipping
+                useCircleCache = true,
+                // PERFORMANCE: Suspend avatar loading during fast scrolling
+                isScrollingFast = isScrollingFast
             )
             
             // Bridge protocol avatar badge (bottom-right corner)
@@ -2131,6 +2178,35 @@ fun RoomListContent(
 ) {
     val context = LocalContext.current
     
+    // PERFORMANCE: Detect fast scrolling to suspend avatar loading
+    // During fast scrolling, images would be out of view before loading anyway
+    // This prevents wasted decoding work and crashes from too many simultaneous loads
+    var isScrollingFast by remember { mutableStateOf(false) }
+    var lastScrollIndex by remember { mutableStateOf(0) }
+    var lastScrollTime by remember { mutableStateOf(0L) }
+    
+    LaunchedEffect(listState.isScrollInProgress, listState.firstVisibleItemIndex) {
+        val currentIndex = listState.firstVisibleItemIndex
+        val currentTime = System.currentTimeMillis()
+        val timeDelta = currentTime - lastScrollTime
+        val indexDelta = kotlin.math.abs(currentIndex - lastScrollIndex)
+        
+        // Detect fast scrolling: >10tems in <100ms OR actively scrolling with >20tems/second
+        val isCurrentlyScrolling = listState.isScrollInProgress
+        val scrollSpeed = if (timeDelta > 0) indexDelta * 1000 / timeDelta else 0
+        
+        isScrollingFast = isCurrentlyScrolling && (scrollSpeed > 20) || (timeDelta < 100 && indexDelta > 10)
+        
+        lastScrollIndex = currentIndex
+        lastScrollTime = currentTime
+        
+        // Reset fast scrolling flag after scrolling stops (with small delay to allow images to load)
+        if (!isCurrentlyScrolling && isScrollingFast) {
+            kotlinx.coroutines.delay(25) // Small delay to ensure scroll has stopped
+            isScrollingFast = false
+        }
+    }
+    
     // Handle Android back key when inside a space or bridge
     androidx.activity.compose.BackHandler(enabled = appViewModel.currentSpaceId != null || appViewModel.currentBridgeId != null) {
         if (appViewModel.currentSpaceId != null) {
@@ -2163,6 +2239,7 @@ fun RoomListContent(
             "${it.id}:${it.sortingTimestamp ?: 0L}:${it.unreadCount ?: 0}:${it.highlightCount ?: 0}:${it.messagePreview ?: ""}:${it.messageSender ?: ""}:${it.bridgeProtocolAvatarUrl ?: ""}"
         }
     }
+    
     LaunchedEffect(targetHash, searchQuery) {
         val wasEmpty = debouncedRooms.isEmpty()
         val isNowPopulated = wasEmpty && filteredRooms.isNotEmpty()
@@ -2271,11 +2348,18 @@ fun RoomListContent(
             // CRITICAL FIX: Capture room.id OUTSIDE the lambda to prevent wrong room navigation
             val roomIdForNavigation = room.id
             
+            // PERFORMANCE: Calculate if item should load images (visible or within 25 items below viewport)
+            val layoutInfo = listState.layoutInfo
+            val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val shouldLoadAvatar = index <= lastVisibleIndex + 25 // Load for items up to 25 below viewport
+            
             Column {
                 RoomListItem(
                     room = room,
                     homeserverUrl = appViewModel.homeserverUrl,
                     authToken = authToken,
+                    isScrollingFast = isScrollingFast, // PERFORMANCE: Pass fast scroll state
+                    shouldLoadAvatar = shouldLoadAvatar, // PERFORMANCE: Load avatars for items below viewport
                     onRoomClick = { 
                         if (roomOpenInProgress != null) {
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Room open already in progress, ignoring tap on ${room.id}")

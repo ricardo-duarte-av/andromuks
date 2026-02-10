@@ -12,6 +12,8 @@ import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import okhttp3.OkHttpClient
 import okhttp3.Interceptor
+import okhttp3.Dispatcher
+import java.util.concurrent.TimeUnit
 
 /**
  * Singleton ImageLoader for the entire app
@@ -22,7 +24,8 @@ object ImageLoaderSingleton {
     private var instance: ImageLoader? = null
     
     // QUALITY IMPROVEMENT: Optimized cache settings for better quality
-    private const val MEMORY_CACHE_PERCENT = 0.25 // Increased to 25% for better quality caching
+    // PERFORMANCE: Increased memory cache to keep more images loaded (supports 20 items above/below viewport)
+    private const val MEMORY_CACHE_PERCENT = 0.35 // Increased to 35% to keep more avatars in memory
     private const val DISK_CACHE_SIZE_MB = 2048L // Increased to 2GB for higher quality images
     private const val MAX_DISK_CACHE_ENTRIES = 2000 // Increased for more high-quality images
     
@@ -33,8 +36,16 @@ object ImageLoaderSingleton {
     }
     
     private fun createImageLoader(context: Context): ImageLoader {
-        // Create custom OkHttpClient with Andromuks User-Agent
+        // PERFORMANCE FIX: Limit concurrent image loads to prevent crashes during fast scrolling
+        // This queues requests instead of loading them all simultaneously
+        val dispatcher = Dispatcher().apply {
+            maxRequests = 10 // Limit to 10 concurrent requests (default is 64)
+            maxRequestsPerHost = 5 // Limit to 5 per host (default is 5, but explicit is better)
+        }
+        
+        // Create custom OkHttpClient with Andromuks User-Agent and limited concurrency
         val okHttpClient = OkHttpClient.Builder()
+            .dispatcher(dispatcher)
             .addInterceptor { chain ->
                 val originalRequest = chain.request()
                 val requestWithUserAgent = originalRequest.newBuilder()
@@ -42,6 +53,9 @@ object ImageLoaderSingleton {
                     .build()
                 chain.proceed(requestWithUserAgent)
             }
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
             .build()
         
         return ImageLoader.Builder(context)
@@ -56,7 +70,8 @@ object ImageLoaderSingleton {
             }
             .memoryCache {
                 MemoryCache.Builder(context)
-                    // AVATAR LOADING OPTIMIZATION: Optimized memory cache size
+                    // PERFORMANCE: Increased memory cache to keep more images loaded
+                    // Supports keeping ~20 items above/below viewport in memory
                     .maxSizePercent(MEMORY_CACHE_PERCENT)
                     // Keep strong references for frequently accessed avatars
                     .strongReferencesEnabled(true)

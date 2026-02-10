@@ -9,6 +9,7 @@ import coil.request.ErrorResult
 import coil.request.SuccessResult
 import java.net.URLEncoder
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
+import net.vrkknn.andromuks.utils.CircleAvatarCache
 
 object AvatarUtils {
     private const val FALLBACK_COLOR_COUNT = 10
@@ -150,6 +151,38 @@ object AvatarUtils {
         }
         
         // If we have an MXC URL, convert to HTTP and let AsyncImage handle loading
+        return mxcToHttpUrl(mxcUrl, homeserverUrl)
+    }
+    
+    /**
+     * Gets the avatar URL for RoomListScreen with CircleAvatarCache priority.
+     * Checks in order: CircleAvatarCache -> MediaCache -> Coil cache -> Network
+     * 
+     * @param context Android context
+     * @param mxcUrl The MXC URL from the room/user data
+     * @param homeserverUrl The homeserver URL
+     * @return A URL (file:// or http://) that can be used with Coil's AsyncImage, or null for fallback
+     */
+    suspend fun getAvatarUrlForRoomList(
+        context: Context,
+        mxcUrl: String?,
+        homeserverUrl: String
+    ): String? {
+        if (mxcUrl == null) return null
+        
+        // 1. Check CircleAvatarCache first (pre-processed circular avatars)
+        val circleCachedFile = CircleAvatarCache.getCachedFile(context, mxcUrl)
+        if (circleCachedFile != null) {
+            return circleCachedFile.absolutePath
+        }
+        
+        // 2. Check IntelligentMediaCache (original images)
+        val cachedFile = IntelligentMediaCache.getCachedFile(context, mxcUrl)
+        if (cachedFile != null) {
+            return cachedFile.absolutePath
+        }
+        
+        // 3. Convert to HTTP URL (Coil will check its cache, then network)
         return mxcToHttpUrl(mxcUrl, homeserverUrl)
     }
 
