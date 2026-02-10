@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.app.ForegroundServiceStartNotAllowedException
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
@@ -69,6 +70,12 @@ class WebSocketService : Service() {
         private const val NETWORK_CHANGE_DEBOUNCE_MS = 2_000L // Debounce rapid network changes
         private val TOGGLE_STACK_DEPTH = 6
         private val toggleCounter = AtomicLong(0)
+        
+        // Track if Android has denied starting this service as a foreground service
+        // for the current process lifetime (e.g., Android 14 FGS quota exhausted).
+        // When true, we skip further startForeground() calls and run as a background service only.
+        @Volatile
+        private var foregroundStartNotAllowedForThisProcess: Boolean = false
         
         // PHASE 4: WebSocket Callback Queues (allows multiple ViewModels to interact)
         
@@ -3566,18 +3573,45 @@ class WebSocketService : Service() {
         
         // Start as foreground service with notification
         // This keeps the app process alive and prevents Android from killing it
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                // Android 14+ requires explicit service type
-                startForeground(NOTIFICATION_ID, createNotification(), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Foreground service started successfully (Android 14+)")
-            } else {
-                startForeground(NOTIFICATION_ID, createNotification())
-                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Foreground service started successfully")
+        if (!foregroundStartNotAllowedForThisProcess) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    // Android 14+ requires explicit service type
+                    // Use REMOTE_MESSAGING instead of DATA_SYNC to better match long-lived messaging use case
+                    startForeground(
+                        NOTIFICATION_ID,
+                        createNotification(),
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING
+                    )
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                            "WebSocketService",
+                            "Foreground service started successfully (Android 14+, type=REMOTE_MESSAGING)"
+                        )
+                    }
+                } else {
+                    startForeground(NOTIFICATION_ID, createNotification())
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Foreground service started successfully")
+                }
+            } catch (e: ForegroundServiceStartNotAllowedException) {
+                // Android 14+ foreground service quota or policy restriction
+                foregroundStartNotAllowedForThisProcess = true
+                android.util.Log.w(
+                    "WebSocketService",
+                    "Foreground service start not allowed (quota/policy). Running as background service only for this process.",
+                    e
+                )
+                // NOTE: We intentionally do NOT stop the service here; it will continue as a background service.
+                // This avoids crashes when the FGS quota is exhausted.
+            } catch (e: Exception) {
+                android.util.Log.e("WebSocketService", "Failed to start foreground service", e)
+                // Don't crash - service will run in background
             }
-        } catch (e: Exception) {
-            android.util.Log.e("WebSocketService", "Failed to start foreground service", e)
-            // Don't crash - service will run in background
+        } else if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "WebSocketService",
+                "Skipping startForeground(): previously denied for this process; running as background service only."
+            )
         }
         
         // CRITICAL FIX: Return START_STICKY to ensure service restarts if killed by system
