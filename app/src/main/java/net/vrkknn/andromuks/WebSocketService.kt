@@ -73,9 +73,20 @@ class WebSocketService : Service() {
         
         // Track if Android has denied starting this service as a foreground service
         // for the current process lifetime (e.g., Android 14 FGS quota exhausted).
-        // When true, we skip further startForeground() calls and run as a background service only.
+        // When true, callers should avoid startForegroundService() and use startService() instead.
         @Volatile
         private var foregroundStartNotAllowedForThisProcess: Boolean = false
+
+        /**
+         * Helper for callers (e.g., AppViewModel) to decide whether to use startForegroundService()
+         * or fall back to startService().
+         *
+         * Returns false after we have seen a ForegroundServiceStartNotAllowedException
+         * for this process lifetime.
+         */
+        fun shouldUseForegroundService(): Boolean {
+            return !foregroundStartNotAllowedForThisProcess
+        }
         
         // PHASE 4: WebSocket Callback Queues (allows multiple ViewModels to interact)
         
