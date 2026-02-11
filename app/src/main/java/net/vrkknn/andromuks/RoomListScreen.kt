@@ -59,6 +59,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.runtime.key
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ExperimentalMaterialApi
@@ -1680,66 +1683,92 @@ fun RoomListItem(
                 .padding(vertical = 12.dp, horizontal = 16.dp),
             verticalAlignment = Alignment.Top
         ) {
-        // Room avatar with optional bridge protocol badge
-        // SHARED TRANSITION: Use sharedElement modifier with stable key for smooth animation
-        Box(
-            modifier = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
-                with(sharedTransitionScope) {
-                    Modifier.sharedElement(
-                        rememberSharedContentState(key = "avatar-${room.id}"),
-                        animatedVisibilityScope = animatedVisibilityScope
-                    )
-                }
-            } else {
-                Modifier
-            }
-        ) {
-            net.vrkknn.andromuks.ui.components.AvatarImage(
-                mxcUrl = room.avatarUrl,
-                homeserverUrl = homeserverUrl,
-                authToken = authToken,
-                fallbackText = room.name,
-                size = 48.dp,
-                userId = room.id,
-                displayName = room.name,
-                // AVATAR LOADING OPTIMIZATION: Load avatars for visible items and items below viewport
-                isVisible = shouldLoadAvatar, // Load for visible items + 25 items below viewport
-                // CIRCLE AVATAR CACHE: Use CircleAvatarCache for room avatars to avoid repeated clipping
-                useCircleCache = true,
-                // PERFORMANCE: Suspend avatar loading during fast scrolling
-                isScrollingFast = isScrollingFast
-            )
-            
-            // Bridge protocol avatar badge (bottom-right corner)
-            room.bridgeProtocolAvatarUrl?.let { protocolAvatarUrl ->
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .size(16.dp)
-                        .background(
-                            MaterialTheme.colorScheme.surface,
-                            CircleShape
+            // Room avatar with optional bridge protocol badge
+            key(room.id) { // CRITICAL: Prevent "wrong avatar" flicker on shared transitions
+                Box {
+                    // Shared-element tagged avatar when transition scopes are available
+                    if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                        val sharedKey = "avatar-${room.id}"
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomList: sharedKey = $sharedKey")
+                        with(sharedTransitionScope) {
+                            net.vrkknn.andromuks.ui.components.AvatarImage(
+                                mxcUrl = room.avatarUrl,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                fallbackText = room.name,
+                                size = 48.dp,
+                                userId = room.id,
+                                displayName = room.name,
+                                // AVATAR LOADING OPTIMIZATION: Load avatars for visible items and items below viewport
+                                isVisible = shouldLoadAvatar, // Load for visible items + 25 items below viewport
+                                // CIRCLE AVATAR CACHE: Use CircleAvatarCache for room avatars to avoid repeated clipping
+                                useCircleCache = true,
+                                // PERFORMANCE: Suspend avatar loading during fast scrolling
+                                isScrollingFast = isScrollingFast,
+                                modifier = Modifier
+                                    .sharedElement(
+                                        rememberSharedContentState(key = sharedKey),
+                                        animatedVisibilityScope = animatedVisibilityScope,
+                                        boundsTransform = { _, _ ->
+                                            androidx.compose.animation.core.spring(
+                                                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                                                stiffness = androidx.compose.animation.core.Spring.StiffnessMedium
+                                            )
+                                        },
+                                        renderInOverlayDuringTransition = true,
+                                        zIndexInOverlay = 1f
+                                    )
+                                    .clip(CircleShape)
+                            )
+                        }
+                    } else {
+                        // Fallback: regular clipped avatar without shared-element tag
+                        net.vrkknn.andromuks.ui.components.AvatarImage(
+                            mxcUrl = room.avatarUrl,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            fallbackText = room.name,
+                            size = 48.dp,
+                            userId = room.id,
+                            displayName = room.name,
+                            isVisible = shouldLoadAvatar,
+                            useCircleCache = true,
+                            isScrollingFast = isScrollingFast,
+                            modifier = Modifier.clip(CircleShape)
                         )
-                        .border(
-                            width = 2.dp,
-                            color = MaterialTheme.colorScheme.primary,
-                            shape = CircleShape
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    // 16dp avatar image centered inside the 24dp circle (24dp - 4dp border on each side = 16dp)
-                    net.vrkknn.andromuks.ui.components.AvatarImage(
-                        mxcUrl = protocolAvatarUrl,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        fallbackText = "",
-                        size = 14.dp,
-                        userId = "",
-                        displayName = ""
-                    )
+                    }
+                
+                    // Bridge protocol avatar badge (bottom-right corner)
+                    room.bridgeProtocolAvatarUrl?.let { protocolAvatarUrl ->
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .size(16.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.surface,
+                                    CircleShape
+                                )
+                                .border(
+                                    width = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    shape = CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            // 16dp avatar image centered inside the 24dp circle (24dp - 4dp border on each side = 16dp)
+                            net.vrkknn.andromuks.ui.components.AvatarImage(
+                                mxcUrl = protocolAvatarUrl,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                fallbackText = "",
+                                size = 14.dp,
+                                userId = "",
+                                displayName = ""
+                            )
+                        }
+                    }
                 }
             }
-        }
         
         Spacer(modifier = Modifier.width(12.dp))
         

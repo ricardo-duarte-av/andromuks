@@ -860,32 +860,22 @@ fun AppNavigation(
             enterTransition = {
                 // CRITICAL FIX: Fade in from auth_check to prevent white flash
                 if (initialState.destination.route == "auth_check") {
-                    fadeIn(animationSpec = tween(durationMillis = 200))
+                    fadeIn(tween(500))
                 } else {
                     null
                 }
             },
             exitTransition = {
-                if (targetState.destination.route == "room_timeline/{roomId}") {
-                    slideOutHorizontally(
-                        targetOffsetX = { -it },
-                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
-                    )
-                } else {
-                    null
-                }
+                // UX: Fade the list out so it remains softly visible behind the flying avatar
+                fadeOut(tween(500))
             },
             popEnterTransition = {
-                if (initialState.destination.route == "room_timeline/{roomId}") {
-                    slideInHorizontally(
-                        initialOffsetX = { -it },
-                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
-                    )
-                } else {
-                    null
-                }
-            }
-        ) {
+                // UX: Fade the list back in when returning from a room
+                fadeIn(tween(500))
+            },
+            popExitTransition = { fadeOut(tween(500)) }
+        ) { backStackEntry ->
+            val navigationScope = this
             // CRITICAL FIX: Always show StartupLoadingScreen initially to prevent white flash during navigation
             // Use Box with background to ensure no white flash even during transition
             androidx.compose.foundation.layout.Box(
@@ -898,6 +888,7 @@ fun AppNavigation(
                 val progressMessages = appViewModel.startupProgressMessages
                 val initialSyncComplete = appViewModel.initialSyncComplete
                 val spacesLoaded = appViewModel.spacesLoaded
+                
                 
                 // Periodically check if startup is complete (when state changes)
                 // CRITICAL: Also check initialSyncProcessingComplete to ensure all queued messages are processed
@@ -998,7 +989,7 @@ fun AppNavigation(
                         modifier = Modifier.fillMaxSize(), 
                         appViewModel = appViewModel,
                         sharedTransitionScope = this@SharedTransitionLayout,
-                        animatedVisibilityScope = this@AnimatedVisibility  // Changed this line
+                        animatedVisibilityScope = navigationScope  // Changed this line
                     )
                 }
             }
@@ -1012,31 +1003,18 @@ fun AppNavigation(
         }
         composable(
             route = "room_timeline/{roomId}",
-            arguments = listOf(navArgument("roomId") { type = NavType.StringType }),
-            enterTransition = {
-                if (initialState.destination.route == "room_list") {
-                    slideInHorizontally(
-                        initialOffsetX = { it },
-                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
-                    )
-                } else {
-                    null
-                }
-            },
-            popExitTransition = {
-                if (targetState.destination.route == "room_list") {
-                    slideOutHorizontally(
-                        targetOffsetX = { it },
-                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
-                    )
-                } else {
-                    null
-                }
-            }
-        ) { backStackEntry: NavBackStackEntry ->
+            arguments = listOf(
+                navArgument("roomId") { type = NavType.StringType }
+            ),
+            // Fades only = Smooth Shared Element flight
+            enterTransition = { fadeIn(tween(500)) },
+            exitTransition = { fadeOut(tween(500)) },
+            popEnterTransition = { fadeIn(tween(500)) },
+            popExitTransition = { fadeOut(tween(500)) }
+        ) { backStackEntry ->
             val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
             val roomName = appViewModel.getRoomById(roomId)?.name ?: ""
-            // Pass sharedTransitionScope and animatedVisibilityScope for shared element transitions
+            
             RoomTimelineScreen(
                 roomId = roomId,
                 roomName = roomName,
@@ -1044,7 +1022,7 @@ fun AppNavigation(
                 modifier = modifier,
                 appViewModel = appViewModel,
                 sharedTransitionScope = this@SharedTransitionLayout,
-                animatedVisibilityScope = this@composable
+                animatedVisibilityScope = this  // ✓ Correct scope - matches RoomListScreen
             )
         }
         composable(

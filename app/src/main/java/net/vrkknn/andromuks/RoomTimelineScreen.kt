@@ -91,6 +91,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -135,6 +136,9 @@ import net.vrkknn.andromuks.ui.components.AvatarImage
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.runtime.key
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import net.vrkknn.andromuks.ui.components.BridgeBackgroundLayer
 import net.vrkknn.andromuks.ui.components.BridgeNetworkBadge
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
@@ -2215,6 +2219,8 @@ fun RoomTimelineScreen(
                         homeserverUrl = appViewModel.homeserverUrl,
                         authToken = appViewModel.authToken,
                         roomId = roomId,
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = animatedVisibilityScope,
                         onHeaderClick = {
                             // Navigate to room info screen
                             navController.navigate("room_info/$roomId")
@@ -3747,33 +3753,52 @@ fun RoomHeader(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Room avatar (clickable for room info)
-            // SHARED TRANSITION: Use sharedElement modifier with stable key for smooth animation
             Box(
-                modifier = Modifier
-                    .clickable(onClick = onHeaderClick)
-                    .then(
-                        if (sharedTransitionScope != null && animatedVisibilityScope != null && roomId != null) {
-                            with(sharedTransitionScope) {
-                                Modifier.sharedElement(
-                                    rememberSharedContentState(key = "avatar-$roomId"),
-                                    animatedVisibilityScope = animatedVisibilityScope
-                                )
-                            }
-                        } else {
-                            Modifier
-                        }
-                    )
+                modifier = Modifier.clickable(onClick = onHeaderClick)
             ) {
-                AvatarImage(
-                    mxcUrl = roomState?.avatarUrl ?: fallbackAvatarUrl,
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    fallbackText = roomState?.name ?: fallbackName,
-                    size = 48.dp,
-                    userId = roomId ?: roomState?.roomId,
-                    displayName = roomState?.name ?: fallbackName,
-                    isVisible = true // Always visible for room header
-                )
+                if (sharedTransitionScope != null && animatedVisibilityScope != null && roomId != null) {
+                    val sharedKey = "avatar-${roomId}"
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomHeader: sharedKey = $sharedKey")
+                    with(sharedTransitionScope) {
+                        AvatarImage(
+                            mxcUrl = roomState?.avatarUrl ?: fallbackAvatarUrl,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            fallbackText = roomState?.name ?: fallbackName,
+                            size = 48.dp,
+                            userId = roomId,
+                            displayName = roomState?.name ?: fallbackName,
+                            isVisible = true, // Always visible for room header
+                            modifier = Modifier
+                                .sharedElement(
+                                    rememberSharedContentState(key = sharedKey),
+                                    animatedVisibilityScope = animatedVisibilityScope,
+                                    boundsTransform = { _, _ ->
+                                        spring(
+                                            dampingRatio = Spring.DampingRatioLowBouncy,
+                                            stiffness = Spring.StiffnessLow
+                                        )
+                                    },
+                                    renderInOverlayDuringTransition = true,
+                                    zIndexInOverlay = 1f
+                                )
+                                .clip(CircleShape)
+                        )
+                    }
+                } else {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomHeader: failed, we loaded the ELSE block")
+                    AvatarImage(
+                        mxcUrl = roomState?.avatarUrl ?: fallbackAvatarUrl,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        fallbackText = roomState?.name ?: fallbackName,
+                        size = 48.dp,
+                        userId = roomId ?: roomState?.roomId,
+                        displayName = roomState?.name ?: fallbackName,
+                        isVisible = true, // Always visible for room header
+                        modifier = Modifier.clip(CircleShape)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(12.dp))
