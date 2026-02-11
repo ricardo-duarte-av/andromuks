@@ -56,6 +56,9 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ExperimentalMaterialApi
@@ -158,12 +161,14 @@ private const val ROOM_LIST_VERBOSE_LOGGING = false
 private fun usernameFromMatrixId(userId: String): String =
     userId.removePrefix("@").substringBefore(":")
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun RoomListScreen(
     navController: NavController,
     modifier: Modifier = Modifier,
-    appViewModel: AppViewModel = viewModel()
+    appViewModel: AppViewModel = viewModel(),
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null
 ) {
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
@@ -1142,6 +1147,8 @@ fun RoomListScreen(
                                 timestampUpdateTrigger = smartTimestampUpdateCounter,
                                 hapticFeedback = hapticFeedback,
                                 listState = currentListState,
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope,
                                 onInviteClick = { 
                                     // Invites are now handled in RoomListScreen, not here
                                 }
@@ -1215,6 +1222,8 @@ fun RoomListScreen(
                                         timestampUpdateTrigger = smartTimestampUpdateCounter,
                                         hapticFeedback = hapticFeedback,
                                         listState = currentListState,
+                                        sharedTransitionScope = sharedTransitionScope,
+                                        animatedVisibilityScope = animatedVisibilityScope,
                                         onInviteClick = { invite ->
                                             inviteToJoin = invite
                                             showRoomJoiner = true
@@ -1233,6 +1242,8 @@ fun RoomListScreen(
                                 timestampUpdateTrigger = smartTimestampUpdateCounter,
                                 hapticFeedback = hapticFeedback,
                                 listState = currentListState,
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope,
                                 onInviteClick = { 
                                     // Invites are now handled in RoomListScreen, not here
                                 }
@@ -1248,6 +1259,8 @@ fun RoomListScreen(
                                 timestampUpdateTrigger = smartTimestampUpdateCounter,
                                 hapticFeedback = hapticFeedback,
                                 listState = currentListState,
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope,
                                 onInviteClick = { 
                                     // Invites are now handled in RoomListScreen, not here
                                 }
@@ -1263,6 +1276,8 @@ fun RoomListScreen(
                                 timestampUpdateTrigger = smartTimestampUpdateCounter,
                                 hapticFeedback = hapticFeedback,
                                 listState = currentListState,
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope,
                                 onInviteClick = { 
                                     // Invites are now handled in RoomListScreen, not here
                                 }
@@ -1336,6 +1351,8 @@ fun RoomListScreen(
                                         timestampUpdateTrigger = smartTimestampUpdateCounter,
                                         hapticFeedback = hapticFeedback,
                                         listState = currentListState,
+                                        sharedTransitionScope = sharedTransitionScope,
+                                        animatedVisibilityScope = animatedVisibilityScope,
                                         onInviteClick = { invite ->
                                             inviteToJoin = invite
                                             showRoomJoiner = true
@@ -1598,6 +1615,7 @@ fun SpaceListItem(
     }
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun RoomListItem(
     room: RoomItem,
@@ -1610,7 +1628,9 @@ fun RoomListItem(
     modifier: Modifier = Modifier,
     isEnabled: Boolean = true,
     isScrollingFast: Boolean = false, // PERFORMANCE: Suspend avatar loading during fast scroll
-    shouldLoadAvatar: Boolean = true // PERFORMANCE: Load avatars for items below viewport
+    shouldLoadAvatar: Boolean = true, // PERFORMANCE: Load avatars for items below viewport
+    sharedTransitionScope: SharedTransitionScope? = null, // SHARED TRANSITION: Scope for shared element animation
+    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null // SHARED TRANSITION: Scope for shared element animation
 ) {
     val context = LocalContext.current
     var showContextMenu by remember { mutableStateOf(false) }
@@ -1661,7 +1681,19 @@ fun RoomListItem(
             verticalAlignment = Alignment.Top
         ) {
         // Room avatar with optional bridge protocol badge
-        Box {
+        // SHARED TRANSITION: Use sharedElement modifier with stable key for smooth animation
+        Box(
+            modifier = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                with(sharedTransitionScope) {
+                    Modifier.sharedElement(
+                        rememberSharedContentState(key = "avatar-${room.id}"),
+                        animatedVisibilityScope = animatedVisibilityScope
+                    )
+                }
+            } else {
+                Modifier
+            }
+        ) {
             net.vrkknn.andromuks.ui.components.AvatarImage(
                 mxcUrl = room.avatarUrl,
                 homeserverUrl = homeserverUrl,
@@ -2246,7 +2278,7 @@ fun TabButton(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, FlowPreview::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, FlowPreview::class, ExperimentalFoundationApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun RoomListContent(
     rooms: List<RoomItem>,
@@ -2257,6 +2289,8 @@ fun RoomListContent(
     timestampUpdateTrigger: Int,
     hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback,
     listState: LazyListState,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
     onInviteClick: (RoomInvite) -> Unit
 ) {
     val context = LocalContext.current
@@ -2459,6 +2493,8 @@ fun RoomListContent(
                     authToken = authToken,
                     isScrollingFast = isScrollingFast, // PERFORMANCE: Pass fast scroll state
                     shouldLoadAvatar = shouldLoadAvatar, // PERFORMANCE: Load avatars for items below viewport
+                    sharedTransitionScope = sharedTransitionScope, // SHARED TRANSITION: Pass scope for shared element animation
+                    animatedVisibilityScope = animatedVisibilityScope, // SHARED TRANSITION: Pass scope for shared element animation
                     onRoomClick = { 
                         if (roomOpenInProgress != null) {
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Room open already in progress, ignoring tap on ${room.id}")

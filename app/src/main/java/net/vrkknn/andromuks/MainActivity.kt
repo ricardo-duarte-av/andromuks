@@ -31,6 +31,9 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.material3.Scaffold
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -809,7 +812,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalAnimationApi::class)
+@OptIn(ExperimentalAnimationApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun AppNavigation(
     modifier: Modifier,
@@ -830,7 +833,9 @@ fun AppNavigation(
         }
     }
     
-    NavHost(
+    // Wrap NavHost in SharedTransitionLayout for shared element transitions
+    SharedTransitionLayout {
+        NavHost(
         navController = navController,
         startDestination = "auth_check",
         modifier = modifier
@@ -987,7 +992,14 @@ fun AppNavigation(
                     enter = fadeIn(animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing))
                 ) {
                     // Show room list when startup is complete and delay has passed (first time) or immediately (navigation back)
-                    RoomListScreen(navController = navController, modifier = Modifier.fillMaxSize(), appViewModel = appViewModel)
+                    // Pass sharedTransitionScope and animatedVisibilityScope for shared element transitions
+                    RoomListScreen(
+                        navController = navController, 
+                        modifier = Modifier.fillMaxSize(), 
+                        appViewModel = appViewModel,
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedVisibilityScope = this@AnimatedVisibility  // Changed this line
+                    )
                 }
             }
         }
@@ -1024,12 +1036,15 @@ fun AppNavigation(
         ) { backStackEntry: NavBackStackEntry ->
             val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
             val roomName = appViewModel.getRoomById(roomId)?.name ?: ""
+            // Pass sharedTransitionScope and animatedVisibilityScope for shared element transitions
             RoomTimelineScreen(
                 roomId = roomId,
                 roomName = roomName,
                 navController = navController,
                 modifier = modifier,
-                appViewModel = appViewModel
+                appViewModel = appViewModel,
+                sharedTransitionScope = this@SharedTransitionLayout,
+                animatedVisibilityScope = this@composable
             )
         }
         composable(
@@ -1221,4 +1236,5 @@ fun AppNavigation(
             )
         }
     }
+    } // End of SharedTransitionLayout
 }

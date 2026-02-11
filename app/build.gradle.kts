@@ -101,17 +101,30 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.androidx.compose.foundation.layout)
 
-    implementation("androidx.compose.foundation:foundation")
+    // Keep your existing BOM but ensure it's a 2024/2025 version
+    implementation(platform("androidx.compose:compose-bom:2026.01.01"))
+
+    // Force these to 1.7.0 or 1.8.0 to get Shared Elements
+    val compose_version = "1.7.0" 
+    implementation("androidx.compose.animation:animation:1.8.0-alpha05")
+    implementation("androidx.compose.foundation:foundation:1.7.8")
+    implementation("androidx.compose.ui:ui:1.7.8")
+
+
+
+
     implementation("androidx.webkit:webkit:1.10.0")
 
     // Accompanist for navigation animations
-    implementation("com.google.accompanist:accompanist-navigation-animation:0.34.0")
+    // implementation("com.google.accompanist:accompanist-navigation-animation:0.34.0")
     // Accompanist for system UI controller (status/navigation bars)
     implementation("com.google.accompanist:accompanist-systemuicontroller:0.34.0")
+
+    
     // Image loading
-    implementation("io.coil-kt:coil-compose:2.5.0")
-    implementation("io.coil-kt:coil-gif:2.5.0")
-    implementation("io.coil-kt:coil-svg:2.5.0")
+    implementation("io.coil-kt:coil-compose:2.6.0")
+    implementation("io.coil-kt:coil-gif:2.6.0")
+    implementation("io.coil-kt:coil-svg:2.6.0")
     // BlurHash - using local implementation
     // implementation("com.github.woltapp:blurhashkt:1.0.0")
     

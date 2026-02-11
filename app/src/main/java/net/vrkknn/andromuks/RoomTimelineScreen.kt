@@ -132,6 +132,9 @@ import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.ScrollHighlightState
 import net.vrkknn.andromuks.LocalScrollHighlightState
 import net.vrkknn.andromuks.ui.components.AvatarImage
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
 import net.vrkknn.andromuks.ui.components.BridgeBackgroundLayer
 import net.vrkknn.andromuks.ui.components.BridgeNetworkBadge
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
@@ -378,14 +381,16 @@ fun DateDivider(date: String) {
 
 // NOTE: Keep this screen in sync with `BubbleTimelineScreen`. Any structural or data-flow changes
 // should be mirrored between both implementations. Refer to `docs/BUBBLE_IMPLEMENTATION.md`.
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun RoomTimelineScreen(
     roomId: String,
     roomName: String,
     navController: NavController,
     modifier: Modifier = Modifier,
-    appViewModel: AppViewModel = viewModel()
+    appViewModel: AppViewModel = viewModel(),
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null
 ) {
     val context = LocalContext.current
     val appContext = context.applicationContext
@@ -3711,6 +3716,7 @@ fun RoomTimelineScreen(
 
 
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun RoomHeader(
     roomState: RoomState?,
@@ -3719,6 +3725,8 @@ fun RoomHeader(
     homeserverUrl: String,
     authToken: String,
     roomId: String? = null,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
     onHeaderClick: () -> Unit = {},
     onCallClick: () -> Unit = {},
     onRefreshClick: () -> Unit = {}
@@ -3739,7 +3747,23 @@ fun RoomHeader(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Room avatar (clickable for room info)
-            Box(modifier = Modifier.clickable(onClick = onHeaderClick)) {
+            // SHARED TRANSITION: Use sharedElement modifier with stable key for smooth animation
+            Box(
+                modifier = Modifier
+                    .clickable(onClick = onHeaderClick)
+                    .then(
+                        if (sharedTransitionScope != null && animatedVisibilityScope != null && roomId != null) {
+                            with(sharedTransitionScope) {
+                                Modifier.sharedElement(
+                                    rememberSharedContentState(key = "avatar-$roomId"),
+                                    animatedVisibilityScope = animatedVisibilityScope
+                                )
+                            }
+                        } else {
+                            Modifier
+                        }
+                    )
+            ) {
                 AvatarImage(
                     mxcUrl = roomState?.avatarUrl ?: fallbackAvatarUrl,
                     homeserverUrl = homeserverUrl,
