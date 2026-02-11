@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.atomic.AtomicLong
+import java.lang.ref.WeakReference
 import okhttp3.WebSocket
 import org.json.JSONObject
 import net.vrkknn.andromuks.utils.trimWebsocketHost
@@ -55,7 +56,7 @@ class WebSocketService : Service() {
         // Constants
         private val BASE_RECONNECTION_DELAY_MS = 3000L // 3 seconds - give network time to stabilize
         private val MIN_RECONNECTION_INTERVAL_MS = 5000L // 5 seconds minimum between any reconnections
-        private val MIN_NOTIFICATION_UPDATE_INTERVAL_MS = 500L // 500ms minimum between notification updates (UI smoothing)
+        private val MIN_NOTIFICATION_UPDATE_INTERVAL_MS = 2000L // 500ms minimum between notification updates (UI smoothing)
         private const val BACKEND_HEALTH_RETRY_DELAY_MS = 5_000L
         private const val PONG_TIMEOUT_MS = 1_000L // 1 second - "rush to healthy"
         private const val PING_INTERVAL_MS = 15_000L // 15 seconds normal interval
@@ -95,7 +96,8 @@ class WebSocketService : Service() {
         
         // PHASE 4: Receive callbacks: For distributing messages FROM server TO ViewModels
         // When a message arrives from server, all registered ViewModels are notified
-        private val webSocketReceiveCallbacks = mutableListOf<Pair<String, AppViewModel>>()
+        //private val webSocketReceiveCallbacks = mutableListOf<Pair<String, AppViewModel>>() // Old method
+        private val webSocketReceiveCallbacks = mutableListOf<Pair<String, WeakReference<AppViewModel>>>()
         
         private val callbacksLock = Any() // Thread safety for callback lists
         
@@ -492,9 +494,14 @@ class WebSocketService : Service() {
                     
                     // Notify the promoted ViewModel
                     // Find the AppViewModel instance from registered receive callbacks
-                    val promotedViewModel = webSocketReceiveCallbacks.firstOrNull { 
+
+                    // 1. Get the WeakReference from the list
+                    val weakRef = webSocketReceiveCallbacks.firstOrNull { 
                         it.first == candidateToPromote.viewModelId 
                     }?.second
+
+                    // 2. Try to get the actual ViewModel inside the WeakReference
+                    val promotedViewModel = weakRef?.get()
                     
                     if (promotedViewModel != null) {
                         try {
@@ -653,24 +660,26 @@ class WebSocketService : Service() {
                     // This ensures the correct app instance handles reconnection
                     // If multiple app instances exist, the primary one should reconnect
                     val registeredViewModels = getRegisteredViewModels()
-                    val viewModelToUse = if (primaryViewModelId != null) {
-                        // Prefer primary ViewModel if available
+
+                    val viewModelToUse: AppViewModel? = if (primaryViewModelId != null) {
                         synchronized(callbacksLock) {
-                            webSocketReceiveCallbacks.firstOrNull { it.first == primaryViewModelId }?.second
-                        } ?: registeredViewModels.firstOrNull() ?: headlessViewModel
+                        // .get() unwraps the WeakReference to get the AppViewModel
+                        webSocketReceiveCallbacks.firstOrNull { it.first == primaryViewModelId }?.second?.get()
+                    } ?: registeredViewModels.firstOrNull() ?: headlessViewModel
                     } else {
-                        // No primary - use any registered ViewModel or headless
                         registeredViewModels.firstOrNull() ?: headlessViewModel
                     }
-                    
-                    // Log which ViewModel is being used for reconnection
+                
+                    // --- FIX 2: Correct logic for finding the ID for logging ---
                     val viewModelId = if (viewModelToUse != null) {
                         synchronized(callbacksLock) {
-                            webSocketReceiveCallbacks.firstOrNull { it.second == viewModelToUse }?.first
+                        // Compare the unwrapped ViewModel, not the WeakReference
+                            webSocketReceiveCallbacks.firstOrNull { it.second.get() == viewModelToUse }?.first
                         } ?: if (viewModelToUse == headlessViewModel) "headless" else "unknown"
                     } else {
-                        "none"
+                       "none"
                     }
+
                     android.util.Log.i("WebSocketService", "Reconnecting using ViewModel: $viewModelId (primary: $primaryViewModelId, total registered: ${registeredViewModels.size})")
                     
                     // Connect - ViewModel is optional (null is fine, service handles everything)
@@ -904,7 +913,7 @@ class WebSocketService : Service() {
                     return
                 }
                 
-                webSocketReceiveCallbacks.add(Pair(viewModelId, viewModel))
+                webSocketReceiveCallbacks.add(Pair(viewModelId, WeakReference(viewModel)))
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Registered receive callback for: $viewModelId (total: ${webSocketReceiveCallbacks.size})")
             }
         }
@@ -933,7 +942,9 @@ class WebSocketService : Service() {
          */
         fun getRegisteredViewModels(): List<AppViewModel> {
             synchronized(callbacksLock) {
-                return webSocketReceiveCallbacks.map { it.second }
+                // mapNotNull tries to .get() the object; 
+                // if it's null, it's excluded from the resulting list.
+                return webSocketReceiveCallbacks.mapNotNull { it.second.get() }
             }
         }
         
@@ -1452,6 +1463,18 @@ class WebSocketService : Service() {
          */
         fun getConnectionState(): ConnectionState? {
             return instance?.connectionState
+        }
+        
+        /**
+         * Check if service is currently reconnecting or connecting
+         * Used by health check workers to avoid redundant reconnection attempts
+         */
+        fun isReconnectingOrConnecting(): Boolean {
+            val serviceInstance = instance ?: return false
+            val state = serviceInstance.connectionState
+            return state == ConnectionState.RECONNECTING || 
+                   state == ConnectionState.CONNECTING || 
+                   serviceInstance.isReconnecting
         }
         
         /**
@@ -3530,6 +3553,50 @@ class WebSocketService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+
+        //ForegroundServiceFix
+        // Start as foreground service with notification
+        // This keeps the app process alive and prevents Android from killing it
+        if (!foregroundStartNotAllowedForThisProcess) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    // Android 14+ requires explicit service type
+                    // Use REMOTE_MESSAGING instead of DATA_SYNC to better match long-lived messaging use case
+                    startForeground(
+                        NOTIFICATION_ID,
+                        createNotification(),
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING
+                    )
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                            "WebSocketService",
+                            "Foreground service started successfully (Android 14+, type=REMOTE_MESSAGING)"
+                        )
+                    }
+                } else {
+                    startForeground(NOTIFICATION_ID, createNotification())
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Foreground service started successfully")
+                }
+            } catch (e: ForegroundServiceStartNotAllowedException) {
+                // Android 14+ foreground service quota or policy restriction
+                foregroundStartNotAllowedForThisProcess = true
+                android.util.Log.w(
+                    "WebSocketService",
+                    "Foreground service start not allowed (quota/policy). Running as background service only for this process.",
+                    e
+                )
+                // NOTE: We intentionally do NOT stop the service here; it will continue as a background service.
+                // This avoids crashes when the FGS quota is exhausted.
+            } catch (e: Exception) {
+                android.util.Log.e("WebSocketService", "Failed to start foreground service", e)
+                // Don't crash - service will run in background
+            }
+        } else if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "WebSocketService",
+                "Skipping startForeground(): previously denied for this process; running as background service only."
+            )
+        }        
         
         // PHASE 2.2: Track service start time
         // Note: We can't reliably detect restart in onCreate() because Android kills the process,
@@ -3591,50 +3658,7 @@ class WebSocketService : Service() {
         // CRITICAL FIX: Check battery optimization status and warn if enabled
         // Battery optimization can cause the service to be killed
         checkBatteryOptimizationStatus()
-        
-        // Start as foreground service with notification
-        // This keeps the app process alive and prevents Android from killing it
-        if (!foregroundStartNotAllowedForThisProcess) {
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    // Android 14+ requires explicit service type
-                    // Use REMOTE_MESSAGING instead of DATA_SYNC to better match long-lived messaging use case
-                    startForeground(
-                        NOTIFICATION_ID,
-                        createNotification(),
-                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING
-                    )
-                    if (BuildConfig.DEBUG) {
-                        android.util.Log.d(
-                            "WebSocketService",
-                            "Foreground service started successfully (Android 14+, type=REMOTE_MESSAGING)"
-                        )
-                    }
-                } else {
-                    startForeground(NOTIFICATION_ID, createNotification())
-                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Foreground service started successfully")
-                }
-            } catch (e: ForegroundServiceStartNotAllowedException) {
-                // Android 14+ foreground service quota or policy restriction
-                foregroundStartNotAllowedForThisProcess = true
-                android.util.Log.w(
-                    "WebSocketService",
-                    "Foreground service start not allowed (quota/policy). Running as background service only for this process.",
-                    e
-                )
-                // NOTE: We intentionally do NOT stop the service here; it will continue as a background service.
-                // This avoids crashes when the FGS quota is exhausted.
-            } catch (e: Exception) {
-                android.util.Log.e("WebSocketService", "Failed to start foreground service", e)
-                // Don't crash - service will run in background
-            }
-        } else if (BuildConfig.DEBUG) {
-            android.util.Log.d(
-                "WebSocketService",
-                "Skipping startForeground(): previously denied for this process; running as background service only."
-            )
-        }
-        
+                
         // CRITICAL FIX: Update notification with current connection state after service starts
         // This ensures the notification shows the correct state even if no WebSocket is connected yet
         // Also check if reconnection callback is available
@@ -4211,11 +4235,32 @@ class WebSocketService : Service() {
         try {
             val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
             wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG).apply {
-                acquire(10 * 60 * 60 * 1000L) // 10 hours timeout (safety limit)
+                acquire(60 * 1000L) // 10 hours timeout (safety limit)
             }
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Wake lock acquired")
         } catch (e: Exception) {
             android.util.Log.e("WebSocketService", "Failed to acquire wake lock: ${e.message}", e)
+        }
+    }
+
+    // Refresh wake lock every 30 seconds while service is active
+    private var wakeLockRefreshJob: Job? = null
+
+    private fun startWakeLockRefresh() {
+        wakeLockRefreshJob = serviceScope.launch {
+            while (isActive) {
+                delay(30_000L) // 30 seconds
+                refreshWakeLock()
+            }
+        }
+    }
+
+    private fun refreshWakeLock() {
+        wakeLock?.let {
+            if (it.isHeld) {
+                it.release()
+            }
+            acquireWakeLock()
         }
     }
     

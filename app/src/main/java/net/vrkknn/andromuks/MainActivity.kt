@@ -860,7 +860,7 @@ fun AppNavigation(
             enterTransition = {
                 // CRITICAL FIX: Fade in from auth_check to prevent white flash
                 if (initialState.destination.route == "auth_check") {
-                    fadeIn(tween(500))
+                    fadeIn(tween(1000))
                 } else {
                     null
                 }

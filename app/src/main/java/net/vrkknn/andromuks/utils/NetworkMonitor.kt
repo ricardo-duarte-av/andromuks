@@ -357,9 +357,9 @@ class NetworkMonitor(
         // Cellular (5G/4G) is preferred over WiFi for better stability
         return when {
             availableTypes.contains(NetworkType.ETHERNET) || ethernetAvailable -> NetworkType.ETHERNET
+            availableTypes.contains(NetworkType.WIFI) || wifiAvailable -> NetworkType.WIFI
             availableTypes.contains(NetworkType.CELLULAR) || cellularAvailable -> NetworkType.CELLULAR
             availableTypes.contains(NetworkType.VPN) || vpnAvailable -> NetworkType.VPN
-            availableTypes.contains(NetworkType.WIFI) || wifiAvailable -> NetworkType.WIFI
             availableTypes.contains(NetworkType.OTHER) -> NetworkType.OTHER
             else -> NetworkType.NONE
         }

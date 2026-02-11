@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package net.vrkknn.andromuks
 
 import net.vrkknn.andromuks.BuildConfig
@@ -48,11 +46,13 @@ class WebSocketHealthCheckWorker(
                 return@withContext Result.success()
             }
             
-            // Check if service is running
-            val isServiceRunning = isServiceRunning(applicationContext)
+            // Check if service is running using companion object flag (reliable, not deprecated)
+            val isServiceRunning = WebSocketService.isServiceRunning()
             val isWebSocketConnected = WebSocketService.isConnected()
+            val isReconnectingOrConnecting = WebSocketService.isReconnectingOrConnecting()
+            val connectionState = WebSocketService.getConnectionState()
             
-            if (BuildConfig.DEBUG) Log.d(TAG, "Health check: serviceRunning=$isServiceRunning, websocketConnected=$isWebSocketConnected")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Health check: serviceRunning=$isServiceRunning, websocketConnected=$isWebSocketConnected, isReconnectingOrConnecting=$isReconnectingOrConnecting, state=$connectionState")
             
             if (!isServiceRunning) {
                 // Service was killed - restart it via ServiceStartWorker (more reliable than direct start)
@@ -62,8 +62,17 @@ class WebSocketHealthCheckWorker(
                 return@withContext Result.success()
             }
             
+            // CRITICAL FIX: Skip reconnection if service is already reconnecting or connecting
+            // This prevents redundant reconnection attempts and race conditions
+            if (isReconnectingOrConnecting) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "Service is already reconnecting or connecting (state=$connectionState), skipping health check reconnection action")
+                WebSocketService.logActivity("Health Check: Service Reconnecting - Skipping Redundant Action", null)
+                return@withContext Result.success()
+            }
+            
             if (!isWebSocketConnected) {
                 // Service is running but WebSocket is disconnected - trigger reconnection
+                // Only trigger if not already reconnecting/connecting (checked above)
                 Log.w(TAG, "WebSocketService running but WebSocket disconnected - triggering reconnection")
                 WebSocketService.logActivity("Health Check: WebSocket Disconnected - Reconnecting", null)
                 
@@ -85,17 +94,6 @@ class WebSocketHealthCheckWorker(
         }
     }
     
-    /**
-     * Check if WebSocketService is currently running
-     */
-    private fun isServiceRunning(context: Context): Boolean {
-        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-        val runningServices = activityManager.getRunningServices(Integer.MAX_VALUE)
-        
-        return runningServices.any { service ->
-            service.service.className == WebSocketService::class.java.name
-        }
-    }
     
     
     companion object {
@@ -119,7 +117,7 @@ class WebSocketHealthCheckWorker(
                 .addTag("websocket_health_check")
                 .setConstraints(
                     androidx.work.Constraints.Builder()
-                        .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+                        //.setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
                         .build()
                 )
                 .build()
