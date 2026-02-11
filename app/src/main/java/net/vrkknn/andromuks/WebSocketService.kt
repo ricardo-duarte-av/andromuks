@@ -1431,10 +1431,20 @@ class WebSocketService : Service() {
         
         /**
          * Check if WebSocket is connected
+         * 
+         * CRITICAL: This checks both the connection state AND the WebSocket reference.
+         * If instance is null, the service isn't running, so we return false.
+         * If connectionState is CONNECTED but webSocket is null, the connection was lost.
          */
         fun isWebSocketConnected(): Boolean {
             val serviceInstance = instance ?: return false
-            return serviceInstance.connectionState == ConnectionState.CONNECTED && serviceInstance.webSocket != null
+            // Both conditions must be true: state is CONNECTED AND WebSocket reference exists
+            val isConnected = serviceInstance.connectionState == ConnectionState.CONNECTED && serviceInstance.webSocket != null
+            if (BuildConfig.DEBUG && !isConnected && serviceInstance.connectionState == ConnectionState.CONNECTED) {
+                // Log when state says CONNECTED but WebSocket is null (state corruption)
+                android.util.Log.w("WebSocketService", "isWebSocketConnected(): State is CONNECTED but webSocket is null - state corruption detected")
+            }
+            return isConnected
         }
         
         /**
@@ -3625,17 +3635,13 @@ class WebSocketService : Service() {
             )
         }
         
-        // CRITICAL FIX: Return START_STICKY to ensure service restarts if killed by system
-        // This is essential for reliability, especially without battery optimization exemption
-        return START_STICKY
-        
-        // Update notification with current connection state after service starts
+        // CRITICAL FIX: Update notification with current connection state after service starts
         // This ensures the notification shows the correct state even if no WebSocket is connected yet
         // Also check if reconnection callback is available
         // PHASE 1.2: Check active callback (primary or legacy)
         val hasCallback = getActiveReconnectionCallback() != null
         updateConnectionStatus(
-            isConnected = connectionState == ConnectionState.CONNECTED,
+            isConnected = connectionState == ConnectionState.CONNECTED && webSocket != null,
             lagMs = lastKnownLagMs,
             lastSyncTimestamp = lastSyncTimestamp
         )
@@ -3646,6 +3652,10 @@ class WebSocketService : Service() {
             // Boot/background startup: create a headless AppViewModel so WebSocket can connect.
             ensureHeadlessPrimary(applicationContext, "Service start")
         }
+        
+        // CRITICAL FIX: Return START_STICKY to ensure service restarts if killed by system
+        // This is essential for reliability, especially without battery optimization exemption
+        return START_STICKY
         
         // PHASE 2.2: Handle service restart detection
         // Detect restart by checking if we have connection state that suggests a previous connection existed

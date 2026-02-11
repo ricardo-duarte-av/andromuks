@@ -15544,12 +15544,17 @@ class AppViewModel : ViewModel() {
             logActivity("Starting WebSocket Service", null)
             val intent = android.content.Intent(context, WebSocketService::class.java)
             try {
-                // IMPORTANT: Use startService() even on Android O+.
-                // WebSocketService itself will call startForeground() when allowed.
-                // This avoids the strict timing contract of startForegroundService(),
-                // which causes ForegroundServiceDidNotStartInTimeException when
-                // Android refuses FGS (e.g. quota exhausted or policy).
-                context.startService(intent)
+                if (Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+                    WebSocketService.shouldUseForegroundService()
+                ) {
+                    // Normal path on Android O+: request a foreground service start
+                    context.startForegroundService(intent)
+                } else {
+                    // Either pre-O, or we've previously been denied FGS for this process.
+                    // In that case, fall back to a regular service start to avoid
+                    // ForegroundServiceDidNotStartInTimeException.
+                    context.startService(intent)
+                }
             } catch (e: Exception) {
                 android.util.Log.e("Andromuks", "AppViewModel: Failed to start WebSocketService", e)
             }
