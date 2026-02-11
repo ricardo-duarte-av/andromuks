@@ -5091,8 +5091,18 @@ class AppViewModel : ViewModel() {
         // Not all 588 rooms - only rooms that were just left/removed
         // Remove left rooms
         var roomsWereRemoved = false
+        var invitesWereRemoved = false
         val removedRoomIdsSet = syncResult.removedRoomIds.toSet()
         syncResult.removedRoomIds.forEach { roomId ->
+            // CRITICAL: Check if left room is a pending invite first (user refused invite on another client)
+            val wasPendingInvite = PendingInvitesCache.getInvite(roomId) != null
+            if (wasPendingInvite) {
+                PendingInvitesCache.removeInvite(roomId)
+                invitesWereRemoved = true
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed refused invite (left_rooms): $roomId")
+            }
+            
+            // Remove from roomMap if user was actually joined (user left room on another client)
             val removedRoom = roomMap.remove(roomId)
             // Remove from singleton cache
             RoomListCache.removeRoom(roomId)
@@ -5102,7 +5112,7 @@ class AppViewModel : ViewModel() {
                 newlyJoinedRoomIds.remove(roomId)
                 
                 
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed room: ${removedRoom.name}")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed room (left_rooms): ${removedRoom.name}")
             }
         }
         
@@ -5121,6 +5131,13 @@ class AppViewModel : ViewModel() {
             needsRoomListUpdate = true
             roomListUpdateCounter++
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Immediately updated UI after room removal (roomListUpdateCounter: $roomListUpdateCounter)")
+        }
+        
+        // CRITICAL: If invites were removed (refused on another client), trigger UI update
+        if (invitesWereRemoved) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Invites removed (refused on another client) - updating UI")
+            needsRoomListUpdate = true
+            roomListUpdateCounter++
         }
         
         //if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Total rooms now: ${roomMap.size} (updated: ${syncResult.updatedRooms.size}, new: ${syncResult.newRooms.size}, removed: ${syncResult.removedRoomIds.size}) - sync message #$syncMessageCount [App visible: $isAppVisible]")

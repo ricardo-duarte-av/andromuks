@@ -52,6 +52,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -76,6 +77,7 @@ import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -2244,7 +2246,7 @@ fun TabButton(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, FlowPreview::class)
+@OptIn(ExperimentalMaterial3Api::class, FlowPreview::class, ExperimentalFoundationApi::class)
 @Composable
 fun RoomListContent(
     rooms: List<RoomItem>,
@@ -2337,6 +2339,20 @@ fun RoomListContent(
             // Normal case - debounce to coalesce rapid sync_complete updates
             kotlinx.coroutines.delay(1000L)
             debouncedRooms = filteredRooms
+        }
+    }
+    
+    // STICKY TOP: Whenever the 'top' room ID changes, snap to the top
+    // Only snap if the user is already near the top (index <= 1)
+    // This prevents "yanking" the user back if they are scrolling deep down
+    val firstRoomId = remember(debouncedRooms) {
+        debouncedRooms.firstOrNull()?.id
+    }
+    
+    LaunchedEffect(firstRoomId) {
+        if (listState.firstVisibleItemIndex <= 1) {
+            // User is near the top - animate scroll to top when first room changes
+            listState.animateScrollToItem(0)
         }
     }
     
@@ -2434,7 +2450,9 @@ fun RoomListContent(
             val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
             val shouldLoadAvatar = index <= lastVisibleIndex + 25 // Load for items up to 25 below viewport
             
-            Column {
+            Column(
+                modifier = Modifier.animateItem()
+            ) {
                 RoomListItem(
                     room = room,
                     homeserverUrl = appViewModel.homeserverUrl,
