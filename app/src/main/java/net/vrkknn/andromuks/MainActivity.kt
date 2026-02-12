@@ -1168,50 +1168,27 @@ fun AppNavigation(
             arguments = listOf(
                 navArgument("userId") { type = NavType.StringType }
             ),
-            enterTransition = {
-                fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
-                    scaleIn(
-                        initialScale = 0.85f,
-                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-                        transformOrigin = TransformOrigin.Center
-                    )
-            },
-            exitTransition = {
-                fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)) +
-                    scaleOut(
-                        targetScale = 0.85f,
-                        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
-                        transformOrigin = TransformOrigin.Center
-                    )
-            },
-            popEnterTransition = {
-                fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
-                    scaleIn(
-                        initialScale = 0.85f,
-                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-                        transformOrigin = TransformOrigin.Center
-                    )
-            },
-            popExitTransition = {
-                fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)) +
-                    scaleOut(
-                        targetScale = 0.85f,
-                        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
-                        transformOrigin = TransformOrigin.Center
-                    )
-            }
+            enterTransition = null,  // Let shared element handle it
+            exitTransition = null,
+            popEnterTransition = null,
+            popExitTransition = null
         ) { backStackEntry: NavBackStackEntry ->
             val userId = backStackEntry.arguments?.getString("userId") ?: ""
             // Extract roomId from savedStateHandle (set during navigation)
             val roomId = backStackEntry.savedStateHandle.get<String>("roomId")?.takeIf { it.isNotBlank() }
                 ?: backStackEntry.savedStateHandle.get<String>("user_info_roomId")?.takeIf { it.isNotBlank() }
+
             net.vrkknn.andromuks.utils.UserInfoScreen(
                 userId = userId,
                 navController = navController,
                 appViewModel = appViewModel,
                 roomId = roomId,
-                modifier = modifier
+                modifier = modifier,
+                sharedTransitionScope = this@SharedTransitionLayout,
+                animatedVisibilityScope = this@composable
             )
+            
+
         }
     }
     } // End of SharedTransitionLayout

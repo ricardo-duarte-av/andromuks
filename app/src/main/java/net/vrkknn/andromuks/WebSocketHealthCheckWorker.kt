@@ -117,7 +117,7 @@ class WebSocketHealthCheckWorker(
                 .addTag("websocket_health_check")
                 .setConstraints(
                     androidx.work.Constraints.Builder()
-                        //.setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+                        .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
                         .build()
                 )
                 .build()

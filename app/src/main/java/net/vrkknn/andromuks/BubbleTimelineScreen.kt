@@ -1199,6 +1199,20 @@ fun BubbleTimelineScreen(
         )
     }
 
+    // PERFORMANCE: Pre-load all user profiles when timeline loads
+    LaunchedEffect(timelineEvents) {
+        if (appViewModel.isAppVisible && appViewModel.currentRoomId == roomId) {
+            val uniqueSenders = timelineEvents.map { it.sender }.toSet()
+            
+            uniqueSenders.forEach { sender ->
+                val existingProfile = appViewModel.getUserProfile(sender, roomId)
+                if (existingProfile == null || existingProfile.displayName.isNullOrBlank()) {
+                    appViewModel.requestUserProfileOnDemand(sender, roomId)
+                }
+            }
+        }
+    }
+
     // PERFORMANCE: Create timeline items with date dividers and pre-compute consecutive flags
     val timelineItems =
         remember(sortedEvents, appViewModel.timelineUpdateCounter) {

@@ -1,6 +1,11 @@
 package net.vrkknn.andromuks
 
 import android.util.Log
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.Alignment
@@ -2854,6 +2859,7 @@ private fun StickerMessageContent(
     }
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun TimelineEventItem(
     event: TimelineEvent,
@@ -2865,6 +2871,8 @@ fun TimelineEventItem(
     myUserId: String?,
     isConsecutive: Boolean = false,
     appViewModel: AppViewModel? = null,
+    sharedTransitionScope: SharedTransitionScope? = null,  // ← ADD THIS
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,  // ← ADD THIS
     onScrollToMessage: (String) -> Unit = {},
     onReply: (TimelineEvent) -> Unit = {},
     onReact: (TimelineEvent) -> Unit = {},
@@ -2879,16 +2887,16 @@ fun TimelineEventItem(
     val context = LocalContext.current
     
     // OPPORTUNISTIC PROFILE LOADING: Request profile only when this event is actually rendered
-    LaunchedEffect(event.sender, event.roomId) {
-        if (appViewModel != null) {
-            // Check if we already have the profile (including for current user)
-            val existingProfile = appViewModel.getUserProfile(event.sender, event.roomId)
-            if (existingProfile == null || existingProfile.displayName.isNullOrBlank()) {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "TimelineEventItem: Requesting profile on-demand for ${event.sender}")
-                appViewModel.requestUserProfileOnDemand(event.sender, event.roomId)
-            }
-        }
-    }
+    //LaunchedEffect(event.sender, event.roomId) {
+    //    if (appViewModel != null) {
+    //        // Check if we already have the profile (including for current user)
+    //        val existingProfile = appViewModel.getUserProfile(event.sender, event.roomId)
+    //        if (existingProfile == null || existingProfile.displayName.isNullOrBlank()) {
+    //            if (BuildConfig.DEBUG) Log.d("Andromuks", "TimelineEventItem: Requesting profile on-demand for ${event.sender}")
+    //            appViewModel.requestUserProfileOnDemand(event.sender, event.roomId)
+    //        }
+    //    }
+    //}
 
     // Check for per-message profile (e.g., from Beeper bridge)
     // This can be in either the content (for regular messages) or decrypted content (for encrypted
@@ -3145,6 +3153,7 @@ fun TimelineEventItem(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Box(modifier = Modifier.clickable { onUserClick(event.sender) }) {
+                    // Don't use shared element for timeline message avatars
                     AvatarImage(
                         mxcUrl = avatarUrl,
                         homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
@@ -3153,8 +3162,7 @@ fun TimelineEventItem(
                         size = 24.dp,
                         userId = event.sender,
                         displayName = displayName,
-                        // AVATAR LOADING OPTIMIZATION: Enable lazy loading for timeline performance
-                        isVisible = true // Timeline items are visible when rendered
+                        isVisible = true
                     )
                 }
                 // Timestamp below avatar (smaller font)
@@ -3327,6 +3335,7 @@ fun TimelineEventItem(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Box(modifier = Modifier.clickable { onUserClick(event.sender) }) {
+                    // Don't use shared element for timeline message avatars
                     AvatarImage(
                         mxcUrl = avatarUrl,
                         homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
@@ -3335,7 +3344,7 @@ fun TimelineEventItem(
                         size = 24.dp,
                         userId = event.sender,
                         displayName = displayName,
-                        isVisible = true // Timeline items are visible when rendered
+                        isVisible = true
                     )
                 }
                 val timestampText = if (editedBy != null) {

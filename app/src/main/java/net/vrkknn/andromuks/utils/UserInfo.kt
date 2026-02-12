@@ -71,6 +71,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 
 
 import org.json.JSONObject
@@ -260,14 +265,16 @@ fun ArbitraryFieldCard(key: String, value: Any) {
 /**
  * User Info Screen - displays detailed information about a user
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun UserInfoScreen(
     userId: String,
     navController: NavController,
     appViewModel: AppViewModel,
     roomId: String? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    sharedTransitionScope: SharedTransitionScope? = null,  // ← ADD THIS
+    animatedVisibilityScope: AnimatedVisibilityScope? = null  
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -431,15 +438,40 @@ fun UserInfoScreen(
                     val displayNameForAvatar = if (hasRoomSpecificDisplayName) roomDisplayName else (globalDisplayName ?: usernameFromMatrixId(userId))
                     
                     // Main avatar (room-specific if available, otherwise global)
-                    AvatarImage(
-                        mxcUrl = avatarUrlToUse,
-                        homeserverUrl = appViewModel.homeserverUrl,
-                        authToken = appViewModel.authToken,
-                        fallbackText = displayNameForAvatar,
-                        size = 220.dp,
-                        userId = userId,
-                        displayName = displayNameForAvatar
-                    )
+                    if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                        with(sharedTransitionScope) {
+                            AvatarImage(
+                                mxcUrl = avatarUrlToUse,
+                                homeserverUrl = appViewModel.homeserverUrl,
+                                authToken = appViewModel.authToken,
+                                fallbackText = displayNameForAvatar,
+                                size = 220.dp,
+                                userId = userId,
+                                displayName = displayNameForAvatar,
+                                modifier = Modifier.sharedElement(
+                                    rememberSharedContentState(key = "user-avatar-$userId"),
+                                    animatedVisibilityScope = animatedVisibilityScope,
+                                    boundsTransform = { _, _ ->
+                                        spring(
+                                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                                            stiffness = Spring.StiffnessMedium
+                                        )
+                                    }
+                                )
+                            )
+                        }
+                    } else {
+                        // Fallback without shared element
+                        AvatarImage(
+                            mxcUrl = avatarUrlToUse,
+                            homeserverUrl = appViewModel.homeserverUrl,
+                            authToken = appViewModel.authToken,
+                            fallbackText = displayNameForAvatar,
+                            size = 220.dp,
+                            userId = userId,
+                            displayName = displayNameForAvatar
+                        )
+                    }
                     
                     // Show global avatar as badge in top-right corner if we have room-specific avatar
                     if (hasRoomSpecificAvatar && globalAvatarUrl != null) {

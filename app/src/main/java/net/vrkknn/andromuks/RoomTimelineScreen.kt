@@ -1260,6 +1260,20 @@ fun RoomTimelineScreen(
         )
     }
 
+    // PERFORMANCE: Pre-load all user profiles when timeline loads
+    LaunchedEffect(timelineEvents) {
+        if (appViewModel.isAppVisible && appViewModel.currentRoomId == roomId) {
+            val uniqueSenders = timelineEvents.map { it.sender }.toSet()
+            
+            uniqueSenders.forEach { sender ->
+                val existingProfile = appViewModel.getUserProfile(sender, roomId)
+                if (existingProfile == null || existingProfile.displayName.isNullOrBlank()) {
+                    appViewModel.requestUserProfileOnDemand(sender, roomId)
+                }
+            }
+        }
+    }
+
     // PERFORMANCE: Create timeline items with date dividers and pre-compute consecutive flags.
     // Only depend on this room's sortedEvents; do NOT depend on global counters so that
     // events in other rooms don't cause recomputation here.
@@ -2402,6 +2416,8 @@ fun RoomTimelineScreen(
                                             myUserId = myUserId,
                                             isConsecutive = isConsecutive,
                                             appViewModel = appViewModel,
+                                            sharedTransitionScope = sharedTransitionScope,  // ← ADD THIS
+                                            animatedVisibilityScope = animatedVisibilityScope,  // ← ADD THIS
                                             onScrollToMessage = { eventId ->
                                                 // PERFORMANCE: Find the index in timelineItems instead of sortedEvents
                                                 val index = timelineItems.indexOfFirst { item ->
