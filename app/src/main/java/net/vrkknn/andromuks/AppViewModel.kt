@@ -11817,18 +11817,29 @@ class AppViewModel : ViewModel() {
                 // CRITICAL FIX: For pagination, merge events instead of clearing to preserve newer events
                 val isPaginationRequest = paginateRequests.containsKey(requestId)
                 val isInitialPaginate = timelineRequests.containsKey(requestId)
-                buildEditChainsFromEvents(timelineList, clearExisting = !isPaginationRequest)
-                
-                // Process edit relationships
-                processEditRelationships()
+                // CRITICAL FIX: Only update global edit state if this is the current room
+                // Background pagination response should not corrupt current room's edit mapping
+                if (roomId == currentRoomId) {
+                    buildEditChainsFromEvents(timelineList, clearExisting = !isPaginationRequest)
+                    
+                    // Process edit relationships
+                    processEditRelationships()
+                } else {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping global edit chain build - roomId ($roomId) != currentRoomId ($currentRoomId)")
+                }
                 
                 if (isPaginationRequest) {
                     // This is a pagination request - merge with existing timeline
+                    // Note: handlePaginationMerge updates cache for all rooms, but guards global state updates
                     handlePaginationMerge(roomId, timelineList, requestId)
                     paginateRequests.remove(requestId)
                     // Note: paginateRequestMaxTimelineIds cleanup happens in handlePaginationMerge
-                    isPaginating = false
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: isPaginating set to FALSE")
+                    
+                    // CRITICAL FIX: Only stop paginating indicator if currently viewing this room
+                    if (roomId == currentRoomId) {
+                        isPaginating = false
+                    }
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Pagination complete - roomId=$roomId, isPaginating set to ${if (roomId == currentRoomId) "FALSE" else "unchanged (background)"}")
                 } else {
                     // This is an initial paginate - build timeline from chain mapping
                     android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: Initial paginate - roomId=$roomId, requestId=$requestId, timelineList.size=${timelineList.size}, isTimelineLoading=$isTimelineLoading")
@@ -16336,34 +16347,42 @@ class AppViewModel : ViewModel() {
         if (allCachedEvents != null && allCachedEvents.isNotEmpty()) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reloading ${allCachedEvents.size} events from cache into eventChainMap after pagination")
             
-            // Clear and rebuild eventChainMap from all cached events
-            // This ensures we have all events, not just the ones that were in eventChainMap before
-            eventChainMap.clear()
-            editEventsMap.clear()
-            
-            for (event in allCachedEvents) {
-                val isEdit = isEditEvent(event)
-                if (isEdit) {
-                    editEventsMap[event.eventId] = event
-                } else {
-                    eventChainMap[event.eventId] = EventChainEntry(
-                        eventId = event.eventId,
-                        ourBubble = event,
-                        replacedBy = null,
-                        originalTimestamp = event.timestamp
-                    )
+            // CRITICAL FIX: Only update global state (eventChainMap, editEventsMap, timelineEvents) if this is the current room
+            if (roomId == currentRoomId) {
+                // Clear and rebuild eventChainMap from all cached events
+                // This ensures we have all events, not just the ones that were in eventChainMap before
+                eventChainMap.clear()
+                editEventsMap.clear()
+                
+                for (event in allCachedEvents) {
+                    val isEdit = isEditEvent(event)
+                    if (isEdit) {
+                        editEventsMap[event.eventId] = event
+                    } else {
+                        eventChainMap[event.eventId] = EventChainEntry(
+                            eventId = event.eventId,
+                            ourBubble = event,
+                            replacedBy = null,
+                            originalTimestamp = event.timestamp
+                        )
+                    }
                 }
+                
+                // Process versioned messages and edit relationships
+                processVersionedMessages(allCachedEvents)
+                processEditRelationships()
+                
+                // Rebuild timeline from all cached events
+                buildTimelineFromChain()
+            } else {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping eventChainMap rebuild - roomId ($roomId) != currentRoomId ($currentRoomId). Cache merged only.")
             }
-            
-            // Process versioned messages and edit relationships
-            processVersionedMessages(allCachedEvents)
-            processEditRelationships()
-            
-            // Rebuild timeline from all cached events
-            buildTimelineFromChain()
         } else {
             // Fallback: if we can't get all cached events, just merge the new ones
-            mergePaginationEvents(timelineList)
+            // Only if it's the current room. Otherwise skip.
+            if (roomId == currentRoomId) {
+                mergePaginationEvents(timelineList)
+            }
         }
         
         val oldestRowIdAfter = RoomTimelineCache.getOldestCachedEventRowId(roomId)
@@ -16484,19 +16503,28 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        buildTimelineFromChain()
-        val timelineSizeBefore = timelineEvents.size
-        isTimelineLoading = false
-        val timelineSizeAfter = timelineEvents.size
-        android.util.Log.d("Andromuks", "🟡 handleInitialTimelineBuild: Timeline built - roomId=$roomId, timelineList.size=${timelineList.size}, timelineEvents.size=$timelineSizeAfter (was $timelineSizeBefore), isTimelineLoading=$isTimelineLoading")
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Seeding cache with ${timelineList.size} paginated events for room $roomId")
         RoomTimelineCache.seedCacheWithPaginatedEvents(roomId, timelineList)
         
         // CRITICAL FIX: Restore reactions from cache and apply aggregated reactions from events
         // This ensures reactions are visible when paginate response rebuilds the timeline
         // Force reload to ensure reactions are loaded even if they were loaded earlier from cache
+        // Note: messageReactions is a global map keyed by eventId, so it's safe to update even for background rooms
         loadReactionsForRoom(roomId, timelineList, forceReload = true)
         applyAggregatedReactionsFromEvents(timelineList, "handleInitialTimelineBuild")
+        
+        // CRITICAL FIX: Only update timeline state if this is the currently open room
+        // This prevents race conditions where a background pagination for a previous room
+        // clobbers the timeline of the current room or corrupts loading state.
+        if (roomId == currentRoomId) {
+            buildTimelineFromChain()
+            val timelineSizeBefore = timelineEvents.size
+            isTimelineLoading = false
+            val timelineSizeAfter = timelineEvents.size
+            android.util.Log.d("Andromuks", "🟡 handleInitialTimelineBuild: Timeline built - roomId=$roomId, timelineList.size=${timelineList.size}, timelineEvents.size=$timelineSizeAfter (was $timelineSizeBefore), isTimelineLoading=$isTimelineLoading")
+        } else {
+             android.util.Log.d("Andromuks", "🟡 handleInitialTimelineBuild: Skipping timeline build - roomId ($roomId) != currentRoomId ($currentRoomId). Cache seeded only.")
+        }
         
         // Persist initial paginated events to cache
         // No local persistence - using cache only
