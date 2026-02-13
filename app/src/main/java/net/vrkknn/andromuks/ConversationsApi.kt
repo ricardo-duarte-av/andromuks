@@ -1469,15 +1469,8 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     private fun createFallbackShortcutIconCompat(displayName: String?, userId: String): IconCompat {
         return try {
             // Get color and character using AvatarUtils
-            val colorHex = AvatarUtils.getUserColor(userId)
+            val color = AvatarUtils.getUserColor(userId)
             val character = AvatarUtils.getFallbackCharacter(displayName, userId)
-            
-            // Parse hex color
-            val color = try {
-                android.graphics.Color.parseColor("#$colorHex")
-            } catch (e: Exception) {
-                android.graphics.Color.parseColor("#d991de") // Fallback color
-            }
             
             // Create bitmap
             val size = 128
@@ -1529,15 +1522,8 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     private fun createFallbackShortcutIcon(displayName: String?, userId: String): Icon {
         return try {
             // Get color and character using AvatarUtils
-            val colorHex = AvatarUtils.getUserColor(userId)
+            val color = AvatarUtils.getUserColor(userId)
             val character = AvatarUtils.getFallbackCharacter(displayName, userId)
-            
-            // Parse hex color
-            val color = try {
-                android.graphics.Color.parseColor("#$colorHex")
-            } catch (e: Exception) {
-                android.graphics.Color.parseColor("#d991de") // Fallback color
-            }
             
             // Create bitmap
             val size = 128

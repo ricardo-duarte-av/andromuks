@@ -1125,15 +1125,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         val canvas = android.graphics.Canvas(bitmap)
         
         // Get color and character using AvatarUtils
-        val colorHex = AvatarUtils.getUserColor(userId)
+        val color = AvatarUtils.getUserColor(userId)
         val character = AvatarUtils.getFallbackCharacter(displayName, userId)
-        
-        // Parse hex color
-        val color = try {
-            android.graphics.Color.parseColor("#$colorHex")
-        } catch (e: Exception) {
-            android.graphics.Color.parseColor("#d991de") // Fallback color
-        }
         
         // Draw background
         val bgPaint = android.graphics.Paint().apply {

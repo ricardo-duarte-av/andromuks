@@ -14,19 +14,19 @@ import net.vrkknn.andromuks.utils.CircleAvatarCache
 object AvatarUtils {
     private const val FALLBACK_COLOR_COUNT = 10
     
-    // Fallback colors matching the web client (hex codes without #)
+    // Fallback colors matching the web client (hex codes converted to Color objects)
     // These should stay in sync with the colors used in the web client
-    private val FALLBACK_COLORS = arrayOf(
-        "4a9b89", // teal
-        "9b4a8b", // purple
-        "8b4a9b", // violet
-        "4a8b9b", // cyan
-        "9b8b4a", // olive
-        "8b9b4a", // lime
-        "4a8b4a", // green
-        "9b4a4a", // red
-        "4a4a9b", // blue
-        "d991de"  // pink
+    private val FALLBACK_COLORS = intArrayOf(
+        0xFF4a9b89.toInt(), // teal
+        0xFF9b4a8b.toInt(), // purple
+        0xFF8b4a9b.toInt(), // violet
+        0xFF4a8b9b.toInt(), // cyan
+        0xFF9b8b4a.toInt(), // olive
+        0xFF8b9b4a.toInt(), // lime
+        0xFF4a8b4a.toInt(), // green
+        0xFF9b4a4a.toInt(), // red
+        0xFF4a4a9b.toInt(), // blue
+        0xFFd991de.toInt()  // pink
     )
     
     /**
@@ -39,11 +39,11 @@ object AvatarUtils {
     }
     
     /**
-     * Get a deterministic hex color for a user ID
+     * Get a deterministic color for a user ID (Performance: Returns Int color directly)
      * @param userId The Matrix user ID (e.g., "@user:matrix.org")
-     * @return A hex color string without the # prefix (e.g., "d991de")
+     * @return A color int (ARGB)
      */
-    fun getUserColor(userId: String): String {
+    fun getUserColor(userId: String): Int {
         return FALLBACK_COLORS[getUserColorIndex(userId)]
     }
     
@@ -207,10 +207,11 @@ object AvatarUtils {
      * @return A data URI containing an SVG fallback avatar
      */
     fun generateLocalFallbackAvatar(displayName: String?, userId: String): String {
-        val color = getUserColor(userId)
+        val colorInt = getUserColor(userId)
+        val colorHex = String.format("%06X", (0xFFFFFF and colorInt))
         val letter = getFallbackCharacter(displayName, userId)
         
-        return makeFallbackAvatarDataUri(color, letter)
+        return makeFallbackAvatarDataUri(colorHex, letter)
     }
     
     /**

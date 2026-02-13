@@ -362,14 +362,14 @@ class PersonsApi(
 
     private fun createFallbackIcon(target: PersonTarget): IconCompat {
         return try {
-            val colorHex = AvatarUtils.getUserColor(target.userId)
+            val colorInt = AvatarUtils.getUserColor(target.userId)
             val letter = AvatarUtils.getFallbackCharacter(target.displayName, target.userId)
             val bitmap = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
 
             val backgroundPaint = Paint().apply {
                 style = Paint.Style.FILL
-                color = Color.parseColor("#$colorHex")
+                color = colorInt
                 isAntiAlias = true
             }
 

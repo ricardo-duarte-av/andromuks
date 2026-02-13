@@ -180,8 +180,8 @@ fun AvatarImage(
     
     val backgroundColor = remember(userId) {
         if (userId != null) {
-            val colorHex = AvatarUtils.getUserColor(userId)
-            Color(android.graphics.Color.parseColor("#$colorHex"))
+            val colorInt = AvatarUtils.getUserColor(userId)
+            Color(colorInt)
         } else {
             null // Will use MaterialTheme color
         }

@@ -150,23 +150,25 @@ object CircleAvatarCache {
     ) = withContext(Dispatchers.IO) {
         // Prevent duplicate caching operations
         if (inProgressCache.contains(mxcUrl)) {
-            if (BuildConfig.DEBUG) Log.d(TAG, "CircleAvatarCache: Already caching $mxcUrl, skipping")
             return@withContext
         }
         
-        // Check if already cached
-        val existingFile = getCachedFile(context, mxcUrl)
-        if (existingFile != null) {
-            if (BuildConfig.DEBUG) Log.d(TAG, "CircleAvatarCache: Already cached $mxcUrl")
+        // Check if already cached (fast check before acquiring mutex)
+        val cacheKey = getCacheKey(mxcUrl)
+        val cacheFile = File(getCacheDir(context), cacheKey)
+        if (cacheFile.exists() && cacheFile.length() > 0) {
             return@withContext
         }
         
         cacheMutex.withLock {
+            // Double-check after lock
+            if (inProgressCache.contains(mxcUrl)) return@withLock
             inProgressCache.add(mxcUrl)
         }
         
         try {
-            // Load source image using Coil
+            // OPTIMIZATION: Use software bitmap config to avoid texture readback from GPU
+            // This is critical for performance when saving to disk
             val request = ImageRequest.Builder(context)
                 .data(sourceImageUrl)
                 .apply {
@@ -175,68 +177,41 @@ object CircleAvatarCache {
                     }
                 }
                 .size(TARGET_SIZE)
+                .allowHardware(false) // CRITICAL: Prevent Hardware bitmap to avoid slow copyPixelsToBuffer
+                .bitmapConfig(Bitmap.Config.ARGB_8888) // Ensure compatible config
                 .build()
             
             when (val result = imageLoader.execute(request)) {
                 is SuccessResult -> {
-                    // Extract bitmap from drawable
-                    val sourceBitmap = when (val drawable = result.drawable) {
-                        is BitmapDrawable -> drawable.bitmap
-                        else -> {
-                            if (BuildConfig.DEBUG) {
-                                Log.w(TAG, "CircleAvatarCache: Unexpected drawable type: ${drawable.javaClass.simpleName}")
-                            }
-                            return@withContext
-                        }
-                    }
-                    
-                    // Convert hardware bitmap to software bitmap if needed
-                    val softwareBitmap = if (sourceBitmap.config == Bitmap.Config.HARDWARE) {
-                        sourceBitmap.copy(Bitmap.Config.ARGB_8888, false)
-                    } else {
-                        sourceBitmap
-                    }
+                    // Extract bitmap
+                    val sourceBitmap = (result.drawable as? BitmapDrawable)?.bitmap ?: return@withContext
                     
                     // Create square thumbnail (center-cropped and scaled)
-                    val squareBitmap = createSquareThumbnail(softwareBitmap, TARGET_SIZE)
-                    
-                    // Clean up software bitmap if we created a copy and it's not our result
-                    if (softwareBitmap != sourceBitmap && softwareBitmap != squareBitmap) {
-                        softwareBitmap.recycle()
-                    }
+                    // Note: Since we requested TARGET_SIZE in Coil, sourceBitmap might already be close to size
+                    val squareBitmap = createSquareThumbnail(sourceBitmap, TARGET_SIZE)
                     
                     // Save to cache as JPEG (smaller, faster than PNG with transparency)
-                    val cacheKey = getCacheKey(mxcUrl)
-                    val cacheFile = File(getCacheDir(context), cacheKey)
-                    
+                    // UI uses GPU clipping (CircleShape) so we don't need transparency
                     FileOutputStream(cacheFile).use { out ->
-                        // Use JPEG compression (85% quality) - smaller file size, no transparency needed
-                        // UI will use GPU clipping (CircleShape) which is much cheaper
                         squareBitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
                     }
                     
-                    // Clean up square bitmap if we own it (it's not the source from Coil)
+                    // Clean up square bitmap if we created a new one
                     if (squareBitmap != sourceBitmap) {
                         squareBitmap.recycle()
                     }
                     
-                    if (BuildConfig.DEBUG) {
-                        Log.d(TAG, "CircleAvatarCache: Cached square thumbnail for $mxcUrl (${cacheFile.length() / 1024}KB)")
+                    // Ensure cache size is within limits (occasional check)
+                    if (Math.random() < 0.05) { // 5% chance to check cleanup to avoid overhead
+                        ensureCacheSize(context)
                     }
-                    
-                    // Ensure cache size is within limits
-                    ensureCacheSize(context)
                 }
                 is ErrorResult -> {
-                    if (BuildConfig.DEBUG) {
-                        Log.w(TAG, "CircleAvatarCache: Failed to load source image for $mxcUrl: ${result.throwable.message}")
-                    }
+                    // Ignore errors silently
                 }
             }
         } catch (e: Exception) {
-            if (BuildConfig.DEBUG) {
-                Log.e(TAG, "CircleAvatarCache: Error caching circular avatar for $mxcUrl", e)
-            }
+            // Ignore errors
         } finally {
             cacheMutex.withLock {
                 inProgressCache.remove(mxcUrl)

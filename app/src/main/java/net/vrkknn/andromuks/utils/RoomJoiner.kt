@@ -906,7 +906,7 @@ private fun getRoomFallbackCharacter(roomId: String): String {
 /**
  * Helper function to get color for room ID
  */
-private fun getRoomColor(roomId: String): String {
+private fun getRoomColor(roomId: String): Int {
     return AvatarUtils.getUserColor(roomId)
 }
 
@@ -943,7 +943,7 @@ private fun RoomErrorFallbackContent(
         Surface(
             modifier = Modifier.size(96.dp),
             shape = CircleShape,
-            color = Color(AndroidColor.parseColor("#$roomColor"))
+            color = Color(roomColor)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Text(
