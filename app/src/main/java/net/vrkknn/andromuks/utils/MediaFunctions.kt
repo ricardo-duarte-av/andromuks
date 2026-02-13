@@ -989,7 +989,7 @@ private fun MediaContent(
                     }
 
                     val imageUrl =
-                        remember(displayMxcUrl, displayIsEncrypted, cachedFile, mediaMessage.url) {
+                        remember(displayMxcUrl, displayIsEncrypted, cachedFile, mediaMessage.url, useThumbnail) {
                             if (cachedFile != null) {
                                 // Use cached file
                                 if (BuildConfig.DEBUG) Log.d(
@@ -998,12 +998,16 @@ private fun MediaContent(
                                 )
                                 cachedFile!!.absolutePath
                             } else {
-                                // Use HTTP URL (thumbnail first, fallback to full if conversion fails)
-                                val targetHttp =
+                                // PERFORMANCE: Use thumbnail URL if available and requested
+                                val targetHttp = if (useThumbnail) {
+                                    MediaUtils.mxcToThumbnailUrl(displayMxcUrl, homeserverUrl)
+                                } else {
                                     MediaUtils.mxcToHttpUrl(displayMxcUrl, homeserverUrl)
-                                        ?: MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+                                } ?: MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+                                
                                 if (displayIsEncrypted && targetHttp != null) {
-                                    "$targetHttp?encrypted=true"
+                                    val separator = if (targetHttp.contains("?")) "&" else "?"
+                                    "$targetHttp${separator}encrypted=true"
                                 } else {
                                     targetHttp
                                 }
@@ -1391,43 +1395,44 @@ private fun MediaContent(
                                 }
                             } else if (thumbnailUrl != null) {
                                 // Render video thumbnail
+                                // PERFORMANCE: Use thumbnail URL for video preview
                                 val thumbnailHttpUrl =
-                                    MediaUtils.mxcToHttpUrl(thumbnailUrl, homeserverUrl)
+                                    MediaUtils.mxcToThumbnailUrl(thumbnailUrl, homeserverUrl)
                                 val thumbnailFinalUrl =
-                                    if (
-                                        mediaMessage.info.thumbnailIsEncrypted &&
-                                            thumbnailHttpUrl != null
-                                    ) {
-                                        "$thumbnailHttpUrl?encrypted=true"
+                                    if (mediaMessage.info.thumbnailIsEncrypted && thumbnailHttpUrl != null) {
+                                        val separator = if (thumbnailHttpUrl.contains("?")) "&" else "?"
+                                        "$thumbnailHttpUrl${separator}encrypted=true"
                                     } else {
                                         thumbnailHttpUrl
                                     }
 
-                                val thumbnailBlurHashPainter =
-                                    remember(mediaMessage.info.thumbnailBlurHash) {
-                                        mediaMessage.info.thumbnailBlurHash?.let { blurHash ->
-                                            val bitmap =
-                                                BlurHashUtils.decodeBlurHash(blurHash, 32, 32)
+                                // PERFORMANCE FIX: Decode video BlurHash asynchronously
+                                var decodedVideoBlurHash by remember(mediaMessage.info.thumbnailBlurHash) {
+                                    mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
+                                }
+                                
+                                LaunchedEffect(mediaMessage.info.thumbnailBlurHash) {
+                                    mediaMessage.info.thumbnailBlurHash?.let { blurHash ->
+                                        withContext(Dispatchers.Default) {
+                                            val bitmap = BlurHashUtils.decodeBlurHash(blurHash, 32, 32)
                                             if (bitmap != null) {
-                                                BitmapPainter(bitmap.asImageBitmap())
-                                            } else {
-                                                BitmapPainter(
-                                                    BlurHashUtils.createPlaceholderBitmap(
-                                                        32,
-                                                        32,
-                                                        androidx.compose.ui.graphics.Color.Gray
-                                                    )
-                                                )
+                                                decodedVideoBlurHash = bitmap.asImageBitmap()
                                             }
                                         }
-                                            ?: BitmapPainter(
-                                                BlurHashUtils.createPlaceholderBitmap(
-                                                    32,
-                                                    32,
-                                                    androidx.compose.ui.graphics.Color.Gray
-                                                )
-                                            )
                                     }
+                                }
+                                
+                                val thumbnailBlurHashPainter = remember(decodedVideoBlurHash, mediaMessage.info.thumbnailBlurHash) {
+                                    decodedVideoBlurHash?.let { 
+                                        BitmapPainter(it) 
+                                    } ?: BitmapPainter(
+                                        BlurHashUtils.createPlaceholderBitmap(
+                                            32,
+                                            32,
+                                            androidx.compose.ui.graphics.Color.Gray
+                                        )
+                                    )
+                                }
 
                                 AsyncImage(
                                     model =

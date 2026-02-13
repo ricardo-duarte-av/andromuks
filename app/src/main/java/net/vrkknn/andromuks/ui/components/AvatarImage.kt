@@ -36,6 +36,8 @@ import coil.decode.SvgDecoder
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.BlurHashUtils
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
@@ -121,12 +123,23 @@ fun AvatarImage(
     }
     
     
-    // AVATAR LOADING OPTIMIZATION: Generate placeholder from BlurHash if available
-    val placeholderBitmap = remember(blurHash, size) {
+    // AVATAR LOADING OPTIMIZATION: Decode BlurHash asynchronously to prevent UI thread blocking
+    var placeholderBitmap by remember(blurHash, size) {
+        mutableStateOf<ImageBitmap?>(null)
+    }
+    
+    LaunchedEffect(blurHash, size) {
         if (blurHash != null && blurHash.isNotBlank()) {
-            val pixelSize = size.value.toInt()
-            BlurHashUtils.blurHashToImageBitmap(blurHash, pixelSize, pixelSize)
-        } else null
+            withContext(Dispatchers.Default) {
+                val pixelSize = size.value.toInt()
+                val bitmap = BlurHashUtils.decodeBlurHash(blurHash, pixelSize, pixelSize)
+                if (bitmap != null) {
+                    placeholderBitmap = bitmap.asImageBitmap()
+                }
+            }
+        } else {
+            placeholderBitmap = null
+        }
     }
     
     val targetPixelSize = remember(size, density, useCircleCache) {
@@ -202,11 +215,12 @@ fun AvatarImage(
         contentAlignment = Alignment.Center
     ) {
         // AVATAR LOADING OPTIMIZATION: Show placeholder, fallback, or image based on state
+        val placeholder = placeholderBitmap
         when {
             // Show placeholder image if available and we haven't loaded the real image yet
-            placeholderBitmap != null && !shouldLoadImage -> {
+            placeholder != null && !shouldLoadImage -> {
                 Image(
-                    bitmap = placeholderBitmap,
+                    bitmap = placeholder,
                     contentDescription = "Avatar placeholder",
                     modifier = Modifier
                         .size(size)

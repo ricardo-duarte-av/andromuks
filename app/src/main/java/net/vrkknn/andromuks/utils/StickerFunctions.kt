@@ -414,10 +414,11 @@ private fun StickerContent(
                     }
                     file.absolutePath
                 } else {
-                    // Use HTTP URL
-                    val httpUrl = MediaUtils.mxcToHttpUrl(stickerMessage.url, homeserverUrl)
-                    if (isEncrypted) {
-                        val encryptedUrl = "$httpUrl?encrypted=true"
+                    // PERFORMANCE: Use thumbnail URL for stickers in the timeline
+                    val httpUrl = MediaUtils.mxcToThumbnailUrl(stickerMessage.url, homeserverUrl, width = 400, height = 400)
+                    if (isEncrypted && httpUrl != null) {
+                        val separator = if (httpUrl.contains("?")) "&" else "?"
+                        val encryptedUrl = "$httpUrl${separator}encrypted=true"
                         if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerMessage: Added encrypted=true to URL: $encryptedUrl")
                         encryptedUrl
                     } else {

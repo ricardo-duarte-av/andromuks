@@ -139,18 +139,9 @@ object AvatarUtils {
         mxcUrl: String?,
         homeserverUrl: String
     ): String? {
-        // First, check if we have a cached file from IntelligentMediaCache
-        val cachedFile = if (mxcUrl != null) {
-            kotlinx.coroutines.runBlocking { IntelligentMediaCache.getCachedFile(context, mxcUrl) }
-        } else {
-            null
-        }
-        
-        if (cachedFile != null) {
-            return cachedFile.absolutePath
-        }
-        
-        // If we have an MXC URL, convert to HTTP and let AsyncImage handle loading
+        // PERFORMANCE: Don't do synchronous runBlocking for disk access during composition
+        // Simply return the HTTP URL and let AsyncImage/Coil handle its own caching and lookup
+        // Coil handles both memory and disk caching efficiently
         return mxcToHttpUrl(mxcUrl, homeserverUrl)
     }
     
@@ -270,7 +261,7 @@ object AvatarUtils {
 
             val server = parts[0]
             val mediaId = parts[1]
-            val thumbnailParams = if (includeAvatarParams) "?thumbnail=avatar&size=512" else ""
+            val thumbnailParams = if (includeAvatarParams) "?thumbnail=avatar&size=256" else ""
             val rawUrl = "$homeserverUrl/_gomuks/media/$server/$mediaId$thumbnailParams"
 
             if (rawUrl.contains("/_gomuks/media/")) {
