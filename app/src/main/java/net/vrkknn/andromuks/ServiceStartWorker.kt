@@ -8,6 +8,12 @@ import androidx.work.CoroutineWorker
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.ForegroundInfo
+import androidx.work.OutOfQuotaPolicy
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.BuildConfig
@@ -30,6 +36,31 @@ class ServiceStartWorker(
 ) : CoroutineWorker(context, params) {
     
     private val TAG = "ServiceStartWorker"
+    
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        return ForegroundInfo(
+            NOTIFICATION_ID,
+            createRecoveryNotification()
+        )
+    }
+    
+    private fun createRecoveryNotification(): Notification {
+        val channelId = "service_recovery_channel"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val name = "Service Recovery"
+            val importance = NotificationManager.IMPORTANCE_LOW
+            val channel = NotificationChannel(channelId, name, importance)
+            val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(channel)
+        }
+        
+        return NotificationCompat.Builder(applicationContext, channelId)
+            .setContentTitle("Andromuks")
+            .setContentText("Restoring WebSocket connection...")
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+    }
     
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val reason = inputData.getString(EXTRA_REASON) ?: "Unknown"
@@ -79,6 +110,7 @@ class ServiceStartWorker(
     companion object {
         private const val EXTRA_REASON = "reason"
         private const val WORK_TAG = "service_start"
+        private const val NOTIFICATION_ID = 1002 // Distinct from WebSocketService.NOTIFICATION_ID
         
         /**
          * Enqueue a one-off work request to start the service
@@ -86,6 +118,7 @@ class ServiceStartWorker(
         fun enqueue(context: Context, reason: String) {
             val workRequest = OneTimeWorkRequestBuilder<ServiceStartWorker>()
                 .addTag(WORK_TAG)
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .setInputData(
                     androidx.work.Data.Builder()
                         .putString(EXTRA_REASON, reason)

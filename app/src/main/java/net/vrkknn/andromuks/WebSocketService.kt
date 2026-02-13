@@ -71,6 +71,10 @@ class WebSocketService : Service() {
         private val TOGGLE_STACK_DEPTH = 6
         private val toggleCounter = AtomicLong(0)
         
+        const val ACTION_HEARTBEAT_ALARM = "net.vrkknn.andromuks.HEARTBEAT_ALARM"
+        private const val HEARTBEAT_MARGIN_MS = 5000L // 5 seconds margin for coroutine to win
+        private const val HEARTBEAT_WAKE_LOCK_MS = 10000L // 10 seconds wake lock for alarm processing
+        
         // Track if Android has denied starting this service as a foreground service
         // for the current process lifetime (e.g., Android 14 FGS quota exhausted).
         // When true, callers should avoid startForegroundService() and use startService() instead.
@@ -1212,24 +1216,32 @@ class WebSocketService : Service() {
             // Accept pong if it matches the last ping request ID (most recent ping)
             // This prevents processing stale pongs from previous connections
             if (requestId == serviceInstance.lastPingRequestId) {
-                serviceInstance.pongTimeoutJob?.cancel()
-                serviceInstance.pongTimeoutJob = null
-                serviceInstance.pingInFlight = false // Clear ping-in-flight flag
-                
-                val lagMs = System.currentTimeMillis() - serviceInstance.lastPingTimestamp
-                serviceInstance.lastKnownLagMs = lagMs
                 serviceInstance.lastPongTimestamp = SystemClock.elapsedRealtime()
-                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Pong received, lag: ${lagMs}ms")
+                serviceInstance.consecutivePingTimeouts = 0 // Reset consecutive timeouts on success
                 
-                // RUSH TO HEALTHY: Reset consecutive failures on successful pong
-                if (serviceInstance.consecutivePingTimeouts > 0) {
-                    android.util.Log.i("WebSocketService", "Pong received - resetting consecutive failures (was: ${serviceInstance.consecutivePingTimeouts})")
-                    logActivity("Pong Received - Recovered (was ${serviceInstance.consecutivePingTimeouts} failures)", serviceInstance.currentNetworkType.name)
+                // Reschedule heartbeat alarm fallback - we just got a pong, so connection is alive
+                serviceInstance.scheduleHeartbeatAlarm()
+                
+                if (serviceInstance.pingInFlight) {
+                    serviceInstance.pongTimeoutJob?.cancel()
+                    serviceInstance.pongTimeoutJob = null
+                    serviceInstance.pingInFlight = false // Clear ping-in-flight flag
+                    
+                    val lagMs = System.currentTimeMillis() - serviceInstance.lastPingTimestamp
+                    serviceInstance.lastKnownLagMs = lagMs
+                    serviceInstance.lastPongTimestamp = SystemClock.elapsedRealtime()
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Pong received, lag: ${lagMs}ms")
+                    
+                    // RUSH TO HEALTHY: Reset consecutive failures on successful pong
+                    if (serviceInstance.consecutivePingTimeouts > 0) {
+                        android.util.Log.i("WebSocketService", "Pong received - resetting consecutive failures (was: ${serviceInstance.consecutivePingTimeouts})")
+                        logActivity("Pong Received - Recovered (was ${serviceInstance.consecutivePingTimeouts} failures)", serviceInstance.currentNetworkType.name)
+                    }
+                    serviceInstance.consecutivePingTimeouts = 0
+                    
+                    // Update notification with lag and last sync timestamp
+                    updateConnectionStatus(true, lagMs, serviceInstance.lastSyncTimestamp)
                 }
-                serviceInstance.consecutivePingTimeouts = 0
-                
-                // Update notification with lag and last sync timestamp
-                updateConnectionStatus(true, lagMs, serviceInstance.lastSyncTimestamp)
             } else {
                 // Pong for a different request ID - might be a stale pong, but still indicates connection is alive
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Pong received for non-matching requestId: $requestId (expected: ${serviceInstance.lastPingRequestId}) - connection is alive but pong is stale")
@@ -2453,6 +2465,7 @@ class WebSocketService : Service() {
     
     // Wake lock to keep CPU running while service is active
     private var wakeLock: PowerManager.WakeLock? = null
+    private var heartbeatWakeLock: PowerManager.WakeLock? = null
     
     // RUSH TO HEALTHY: Fixed ping interval - no adaptive logic needed
     // Ping/pong failures are handled by immediate retry and dropping after 3 failures
@@ -3253,18 +3266,22 @@ class WebSocketService : Service() {
             // Log the actual PING JSON being sent
             android.util.Log.i("WebSocketService", "PING JSON: $jsonString")
             
-            val success = currentWebSocket.send(jsonString)
-            if (success) {
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Executing webSocket.send(ping)")
+            val sent = currentWebSocket.send(jsonString)
+            if (sent) {
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping sent successfully")
+                
+                // Reschedule heartbeat alarm fallback
+                scheduleHeartbeatAlarm()
                 // Start timeout for this ping
                 startPongTimeout(reqId)
             } else {
-                android.util.Log.w("WebSocketService", "Failed to send ping - WebSocket send returned false")
-                pingInFlight = false // Reset flag on failure
+                android.util.Log.w("WebSocketService", "Failed to send ping via WebSocket")
+                pingInFlight = false // Reset since it failed to send
             }
         } catch (e: Exception) {
-            android.util.Log.e("WebSocketService", "Failed to send ping", e)
-            pingInFlight = false // Reset flag on exception
+            android.util.Log.e("WebSocketService", "Exception sending ping", e)
+            pingInFlight = false // Reset on error
         }
     }
     
@@ -3600,6 +3617,12 @@ class WebSocketService : Service() {
             return START_NOT_STICKY
         }
         
+        // Handle heartbeat alarm
+        if (intent?.action == ACTION_HEARTBEAT_ALARM) {
+            handleHeartbeatAlarm()
+            return START_STICKY
+        }
+        
         // CRITICAL FIX: Check battery optimization status and warn if enabled
         // Battery optimization can cause the service to be killed
         checkBatteryOptimizationStatus()
@@ -3812,8 +3835,11 @@ class WebSocketService : Service() {
             // Release wake lock
             releaseWakeLock()
             
+            // Cancel heartbeat alarm
+            cancelHeartbeatAlarm()
+            
             // Clear instance reference
-        instance = null
+            instance = null
             
             // Trigger auto-restart via WorkManager (unless this was an intentional stop)
             // Check if this was an intentional stop by checking if stopService() was called
@@ -4344,6 +4370,143 @@ class WebSocketService : Service() {
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Scheduled auto-restart via WorkManager: $reason")
         } catch (e: Exception) {
             android.util.Log.e("WebSocketService", "Failed to schedule auto-restart: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Handle heartbeat alarm triggered by AlarmManager
+     */
+    private fun handleHeartbeatAlarm() {
+        if (BuildConfig.DEBUG) android.util.Log.i("WebSocketService", "Heartbeat alarm triggered")
+        
+        // Acquire short wake lock to ensure we can send the ping
+        acquireHeartbeatWakeLock()
+        
+        // Send ping if connected
+        if (connectionState == ConnectionState.CONNECTED && isCurrentlyConnected) {
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Sending heartbeat ping via AlarmManager")
+            sendPing()
+        } else {
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Heartbeat alarm: service not connected, skipping ping")
+            // Still reschedule so we keep attempting when back online
+            scheduleHeartbeatAlarm()
+        }
+        
+        // Wake lock will be released automatically by the timeout, 
+        // but we'll release it after a small delay in case sendPing is async
+        serviceScope.launch {
+            delay(2000)
+            releaseHeartbeatWakeLock()
+        }
+    }
+    
+    /**
+     * Schedule the next heartbeat alarm
+     * This acts as a fallback for the coroutine ping loop
+     */
+    private fun scheduleHeartbeatAlarm() {
+        try {
+            val alarmManager = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+            val intent = Intent(this, WebSocketService::class.java).apply {
+                action = ACTION_HEARTBEAT_ALARM
+            }
+            
+            val pendingIntent = PendingIntent.getService(
+                this,
+                0,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            
+            // Calculate next alarm time: current interval + margin
+            val interval = if (isAppVisible) PING_INTERVAL_MS else 60_000L
+            val triggerTime = System.currentTimeMillis() + interval + HEARTBEAT_MARGIN_MS
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Android 12+ (API 31+): Use scheduleExactAllowWhileIdle for exact alarms
+                if (alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        android.app.AlarmManager.RTC_WAKEUP,
+                        triggerTime,
+                        pendingIntent
+                    )
+                } else {
+                    // Fallback to inexact alarm if exact alarms not allowed
+                    alarmManager.setAndAllowWhileIdle(
+                        android.app.AlarmManager.RTC_WAKEUP,
+                        triggerTime,
+                        pendingIntent
+                    )
+                    if (BuildConfig.DEBUG) android.util.Log.w("WebSocketService", "SCHEDULE_EXACT_ALARM permission not granted - using inexact heartbeat")
+                }
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                // Android 6+ (API 23+): Use setExactAndAllowWhileIdle
+                alarmManager.setExactAndAllowWhileIdle(
+                    android.app.AlarmManager.RTC_WAKEUP,
+                    triggerTime,
+                    pendingIntent
+                )
+            } else {
+                // Android < 6: Use setExact for best effort
+                alarmManager.setExact(
+                    android.app.AlarmManager.RTC_WAKEUP,
+                    triggerTime,
+                    pendingIntent
+                )
+            }
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Scheduled heartbeat alarm in ${interval + HEARTBEAT_MARGIN_MS}ms")
+        } catch (e: Exception) {
+            android.util.Log.e("WebSocketService", "Failed to schedule heartbeat alarm", e)
+        }
+    }
+    
+    /**
+     * Cancel the heartbeat alarm
+     */
+    private fun cancelHeartbeatAlarm() {
+        try {
+            val alarmManager = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+            val intent = Intent(this, WebSocketService::class.java).apply {
+                action = ACTION_HEARTBEAT_ALARM
+            }
+            val pendingIntent = PendingIntent.getService(
+                this,
+                0,
+                intent,
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            )
+            if (pendingIntent != null) {
+                alarmManager.cancel(pendingIntent)
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Cancelled heartbeat alarm")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("WebSocketService", "Failed to cancel heartbeat alarm", e)
+        }
+    }
+    
+    private fun acquireHeartbeatWakeLock() {
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            heartbeatWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Andromuks:Heartbeat").apply {
+                acquire(HEARTBEAT_WAKE_LOCK_MS)
+            }
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Heartbeat wake lock acquired")
+        } catch (e: Exception) {
+            android.util.Log.e("WebSocketService", "Failed to acquire heartbeat wake lock", e)
+        }
+    }
+    
+    private fun releaseHeartbeatWakeLock() {
+        try {
+            heartbeatWakeLock?.let {
+                if (it.isHeld) {
+                    it.release()
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Heartbeat wake lock released")
+                }
+            }
+            heartbeatWakeLock = null
+        } catch (e: Exception) {
+            android.util.Log.e("WebSocketService", "Failed to release heartbeat wake lock", e)
         }
     }
 }

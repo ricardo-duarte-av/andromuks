@@ -3,11 +3,19 @@ package net.vrkknn.andromuks
 import net.vrkknn.andromuks.BuildConfig
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.OutOfQuotaPolicy
+import androidx.work.ForegroundInfo
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
@@ -31,6 +39,31 @@ class WebSocketHealthCheckWorker(
 ) : CoroutineWorker(context, params) {
     
     private val TAG = "WebSocketHealthCheckWorker"
+    
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        return ForegroundInfo(
+            NOTIFICATION_ID,
+            createHealthCheckNotification()
+        )
+    }
+    
+    private fun createHealthCheckNotification(): Notification {
+        val channelId = "health_check_channel"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val name = "Health Check"
+            val importance = NotificationManager.IMPORTANCE_LOW
+            val channel = NotificationChannel(channelId, name, importance)
+            val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(channel)
+        }
+        
+        return NotificationCompat.Builder(applicationContext, channelId)
+            .setContentTitle("Andromuks")
+            .setContentText("Checking connection health...")
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+    }
     
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         if (BuildConfig.DEBUG) Log.d(TAG, "WebSocket health check worker started")
@@ -59,6 +92,10 @@ class WebSocketHealthCheckWorker(
                 Log.w(TAG, "WebSocketService not running - scheduling restart via ServiceStartWorker")
                 WebSocketService.logActivity("Health Check: Service Not Running - Restarting", null)
                 ServiceStartWorker.enqueue(applicationContext, "WebSocketHealthCheckWorker - service killed")
+                
+                // Proactive scaling: Schedule a recovery check in 1 minute
+                enqueueRecoveryCheck(applicationContext, "Service recovery check")
+                
                 return@withContext Result.success()
             }
             
@@ -78,6 +115,9 @@ class WebSocketHealthCheckWorker(
                 
                 // Use safe reconnection which has fallback logic if AppViewModel is not available
                 WebSocketService.triggerReconnectionSafely("WorkManager health check - connection lost")
+                
+                // Proactive scaling: Schedule a recovery check in 1 minute
+                enqueueRecoveryCheck(applicationContext, "WebSocket reconnection check")
                 
                 return@withContext Result.success()
             }
@@ -139,6 +179,22 @@ class WebSocketHealthCheckWorker(
             WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
             if (BuildConfig.DEBUG) Log.d("WebSocketHealthCheckWorker", "Cancelled WebSocket health checks")
         }
+        
+        /**
+         * Schedule a one-off expedited recovery check in 1 minute
+         */
+        fun enqueueRecoveryCheck(context: Context, reason: String) {
+            val recoveryWork = OneTimeWorkRequestBuilder<WebSocketHealthCheckWorker>()
+                .setInitialDelay(1, TimeUnit.MINUTES)
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .addTag("health_check_recovery")
+                .build()
+            
+            WorkManager.getInstance(context).enqueue(recoveryWork)
+            if (BuildConfig.DEBUG) Log.d("WebSocketHealthCheckWorker", "Enqueued one-off recovery check: $reason")
+        }
+        
+        private const val NOTIFICATION_ID = 1003
     }
 }
 
