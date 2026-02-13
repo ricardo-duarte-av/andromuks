@@ -121,8 +121,8 @@ object CircleAvatarCache {
             squareBitmap
         }
         
-        // Clean up intermediate bitmap if we created it
-        if (finalBitmap != squareBitmap) {
+        // Clean up intermediate bitmap if we created it and it's not the final one
+        if (squareBitmap != source && squareBitmap != finalBitmap) {
             squareBitmap.recycle()
         }
         
@@ -200,8 +200,8 @@ object CircleAvatarCache {
                     // Create square thumbnail (center-cropped and scaled)
                     val squareBitmap = createSquareThumbnail(softwareBitmap, TARGET_SIZE)
                     
-                    // Clean up software bitmap if we created a copy
-                    if (softwareBitmap != sourceBitmap) {
+                    // Clean up software bitmap if we created a copy and it's not our result
+                    if (softwareBitmap != sourceBitmap && softwareBitmap != squareBitmap) {
                         softwareBitmap.recycle()
                     }
                     
@@ -215,8 +215,10 @@ object CircleAvatarCache {
                         squareBitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
                     }
                     
-                    // Clean up square bitmap
-                    squareBitmap.recycle()
+                    // Clean up square bitmap if we own it (it's not the source from Coil)
+                    if (squareBitmap != sourceBitmap) {
+                        squareBitmap.recycle()
+                    }
                     
                     if (BuildConfig.DEBUG) {
                         Log.d(TAG, "CircleAvatarCache: Cached square thumbnail for $mxcUrl (${cacheFile.length() / 1024}KB)")

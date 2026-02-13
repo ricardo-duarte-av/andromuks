@@ -161,7 +161,7 @@ class WebSocketService : Service() {
             val id = toggleCounter.incrementAndGet()
             val ts = System.currentTimeMillis()
             val stack = shortStackTrace()
-            Log.i("WS-Toggle", "id=$id ts=$ts event=$event details=[$details] stack=[$stack]")
+            // Log.i("WS-Toggle", "id=$id ts=$ts event=$event details=[$details] stack=[$stack]")
             return id
         }
         

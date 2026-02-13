@@ -175,7 +175,9 @@ object ProgressiveImageLoader {
                 optimizedBitmap.compress(Bitmap.CompressFormat.JPEG, PREVIEW_QUALITY, output)
             }
             
-            bitmap.recycle()
+            if (optimizedBitmap != bitmap) {
+                bitmap.recycle()
+            }
             optimizedBitmap.recycle()
             
             val originalSize = originalFile.length()
