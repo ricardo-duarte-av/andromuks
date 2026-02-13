@@ -84,6 +84,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.produceState
 import kotlinx.coroutines.Dispatchers
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.graphicsLayer
@@ -923,24 +924,7 @@ fun BubbleTimelineScreen(
         }
     }
 
-    // Build user profile cache from m.room.member events
-    val userProfileCache =
-        remember(timelineEvents) {
-            val map =
-                mutableMapOf<String, Pair<String?, String?>>() // userId -> (displayName, avatarUrl)
-            for (event in timelineEvents) {
-                if (event.type == "m.room.member") {
-                    val userId = event.stateKey ?: event.sender
-                    val content = event.content
-                    val rawDisplay = content?.optString("displayname")?.takeIf { it.isNotBlank() }
-                    val fallbackHandle = userId.removePrefix("@").substringBefore(":")
-                    val displayName = rawDisplay ?: fallbackHandle
-                    val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
-                    map[userId] = Pair(displayName, avatarUrl)
-                }
-            }
-            map
-        }
+    // (removed userProfileCache building loop - it was unused and caused main thread jank)
 
     // Get current room members for mention list (exclude current user and filter out invalid entries)
     val roomMembers = remember(roomId, appViewModel.memberUpdateCounter) {
@@ -1213,9 +1197,10 @@ fun BubbleTimelineScreen(
         }
     }
 
-    // PERFORMANCE: Create timeline items with date dividers and pre-compute consecutive flags
-    val timelineItems =
-        remember(sortedEvents, appViewModel.timelineUpdateCounter) {
+    // PERFORMANCE: Create timeline items with date dividers and pre-compute consecutive flags.
+    // Use produceState to offload this heavy computation (iterating thousands of events) to a background thread.
+    val timelineItems by produceState<List<BubbleTimelineItem>>(initialValue = emptyList(), sortedEvents, appViewModel.timelineUpdateCounter) {
+        value = withContext(Dispatchers.Default) {
             val items = mutableListOf<BubbleTimelineItem>()
             var lastDate: String? = null
             var previousEvent: TimelineEvent? = null
@@ -1259,6 +1244,7 @@ fun BubbleTimelineScreen(
             }
             items
         }
+    }
     var lastInitialScrollSize by remember(roomId) { mutableStateOf(0) }
 
     // Get member map that observes memberUpdateCounter and includes global cache fallback for TimelineEventItem profile updates

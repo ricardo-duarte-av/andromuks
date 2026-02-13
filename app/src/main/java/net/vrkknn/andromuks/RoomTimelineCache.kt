@@ -327,23 +327,73 @@ object RoomTimelineCache {
         // Ensure deterministic ordering: primary by timeline_rowid (ascending), fallback to timestamp, then eventId
         // Note: timelineRowid can be negative, and negative numbers are naturally smaller than positive ones
         // So we can just compare timelineRowid directly - no need for special handling
-        // CRASH FIX: Defensive null checks in sort lambda (handles edge cases where nulls might sneak in)
-        cache.events.sortWith { a, b ->
-            // CRASH FIX: Defensive null checks in sort lambda
-            // This should never happen with proper typing, but protects against runtime issues
-            if (a == null || b == null) {
-                Log.e(TAG, "CRITICAL: Null event found during sort for room $roomId, a=${a == null}, b=${b == null}. This should not happen!")
-                return@sortWith if (a == null && b == null) 0 else if (a == null) 1 else -1
-            }
-            
-            // Sort by timelineRowid first (negative numbers are naturally smaller)
-            val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
-            if (rowIdCompare != 0) {
-                rowIdCompare
-            } else {
-                // If timelineRowid is the same, fallback to timestamp, then eventId
-                val tsCompare = a.timestamp.compareTo(b.timestamp)
-                if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+        // OPTIMIZATION: Check if we can append without sorting (common case for new messages)
+        // This avoids O(N log N) sort on every sync for active rooms
+        val needsSort = if (cache.events.size <= addedCount) {
+             // Cache was empty or all events are new, we need to ensure the whole list is sorted
+             // But if we just added a single event to empty list, no sort needed
+             cache.events.size > 1
+        } else {
+             // Check if the newly added events (which are at the end) are actually newer than the previous last event
+             // The events were added to the end of the list in the loop above
+             // We need to check if the boundary between old events and new events respects the sort order
+             val newEventsStartIndex = cache.events.size - addedCount
+             val previousLastEvent = cache.events[newEventsStartIndex - 1]
+             
+             // Check if any of the new events should be before previousLastEvent
+             // We only need to check the first of the added events because we assume the added batch
+             // might be sorted or unsorted, but if the *oldest* of the new batch is newer than 
+             // present cache tail, and the new batch itself is sorted, we might save time.
+             // However, incoming events might not be sorted.
+             // Simplest safe optimization:
+             // If we added events, and the new list is not naturally sorted at the boundary, we sort.
+             
+             // Let's rely on a simpler heuristic: 
+             // 1. If we added 1 event (common case for live chat), check if it's after the previous last.
+             if (addedCount == 1) {
+                 val newEvent = cache.events.last()
+                 val rowIdCompare = previousLastEvent.timelineRowid.compareTo(newEvent.timelineRowid)
+                 if (rowIdCompare < 0) {
+                     false // previous < new, order is correct
+                 } else if (rowIdCompare > 0) {
+                     true // previous > new, older event arrived, need sort
+                 } else {
+                     // rowIds equal, comparing timestamps
+                     val tsCompare = previousLastEvent.timestamp.compareTo(newEvent.timestamp)
+                     if (tsCompare < 0) {
+                         false 
+                     } else if (tsCompare > 0) {
+                         true
+                     } else {
+                         // Timestamps equal, comparing eventIds
+                         previousLastEvent.eventId.compareTo(newEvent.eventId) > 0
+                     }
+                 }
+             } else {
+                 // For multiple events, just sort to be safe and simple
+                 true
+             }
+        }
+
+        if (needsSort) {
+            // CRASH FIX: Defensive null checks in sort lambda (handles edge cases where nulls might sneak in)
+            cache.events.sortWith { a, b ->
+                // CRASH FIX: Defensive null checks in sort lambda
+                // This should never happen with proper typing, but protects against runtime issues
+                if (a == null || b == null) {
+                    Log.e(TAG, "CRITICAL: Null event found during sort for room $roomId, a=${a == null}, b=${b == null}. This should not happen!")
+                    return@sortWith if (a == null && b == null) 0 else if (a == null) 1 else -1
+                }
+                
+                // Sort by timelineRowid first (negative numbers are naturally smaller)
+                val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
+                if (rowIdCompare != 0) {
+                    rowIdCompare
+                } else {
+                    // If timelineRowid is the same, fallback to timestamp, then eventId
+                    val tsCompare = a.timestamp.compareTo(b.timestamp)
+                    if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+                }
             }
         }
 

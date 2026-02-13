@@ -159,48 +159,61 @@ fun formatTimestamp(timestamp: Long): String {
  * 
  * This function handles both plain text and HTML content by stripping HTML tags.
  */
+private val HtmlTagRegex = Regex("""<[^>]+>""")
+private val CustomEmojiMarkdownRegex = Regex("""^!\[:([^\]]+):\]\(mxc://[^)]+\)$""")
+private val CustomEmojiShortcodeRegex = Regex("""^:[\w+-]+:\s*$""")
+// This regex matches emoji characters including variations and modifiers
+private val EmojiRegex = try {
+    Regex("""^[\p{Emoji}\p{Emoji_Presentation}\p{Emoji_Modifier_Base}\p{Emoji_Modifier}\p{Emoji_Component}\s]*$""")
+} catch (e: Exception) {
+    null
+}
+private val WhitespaceRegex = Regex("""\s+""")
+private val AsciiLetterOrDigitRegex = Regex("""[a-zA-Z0-9]""")
+private val CustomEmojiImgRegex = Regex("""^\s*<img[^>]*>\s*$""", RegexOption.IGNORE_CASE)
+private val MxcUrlRegex = Regex("""src\s*=\s*["']mxc://[^"']+["']""", RegexOption.IGNORE_CASE)
+
+/**
+ * Check if a message body contains only an emoji (real emoji or custom emoji).
+ * Real emojis are Unicode emoji characters.
+ * Custom emojis can be:
+ * - Markdown format: ![:name:](mxc://...)
+ * - Shortcode format: :name: (which gets rendered as <img> in HTML)
+ * 
+ * This function handles both plain text and HTML content by stripping HTML tags.
+ */
 fun isEmojiOnlyMessage(body: String): Boolean {
     if (body.isBlank()) return false
     
     // Strip HTML tags if present (for HTML-formatted messages)
-    val textWithoutHtml = body.replace(Regex("""<[^>]+>"""), "").trim()
+    val textWithoutHtml = body.replace(HtmlTagRegex, "").trim()
     if (textWithoutHtml.isEmpty()) return false
     
-    // Remove whitespace
+    // Remove whitespace (optimization: check empty before regex)
     val trimmed = textWithoutHtml.trim()
     if (trimmed.isEmpty()) return false
     
     // Check for custom emoji markdown pattern: ![:name:](mxc://...)
-    val customEmojiMarkdownRegex = Regex("""^!\[:([^\]]+):\]\(mxc://[^)]+\)$""")
-    if (customEmojiMarkdownRegex.matches(trimmed)) {
+    if (CustomEmojiMarkdownRegex.matches(trimmed)) {
         return true
     }
     
     // Check for custom emoji shortcode pattern: :name: (with optional whitespace)
     // This is the format used in plain text body for custom emojis
-    val customEmojiShortcodeRegex = Regex("""^:[\w+-]+:\s*$""")
-    if (customEmojiShortcodeRegex.matches(trimmed)) {
+    if (CustomEmojiShortcodeRegex.matches(trimmed)) {
         return true
     }
     
     // Check if the text contains only emoji characters
-    // This regex matches emoji characters including variations and modifiers
     // Wrap in try-catch for preview environments that don't support Unicode property classes
-    val emojiRegex = try {
-        Regex("""^[\p{Emoji}\p{Emoji_Presentation}\p{Emoji_Modifier_Base}\p{Emoji_Modifier}\p{Emoji_Component}\s]*$""")
-    } catch (e: java.util.regex.PatternSyntaxException) {
-        // Fallback for environments that don't support Unicode property classes (e.g., preview system)
-        // Use a simpler check that doesn't rely on Unicode properties
-        null
-    }
     
     // Remove all whitespace and check if only emoji remains
-    val withoutWhitespace = trimmed.replace(Regex("""\s+"""), "")
+    val withoutWhitespace = trimmed.replace(WhitespaceRegex, "")
     if (withoutWhitespace.isEmpty()) return false
     
     // Check if all remaining characters are emojis
     // If emojiRegex is null (preview mode), skip the regex check and rely on other validations
-    if (emojiRegex != null && !emojiRegex.matches(withoutWhitespace)) return false
+    if (EmojiRegex != null && !EmojiRegex.matches(withoutWhitespace)) return false
     
     // CRITICAL FIX: Only treat as emoji-only if it's a SINGLE emoji (not multiple emojis or regular text)
     // The emoji regex correctly identifies emoji-only strings, but we need to:
@@ -216,7 +229,7 @@ fun isEmojiOnlyMessage(body: String): Boolean {
     
     // CRITICAL: Exclude ASCII letters and digits to prevent regular text from being treated as emoji
     // Regular characters like "a", "1", etc. should never be treated as emoji-only messages
-    val containsAsciiLetterOrDigit = Regex("""[a-zA-Z0-9]""").containsMatchIn(withoutWhitespace)
+    val containsAsciiLetterOrDigit = AsciiLetterOrDigitRegex.containsMatchIn(withoutWhitespace)
     if (containsAsciiLetterOrDigit) return false
     
     // If we passed all checks, it's a valid single emoji
@@ -235,11 +248,9 @@ fun isCustomEmojiOnlyHtml(formattedBody: String?): Boolean {
     // Check if the HTML contains only an img tag with MXC URL (custom emoji)
     // Pattern: <img ... src="mxc://..." ...> with optional whitespace
     // The src attribute can appear anywhere in the tag
-    val customEmojiImgRegex = Regex("""^\s*<img[^>]*>\s*$""", RegexOption.IGNORE_CASE)
-    if (customEmojiImgRegex.matches(trimmed)) {
+    if (CustomEmojiImgRegex.matches(trimmed)) {
         // Verify it has an MXC URL in the src attribute
-        val hasMxcUrl = Regex("""src\s*=\s*["']mxc://[^"']+["']""", RegexOption.IGNORE_CASE).containsMatchIn(trimmed)
-        if (hasMxcUrl) {
+        if (MxcUrlRegex.containsMatchIn(trimmed)) {
             return true
         }
     }
