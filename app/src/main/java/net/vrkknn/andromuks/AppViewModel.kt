@@ -8192,16 +8192,21 @@ class AppViewModel : ViewModel() {
     }
 
     fun requestUserProfile(userId: String, roomId: String? = null) {
+        // UNIFIED PENDING CHECK: Check both global and room-specifc pending requests
+        val requestKey = if (roomId != null) "$roomId:$userId" else userId
+        val globalRequestKey = userId
+        
         // PERFORMANCE: Prevent duplicate profile requests for the same user
-        if (pendingProfileRequests.contains(userId)) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile request already pending for $userId, skipping duplicate")
+        if (pendingProfileRequests.contains(globalRequestKey) || (roomId != null && pendingProfileRequests.contains(requestKey))) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile request already pending for $userId (global or room-specific), skipping duplicate")
             return
         }
         
-        // Check if already in cache to avoid unnecessary requests
-        val cachedProfile = getUserProfile(userId, roomId)
-        if (cachedProfile != null) {
-            //android.util.Log.d("Andromuks", "AppViewModel: Profile already cached for $userId, skipping request")
+        // Check if already in cache (quick check) to avoid unnecessary requests
+        // Use getUserProfile which correctly prioritizes room-specific profiles
+        val profile = getUserProfile(userId, roomId)
+        if (profile != null && !profile.displayName.isNullOrBlank()) {
+            // Profile already exists and has a valid display name - skip request
             return
         }
         
@@ -8255,8 +8260,10 @@ class AppViewModel : ViewModel() {
             val hasAvatar = !profile?.avatarUrl.isNullOrBlank()
             
             if (!hasDisplayName || !hasAvatar) {
-                // PERFORMANCE: Only request if we haven't already requested this user's profile (avoid duplicates)
-                if (!pendingProfileRequests.contains(sender)) {
+                // UNIFIED PENDING CHECK: Check both global and room-specifc pending requests
+                val isPending = pendingProfileRequests.contains(sender) || pendingProfileRequests.contains("$roomId:$sender")
+                
+                if (!isPending) {
                     usersToRequest.add(sender)
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Missing profile data for $sender - displayName: $hasDisplayName, avatar: $hasAvatar")
                 }
@@ -8972,14 +8979,24 @@ class AppViewModel : ViewModel() {
         val cachedEvents = RoomTimelineCache.getCachedEvents(roomId)
         val isActivelyCached = RoomTimelineCache.isRoomActivelyCached(roomId)
         
-        if (cachedEvents != null && cachedEvents.isNotEmpty() && isActivelyCached) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✅ Found ${cachedEvents.size} events in RoomTimelineCache for $roomId (actively cached)")
+        // CRITICAL FIX: Removed isActivelyCached requirement from instant cache hit
+        // If we have events in RAM, we should ALWAYS show them immediately.
+        // If not actively cached, we will activate it and paginate in the background.
+        if (cachedEvents != null && cachedEvents.isNotEmpty()) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✅ Found ${cachedEvents.size} events in RoomTimelineCache for $roomId (activelyCached=$isActivelyCached)")
+            
+            // CRITICAL FIX: Mark as actively cached so sync_complete updates start being applied immediately
+            // This is essential if we're opening a room that was pre-cached (e.g. via preemptive pagination)
+            // or if the WebSocket reconnected after being idle (clearing activelyCachedRooms but keeping events).
+            if (!isActivelyCached) {
+                RoomTimelineCache.markRoomAsCached(roomId)
+            }
             
             // BACKFILL: Seed renderable cache from cache snapshot so UI can avoid recomputing relations on open.
             persistRenderableEvents(roomId, cachedEvents)
             
             // Process events through chain processing (builds timeline structure)
-            processCachedEvents(roomId, cachedEvents, openingFromNotification)
+            processCachedEvents(roomId, cachedEvents, openingFromNotification = false)
             
             // Mark room as accessed in RoomTimelineCache for LRU eviction
             RoomTimelineCache.markRoomAccessed(roomId)
@@ -9101,9 +9118,17 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Preserving existing timeline on resume (${timelineEvents.size} events)")
             isTimelineLoading = false
         } else {
-            // Cache has >= 50 events but wasn't actively cached - use it
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cache has $currentCachedCount events (>= 50) but wasn't actively cached - using cache")
-            isTimelineLoading = false
+            // CRITICAL FIX: If we reached here with events in cache, we MUST call processCachedEvents
+            // This happens if currentCachedCount was sufficient but cachedEvents was somehow missing in the first check
+            // or other race conditions.
+            val eventsToProcess = cachedEvents ?: RoomTimelineCache.getCachedEvents(roomId)
+            if (eventsToProcess != null && eventsToProcess.isNotEmpty()) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cache has $currentCachedCount events (>= 50) - processing them now")
+                processCachedEvents(roomId, eventsToProcess, false)
+            } else {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cache reported sufficient count ($currentCachedCount) but no events found - setting loading false anyway")
+                isTimelineLoading = false
+            }
         }
     }
     /**
@@ -9258,6 +9283,10 @@ class AppViewModel : ViewModel() {
         // Add to opened rooms (exempt from cache clearing on reconnect)
         RoomTimelineCache.addOpenedRoom(roomId)
         
+        // CRITICAL FIX: Set isTimelineLoading = true immediately to ensure UI shows loading state
+        // and awaitRoomDataReadiness waits for processing to begin.
+        isTimelineLoading = true
+        
         // CRITICAL FIX: Always load from DB and hydrate RAM cache BEFORE processing events
         // This ensures we always have the latest events from DB before rendering
         // CACHE-ONLY APPROACH: No DB loading - rely on cache or paginate
@@ -9271,123 +9300,22 @@ class AppViewModel : ViewModel() {
             if (cachedEventCount >= 50) {
                 android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Using cache (>=50 events) - roomId=$roomId, cachedEventCount=$cachedEventCount")
                 // OPTIMIZATION #4: Use cached data immediately (same threshold as requestRoomTimeline)
-                // Get cached events using the same method as requestRoomTimeline
                 val cachedEvents = RoomTimelineCache.getCachedEvents(roomId)
                 
                 if (cachedEvents != null) {
                     android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Cache hit - roomId=$roomId, cachedEvents.size=${cachedEvents.size}, building timeline from cache")
-
-                
-                // Set loading to false immediately to prevent loading flash
-                isTimelineLoading = false
-                
-                // Clear and rebuild internal structures
-                eventChainMap.clear()
-                editEventsMap.clear()
-                MessageVersionsCache.clear()
-                // editToOriginal is computed from messageVersions, no need to clear separately
-                // redactionCache is computed from messageVersions, no need to clear separately
-                MessageReactionsCache.clear()
-        messageReactions = emptyMap()
-                
-                // Reset pagination state
-                smallestRowId = -1L
-                isPaginating = false
-                hasMoreMessages = true
-                
-                // Ensure member cache exists for this room (singleton cache handles this automatically)
-                
-                // Populate edit chain mapping from cached events
-                for (event in cachedEvents) {
-                    val isEditEvent = when {
-                        event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                        event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                        else -> false
-                    }
                     
-                    if (isEditEvent) {
-                        editEventsMap[event.eventId] = event
-                    } else {
-                        eventChainMap[event.eventId] = EventChainEntry(
-                            eventId = event.eventId,
-                            ourBubble = event,
-                            replacedBy = null,
-                            originalTimestamp = event.timestamp
-                        )
-                    }
-                }
-                
-                // Process edit relationships
-                processEditRelationships()
-                
-                // Build timeline from chain (this updates timelineEvents)
-                buildTimelineFromChain()
-                
-                // CRITICAL FIX: Restore reactions from singleton cache when opening from cache
-                // This ensures reactions are visible when opening a room from cache (they're stored globally, not per-room)
-                populateMessageReactionsFromCache()
-                
-                // CRITICAL FIX: Apply aggregated reactions FIRST (from paginate - these have complete counts)
-                // Then process individual reaction events to add any new ones from sync_complete
-                // This ensures we have the full picture: aggregated reactions from paginate + new reactions from sync_complete
-                applyAggregatedReactionsFromEvents(cachedEvents, "navigateToRoomWithCache")
-                
-                // CRITICAL FIX: Process reaction events from cache AFTER aggregated reactions
-                // This adds any new reactions from sync_complete that aren't in the aggregated reactions
-                // Reaction events from sync_complete are stored separately in the cache
-                loadReactionsForRoom(roomId, cachedEvents, forceReload = true)
-                
-                // CRITICAL FIX: Restore receipts from singleton cache when opening from cache
-                // This ensures receipts are visible when opening a room from cache (they're stored globally, not per-room)
-                populateReadReceiptsFromCache()
-                
-                // Set smallest rowId from cached events for pagination
-                val smallestCached = cachedEvents.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
-                if (smallestCached > 0) {
-                    smallestRowId = smallestCached
-                }
-
-                // Historical reactions are not cached, request them in the background
-                if (REACTION_BACKFILL_ON_OPEN_ENABLED) {
-                    requestHistoricalReactions(roomId, smallestCached)
-                }
-                
-                
-                // Request room state in background if needed
-                if (isWebSocketConnected() && !pendingRoomStateRequests.contains(roomId)) {
-                    val stateRequestId = requestIdCounter++
-                    roomStateRequests[stateRequestId] = roomId
-                    pendingRoomStateRequests.add(roomId)
-                    sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
-                        "room_id" to roomId,
-                        "include_members" to false,
-                        "fetch_members" to false,
-                        "refetch" to false
-                    ))
-                }
-                
-                // Mark as read only if room is actually visible (not just a minimized bubble)
-                // Check if this is a bubble and if it's visible
-                val shouldMarkAsRead = if (BubbleTracker.isBubbleOpen(roomId)) {
-                    // Bubble exists - only mark as read if it's visible/maximized
-                    BubbleTracker.isBubbleVisible(roomId)
-                } else {
-                    // Not a bubble - mark as read (normal room view)
-                    true
-                }
-                
-                if (shouldMarkAsRead) {
-                    val mostRecentEvent = cachedEvents.maxByOrNull { it.timestamp }
-                    if (mostRecentEvent != null) {
-                        markRoomAsRead(roomId, mostRecentEvent.eventId)
-                    }
-                } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping mark as read for room $roomId (bubble is minimized)")
-                }
-                
-                // DISABLED: No longer automatically requesting fresh timeline data from server
-                // We rely on cache and websocket resilience to ensure we have exact copy of events
-                // The websocket will automatically sync any new events via sync_complete messages
+                    // REFACTORED: Use centralized processCachedEvents instead of manual duplication
+                    processCachedEvents(roomId, cachedEvents, openingFromNotification = notificationTimestamp != null)
+                    
+                    // CRITICAL FIX: Mark as actively cached in singleton cache
+                    // This ensures sync_complete updates keep this cache fresh
+                    RoomTimelineCache.markRoomAsCached(roomId)
+                    RoomTimelineCache.markRoomAccessed(roomId)
+                    
+                    // Store room open timestamp for animation purposes
+                    roomOpenTimestamps[roomId] = System.currentTimeMillis()
+                    
                     android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: SUCCESS - roomId=$roomId, timeline built from cache (${cachedEvents.size} events), isTimelineLoading=$isTimelineLoading")
                     return@launch // Exit early - room is already rendered from cache
                 } else {
@@ -11068,9 +10996,17 @@ class AppViewModel : ViewModel() {
         
         // PERFORMANCE: Remove from pending requests set even on error
         pendingProfileRequests.remove(userId)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile not found for $userId: $errorMessage")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile lookup failed for $userId: $errorMessage")
         
-        // If profile not found, use username part of Matrix ID
+        // CRITICAL FIX: Before applying low-quality fallback (username only),
+        // check if we ALREADY have a valid profile from room state (e.g. from get_specific_room_state)
+        val existingProfile = getUserProfile(userId, requestingRoomId)
+        if (existingProfile != null && !existingProfile.displayName.isNullOrBlank()) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Global profile lookup failed for $userId, but we already have a profile from room state. Skipping fallback.")
+            return
+        }
+        
+        // If no profile found anywhere, use username part of Matrix ID as last resort
         val username = userId.removePrefix("@").substringBefore(":")
         val memberProfile = MemberProfile(username, null)
         
