@@ -27,6 +27,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -727,19 +728,49 @@ fun AnimatedInlineReadReceiptAvatars(
                             modifier = Modifier
                                 .size(circleSize)
                                 .offset(x = offsetX, y = 0.dp)
-                                .clickable { 
-                                    showReceiptDialog = true
-                                }
+                                .clickable { showReceiptDialog = true }
                         ) {
-                            AvatarImage(
-                                mxcUrl = avatarUrl,
-                                homeserverUrl = homeserverUrl,
-                                authToken = authToken,
-                                fallbackText = (displayName ?: receipt.userId).take(1),
-                                size = avatarSize,
-                                userId = receipt.userId,
-                                displayName = displayName
-                            )
+                            // Check if this receipt just moved to this message
+                            val isNewlyMoved = remember(receipt.userId, eventId, animationTrigger) {
+                                receiptMovementsToNewEvent.containsKey(receipt.userId)
+                            }
+
+                            // Control visibility to trigger animation
+                            var isVisible by remember(receipt.userId, eventId) { 
+                                mutableStateOf(!isNewlyMoved)  // Start hidden if newly moved
+                            }
+
+                            LaunchedEffect(receipt.userId, eventId, isNewlyMoved) {
+                                if (isNewlyMoved) {
+                                    delay(50)  // Small delay
+                                    isVisible = true  // Then show with animation
+                                }
+                            }
+                            
+                            AnimatedVisibility(
+                                visible = isVisible,
+                                enter = if (isNewlyMoved) {
+                                    fadeIn(tween(600, easing = FastOutSlowInEasing)) + 
+                                    scaleIn(initialScale = 0.5f, animationSpec = tween(600, easing = FastOutSlowInEasing)) //+ 
+                                    //slideInVertically(
+                                    //    initialOffsetY = { -it / 2 },
+                                    //    animationSpec = tween(600, easing = FastOutSlowInEasing)
+                                    //)
+                                } else {
+                                    fadeIn(tween(200))
+                                },
+                                exit = fadeOut(tween(200)) + scaleOut(targetScale = 0.5f, animationSpec = tween(200))
+                            ) {
+                                AvatarImage(
+                                    mxcUrl = avatarUrl,
+                                    homeserverUrl = homeserverUrl,
+                                    authToken = authToken,
+                                    fallbackText = (displayName ?: receipt.userId).take(1),
+                                    size = avatarSize,
+                                    userId = receipt.userId,
+                                    displayName = displayName
+                                )
+                            }
                         }
                     }
                 } else {
