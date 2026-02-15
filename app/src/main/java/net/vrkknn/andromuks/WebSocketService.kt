@@ -2205,7 +2205,7 @@ class WebSocketService : Service() {
                         
                         // PHASE 3.3: Validate network before reconnecting (prevents reconnection on captive portals)
                         // Increased timeout from 2s to 5s for slow networks
-                        val networkValidated = serviceInstance.waitForNetworkValidation(5000L)
+                        val networkValidated = serviceInstance.waitForNetworkValidation(2000L)
                         if (!networkValidated) {
                             // CRITICAL FIX: If network validation failed and network is NONE, cancel reconnection
                             if (serviceInstance.currentNetworkType == NetworkType.NONE) {
@@ -2783,7 +2783,7 @@ class WebSocketService : Service() {
                     
                     // Wait for network validation first (5 seconds max)
                     // CRITICAL FIX: If we're disconnected, use fallback validation with exponential backoff
-                    val networkValidated = waitForNetworkValidation(5000L)
+                    val networkValidated = waitForNetworkValidation(2000L)
                     if (!networkValidated) {
                         if (connectionState == ConnectionState.DISCONNECTED) {
                             // We're disconnected - try fallback validation with exponential backoff
