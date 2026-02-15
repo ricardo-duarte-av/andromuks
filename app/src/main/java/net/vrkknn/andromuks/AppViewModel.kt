@@ -2419,7 +2419,8 @@ class AppViewModel : ViewModel() {
      * Get typing users for a specific room
      */
     fun getTypingUsersForRoom(roomId: String): List<String> {
-        return typingUsersMap[roomId] ?: emptyList()
+        val allTypingUsers = typingUsersMap[roomId] ?: emptyList()
+        return allTypingUsers.filter { it != currentUserId } // Always exclude ourselves from the list of typing users.
     }
     
     private fun normalizeTimestamp(primary: Long, vararg fallbacks: Long): Long {
