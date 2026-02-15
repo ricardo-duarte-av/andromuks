@@ -53,10 +53,10 @@ class WebSocketService : Service() {
         private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         
         // Constants
-        private val BASE_RECONNECTION_DELAY_MS = 3000L // 3 seconds - give network time to stabilize
-        private val MIN_RECONNECTION_INTERVAL_MS = 5000L // 5 seconds minimum between any reconnections
-        private val MIN_NOTIFICATION_UPDATE_INTERVAL_MS = 500L // 500ms minimum between notification updates (UI smoothing)
-        private const val BACKEND_HEALTH_RETRY_DELAY_MS = 5_000L
+        private val BASE_RECONNECTION_DELAY_MS = 500L // 3 seconds - give network time to stabilize
+        private val MIN_RECONNECTION_INTERVAL_MS = 1000L // 5 seconds minimum between any reconnections
+        private val MIN_NOTIFICATION_UPDATE_INTERVAL_MS = 1000L // 500ms minimum between notification updates (UI smoothing)
+        private const val BACKEND_HEALTH_RETRY_DELAY_MS = 1_000L
         private const val PONG_TIMEOUT_MS = 1_000L // 1 second - "rush to healthy"
         private const val PING_INTERVAL_MS = 15_000L // 15 seconds normal interval
         private const val CONSECUTIVE_FAILURES_TO_DROP = 3 // Drop WebSocket after 3 consecutive ping failures
@@ -64,10 +64,10 @@ class WebSocketService : Service() {
         private const val RUN_ID_TIMEOUT_MS = 500L // 500ms to wait for run_id after connection
         private const val INIT_COMPLETE_AFTER_RUN_ID_TIMEOUT_MS = 2_000L // 2 seconds to wait for init_complete after run_id (increased from 1s to handle slower networks)
         private const val INIT_COMPLETE_RETRY_BASE_MS = 2_000L // 2 seconds initial retry delay
-        private const val INIT_COMPLETE_RETRY_MAX_MS = 64_000L // 64 seconds max retry delay
-        private const val MAX_RECONNECTION_ATTEMPTS = 10
+        private const val INIT_COMPLETE_RETRY_MAX_MS = 8_000L // 64 seconds max retry delay
+        private const val MAX_RECONNECTION_ATTEMPTS = 99
         private const val RECONNECTION_RESET_TIME_MS = 300_000L // Reset count after 5 minutes
-        private const val NETWORK_CHANGE_DEBOUNCE_MS = 2_000L // Debounce rapid network changes
+        private const val NETWORK_CHANGE_DEBOUNCE_MS = 500L // Debounce rapid network changes
         private val TOGGLE_STACK_DEPTH = 6
         private val toggleCounter = AtomicLong(0)
         
