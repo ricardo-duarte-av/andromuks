@@ -1190,8 +1190,10 @@ private fun RoomMediaMessageContent(
                 ?.optString("xyz.amorgan.blurhash")
                 ?.takeIf { it.isNotBlank() }
                 ?: thumbnailInfo?.optString("blurhash")?.takeIf { it.isNotBlank() }
-        val thumbnailWidth = thumbnailInfo?.optInt("w", 0)
-        val thumbnailHeight = thumbnailInfo?.optInt("h", 0)
+        // CRITICAL FIX: Return nullable Int? and only populate when value exists and is > 0
+        // Without this, thumbnailWidth/Height are 0 instead of null, breaking size calculations
+        val thumbnailWidth = thumbnailInfo?.optInt("w", 0)?.takeIf { it > 0 }
+        val thumbnailHeight = thumbnailInfo?.optInt("h", 0)?.takeIf { it > 0 }
         val duration = if (msgType == "m.video" || msgType == "m.audio") {
             info.optInt("duration", 0).takeIf { it > 0 }
         } else null
@@ -1202,7 +1204,9 @@ private fun RoomMediaMessageContent(
         } else null
 
         // Extract caption
-        val caption = if (body != filename && body.isNotBlank()) {
+        // Caption is only body if: 1) filename field exists, 2) body differs from filename, 3) body is not blank
+        // If filename field is missing, body IS the filename, not a caption
+        val caption = if (filename.isNotBlank() && body != filename && body.isNotBlank()) {
             val localContent = event.localContent
             val sanitizedHtml = localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
             if (sanitizedHtml != null && sanitizedHtml != filename) {
@@ -2064,28 +2068,30 @@ private fun EncryptedMessageContent(
                         it.isNotBlank()
                     }
 
-                // Extract thumbnail info for encrypted videos
+                // Extract thumbnail info for encrypted media (images and videos)
                 // For encrypted media, thumbnail is in thumbnail_file.url, not thumbnail_url
                 var thumbnailIsEncrypted = false
-                val thumbnailUrl = if (msgType == "m.video") {
+                val thumbnailUrl = if (msgType == "m.video" || msgType == "m.image") {
                     val thumbnailFile = info.optJSONObject("thumbnail_file")
                     if (thumbnailFile != null) {
                         // Encrypted thumbnail
                         thumbnailIsEncrypted = true
                         thumbnailFile.optString("url", "")?.takeIf { it.isNotBlank() }
                     } else {
-                        // Unencrypted thumbnail (fallback, though unlikely for encrypted messages)
+                        // Unencrypted thumbnail (fallback)
                         info.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
                     }
                 } else null
                 
-                val thumbnailInfo = if (msgType == "m.video") {
+                // FIX: Read thumbnail_info for both images and videos, not just videos
+                val thumbnailInfo = if (msgType == "m.video" || msgType == "m.image") {
                     info.optJSONObject("thumbnail_info")
                 } else null
                 
                 val thumbnailBlurHash = thumbnailInfo?.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
-                val thumbnailWidth = thumbnailInfo?.optInt("w", 0)
-                val thumbnailHeight = thumbnailInfo?.optInt("h", 0)
+                // CRITICAL FIX: Return nullable Int? and only populate when value exists and is > 0
+                val thumbnailWidth = thumbnailInfo?.optInt("w", 0)?.takeIf { it > 0 }
+                val thumbnailHeight = thumbnailInfo?.optInt("h", 0)?.takeIf { it > 0 }
                 val duration = if (msgType == "m.video" || msgType == "m.audio") {
                     info.optInt("duration", 0).takeIf { it > 0 }
                 } else null
@@ -2096,7 +2102,9 @@ private fun EncryptedMessageContent(
                 } else null
 
                 // Extract caption: use sanitized_html if available, otherwise body (only if different from filename)
-                val caption = if (body != filename && body.isNotBlank()) {
+                // Caption is only body if: 1) filename field exists, 2) body differs from filename, 3) body is not blank
+                // If filename field is missing, body IS the filename, not a caption
+                val caption = if (filename.isNotBlank() && body != filename && body.isNotBlank()) {
                     val localContent = event.localContent
                     val sanitizedHtml = localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
                     // Use sanitized_html if available and different from filename, otherwise use body
@@ -3473,4 +3481,3 @@ private fun TimelineEvent.containsSpoilerContent(): Boolean {
         decrypted?.optString("body").containsSpoilerMarkers() ||
         localContent?.optString("edit_source").containsSpoilerMarkers()
 }
-

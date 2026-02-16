@@ -445,7 +445,14 @@ fun MediaMessage(
     
     // Calculate if image is small enough to wrap content (like stickers do)
     val density = LocalDensity.current
-    val imageWidthDp = if (mediaMessage.info.width > 0 && (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video" || mediaMessage.msgType == "m.sticker")) {
+    // FIX: When using thumbnails, calculate size based on thumbnail dimensions, not original dimensions
+    // This prevents small thumbnails (e.g., 600x600) from being stretched to fill 80% of screen width
+    val imageWidthDp = if (useThumbnails && mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0 &&
+                          (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video" || mediaMessage.msgType == "m.sticker")) {
+        // Use thumbnail width when thumbnails are enabled and available
+        with(density) { mediaMessage.info.thumbnailWidth!!.toDp() }
+    } else if (mediaMessage.info.width > 0 && (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video" || mediaMessage.msgType == "m.sticker")) {
+        // Fallback to original width when thumbnails are disabled or not available
         with(density) { mediaMessage.info.width.toDp() }
     } else null
     // If image is small (< 400dp), wrap content instead of using fillMaxWidth(0.8f)
@@ -464,8 +471,21 @@ fun MediaMessage(
         hasBeenEdited = hasBeenEdited
     )
     
+    // Calculate maximum width based on actual image/thumbnail dimensions
+    // This prevents images from being stretched beyond their natural size
+    val maxBubbleWidthDp = if (useThumbnails && mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0) {
+        // Use thumbnail dimensions when thumbnails are enabled
+        with(density) { mediaMessage.info.thumbnailWidth!!.toDp() }
+    } else if (mediaMessage.info.width > 0) {
+        // Use original dimensions when thumbnails disabled or not available
+        with(density) { mediaMessage.info.width.toDp() }
+    } else {
+        // No dimensions available - use reasonable default max
+        600.dp
+    }
+    
     if (hasCaption) {
-        // With caption: Image inside the caption bubble
+        // With caption: Let caption text determine bubble width, image sizes naturally inside
         if (event != null) {
             MessageBubbleWithMenu(
                 event = event,
@@ -564,6 +584,7 @@ fun MediaMessage(
             
             Surface(
                 modifier = modifier
+                    .widthIn(max = maxBubbleWidthDp) // Constrain to actual image size
                     .then(
                         if (shouldWrapBubble) {
                             Modifier.wrapContentWidth()
@@ -608,17 +629,7 @@ fun MediaMessage(
                         }
                     )
                     
-                    // Caption text below the image, inside the same bubble (always show filename if no caption)
-                    MediaCaption(
-                        caption = mediaMessage.caption,
-                        filename = mediaMessage.filename,
-                        event = event,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        onUserClick = onUserClick,
-                        isCompactMedia = mediaMessage.msgType == "m.audio" || mediaMessage.msgType == "m.file",
-                        appViewModel = appViewModel
-                    )
+                    // No caption - don't show filename as fallback
                     
                     // Timestamp (for consecutive messages)
                     if (timestamp != null) {
@@ -697,17 +708,7 @@ fun MediaMessage(
                         }
                     )
                     
-                    // Always show filename (even if no caption)
-                    MediaCaption(
-                        caption = null,
-                        filename = mediaMessage.filename,
-                        event = event,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        onUserClick = onUserClick,
-                        isCompactMedia = mediaMessage.msgType == "m.audio" || mediaMessage.msgType == "m.file",
-                        appViewModel = appViewModel
-                    )
+                    // No caption - don't show filename
                     
                     // Timestamp (for consecutive messages)
                     if (timestamp != null) {
@@ -777,17 +778,7 @@ fun MediaMessage(
                         }
                     )
                     
-                    // Always show filename (even if no caption)
-                    MediaCaption(
-                        caption = null,
-                        filename = mediaMessage.filename,
-                        event = event,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        onUserClick = onUserClick,
-                        isCompactMedia = mediaMessage.msgType == "m.audio" || mediaMessage.msgType == "m.file",
-                        appViewModel = appViewModel
-                    )
+                    // No caption - don't show filename
                     
                     // Timestamp (for consecutive messages)
                     if (timestamp != null) {
@@ -860,8 +851,14 @@ private fun MediaContent(
     val shouldShowPlaceholder = !renderThumbnailsAlways && !isRevealed && 
                                 (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video" || mediaMessage.msgType == "m.sticker")
     
+    // FIX: Don't force full width for images/videos - let them size naturally based on content
+    // Audio and file downloads still need full width for proper layout
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = if (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video" || mediaMessage.msgType == "m.sticker") {
+            Modifier.wrapContentWidth()
+        } else {
+            Modifier.fillMaxWidth()
+        },
         horizontalAlignment = Alignment.Start
     ) {
         if (mediaMessage.msgType == "m.audio") {
@@ -931,6 +928,22 @@ private fun MediaContent(
                     with(density) { mediaMessage.info.height.toDp() }
                 } else null
             }
+            
+            // FIX: Calculate max width based on actual display size (thumbnail or original)
+            // This prevents small thumbnails from being stretched to fill the full bubble width
+            val maxImageWidthDp = if (useThumbnail) {
+                // Use thumbnail width when thumbnails are enabled
+                if (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0) {
+                    with(density) { mediaMessage.info.thumbnailWidth!!.toDp() }
+                } else if (mediaMessage.info.width > 0) {
+                    with(density) { mediaMessage.info.width.toDp() }
+                } else null
+            } else {
+                // Use original width when not using thumbnails
+                if (mediaMessage.info.width > 0) {
+                    with(density) { mediaMessage.info.width.toDp() }
+                } else null
+            }
 
             // Image frame with border and padding (2dp on left, top, right)
             // Use same rounded corners as message bubble (top corners only)
@@ -941,10 +954,18 @@ private fun MediaContent(
                 bottomEnd = 0.dp
             )
             
-            // Frame always fills bubble width to accommodate caption size
+            // Frame constrained to image size to prevent stretching
+            // Image should size naturally, not fill parent (which might be wider due to caption)
             Surface(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .wrapContentWidth() // Wrap to image size
+                    .then(
+                        if (maxImageWidthDp != null) {
+                            Modifier.widthIn(max = maxImageWidthDp)
+                        } else {
+                            Modifier
+                        }
+                    )
                     .padding(
                         start = imageFramePadding,
                         end = imageFramePadding,
@@ -3698,4 +3719,3 @@ fun VideoPlayerDialog(
         }
     }
 }
-

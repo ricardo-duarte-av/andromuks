@@ -5465,6 +5465,12 @@ class AppViewModel : ViewModel() {
                         }
                     }
                 }
+                
+                // CRITICAL FIX: Load all room states AFTER all sync processing is complete
+                // This must be inside the coroutine to ensure roomMap is fully populated
+                // Request get_room_state for ALL rooms after sync_complete processing
+                // This ensures bridge badges are loaded
+                loadAllRoomStatesAfterInitComplete()
         
         // Mark initialization as complete - from now on, all sync_complete messages are real-time updates
         initializationComplete = true
@@ -5474,11 +5480,6 @@ class AppViewModel : ViewModel() {
         
         checkStartupComplete() // Check if startup is complete
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Initialization complete - future sync_complete messages will trigger UI updates")
-        
-        // CRITICAL FIX: Request get_room_state for ALL rooms after init_complete and sync_complete processing
-        // This ensures bridge badges are loaded before navigating to RoomListScreen
-        // These requests are exempt from the canSendCommandsToBackend blocking
-        loadAllRoomStatesAfterInitComplete()
         
         // Reset reconnection state now that init_complete has arrived
         // This is safe to call now because connection is confirmed healthy
@@ -12398,7 +12399,8 @@ class AppViewModel : ViewModel() {
             // CRITICAL FIX: Save bridge info to SharedPreferences cache for future initial connections
             // This allows us to skip get_room_state requests for rooms we already know about
             appContext?.let { context ->
-                val avatarUrlToSave = finalBridgeProtocolAvatarUrl ?: ""
+                //val avatarUrlToSave = finalBridgeProtocolAvatarUrl ?: "" // old code, we're attempting to always update bridge info on every get_room_state 
+                val avatarUrlToSave = bridgeProtocolAvatarUrl ?: ""
                 net.vrkknn.andromuks.utils.BridgeInfoCache.saveBridgeAvatarUrl(context, roomId, avatarUrlToSave)
                 // Also save display name if available
                 if (bridgeDisplayName != null) {
@@ -14907,12 +14909,16 @@ class AppViewModel : ViewModel() {
         }
         
         viewModelScope.launch(Dispatchers.Default) {
-            // Wait a moment for sync_complete processing to finish
-            delay(500)
-            
-            // Get all rooms from roomMap
+            // CRITICAL FIX: Get all rooms from roomMap IMMEDIATELY (no delay)
+            // By the time this function is called, all sync_complete messages have been processed
+            // and roomMap is fully populated with all rooms
+            delay(2000) // Wait a moment for sync_complete processing to finish
             val allRoomIds = synchronized(roomMap) {
                 roomMap.keys.toList()
+            }
+            
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "AppViewModel: loadAllRoomStatesAfterInitComplete - Found ${allRoomIds.size} rooms in roomMap")
             }
             
             if (allRoomIds.isEmpty()) {
