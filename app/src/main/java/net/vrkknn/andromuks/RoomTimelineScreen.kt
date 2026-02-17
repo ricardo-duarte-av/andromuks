@@ -353,6 +353,80 @@ fun MentionMemberList(
     }
 }
 
+/** Floating room list for room mentions */
+@Composable
+fun RoomSuggestionList(
+    rooms: List<Pair<RoomItem, String>>,
+    query: String,
+    onRoomSelect: (String, String) -> Unit, // (roomId, canonicalAlias)
+    homeserverUrl: String,
+    authToken: String,
+    modifier: Modifier = Modifier
+) {
+    val filteredRooms = remember(rooms, query) {
+        rooms.filter { (room, alias) ->
+            query.isBlank() || 
+            room.name.contains(query, ignoreCase = true) ||
+            alias.contains(query, ignoreCase = true)
+        }.sortedBy { it.first.name }
+    }
+
+    if (filteredRooms.isEmpty()) return
+
+    Surface(
+        modifier = modifier
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant,
+                shape = RoundedCornerShape(16.dp)
+            ),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 8.dp
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .widthIn(max = 300.dp)
+                .height(200.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
+        ) {
+            items(filteredRooms.size) { index ->
+                val (room, alias) = filteredRooms[index]
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onRoomSelect(room.id, alias) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    AvatarImage(
+                        mxcUrl = room.avatarUrl,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        fallbackText = room.name.take(1),
+                        size = 32.dp,
+                        userId = room.id,
+                        displayName = room.name
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = room.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = alias,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** Date divider component for timeline events */
 @Composable
 fun DateDivider(date: String) {
@@ -635,6 +709,11 @@ fun RoomTimelineScreen(
     var showEmojiSuggestionList by remember { mutableStateOf(false) }
     var emojiQuery by remember { mutableStateOf("") }
     var emojiStartIndex by remember { mutableStateOf(-1) }
+    
+    // Room mention ( #roomalias ) state
+    var showRoomSuggestionList by remember { mutableStateOf(false) }
+    var roomQuery by remember { mutableStateOf("") }
+    var roomStartIndex by remember { mutableStateOf(-1) }
     
     // Sync draft with TextFieldValue
     LaunchedEffect(draft) {
@@ -992,7 +1071,11 @@ fun RoomTimelineScreen(
             userId.length > 3
         }
     }
-
+    
+    // Get rooms with canonical aliases for room mentions
+    val roomsWithAliases = remember(appViewModel.allRooms) {
+        appViewModel.getRoomsWithCanonicalAliases()
+    }
 
     // Mention detection and handling functions
     fun detectMention(text: String, cursorPosition: Int): Pair<String, Int>? {
@@ -1098,6 +1181,68 @@ fun RoomTimelineScreen(
             val query =
                 if (queryStart < safeEnd) text.substring(queryStart, safeEnd) else ""
             return Pair(query, colonIndex)
+        }
+        
+        return null
+    }
+
+    // Room mention detection function (for '#' based autocomplete)
+    fun detectRoomMention(text: String, cursorPosition: Int): Pair<String, Int>? {
+        if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
+        
+        // Look for '#' at or before cursor position
+        var hashIndex = -1
+        for (i in (cursorPosition - 1) downTo 0) {
+            if (i < text.length && text[i] == '#') {
+                hashIndex = i
+                break
+            }
+            // Stop if we hit a space or newline before finding #
+            if (i < text.length && (text[i] == ' ' || text[i] == '\n')) {
+                break
+            }
+        }
+        
+        // Also check if cursor is right after # (similar to mention detection)
+        if (hashIndex == -1 && cursorPosition > 0 && cursorPosition <= text.length) {
+            if (text[cursorPosition - 1] == '#') {
+                // Check if # is at beginning or preceded by space/newline (same logic as mention detection)
+                if (cursorPosition == 1 || (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))) {
+                    hashIndex = cursorPosition - 1
+                }
+            }
+        }
+        
+        if (hashIndex == -1) {
+            if (BuildConfig.DEBUG && text.contains('#')) {
+                Log.d("Andromuks", "RoomTimelineScreen: detectRoomMention - # found in text but hashIndex is -1, text='$text', cursorPosition=$cursorPosition")
+            }
+            return null
+        }
+        
+        // Extract the query after #
+        val queryStart = hashIndex + 1
+        var queryEnd = cursorPosition
+        
+        // Look for space after cursor position to find end of mention
+        if (cursorPosition < text.length) {
+            for (i in cursorPosition until text.length) {
+                if (text[i] == ' ' || text[i] == '\n') {
+                    queryEnd = i
+                    break
+                }
+                queryEnd = i + 1
+            }
+        }
+        
+        // Allow showing room list even if we just typed # (empty query)
+        if (queryStart <= cursorPosition) {
+            val query = if (queryStart < min(queryEnd, text.length)) {
+                text.substring(queryStart, min(queryEnd, text.length))
+            } else {
+                "" // Empty query when just # is typed
+            }
+            return Pair(query, hashIndex)
         }
         
         return null
@@ -2733,50 +2878,70 @@ fun RoomTimelineScreen(
                                         textFieldValue = replacedValue
                                         draft = replacedValue.text
                                         
-                                        // Detect mentions
-                                        val mentionResult = detectMention(
+                                        // Detect room mentions first ( #roomalias ) - check before mentions/emojis
+                                        val roomResult = detectRoomMention(
                                             replacedValue.text,
                                             replacedValue.selection.start
                                         )
-                                        if (mentionResult != null) {
-                                            val (query, startIndex) = mentionResult
-                                            mentionQuery = query
-                                            mentionStartIndex = startIndex
+                                        if (roomResult != null) {
+                                            val (query, startIndex) = roomResult
+                                            roomQuery = query
+                                            roomStartIndex = startIndex
+                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: # detected, query='$query', roomsWithAliases.size=${roomsWithAliases.size}")
+                                            showRoomSuggestionList = true
+                                            // Hide other suggestion lists when room mention is active
+                                            showMentionList = false
+                                            showEmojiSuggestionList = false
+                                        } else {
+                                            showRoomSuggestionList = false
                                             
-                                            // CRITICAL FIX: Load cached members immediately, then request fresh data
-                                            if (!isWaitingForFullMemberList && !showMentionList) {
-                                                // Check if we already have members in memory cache
-                                                val memberMap = appViewModel.getMemberMap(roomId)
-                                                if (memberMap.isEmpty() || memberMap.size < 10) {
-                                                    // Profiles are loaded opportunistically when rendering events
-                                                    // Request full member list to populate cache
-                                                    // Request fresh data from server (will update when it arrives)
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: @ detected, requesting fresh member list for room $roomId")
-                                                    isWaitingForFullMemberList = true
-                                                    lastMemberUpdateCounterBeforeMention = appViewModel.memberUpdateCounter
-                                                    appViewModel.requestFullMemberList(roomId)
+                                            // Detect mentions
+                                            val mentionResult = detectMention(
+                                                replacedValue.text,
+                                                replacedValue.selection.start
+                                            )
+                                            if (mentionResult != null) {
+                                                val (query, startIndex) = mentionResult
+                                                mentionQuery = query
+                                                mentionStartIndex = startIndex
+                                                
+                                                // CRITICAL FIX: Load cached members immediately, then request fresh data
+                                                if (!isWaitingForFullMemberList && !showMentionList) {
+                                                    // Check if we already have members in memory cache
+                                                    val memberMap = appViewModel.getMemberMap(roomId)
+                                                    if (memberMap.isEmpty() || memberMap.size < 10) {
+                                                        // Profiles are loaded opportunistically when rendering events
+                                                        // Request full member list to populate cache
+                                                        // Request fresh data from server (will update when it arrives)
+                                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: @ detected, requesting fresh member list for room $roomId")
+                                                        isWaitingForFullMemberList = true
+                                                        lastMemberUpdateCounterBeforeMention = appViewModel.memberUpdateCounter
+                                                        appViewModel.requestFullMemberList(roomId)
+                                                    } else {
+                                                        // We already have members in memory, show list immediately
+                                                        showMentionList = true
+                                                    }
+                                                }
+                                                // Hide other suggestion lists when mention is active
+                                                showEmojiSuggestionList = false
+                                            } else {
+                                                showMentionList = false
+                                                isWaitingForFullMemberList = false
+                                                
+                                                // Detect emoji shortcodes ( :shortname )
+                                                val emojiResult = detectEmojiShortcode(
+                                                    replacedValue.text,
+                                                    replacedValue.selection.start
+                                                )
+                                                if (emojiResult != null) {
+                                                    val (query, startIndex) = emojiResult
+                                                    emojiQuery = query
+                                                    emojiStartIndex = startIndex
+                                                    showEmojiSuggestionList = true
                                                 } else {
-                                                    // We already have members in memory, show list immediately
-                                                    showMentionList = true
+                                                    showEmojiSuggestionList = false
                                                 }
                                             }
-                                        } else {
-                                            showMentionList = false
-                                            isWaitingForFullMemberList = false
-                                        }
-
-                                        // Detect emoji shortcodes ( :shortname )
-                                        val emojiResult = detectEmojiShortcode(
-                                            replacedValue.text,
-                                            replacedValue.selection.start
-                                        )
-                                        if (emojiResult != null) {
-                                            val (query, startIndex) = emojiResult
-                                            emojiQuery = query
-                                            emojiStartIndex = startIndex
-                                            showEmojiSuggestionList = true
-                                        } else {
-                                            showEmojiSuggestionList = false
                                         }
                                     },
                                     placeholder = {
@@ -3291,6 +3456,48 @@ fun RoomTimelineScreen(
                                 showEmojiSuggestionList = false
                                 emojiQuery = ""
                             },
+                            modifier = Modifier.zIndex(10f)
+                        )
+                    }
+                }
+                
+                // Floating room suggestion list for room mentions
+                if (showRoomSuggestionList) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(
+                                start = 72.dp, // Align with text input (attach button width + spacing)
+                                bottom = 60.dp  // Closer to text input
+                            )
+                            .navigationBarsPadding()
+                            .imePadding()
+                            .zIndex(9f)
+                    ) {
+                        RoomSuggestionList(
+                            rooms = roomsWithAliases,
+                            query = roomQuery,
+                            onRoomSelect = { selectedRoomId, canonicalAlias ->
+                                // Replace the room mention text with a markdown link
+                                // Format: [#room:server.com](https://matrix.to/#/%23room%3Aserver.com)
+                                val roomEndIndex = roomStartIndex + 1 + roomQuery.length
+                                val encodedAlias = java.net.URLEncoder.encode(canonicalAlias, "UTF-8")
+                                val roomMentionText = "[$canonicalAlias](https://matrix.to/#/$encodedAlias) "
+                                val newText = draft.substring(0, roomStartIndex) + roomMentionText + draft.substring(roomEndIndex)
+                                val newCursorPosition = roomStartIndex + roomMentionText.length
+                                
+                                draft = newText
+                                textFieldValue = TextFieldValue(
+                                    text = newText,
+                                    selection = TextRange(newCursorPosition)
+                                )
+                                
+                                // Hide the room suggestion list
+                                showRoomSuggestionList = false
+                                roomQuery = ""
+                            },
+                            homeserverUrl = appViewModel.homeserverUrl,
+                            authToken = authToken,
                             modifier = Modifier.zIndex(10f)
                         )
                     }

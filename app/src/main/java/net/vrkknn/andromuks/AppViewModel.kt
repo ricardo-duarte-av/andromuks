@@ -6334,6 +6334,20 @@ class AppViewModel : ViewModel() {
         return roomMap[roomId]
     }
     
+    /**
+     * Get all rooms that have canonical aliases (for room mentions with #)
+     * Returns a list of pairs: (RoomItem, canonicalAlias)
+     * Uses canonical alias from RoomItem (extracted from sync_complete meta) for efficiency
+     */
+    fun getRoomsWithCanonicalAliases(): List<Pair<RoomItem, String>> {
+        val allRoomsList = allRooms.ifEmpty { roomMap.values.toList() }
+        
+        return allRoomsList
+            .filter { it.canonicalAlias != null && it.canonicalAlias.isNotBlank() }
+            .map { Pair(it, it.canonicalAlias!!) }
+            .sortedBy { it.first.name }
+    }
+    
     // Room timeline state
     var currentRoomId by mutableStateOf("")
         private set

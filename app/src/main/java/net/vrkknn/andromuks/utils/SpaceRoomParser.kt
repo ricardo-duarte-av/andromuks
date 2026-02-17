@@ -38,6 +38,9 @@ object SpaceRoomParser {
             val name = meta.optString("name")?.takeIf { it.isNotBlank() } ?: roomId
             val avatar = meta.optString("avatar")?.takeIf { it.isNotBlank() }
             
+            // Extract canonical alias from meta
+            val canonicalAlias = meta.optString("canonical_alias")?.takeIf { it.isNotBlank() }
+            
             // Extract unread count and highlight count from meta
             val unreadMessages = meta.optInt("unread_messages", 0)
             val unreadHighlights = meta.optInt("unread_highlights", 0)
@@ -129,7 +132,8 @@ object SpaceRoomParser {
                     highlightCount = if (unreadHighlights > 0) unreadHighlights else null,
                     avatarUrl = avatar,
                     isFavourite = isFavourite,
-                    isLowPriority = isLowPriority
+                    isLowPriority = isLowPriority,
+                    canonicalAlias = canonicalAlias
                 )
             )
         }
@@ -300,6 +304,9 @@ object SpaceRoomParser {
             val name = meta.optString("name")?.takeIf { it.isNotBlank() } ?: roomId
             val avatar = meta.optString("avatar")?.takeIf { it.isNotBlank() }
             
+            // Extract canonical alias from meta
+            val canonicalAlias = meta.optString("canonical_alias")?.takeIf { it.isNotBlank() }
+            
             // Extract unread count and highlight count from meta
             val unreadMessages = meta.optInt("unread_messages", 0)
             val unreadHighlights = meta.optInt("unread_highlights", 0)
@@ -434,7 +441,8 @@ object SpaceRoomParser {
                 sortingTimestamp = sortingTimestamp,
                 isDirectMessage = isDirectMessage,
                 isFavourite = isFavourite,
-                isLowPriority = isLowPriority
+                isLowPriority = isLowPriority,
+                canonicalAlias = canonicalAlias
             )
         } catch (e: Exception) {
             Log.e("Andromuks", "SpaceRoomParser: Error parsing room $roomId", e)
@@ -584,6 +592,7 @@ object SpaceRoomParser {
                                             if (isChildSpace) {
                                                 //Log.d("Andromuks", "SpaceRoomParser: Skipping child space: $childName")
                                             } else {
+                                                val childCanonicalAlias = childMeta?.optString("canonical_alias")?.takeIf { it.isNotBlank() }
                                                 val childRoom = net.vrkknn.andromuks.RoomItem(
                                                     id = childId,
                                                     name = childName,
@@ -592,7 +601,8 @@ object SpaceRoomParser {
                                                     highlightCount = if (highlightCount > 0) highlightCount else null,
                                                     messagePreview = null,
                                                     messageSender = null,
-                                                    isDirectMessage = false
+                                                    isDirectMessage = false,
+                                                    canonicalAlias = childCanonicalAlias
                                                 )
                                                 childRooms.add(childRoom)
                                                 //Log.d("Andromuks", "SpaceRoomParser: Added child room: $childName (unread: $unreadCount)")
@@ -674,6 +684,7 @@ object SpaceRoomParser {
                             val unreadCount = childMeta?.optInt("unread_messages", 0) ?: 0
                             val highlightCount = childMeta?.optInt("unread_highlights", 0) ?: 0
                             
+                            val childCanonicalAlias = childMeta?.optString("canonical_alias")?.takeIf { it.isNotBlank() }
                             val childRoom = net.vrkknn.andromuks.RoomItem(
                                 id = childId,
                                 name = childName,
@@ -682,7 +693,8 @@ object SpaceRoomParser {
                                 highlightCount = if (highlightCount > 0) highlightCount else null,
                                 messagePreview = null,
                                 messageSender = null,
-                                isDirectMessage = false
+                                isDirectMessage = false,
+                                canonicalAlias = childCanonicalAlias
                             )
                             childRooms.add(childRoom)
                             //android.util.Log.d("Andromuks", "SpaceRoomParser: Added child room: $childName (unread: $unreadCount)")
