@@ -1835,7 +1835,16 @@ fun BubbleTimelineScreen(
         highlightRequestId = 0
         hasMarkedAsRead = false // Reset mark as read state when room changes
         appViewModel.promoteToPrimaryIfNeeded("bubble_timeline_$roomId")
-        appViewModel.navigateToRoomWithCache(roomId)
+        
+        // PERFORMANCE FIX: Only call navigateToRoomWithCache if room isn't already loaded
+        // RoomListScreen already calls it when user clicks, so we skip duplicate processing
+        val isAlreadyLoaded = appViewModel.currentRoomId == roomId && appViewModel.timelineEvents.isNotEmpty()
+        if (!isAlreadyLoaded) {
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Room $roomId not yet loaded, calling navigateToRoomWithCache")
+            appViewModel.navigateToRoomWithCache(roomId)
+        } else {
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Room $roomId already loaded (${appViewModel.timelineEvents.size} events), skipping navigateToRoomWithCache")
+        }
         
         // CRITICAL: Add room to opened rooms (exempt from cache clearing on WebSocket reconnect)
         RoomTimelineCache.addOpenedRoom(roomId)

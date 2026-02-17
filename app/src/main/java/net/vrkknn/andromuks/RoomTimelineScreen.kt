@@ -1631,7 +1631,8 @@ fun RoomTimelineScreen(
         
         // CRITICAL: When keyboard is open, DON'T check isAtBottom - it's unreliable due to compressed viewport
         // If we're attached to bottom and keyboard is open, just scroll to bottom when new items arrive
-        val isKeyboardOpen = imeBottom > 0.dp
+        // Use threshold of 50dp to avoid false positives from small padding values during layout
+        val isKeyboardOpen = imeBottom > 50.dp
         
         if (isKeyboardOpen && isAttachedToBottom && timelineItems.isNotEmpty()) {
             // Keyboard is open and we're attached - just scroll to bottom for new messages
@@ -1930,7 +1931,17 @@ fun RoomTimelineScreen(
         highlightedEventId = null
         highlightRequestId = 0
         appViewModel.promoteToPrimaryIfNeeded("room_timeline_$roomId")
-        appViewModel.navigateToRoomWithCache(roomId)
+        
+        // PERFORMANCE FIX: Only call navigateToRoomWithCache if room isn't already loaded
+        // RoomListScreen already calls it when user clicks, so we skip duplicate processing
+        val isAlreadyLoaded = appViewModel.currentRoomId == roomId && appViewModel.timelineEvents.isNotEmpty()
+        if (!isAlreadyLoaded) {
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room $roomId not yet loaded, calling navigateToRoomWithCache")
+            appViewModel.navigateToRoomWithCache(roomId)
+        } else {
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room $roomId already loaded (${appViewModel.timelineEvents.size} events), skipping navigateToRoomWithCache")
+        }
+        
         val requireInitComplete = !appViewModel.isWebSocketConnected()
         val readinessResult = appViewModel.awaitRoomDataReadiness(requireInitComplete = requireInitComplete, roomId = roomId)
         readinessCheckComplete = true
@@ -2275,8 +2286,9 @@ fun RoomTimelineScreen(
             return@LaunchedEffect
         }
         
-        val keyboardWasOpen = previousImeBottom > 0.dp
-        val keyboardIsOpen = imeBottom > 0.dp
+        // Use threshold of 50dp to avoid false positives from small padding values during layout
+        val keyboardWasOpen = previousImeBottom > 50.dp
+        val keyboardIsOpen = imeBottom > 50.dp
         val keyboardJustOpened = !keyboardWasOpen && keyboardIsOpen
         val keyboardJustClosed = keyboardWasOpen && !keyboardIsOpen
         
