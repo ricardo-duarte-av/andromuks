@@ -28,7 +28,7 @@ import net.vrkknn.andromuks.BuildConfig
  * Used by:
  * - BootStartReceiver (on device boot)
  * - AutoRestartReceiver (when service is destroyed)
- * - AutoRestartWorker (periodic service health check)
+ * - WebSocketHealthCheckWorker (periodic service health check - combined with auto-restart)
  */
 class ServiceStartWorker(
     context: Context,

@@ -210,11 +210,9 @@ class MainActivity : ComponentActivity() {
                                 appViewModel.checkAndProcessPendingItemsOnStartup(this)
                             }, 500)
                             
-                            // Schedule WebSocket health checks (every 15 minutes)
+                            // BATTERY OPTIMIZATION: Combined health check and auto-restart into single worker
+                            // (reduces WorkManager wake-ups from 2 workers to 1)
                             WebSocketHealthCheckWorker.schedule(this)
-                            
-                            // Schedule auto-restart worker (every 30 minutes)
-                            AutoRestartWorker.schedule(this)
                             
                             if (extractedRoomId != null) {
                                 // CRITICAL FIX #2: Store room navigation and wait for WebSocket connection

@@ -4125,12 +4125,12 @@ class WebSocketService : Service() {
             return
         }
         
-        // THROTTLE: Prevent rapid notification updates (UI smoothing) - only in debug builds
-        if (BuildConfig.DEBUG) {
-            val currentTime = System.currentTimeMillis()
-            val timeSinceLastUpdate = currentTime - lastNotificationUpdateTime
-            
-            if (timeSinceLastUpdate < MIN_NOTIFICATION_UPDATE_INTERVAL_MS) {
+        // BATTERY OPTIMIZATION: Throttle notification updates in both debug and release builds
+        // Prevents excessive notification updates that wake the device
+        val currentTime = System.currentTimeMillis()
+        val timeSinceLastUpdate = currentTime - lastNotificationUpdateTime
+        
+        if (timeSinceLastUpdate < MIN_NOTIFICATION_UPDATE_INTERVAL_MS) {
                 // Too soon - skip this update to avoid flicker
                 //if (BuildConfig.DEBUG) Log.d("WebSocketService", "Throttling notification update (${timeSinceLastUpdate}ms < ${MIN_NOTIFICATION_UPDATE_INTERVAL_MS}ms)")
                 
@@ -4159,12 +4159,11 @@ class WebSocketService : Service() {
                         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                         notificationManager.notify(NOTIFICATION_ID, delayedNotification)
                         
-                        //if (BuildConfig.DEBUG) Log.d("WebSocketService", "Delayed notification update: $notificationText")
+                        if (BuildConfig.DEBUG) Log.d("WebSocketService", "Delayed notification update: $notificationText")
                     }
                 }
                 return
             }
-        }
         
         lastNotificationText = notificationText
         lastNotificationUpdateTime = System.currentTimeMillis()

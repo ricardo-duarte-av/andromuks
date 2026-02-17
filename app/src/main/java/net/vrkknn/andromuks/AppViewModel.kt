@@ -4836,10 +4836,19 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        // Auto-save state periodically (every 10 sync_complete messages) for crash recovery
-        if (syncMessageCount > 0 && syncMessageCount % 10 == 0) {
-            appContext?.let { context ->
-                saveStateToStorage(context)
+        // BATTERY OPTIMIZATION: Auto-save state periodically for crash recovery
+        // Foreground: Save every 10 syncs (user might close app)
+        // Background: Save every 50 syncs (less frequent to reduce I/O)
+        if (syncMessageCount > 0) {
+            val shouldSave = if (isAppVisible) {
+                syncMessageCount % 10 == 0
+            } else {
+                syncMessageCount % 50 == 0
+            }
+            if (shouldSave) {
+                appContext?.let { context ->
+                    saveStateToStorage(context)
+                }
             }
         }
         

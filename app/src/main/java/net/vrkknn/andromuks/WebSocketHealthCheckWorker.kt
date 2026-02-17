@@ -23,6 +23,9 @@ import java.util.concurrent.TimeUnit
 /**
  * WebSocketHealthCheckWorker - Periodic WorkManager job to ensure WebSocket service stays alive
  * 
+ * BATTERY OPTIMIZATION: Combined health check and auto-restart into single worker
+ * (replaces separate WebSocketHealthCheckWorker and AutoRestartWorker)
+ * 
  * This worker runs periodically (every 15 minutes) to:
  * - Check if WebSocketService is running
  * - Check if WebSocket connection is active
@@ -89,6 +92,7 @@ class WebSocketHealthCheckWorker(
             
             if (!isServiceRunning) {
                 // Service was killed - restart it via ServiceStartWorker (more reliable than direct start)
+                // BATTERY OPTIMIZATION: Combined health check and auto-restart into single worker
                 Log.w(TAG, "WebSocketService not running - scheduling restart via ServiceStartWorker")
                 WebSocketService.logActivity("Health Check: Service Not Running - Restarting", null)
                 ServiceStartWorker.enqueue(applicationContext, "WebSocketHealthCheckWorker - service killed")
