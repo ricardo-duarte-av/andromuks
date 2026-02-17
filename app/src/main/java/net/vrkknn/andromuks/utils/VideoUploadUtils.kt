@@ -13,6 +13,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
+import net.vrkknn.andromuks.utils.getUserAgent
 
 /**
  * Data class representing the result of a video upload
@@ -240,6 +241,7 @@ object VideoUploadUtils {
                 .post(requestBody)
                 .addHeader("Cookie", "gomuks_auth=$authToken")
                 .addHeader("Content-Type", mimeType)
+                .addHeader("User-Agent", getUserAgent())
                 .build()
             
             val response = client.newCall(request).execute()

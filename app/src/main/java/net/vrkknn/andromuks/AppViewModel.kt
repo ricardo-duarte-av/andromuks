@@ -56,6 +56,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.io.File
 import java.util.Collections
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
+import net.vrkknn.andromuks.utils.getUserAgent
 
 data class MemberProfile(
     val displayName: String?,
@@ -532,7 +533,11 @@ class AppViewModel : ViewModel() {
         private set
     
     // Settings
-    var enableCompression by mutableStateOf(true)
+    // BATTERY OPTIMIZATION: Compression disabled by default
+    // Compression requires CPU-intensive decompression on every message (4-8 Hz)
+    // This causes significant battery drain even when messages are buffered
+    // Users can enable it in settings if they prefer bandwidth savings over battery
+    var enableCompression by mutableStateOf(false)
         private set
     var enterKeySendsMessage by mutableStateOf(true) // true = Enter sends, Shift+Enter newline; false = Enter newline, Shift+Enter sends
         private set
@@ -2521,7 +2526,11 @@ class AppViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val client = OkHttpClient.Builder().build()
-                val request = Request.Builder().url(wellKnownUrl).get().build()
+                val request = Request.Builder()
+                    .url(wellKnownUrl)
+                    .get()
+                    .header("User-Agent", getUserAgent())
+                    .build()
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         if (BuildConfig.DEBUG) {
@@ -8144,7 +8153,7 @@ class AppViewModel : ViewModel() {
         }
 
         val restartCallback = onRestartWebSocket
-
+        
         if (restartCallback != null) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Using direct reconnect callback for reason: $reason")
             // Cancel any pending reconnection jobs in the service to avoid duplicate attempts
@@ -8165,6 +8174,41 @@ class AppViewModel : ViewModel() {
             return
         }
 
+        // FALLBACK PATH: onRestartWebSocket not set (e.g. compression toggle, manual restart)
+        // In this case we still want to actively reconnect, but without creating a
+        // service↔ViewModel callback loop.
+        //
+        // Strategy:
+        // 1. Cancel any pending reconnections in the service
+        // 2. Clear the current WebSocket state in the service
+        // 3. Call initializeWebSocketConnection(homeserverUrl, authToken) directly
+        //
+        // This mirrors the normal app startup flow (AuthCheck → initializeWebSocketConnection),
+        // but is driven by the primary AppViewModel. Because we are NOT in a service
+        // reconnection callback here, this does not create an infinite loop.
+        if (homeserverUrl.isNotBlank() && authToken.isNotBlank()) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: restartWebSocket fallback - using initializeWebSocketConnection (reason: $reason)"
+                )
+            }
+            // Make sure the service isn't trying to reconnect in parallel
+            WebSocketService.cancelReconnection()
+            // Clear any existing WebSocket connection before starting a fresh one
+            WebSocketService.clearWebSocket(reason)
+            
+            // Delegate connection to the standard initialization path
+            initializeWebSocketConnection(homeserverUrl, authToken)
+            
+            // Clear restart flag after a short delay so future restarts are allowed
+            viewModelScope.launch {
+                delay(2000L)
+                isRestarting = false
+            }
+            return
+        }
+
         // PHASE 1.4 FIX: When called from reconnection callback (e.g., "Service restarted - reconnecting"),
         // we should actually connect to WebSocket, not call WebSocketService.restartWebSocket() which would create a loop
         // Check if we're being called from the service's reconnection callback
@@ -8181,10 +8225,13 @@ class AppViewModel : ViewModel() {
         }
         
         // INFINITE LOOP FIX: Don't call WebSocketService.restartWebSocket() from reconnection callback
-        // This creates an infinite loop because it calls the callback again
-        // Instead, we should directly trigger connection via initializeWebSocketConnection()
-        android.util.Log.w("Andromuks", "AppViewModel: onRestartWebSocket callback not set - cannot restart (would create loop)")
-        android.util.Log.w("Andromuks", "AppViewModel: Connection should be handled by initializeWebSocketConnection() or app startup flow")
+        // This creates an infinite loop because it calls the callback again.
+        // At this point we also have no homeserver/auth token (or they are blank),
+        // so we cannot safely call initializeWebSocketConnection either.
+        // In this edge case we fall back to logging only and let the normal
+        // app startup/AuthCheck flow handle connection establishment.
+        android.util.Log.w("Andromuks", "AppViewModel: onRestartWebSocket callback not set and no credentials available - cannot restart without risking loop")
+        android.util.Log.w("Andromuks", "AppViewModel: Connection should be handled by initializeWebSocketConnection() or app startup flow when credentials are available")
         
         // Clear restart flag after a delay
         viewModelScope.launch {
@@ -15273,18 +15320,40 @@ class AppViewModel : ViewModel() {
             val saved = prefs.edit()
                 .putBoolean("enable_compression", enableCompression)
                 .commit() // Use commit() instead of apply() to ensure it's saved synchronously
+            
+            // RACE CONDITION FIX: Read back immediately after commit() to verify it was written
+            // This ensures the value is visible before we start the async reconnection
+            val verify = prefs.getBoolean("enable_compression", !enableCompression)
             if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "AppViewModel: Saved enableCompression setting: $enableCompression (commit result: $saved)")
-                // Verify it was actually saved
-                val verify = prefs.getBoolean("enable_compression", !enableCompression)
-                android.util.Log.d("Andromuks", "AppViewModel: Verified enableCompression in SharedPreferences: $verify")
+                android.util.Log.d("Andromuks", "AppViewModel: Saved enableCompression setting: $enableCompression (commit result: $saved, verified: $verify)")
+                if (verify != enableCompression) {
+                    android.util.Log.e("Andromuks", "AppViewModel: CRITICAL - Compression setting mismatch! Expected: $enableCompression, got: $verify")
+                }
             }
+            
+            // RACE CONDITION FIX: Add small delay to ensure SharedPreferences write is fully flushed
+            // Even though commit() is synchronous, there can be thread visibility issues
+            // when reading from a different coroutine scope (serviceScope)
+            viewModelScope.launch {
+                delay(100) // 100ms delay to ensure write is visible to other threads
+                
+                // Double-check the value is correct before reconnecting
+                val finalValue = prefs.getBoolean("enable_compression", !enableCompression)
+                if (finalValue != enableCompression) {
+                    android.util.Log.e("Andromuks", "AppViewModel: Compression setting still incorrect after delay! Expected: $enableCompression, got: $finalValue - retrying save")
+                    // Retry save
+                    prefs.edit().putBoolean("enable_compression", enableCompression).commit()
+                }
+                
+                // Restart WebSocket with new compression setting
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restarting WebSocket due to compression setting change (value: $enableCompression)")
+                logActivity("Compression Setting Changed - Restarting", null)
+                restartWebSocket("Compression setting changed")
+            }
+        } ?: run {
+            // No context - can't save or reconnect
+            android.util.Log.e("Andromuks", "AppViewModel: Cannot toggle compression - appContext is null")
         }
-        
-        // Restart WebSocket with new compression setting
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restarting WebSocket due to compression setting change")
-        logActivity("Compression Setting Changed - Restarting", null)
-        restartWebSocket("Compression setting changed")
     }
     
     fun toggleEnterKeyBehavior() {
@@ -15351,7 +15420,9 @@ class AppViewModel : ViewModel() {
         val contextToUse = context ?: appContext
         contextToUse?.let { ctx ->
             val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            enableCompression = prefs.getBoolean("enable_compression", true) // Default to true
+            // BATTERY OPTIMIZATION: Default changed to false (was true)
+            // Compression causes battery drain due to immediate decompression on every message
+            enableCompression = prefs.getBoolean("enable_compression", false) // Default to false
             enterKeySendsMessage = prefs.getBoolean("enter_key_sends_message", true) // Default to true (Enter sends, Shift+Enter newline)
             loadThumbnailsIfAvailable = prefs.getBoolean("load_thumbnails_if_available", true) // Default to true
             renderThumbnailsAlways = prefs.getBoolean("render_thumbnails_always", true) // Default to true

@@ -33,6 +33,7 @@ import kotlin.math.PI
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.withSign
+import net.vrkknn.andromuks.utils.getUserAgent
 
 /**
  * Data class representing the result of a media upload
@@ -369,6 +370,7 @@ object MediaUploadUtils {
                     .post(thumbnailRequestBody)
                     .addHeader("Cookie", "gomuks_auth=$authToken")
                     .addHeader("Content-Type", thumbMimeType)
+                    .addHeader("User-Agent", getUserAgent())
                     .build()
                 
                 val thumbnailResponse = client.newCall(thumbnailRequest).execute()
@@ -483,6 +485,7 @@ object MediaUploadUtils {
                 .post(requestBody)
                 .addHeader("Cookie", "gomuks_auth=$authToken")
                 .addHeader("Content-Type", mimeType)
+                .addHeader("User-Agent", getUserAgent())
                 .build()
             
             if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Sending upload request...")
@@ -766,6 +769,7 @@ object MediaUploadUtils {
                 .post(requestBody)
                 .addHeader("Cookie", "gomuks_auth=$authToken")
                 .addHeader("Content-Type", mimeType)
+                .addHeader("User-Agent", getUserAgent())
                 .build()
             
             if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Sending audio upload request...")

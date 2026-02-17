@@ -60,6 +60,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import net.vrkknn.andromuks.utils.getUserAgent
 import android.content.ContentValues
 import android.provider.MediaStore
 import android.os.Environment
@@ -1362,6 +1363,7 @@ private suspend fun saveAvatarToGallery(
             val request = Request.Builder()
                 .url(imageUrl)
                 .addHeader("Cookie", "gomuks_auth=$authToken")
+                .addHeader("User-Agent", getUserAgent())
                 .build()
             
             val response = client.newCall(request).execute()

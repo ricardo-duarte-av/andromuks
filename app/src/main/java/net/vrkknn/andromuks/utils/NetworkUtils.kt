@@ -45,11 +45,18 @@ fun getDeviceIdentifier(): String {
 
 /**
  * Get the custom user agent string for Andromuks
- * @return User agent string in format "Andromuks/1.0 - $device-id"
+ * @return User agent string in format "Andromuks/<versionName> - <device-id>"
+ *
+ * Example:
+ *   Andromuks/1.0.19 - OnePlus GM1901
+ *
+ * The version name is taken from BuildConfig.VERSION_NAME, which is set from
+ * the Gradle `versionName` in app/build.gradle.kts.
  */
 fun getUserAgent(): String {
     val deviceId = getDeviceIdentifier()
-    return "Andromuks/1.0 - $deviceId"
+    val versionName = BuildConfig.VERSION_NAME
+    return "Andromuks/$versionName - $deviceId"
 }
 
 /**
@@ -229,6 +236,7 @@ suspend fun waitForBackendHealth(
                 val request = Request.Builder()
                     .url(homeserverUrl)
                     .get()
+                    .header("User-Agent", getUserAgent())
                     .build()
 
                 Log.d(loggerTag, "waitForBackendHealth: Sending HTTP GET request to $homeserverUrl")
@@ -332,14 +340,28 @@ fun connectToWebsocket(
     }
     
     // Check if compression is enabled (read from SharedPreferences)
-    // CRITICAL: Use same default as AppViewModel (true) to match UI state
-    val compressionEnabled = prefs.getBoolean("enable_compression", true)
+    // BATTERY OPTIMIZATION: Default changed to false (was true)
+    // Compression requires CPU-intensive decompression on every message, causing battery drain
+    // CRITICAL: Use same default as AppViewModel (false) to match UI state
+    // RACE CONDITION FIX: Read all SharedPreferences values to ensure we get fresh data
+    // (SharedPreferences might cache values, so reading all forces a refresh)
+    val allPrefs = prefs.all
+    val compressionEnabled = prefs.getBoolean("enable_compression", false)
     if (BuildConfig.DEBUG) {
-        Log.d("NetworkUtils", "Compression setting read from SharedPreferences: $compressionEnabled (key: enable_compression, default: true)")
+        // Detailed debug logging to verify toggle behavior end‑to‑end
+        Log.d(
+            "NetworkUtils",
+            "Compression prefs: enable_compression=$compressionEnabled (default=false), will ${if (compressionEnabled) "ADD" else "NOT add"} compress=1 to URL"
+        )
         // Debug: Check all compression-related keys
-        val allKeys = prefs.all.keys.filter { it.contains("compress", ignoreCase = true) }
+        val allKeys = allPrefs.keys.filter { it.contains("compress", ignoreCase = true) }
         if (allKeys.isNotEmpty()) {
             Log.d("NetworkUtils", "NetworkUtils: Found compression-related keys: $allKeys")
+            // Log the actual value for each key
+            allKeys.forEach { key ->
+                val value = allPrefs[key]
+                Log.d("NetworkUtils", "NetworkUtils: Key '$key' = $value (type: ${value?.javaClass?.simpleName})")
+            }
         }
     }
     

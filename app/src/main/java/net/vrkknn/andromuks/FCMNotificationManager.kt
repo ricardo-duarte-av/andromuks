@@ -15,6 +15,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
+import net.vrkknn.andromuks.utils.getUserAgent
 
 /**
  * Data class to hold all FCM-related components after initialization
@@ -235,6 +236,7 @@ class FCMNotificationManager(private val context: Context) {
                         .url(pushGatewayUrl)
                         .delete()
                         .addHeader("Authorization", "Bearer $accessToken")
+                        .addHeader("User-Agent", getUserAgent())
                         .build()
                     
                     val response = httpClient.newCall(request).execute()

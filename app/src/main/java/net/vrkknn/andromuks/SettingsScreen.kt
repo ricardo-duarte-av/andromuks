@@ -152,7 +152,7 @@ fun SettingsScreen(
                             fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = "Request compression from server to client",
+                            text = "Request compression from server to client. ⚠️ WARNING: Enabling compression significantly increases battery usage, even when the app is idle. Each message (4-8 per second) requires CPU-intensive decompression, preventing the device from entering deep sleep.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
