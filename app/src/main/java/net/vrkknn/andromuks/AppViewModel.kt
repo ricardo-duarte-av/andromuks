@@ -1124,8 +1124,37 @@ class AppViewModel : ViewModel() {
         scope = viewModelScope,
         processSyncImmediately = { syncJson, requestId, runId ->
             processInitialSyncComplete(syncJson, onComplete = null)
+        },
+        onBatchComplete = {
+            // BATTERY OPTIMIZATION: When background batch completes, trigger single UI update
+            // This avoids unnecessary state updates during background processing (UI won't recompose anyway)
+            // When foregrounded, updates happen per message for real-time responsiveness
+            // Note: This callback is only called when !isAppVisible, so no need to check again
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: onBatchComplete callback STARTED (background batch)")
+            try {
+                withContext(Dispatchers.Main) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: onBatchComplete - on Main thread, needsRoomListUpdate=$needsRoomListUpdate")
+                    if (needsRoomListUpdate) {
+                        val oldCounter = roomListUpdateCounter
+                        roomListUpdateCounter++
+                        needsRoomListUpdate = false
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Background batch complete - roomListUpdateCounter: $oldCounter -> $roomListUpdateCounter (battery optimization)")
+                    } else {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Background batch complete - skipping roomListUpdateCounter (needsRoomListUpdate=false)")
+                    }
+                    // Always increment summary counter after batch (rooms may have had events)
+                    val oldSummaryCounter = roomSummaryUpdateCounter
+                    roomSummaryUpdateCounter++
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Background batch complete - roomSummaryUpdateCounter: $oldSummaryCounter -> $roomSummaryUpdateCounter (battery optimization)")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Error in onBatchComplete callback: ${e.message}", e)
+            }
         }
     )
+    
+    // CRASH FIX: Expose batch processing state to UI to prevent animations during flush
+    val isProcessingSyncBatch = syncBatchProcessor.isProcessingBatch
     
     // Track if shortcuts have been refreshed on startup (only refresh once per app session)
     private var shortcutsRefreshedOnStartup = false
@@ -4406,10 +4435,12 @@ class AppViewModel : ViewModel() {
      * @param onComplete Callback invoked when processing actually completes (after DB work)
      * @return Job for the summary update, or null if no summary update is needed
      */
+    // NOTE: Legacy name. This function is used for processing *any* sync_complete message,
+    // including background-batched flushes (not just initial sync after init_complete).
     private fun processInitialSyncComplete(syncJson: JSONObject, onComplete: (suspend () -> Unit)? = null): Job? {
         return try {
             if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "🟣 processInitialSyncComplete: START - request_id=${syncJson.optInt("request_id", 0)}")
+                android.util.Log.d("Andromuks", "🟣 processSyncCompleteMessage: START - request_id=${syncJson.optInt("request_id", 0)}")
             }
             
             handleSyncToDeviceEvents(syncJson)
@@ -4421,7 +4452,7 @@ class AppViewModel : ViewModel() {
             if (isClearState) {
                 val requestId = syncJson.optInt("request_id", 0)
                 if (BuildConfig.DEBUG) {
-                    android.util.Log.w("Andromuks", "🟣 processInitialSyncComplete: clear_state=true in queued message - clearing state (request_id=$requestId)")
+                    android.util.Log.w("Andromuks", "🟣 processSyncCompleteMessage: clear_state=true - clearing state (request_id=$requestId)")
                 }
                 handleClearStateReset()
             }
@@ -4488,19 +4519,33 @@ class AppViewModel : ViewModel() {
                             invites.forEach { invite ->
                                 PendingInvitesCache.updateInvite(invite)
                             }
-                            // Trigger UI update to show invites
-                            needsRoomListUpdate = true
-                            roomListUpdateCounter++
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated ${invites.size} invites from sync_complete (in-memory only, total: ${pendingInvites.size})")
+                            // BATTERY OPTIMIZATION: Only trigger UI update when foregrounded
+                            // When backgrounded, batch processing will trigger a single update after batch completes
+                            if (isAppVisible) {
+                                // Trigger UI update to show invites
+                                needsRoomListUpdate = true
+                                roomListUpdateCounter++
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated ${invites.size} invites from sync_complete (in-memory only, total: ${pendingInvites.size})")
+                            } else {
+                                // Background: mark for batched update
+                                needsRoomListUpdate = true
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated ${invites.size} invites (background - will update UI once per batch)")
+                            }
                         }
                     }
                     
                     // CRITICAL: Notify RoomListScreen that room summaries may have been updated
                     // This ensures room list shows new message previews/senders immediately
+                    // BATTERY OPTIMIZATION: Only increment counter when foregrounded
+                    // When backgrounded, batch processing will trigger a single update after batch completes
                     if (roomsWithEvents.isNotEmpty()) {
                         withContext(Dispatchers.Main) {
-                            roomSummaryUpdateCounter++
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room summaries updated for ${roomsWithEvents.size} rooms - triggering RoomListScreen refresh (roomSummaryUpdateCounter: $roomSummaryUpdateCounter, isAppVisible=$isAppVisible)")
+                            if (isAppVisible) {
+                                roomSummaryUpdateCounter++
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room summaries updated for ${roomsWithEvents.size} rooms - triggering RoomListScreen refresh (roomSummaryUpdateCounter: $roomSummaryUpdateCounter, isAppVisible=$isAppVisible)")
+                            } else {
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room summaries updated for ${roomsWithEvents.size} rooms (background - will update UI once per batch)")
+                            }
                         }
                     }
                     
@@ -4544,7 +4589,7 @@ class AppViewModel : ViewModel() {
             val accountDataProcessingJob = viewModelScope.launch(Dispatchers.Default) {
                 try {
                     if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "🟣 processInitialSyncComplete: Starting background parsing (roomMap.size=${roomMap.size})")
+                        android.util.Log.d("Andromuks", "🟣 processSyncCompleteMessage: Starting background parsing (roomMap.size=${roomMap.size})")
                     }
                     // Parse sync data on background thread (200-500ms for large accounts)
                     // IMPORTANT: use snapshot to avoid ConcurrentModification when roomMap is cleared/reset concurrently.
@@ -4559,7 +4604,7 @@ class AppViewModel : ViewModel() {
                     )
                     
                     if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "🟣 processInitialSyncComplete: Parsed sync - newRooms=${syncResult.newRooms.size}, updatedRooms=${syncResult.updatedRooms.size}, removedRooms=${syncResult.removedRoomIds.size}")
+                        android.util.Log.d("Andromuks", "🟣 processSyncCompleteMessage: Parsed sync - newRooms=${syncResult.newRooms.size}, updatedRooms=${syncResult.updatedRooms.size}, removedRooms=${syncResult.removedRoomIds.size}")
                     }
                     
                     // SpaceRoomParser parses all room data including message previews and metadata
@@ -4569,7 +4614,7 @@ class AppViewModel : ViewModel() {
                         try {
                             processParsedSyncResult(syncResult, syncJson)
                             if (BuildConfig.DEBUG) {
-                                android.util.Log.d("Andromuks", "🟣 processInitialSyncComplete: processParsedSyncResult completed successfully")
+                                android.util.Log.d("Andromuks", "🟣 processSyncCompleteMessage: processParsedSyncResult completed successfully")
                             }
                             // CRITICAL FIX: Invoke completion callback AFTER account data processing completes
                             // This ensures startup doesn't complete before account data is processed
@@ -5907,7 +5952,8 @@ class AppViewModel : ViewModel() {
         updateAppVisibilityInPrefs(true)
         
         // BATTERY OPTIMIZATION: Notify batch processor to flush pending messages and process immediately
-        syncBatchProcessor.onAppVisibilityChanged(true)
+        // CRITICAL: Wait for batches to flush BEFORE refreshing UI, so UI shows up-to-date data
+        val batchFlushJob = syncBatchProcessor.onAppVisibilityChanged(true)
         
         // Notify service of app visibility change
         WebSocketService.setAppVisibility(true)
@@ -5929,8 +5975,25 @@ class AppViewModel : ViewModel() {
         // CRITICAL: Set processing flag to prevent RoomListScreen from showing stale data
         processPendingItemsIfNeeded()
         
-        // Refresh UI with current state (in case updates happened while app was invisible)
-        refreshUIState()
+        // CRITICAL: Wait for batch flush to complete, THEN refresh UI
+        // This ensures UI shows up-to-date data instead of stale data that gets updated again
+        if (batchFlushJob != null) {
+            viewModelScope.launch {
+                try {
+                    batchFlushJob.join() // Wait for batch flush to complete
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Batch flush completed, refreshing UI")
+                    // Refresh UI with up-to-date state after batches are processed
+                    refreshUIState()
+                } catch (e: Exception) {
+                    android.util.Log.e("Andromuks", "AppViewModel: Error waiting for batch flush: ${e.message}", e)
+                    // Still refresh UI even if batch flush failed
+                    refreshUIState()
+                }
+            }
+        } else {
+            // No batches to flush, refresh UI immediately
+            refreshUIState()
+        }
         
         // CRITICAL FIX: Ensure current user profile is loaded when app becomes visible
         // This fixes issues when app starts from notification/shortcut and profile wasn't loaded yet
@@ -5943,7 +6006,7 @@ class AppViewModel : ViewModel() {
         }
         
         // WebSocket service maintains connection
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: App visible, refreshing UI with current state")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: App visible, will refresh UI after batch flush completes")
     }
     
     /**

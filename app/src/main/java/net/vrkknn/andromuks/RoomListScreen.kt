@@ -92,6 +92,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
@@ -178,6 +179,8 @@ fun RoomListScreen(
     val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
     val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
     val uiState by appViewModel.rememberRoomListUiState()
+    // CRASH FIX: Observe "rush" / batch flush state once and reuse everywhere (TabBar + header indicator).
+    val isProcessingBatch by appViewModel.isProcessingSyncBatch.collectAsState()
     val imageToken = uiState.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     var coldStartRefreshing by remember { mutableStateOf(false) }
     var initialLoadComplete by remember { mutableStateOf(false) }
@@ -253,14 +256,24 @@ fun RoomListScreen(
     LaunchedEffect(coldStartRefreshing, shouldBlockForPending, effectiveSpacesLoaded, effectiveInitialSyncComplete, stableSection.rooms.size) {
         android.util.Log.d("Andromuks", "🔴 RoomListScreen: Loading state - coldStartRefreshing=$coldStartRefreshing, shouldBlockForPending=$shouldBlockForPending, effectiveSpacesLoaded=$effectiveSpacesLoaded, effectiveInitialSyncComplete=$effectiveInitialSyncComplete, hasRooms=${stableSection.rooms.isNotEmpty()}, roomCount=${stableSection.rooms.size}")
     }
+    // DEBUG: Prove whether the UI is actually seeing the batch/rush state flip.
+    LaunchedEffect(isProcessingBatch) {
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "RoomListScreen: isProcessingBatch=$isProcessingBatch")
+        }
+    }
     var previousSectionType by remember { mutableStateOf(stableSection.type) }
     var sectionAnimationDirection by remember { mutableStateOf(0) }
+    // CRASH FIX: Track animation state to prevent updates during tab animations
+    var isAnimationInProgress by remember { mutableStateOf(false) }
+    var pendingSectionUpdate by remember { mutableStateOf<RoomSection?>(null) }
     // Room summaries are now in-memory only - no need for separate summary tracking
     var lastRoomSectionSignature by remember { mutableStateOf("") }
 
     // Initial load is now handled in the LaunchedEffect below that also handles cleanup and sorting
     
     // Refresh stableSection from in-memory data when counters or space/bridge selection change
+    // CRASH FIX: Skip updates during tab animations to prevent mid-animation state changes
     LaunchedEffect(roomListUpdateCounter, uiState.roomSummaryUpdateCounter, uiState.currentSpaceId, appViewModel.currentBridgeId) {
         // If initial sync isn't complete yet and we already have data, keep current UI to avoid flicker.
         if (!uiState.initialSyncComplete) {
@@ -269,6 +282,14 @@ fun RoomListScreen(
         }
 
         val snapshot = appViewModel.getCurrentRoomSection()
+        
+        // CRASH FIX: Don't update during animations unless it's a section type change
+        if (isAnimationInProgress && snapshot.type == stableSection.type) {
+            // Queue the update for after animation completes
+            pendingSectionUpdate = snapshot
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Animation in progress, queuing stableSection update")
+            return@LaunchedEffect
+        }
         // CRITICAL FIX: Always update if rooms are added or removed (by ID comparison)
         // This ensures rooms don't vanish when they temporarily lose summaries/timestamps
         val oldRoomIds = stableSection.rooms.map { it.id }.toSet()
@@ -406,6 +427,7 @@ fun RoomListScreen(
         
         if (newSection.type != stableSection.type) {
             // Section type changed - update with animation
+            // CRASH FIX: Always allow section type changes (user-initiated tab switch)
             val oldIndex = RoomSectionType.values().indexOf(previousSectionType)
             val newIndex = RoomSectionType.values().indexOf(newSection.type)
             sectionAnimationDirection = when {
@@ -414,8 +436,14 @@ fun RoomListScreen(
                 else -> 0
             }
             previousSectionType = stableSection.type
+            isAnimationInProgress = true // Mark animation as in progress
             stableSection = newSection
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section type changed from ${previousSectionType} to ${newSection.type}")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section type changed from ${previousSectionType} to ${newSection.type}, animation started")
+        } else if (isAnimationInProgress) {
+            // CRASH FIX: During animation, queue updates instead of applying immediately
+            // This prevents mid-animation state changes that cause crashes
+            pendingSectionUpdate = newSection
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Animation in progress, queuing section update (rooms:${newSection.rooms.size})")
         } else if (roomsAdded.isNotEmpty() || roomsRemoved.isNotEmpty()) {
             // CRITICAL FIX: Rooms were added or removed - always update to show/hide them
             // This prevents rooms from vanishing when they temporarily lose summary data
@@ -441,6 +469,20 @@ fun RoomListScreen(
             sectionAnimationDirection = 0
         }
         // If nothing changed, skip update - prevents unnecessary recomposition and avatar flashing
+    }
+    
+    // CRASH FIX: Clear animation state and apply pending updates after animation completes
+    // Animation duration is 420ms (enter) + 360ms (exit) = ~800ms max, wait 1000ms to be safe
+    LaunchedEffect(isAnimationInProgress) {
+        if (isAnimationInProgress) {
+            kotlinx.coroutines.delay(1000) // Wait for animation to complete
+            isAnimationInProgress = false
+            if (pendingSectionUpdate != null) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Animation completed, applying pending section update (${pendingSectionUpdate!!.rooms.size} rooms)")
+                stableSection = pendingSectionUpdate!!
+                pendingSectionUpdate = null
+            }
+        }
     }
     
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: stableSection = ${stableSection.type}, roomListUpdateCounter = $roomListUpdateCounter, rooms.size = ${stableSection.rooms.size}")
@@ -927,6 +969,8 @@ fun RoomListScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         // PHASE 1: Pulsing processing indicator - show when sync is processing OR when room list is updating
+                        // CRASH FIX: Show warning color when batch processing (rushing) to indicate tab switching is disabled
+                        // Reuse isProcessingBatch from top level (line 183) - no need to collect twice
                         var showSyncIndicator by remember { mutableStateOf(false) }
                         LaunchedEffect(uiState.roomListUpdateCounter) {
                             if (uiState.roomListUpdateCounter > 0) {
@@ -936,8 +980,12 @@ fun RoomListScreen(
                                 showSyncIndicator = false
                             }
                         }
+                        // DEBUG: Log batch processing state changes
+                        LaunchedEffect(isProcessingBatch) {
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: isProcessingBatch changed to $isProcessingBatch")
+                        }
                         AnimatedVisibility(
-                            visible = uiState.isProcessingPendingItems || showSyncIndicator,
+                            visible = uiState.isProcessingPendingItems || showSyncIndicator || isProcessingBatch,
                             enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.5f, animationSpec = tween(200)),
                             exit = fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.5f, animationSpec = tween(200))
                         ) {
@@ -951,11 +999,28 @@ fun RoomListScreen(
                                 ),
                                 label = "sync_pulse_alpha"
                             )
+                            // CRASH FIX: Use warning/error color when batch processing (rushing)
+                            // Calculate color directly (no remember needed - will recompose when isProcessingBatch changes)
+                            val indicatorColor = if (isProcessingBatch) {
+                                // Use fully opaque error color for maximum visibility during batch processing
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: ERROR INDICATOR ACTIVE - isProcessingBatch=true, using error color (fully opaque, 12.dp)")
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                //if (BuildConfig.DEBUG && alpha > 0.9f) android.util.Log.d("Andromuks", "RoomListScreen: Normal indicator - isProcessingBatch=false, using primary color (alpha=$alpha)")
+                                MaterialTheme.colorScheme.primary.copy(alpha = alpha)
+                            }
+                            // Make error indicator larger and more visible
+                            val indicatorSize = if (isProcessingBatch) {
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Using larger indicator size (12.dp) for batch processing")
+                                12.dp
+                            } else {
+                                10.dp
+                            }
                             Box(
                                 modifier = Modifier
-                                    .size(10.dp) // Made slightly larger for visibility
+                                    .size(indicatorSize)
                                     .background(
-                                        MaterialTheme.colorScheme.primary.copy(alpha = alpha),
+                                        indicatorColor,
                                         CircleShape
                                     )
                             )
@@ -1383,16 +1448,23 @@ fun RoomListScreen(
             }
             
             // Tab bar at the bottom (outside the Surface)
+            // CRASH FIX: Disable tab switching during batch processing to prevent animation conflicts
             TabBar(
                 currentSection = displayedSection,
                 onSectionSelected = { section ->
+                    // CRASH FIX: Prevent tab switching during batch processing
+                    if (isProcessingBatch) {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Tab switch blocked - batch processing in progress")
+                        return@TabBar
+                    }
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     appViewModel.changeSelectedSection(section)
                     // Force timestamp update when switching tabs
                     // This ensures timestamps are immediately up-to-date when user switches sections
                     smartTimestampUpdateCounter++
                 },
-                appViewModel = appViewModel
+                appViewModel = appViewModel,
+                isProcessingBatch = isProcessingBatch
             )
         }
         
@@ -2166,7 +2238,8 @@ fun formatTimeAgo(timestamp: Long?): String {
 fun TabBar(
     currentSection: RoomSection,
     onSectionSelected: (RoomSectionType) -> Unit,
-    appViewModel: AppViewModel
+    appViewModel: AppViewModel,
+    isProcessingBatch: Boolean = false
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -2187,7 +2260,8 @@ fun TabBar(
                 isSelected = currentSection.type == RoomSectionType.HOME,
                 onClick = {
                     onSectionSelected(RoomSectionType.HOME)
-                }
+                },
+                enabled = !isProcessingBatch
             )
             
             TabButton(
@@ -2196,7 +2270,8 @@ fun TabBar(
                 isSelected = currentSection.type == RoomSectionType.SPACES,
                 onClick = {
                     onSectionSelected(RoomSectionType.SPACES)
-                }
+                },
+                enabled = !isProcessingBatch
             )
             
             TabButton(
@@ -2207,7 +2282,8 @@ fun TabBar(
                     onSectionSelected(RoomSectionType.DIRECT_CHATS)
                 },
                 badgeCount = appViewModel.getDirectChatsUnreadCount(),
-                hasHighlights = appViewModel.hasDirectChatsHighlights()
+                hasHighlights = appViewModel.hasDirectChatsHighlights(),
+                enabled = !isProcessingBatch
             )
             
             TabButton(
@@ -2217,7 +2293,8 @@ fun TabBar(
                 onClick = {
                     onSectionSelected(RoomSectionType.UNREAD)
                 },
-                badgeCount = appViewModel.getUnreadCount()
+                badgeCount = appViewModel.getUnreadCount(),
+                enabled = !isProcessingBatch
             )
             
             TabButton(
@@ -2228,7 +2305,8 @@ fun TabBar(
                     onSectionSelected(RoomSectionType.FAVOURITES)
                 },
                 badgeCount = appViewModel.getFavouritesUnreadCount(),
-                hasHighlights = appViewModel.hasFavouritesHighlights()
+                hasHighlights = appViewModel.hasFavouritesHighlights(),
+                enabled = !isProcessingBatch
             )
             
             TabButton(
@@ -2237,7 +2315,8 @@ fun TabBar(
                 isSelected = currentSection.type == RoomSectionType.BRIDGES,
                 onClick = {
                     onSectionSelected(RoomSectionType.BRIDGES)
-                }
+                },
+                enabled = !isProcessingBatch
             )
             
         }
@@ -2251,7 +2330,8 @@ fun TabButton(
     isSelected: Boolean,
     onClick: () -> Unit,
     badgeCount: Int = 0,
-    hasHighlights: Boolean = false
+    hasHighlights: Boolean = false,
+    enabled: Boolean = true
 ) {
     val content = @Composable {
         Column(
@@ -2261,14 +2341,20 @@ fun TabButton(
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = if (isSelected) MaterialTheme.colorScheme.primary 
-                       else MaterialTheme.colorScheme.onSurfaceVariant
+                tint = when {
+                    !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                    isSelected -> MaterialTheme.colorScheme.primary 
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
             )
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
-                color = if (isSelected) MaterialTheme.colorScheme.primary 
-                       else MaterialTheme.colorScheme.onSurfaceVariant
+                color = when {
+                    !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                    isSelected -> MaterialTheme.colorScheme.primary 
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
             )
         }
     }
@@ -2286,8 +2372,10 @@ fun TabButton(
         ) {
             Button(
                 onClick = onClick,
+                enabled = enabled,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = androidx.compose.ui.graphics.Color.Transparent
+                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent
                 ),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
             ) {
@@ -2297,8 +2385,10 @@ fun TabButton(
     } else {
         Button(
             onClick = onClick,
+            enabled = enabled,
             colors = ButtonDefaults.buttonColors(
-                containerColor = androidx.compose.ui.graphics.Color.Transparent
+                containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent
             ),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
         ) {
