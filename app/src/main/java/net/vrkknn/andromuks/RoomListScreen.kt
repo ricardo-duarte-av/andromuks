@@ -25,6 +25,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -485,7 +487,7 @@ fun RoomListScreen(
         }
     }
     
-    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: stableSection = ${stableSection.type}, roomListUpdateCounter = $roomListUpdateCounter, rooms.size = ${stableSection.rooms.size}")
+    //if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: stableSection = ${stableSection.type}, roomListUpdateCounter = $roomListUpdateCounter, rooms.size = ${stableSection.rooms.size}")
     
     // Always show the interface, even if rooms/spaces are empty
     var searchQuery by remember { mutableStateOf("") }
@@ -984,6 +986,7 @@ fun RoomListScreen(
                         LaunchedEffect(isProcessingBatch) {
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: isProcessingBatch changed to $isProcessingBatch")
                         }
+                        // Normal sync indicator (blue, pulsing)
                         AnimatedVisibility(
                             visible = uiState.isProcessingPendingItems || showSyncIndicator || isProcessingBatch,
                             enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.5f, animationSpec = tween(200)),
@@ -999,30 +1002,24 @@ fun RoomListScreen(
                                 ),
                                 label = "sync_pulse_alpha"
                             )
-                            // CRASH FIX: Use warning/error color when batch processing (rushing)
-                            // Calculate color directly (no remember needed - will recompose when isProcessingBatch changes)
-                            val indicatorColor = if (isProcessingBatch) {
-                                // Use fully opaque error color for maximum visibility during batch processing
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: ERROR INDICATOR ACTIVE - isProcessingBatch=true, using error color (fully opaque, 12.dp)")
-                                MaterialTheme.colorScheme.error
-                            } else {
-                                //if (BuildConfig.DEBUG && alpha > 0.9f) android.util.Log.d("Andromuks", "RoomListScreen: Normal indicator - isProcessingBatch=false, using primary color (alpha=$alpha)")
-                                MaterialTheme.colorScheme.primary.copy(alpha = alpha)
-                            }
-                            // Make error indicator larger and more visible
-                            val indicatorSize = if (isProcessingBatch) {
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Using larger indicator size (12.dp) for batch processing")
-                                12.dp
-                            } else {
-                                10.dp
-                            }
                             Box(
                                 modifier = Modifier
-                                    .size(indicatorSize)
+                                    .size(10.dp)
                                     .background(
-                                        indicatorColor,
+                                        MaterialTheme.colorScheme.primary.copy(alpha = alpha),
                                         CircleShape
                                     )
+                            )
+                        }
+                        // "RUSH" text indicator for batch processing (error color, next to sync pill)
+                        // No animation - appears instantly since batch processing is brief
+                        if (isProcessingBatch) {
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: RUSH indicator visible - isProcessingBatch=true")
+                            Text(
+                                text = "RUSH",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(start = 6.dp)
                             )
                         }
                     }

@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks
 
+import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,8 +37,8 @@ class SyncBatchProcessor(
     val isProcessingBatch = _isProcessingBatch.asStateFlow()
     
     // Configuration
-    private val BATCH_INTERVAL_MS = 60_000L // 60 seconds (safe with FCM notifications)
-    private val MAX_BATCH_SIZE = 480 // 8 Hz × 60s = 480 messages max
+    private val BATCH_INTERVAL_MS = 3_600_000L // 1 hour (3600 seconds)
+    private val MAX_BATCH_SIZE = 10_000 // Maximum messages to buffer in memory
     
     private data class SyncMessage(
         val syncJson: JSONObject,
@@ -48,6 +49,7 @@ class SyncBatchProcessor(
     companion object {
         private const val TAG = "SyncBatchProcessor"
     }
+    
     
     /**
      * Process a sync_complete message.
