@@ -118,6 +118,9 @@ class MainActivity : ComponentActivity() {
                 var showCrashDialog by remember { mutableStateOf(CrashHandler.checkAndShowCrashDialog(this@MainActivity)) }
                 val crashLogPath = remember { CrashHandler.getLastCrashLogPath(this@MainActivity) }
                 
+                // CRITICAL FIX: Track which ViewModel instances we've already attached to prevent infinite loops
+                val attachedViewModelIds = remember { mutableSetOf<String>() }
+                
                 if (showCrashDialog && crashLogPath != null) {
                     CrashReportDialog(
                         crashLogPath = crashLogPath,
@@ -259,8 +262,15 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        // Re-attach to existing WebSocket connection if the service already has one
-                        viewModel.attachToExistingWebSocketIfAvailable()
+                        // CRITICAL FIX: Only attach to WebSocket once per ViewModel instance
+                        // The onViewModelCreated callback can be called multiple times during recomposition
+                        // Use a set to track which ViewModel instances we've already attached to
+                        val viewModelId = viewModel.hashCode().toString()
+                        if (!attachedViewModelIds.contains(viewModelId)) {
+                            attachedViewModelIds.add(viewModelId)
+                            // Re-attach to existing WebSocket connection if the service already has one
+                            viewModel.attachToExistingWebSocketIfAvailable()
+                        }
 
                         if (!viewModelVisibilitySynced) {
                             viewModelVisibilitySynced = true

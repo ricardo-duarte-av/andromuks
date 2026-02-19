@@ -6682,10 +6682,24 @@ class AppViewModel : ViewModel() {
      * Returns true if events were appended, false if room not cached or needs full re-render.
      */
     fun appendEventsToCachedRoom(roomId: String, newEvents: List<TimelineEvent>): Boolean {
-        if (newEvents.isEmpty()) return true
+        if (newEvents.isEmpty()) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: appendEventsToCachedRoom called for $roomId with 0 events")
+            return true
+        }
+        
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AppViewModel: appendEventsToCachedRoom called for $roomId with ${newEvents.size} events (eventIds: ${newEvents.take(3).map { it.eventId }.joinToString(", ")})")
+        }
         
         // Update RoomTimelineCache with new events from SyncIngestor
-        RoomTimelineCache.mergePaginatedEvents(roomId, newEvents)
+        // CRITICAL: This happens for ALL cached rooms, not just the current room
+        // This ensures buffered sync_complete messages update caches for all cached rooms
+        // preventing timeline gaps when those rooms are opened later
+        val addedCount = RoomTimelineCache.mergePaginatedEvents(roomId, newEvents)
+        if (BuildConfig.DEBUG) {
+            val isCurrentRoom = currentRoomId == roomId
+            android.util.Log.d("Andromuks", "AppViewModel: mergePaginatedEvents added $addedCount events to cache for $roomId (currentRoom: $isCurrentRoom)")
+        }
         RoomTimelineCache.markRoomAccessed(roomId)
         
         // Check if any event requires full re-render (edits, redactions, reactions)
@@ -9001,11 +9015,15 @@ class AppViewModel : ViewModel() {
             ))
             
             if (result == WebSocketResult.SUCCESS) {
-                // Mark room as actively cached so SyncIngestor knows to update it
-                RoomTimelineCache.markRoomAsCached(roomId)
+                // Room is already marked as actively cached (either by triggerPreemptivePagination or by previous call)
+                // Just confirm it's still marked
+                if (!RoomTimelineCache.isRoomActivelyCached(roomId)) {
+                    RoomTimelineCache.markRoomAsCached(roomId)
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ensureTimelineCacheIsFresh($roomId) - room was not actively cached, marked it now")
+                }
                 if (BuildConfig.DEBUG) android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: ensureTimelineCacheIsFresh($roomId) - paginate request sent, room marked as actively cached (background=$isBackground)"
+                    "AppViewModel: ensureTimelineCacheIsFresh($roomId) - paginate request sent, room is actively cached (background=$isBackground)"
                 )
             } else {
                 android.util.Log.w("Andromuks", "AppViewModel: ensureTimelineCacheIsFresh($roomId) - failed to send paginate request: $result")
@@ -9030,6 +9048,12 @@ class AppViewModel : ViewModel() {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room $roomId already in cache ($cachedEventCount events >= 50, actively cached), skipping preemptive pagination")
                 return@launch
             }
+            
+            // CRITICAL FIX: Mark room as actively cached IMMEDIATELY when preemptive pagination is triggered
+            // This ensures that any sync_complete messages that arrive after the notification will have
+            // their events cached, even before the paginate request completes
+            RoomTimelineCache.markRoomAsCached(roomId)
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked room $roomId as actively cached immediately (will receive events from sync_complete while pagination is in progress)")
             
             // CRITICAL FIX: Use background pagination to prevent timeline rebuild for currently open room
             // Background pagination only updates cache, doesn't rebuild timeline
@@ -9427,7 +9451,44 @@ class AppViewModel : ViewModel() {
         // CACHE-ONLY APPROACH: No DB loading - rely on cache or paginate
         // Cache is populated from sync_complete messages or paginate responses only
         viewModelScope.launch {
-            val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
+            // CRITICAL FIX: When opening from notification, flush batched sync_complete messages first
+            // This ensures we have the latest cached data before checking cache
+            // Batched messages contain events that haven't been cached yet
+            if (notificationTimestamp != null) {
+                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Opening from notification - flushing batched sync_complete messages first")
+                
+                // CRITICAL FIX: Set currentRoomId BEFORE flushing batches
+                // This ensures that when events are added to cache via appendEventsToCachedRoom(),
+                // they're also added to eventChainMap and buildTimelineFromChain() is called
+                // Without this, events are cached but the timeline isn't updated
+                val previousRoomId = currentRoomId
+                currentRoomId = roomId
+                setCurrentRoomIdForTimeline(roomId)
+                
+                // CRITICAL FIX: Mark room as actively cached BEFORE flushing batches
+                // This ensures SyncIngestor.processRoom() will cache events for this room
+                // even if it's not currently in the cache (e.g., was evicted or never cached)
+                // Without this, events from buffered sync_complete messages won't be cached
+                RoomTimelineCache.markRoomAsCached(roomId)
+                RoomTimelineCache.addOpenedRoom(roomId) // Also add to opened rooms to ensure it's tracked
+                if (BuildConfig.DEBUG) {
+                    val cachedRoomIds = RoomTimelineCache.getActivelyCachedRoomIds()
+                    android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Set currentRoomId=$roomId and marked as actively cached before batch flush (activelyCachedRooms: ${cachedRoomIds.size} rooms, includes target: ${cachedRoomIds.contains(roomId)})")
+                }
+                
+                val flushJob = syncBatchProcessor.forceFlushBatch()
+                flushJob?.join() // Wait for batch flush to complete
+                
+                // CRITICAL: Small delay to ensure cache updates are fully processed
+                delay(100)
+                
+                // Verify cache was updated (events from batch flush should be in cache now)
+                val cacheAfterFlush = RoomTimelineCache.getCachedEventCount(roomId)
+                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Batch flush completed - cache now has $cacheAfterFlush events (may have been updated)")
+            }
+            
+            // Re-check cache after flush (it may have been updated)
+            var cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
             android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Cache check - roomId=$roomId, cachedEventCount=$cachedEventCount, isActivelyCached=${RoomTimelineCache.isRoomActivelyCached(roomId)}")
             
             // OPTIMIZATION #4: Use the exact same logic as requestRoomTimeline for consistency
@@ -11246,6 +11307,16 @@ class AppViewModel : ViewModel() {
                             false
                         } else {
                             appendEventsToCachedRoom(roomId, events)
+                        }
+                    }
+                    
+                    override fun onNotificationExpected(roomId: String) {
+                        // Mark room as actively cached immediately so events from sync_complete will be cached
+                        RoomTimelineCache.markRoomAsCached(roomId)
+                        // Trigger preemptive pagination so room has a good cache when FCM notification arrives
+                        triggerPreemptivePagination(roomId)
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d("Andromuks", "AppViewModel: onNotificationExpected for $roomId - marked as cached and triggered preemptive pagination")
                         }
                     }
                 }
@@ -13408,20 +13479,39 @@ class AppViewModel : ViewModel() {
             if (rooms != null && currentRoomId.isNotEmpty() && rooms.has(currentRoomId)) {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Checking timeline diff for room: $currentRoomId")
                 
+                // CRITICAL FIX: Check if sync_complete has timeline events BEFORE updating
+                // This ensures we process events even if buildTimelineFromChain is async
+                val roomData = rooms.optJSONObject(currentRoomId)
+                val hasTimelineEvents = roomData?.optJSONArray("events")?.let { it.length() > 0 } ?: false
+                
                 // Update timeline data first
                 updateTimelineFromSync(syncJson, currentRoomId)
                 
-                // Check if timeline actually changed using diff-based detection
-                val newTimelineStateHash = generateTimelineStateHash(timelineEvents)
-                val timelineStateChanged = newTimelineStateHash != lastTimelineStateHash
-                
-                if (timelineStateChanged) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Timeline state changed, scheduling UI update")
+                // CRITICAL FIX: Always schedule UI update if sync_complete had timeline events
+                // buildTimelineFromChain is async, so hash check might happen before timeline updates
+                // Always update UI if we processed timeline events to ensure they appear
+                if (hasTimelineEvents) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Timeline events processed, scheduling UI update")
                     needsTimelineUpdate = true
                     scheduleUIUpdate("timeline")
-                    lastTimelineStateHash = newTimelineStateHash
+                    // Update hash after a delay to allow async buildTimelineFromChain to complete
+                    viewModelScope.launch {
+                        kotlinx.coroutines.delay(100) // Wait for buildTimelineFromChain to complete
+                        lastTimelineStateHash = generateTimelineStateHash(timelineEvents)
+                    }
                 } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Timeline state unchanged, skipping UI update")
+                    // No timeline events - use hash-based detection
+                    val newTimelineStateHash = generateTimelineStateHash(timelineEvents)
+                    val timelineStateChanged = newTimelineStateHash != lastTimelineStateHash
+                    
+                    if (timelineStateChanged) {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Timeline state changed, scheduling UI update")
+                        needsTimelineUpdate = true
+                        scheduleUIUpdate("timeline")
+                        lastTimelineStateHash = newTimelineStateHash
+                    } else {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Timeline state unchanged, skipping UI update")
+                    }
                 }
             }
         }
@@ -13514,6 +13604,13 @@ class AppViewModel : ViewModel() {
                     val events = roomData.optJSONArray("events")
                     if (events != null && events.length() > 0) {
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing ${events.length()} new timeline events for room: $roomId")
+                        
+                        // CRITICAL FIX: Cache events BEFORE processing them into timeline
+                        // This ensures events are available in cache even if room is not currently open
+                        // This is essential for notification navigation to work correctly
+                        val memberMap = RoomMemberCache.getRoomMembers(roomId)
+                        RoomTimelineCache.addEventsFromSync(roomId, events, memberMap)
+                        
                         processSyncEventsArray(events, roomId)
                     }
                     
@@ -13996,36 +14093,42 @@ class AppViewModel : ViewModel() {
     /**
      * Builds the timeline from the edit chain mapping.
      * OPTIMIZED: Combined event processing and redaction handling in single pass.
+     * CRITICAL FIX: Ensures state updates happen on main thread to prevent concurrent modification errors.
      */
     private fun buildTimelineFromChain() {
-        // DIAGNOSTIC: Track when this is called
-        val callStack = Thread.currentThread().stackTrace.take(5).joinToString(" -> ") { it.methodName }
-        if (BuildConfig.DEBUG) android.util.Log.d(
-            "Andromuks",
-            "buildTimelineFromChain: Called (eventChainMap.size=${eventChainMap.size}, currentRoomId=$currentRoomId, callStack=$callStack)"
-        )
-        
-        try {
-            val timelineEvents = mutableListOf<TimelineEvent>()
-            val redactionMap = mutableMapOf<String, String>() // Map of target eventId -> redaction eventId
+        // CRITICAL FIX: Ensure state updates happen on main thread to prevent concurrent modification errors
+        // Use viewModelScope.launch to ensure we're on main thread, even if called from background thread
+        viewModelScope.launch(Dispatchers.Main) {
+            // DIAGNOSTIC: Track when this is called
+            val callStack = Thread.currentThread().stackTrace.take(5).joinToString(" -> ") { it.methodName }
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "Andromuks",
+                "buildTimelineFromChain: Called (eventChainMap.size=${eventChainMap.size}, currentRoomId=$currentRoomId, callStack=$callStack)"
+            )
             
-            // THREAD SAFETY: Create snapshot of map entries to prevent ConcurrentModificationException
-            // This prevents crashes when the map is modified concurrently (e.g., by background coroutines)
-            // Use synchronized block to safely create snapshot even if map is being modified
-            val eventChainSnapshot = try {
-                synchronized(eventChainMap) {
-                    eventChainMap.toMap()
+            try {
+                val timelineEvents = mutableListOf<TimelineEvent>()
+                val redactionMap = mutableMapOf<String, String>() // Map of target eventId -> redaction eventId
+            
+                // THREAD SAFETY: Create snapshot of map entries to prevent ConcurrentModificationException
+                // This prevents crashes when the map is modified concurrently (e.g., by background coroutines)
+                // Use synchronized block to safely create snapshot even if map is being modified
+                val eventChainSnapshot = try {
+                    synchronized(eventChainMap) {
+                        eventChainMap.toMap()
+                    }
+                } catch (e: ConcurrentModificationException) {
+                    android.util.Log.w("Andromuks", "AppViewModel: ConcurrentModificationException while creating snapshot, retrying", e)
+                    // Retry once - create a new map with current entries
+                    synchronized(eventChainMap) {
+                        eventChainMap.toMap()
+                    }
                 }
-            } catch (e: ConcurrentModificationException) {
-                android.util.Log.w("Andromuks", "AppViewModel: ConcurrentModificationException while creating snapshot, retrying", e)
-                // Retry once - create a new map with current entries
-                eventChainMap.toMap()
-            }
+                
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "buildTimelineFromChain: Created snapshot with ${eventChainSnapshot.size} entries")
             
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "buildTimelineFromChain: Created snapshot with ${eventChainSnapshot.size} entries")
-        
-            // First collect all redactions so order doesn't matter
-            for ((_, entry) in eventChainSnapshot) {
+                // First collect all redactions so order doesn't matter
+                for ((_, entry) in eventChainSnapshot) {
                 val redactionEvent = entry.ourBubble
                 if (redactionEvent != null && redactionEvent.type == "m.room.redaction") {
                     val redactsEventId = redactionEvent.content?.optString("redacts")?.takeIf { it.isNotBlank() }
@@ -14039,15 +14142,15 @@ class AppViewModel : ViewModel() {
                 }
             }
 
-            // DIAGNOSTIC: Log snapshot statistics
-            val totalEntries = eventChainSnapshot.size
-            var nullBubbleCount = 0
-            var redactionCount = 0
-            var processedCount = 0
-            var errorCount = 0
-            
-            // Now process all non-redaction events with the populated map
-            for ((eventId, entry) in eventChainSnapshot) {
+                // DIAGNOSTIC: Log snapshot statistics
+                val totalEntries = eventChainSnapshot.size
+                var nullBubbleCount = 0
+                var redactionCount = 0
+                var processedCount = 0
+                var errorCount = 0
+                
+                // Now process all non-redaction events with the populated map
+                for ((eventId, entry) in eventChainSnapshot) {
                 val ourBubble = entry.ourBubble
                 if (ourBubble == null) {
                     nullBubbleCount++
@@ -14092,29 +14195,29 @@ class AppViewModel : ViewModel() {
                 }
             }
             
-            // DIAGNOSTIC: Log summary
-            if (BuildConfig.DEBUG) android.util.Log.d(
-                "Andromuks",
-                "buildTimelineFromChain: Processed $processedCount events from $totalEntries entries " +
-                "(nullBubble=$nullBubbleCount, redactions=$redactionCount, errors=$errorCount, " +
-                "timelineEvents.size=${timelineEvents.size})"
-            )
-            
-            // Sort by timestamp and update timeline
-            val sortedTimelineEvents = timelineEvents.sortedBy { it.timestamp }
-            
-            // Detect new messages for animation
-            val previousEventIds = this.timelineEvents.map { it.eventId }.toSet()
-            val newEventIds = sortedTimelineEvents.map { it.eventId }.toSet()
-            val actuallyNewMessages = newEventIds - previousEventIds
-            
-            // Check if this is initial room loading (when previous timeline was empty)
-            val isInitialRoomLoad = this.timelineEvents.isEmpty() && sortedTimelineEvents.isNotEmpty()
-            
-            // Track new messages for sound notifications (animations removed for performance)
-            val roomOpenTimestamp = roomOpenTimestamps[currentRoomId] // Get timestamp when room was opened
-            
-            if (actuallyNewMessages.isNotEmpty() && !isInitialRoomLoad && roomOpenTimestamp != null) {
+                // DIAGNOSTIC: Log summary
+                if (BuildConfig.DEBUG) android.util.Log.d(
+                    "Andromuks",
+                    "buildTimelineFromChain: Processed $processedCount events from $totalEntries entries " +
+                    "(nullBubble=$nullBubbleCount, redactions=$redactionCount, errors=$errorCount, " +
+                    "timelineEvents.size=${timelineEvents.size})"
+                )
+                
+                // Sort by timestamp and update timeline
+                val sortedTimelineEvents = timelineEvents.sortedBy { it.timestamp }
+                
+                // Detect new messages for animation
+                val previousEventIds = this@AppViewModel.timelineEvents.map { it.eventId }.toSet()
+                val newEventIds = sortedTimelineEvents.map { it.eventId }.toSet()
+                val actuallyNewMessages = newEventIds - previousEventIds
+                
+                // Check if this is initial room loading (when previous timeline was empty)
+                val isInitialRoomLoad = this@AppViewModel.timelineEvents.isEmpty() && sortedTimelineEvents.isNotEmpty()
+                
+                // Track new messages for sound notifications (animations removed for performance)
+                val roomOpenTimestamp = roomOpenTimestamps[currentRoomId] // Get timestamp when room was opened
+                
+                if (actuallyNewMessages.isNotEmpty() && !isInitialRoomLoad && roomOpenTimestamp != null) {
                 val currentTime = System.currentTimeMillis()
                 
                 // Check if any of the new messages are from other users (not our own messages)
@@ -14162,26 +14265,28 @@ class AppViewModel : ViewModel() {
                 }
             }
             
-            // No limit on timeline events - all events are kept in cache
-            // LRU eviction in RoomTimelineCache handles memory management
-            this.timelineEvents = sortedTimelineEvents
-            // PERFORMANCE FIX: Removed persistRenderableEvents() from buildTimelineFromChain()
-            // Pre-rendering on every sync was causing heavy CPU load with 580+ rooms.
-            // Timeline is now rendered lazily when room is opened, not on every sync_complete.
-            // The renderable table is only populated on room open via processCachedEvents().
-            timelineUpdateCounter++
-            updateCounter++ // Keep for backward compatibility temporarily
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Error in buildTimelineFromChain", e)
-            // If building timeline fails, try to preserve existing timeline if possible
-            // This prevents the UI from going completely blank
-            if (this.timelineEvents.isEmpty()) {
-                android.util.Log.w("Andromuks", "AppViewModel: Timeline build failed and timeline is empty, keeping empty timeline")
-            } else {
-                android.util.Log.w("Andromuks", "AppViewModel: Timeline build failed, preserving existing ${this.timelineEvents.size} events")
+                // No limit on timeline events - all events are kept in cache
+                // LRU eviction in RoomTimelineCache handles memory management
+                // CRITICAL FIX: Update state directly since we're already on main thread via launch(Dispatchers.Main)
+                // This prevents concurrent modification errors by ensuring state updates happen on main thread
+                this@AppViewModel.timelineEvents = sortedTimelineEvents
+                // PERFORMANCE FIX: Removed persistRenderableEvents() from buildTimelineFromChain()
+                // Pre-rendering on every sync was causing heavy CPU load with 580+ rooms.
+                // Timeline is now rendered lazily when room is opened, not on every sync_complete.
+                // The renderable table is only populated on room open via processCachedEvents().
+                timelineUpdateCounter++
+                updateCounter++ // Keep for backward compatibility temporarily
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Error in buildTimelineFromChain", e)
+                // If building timeline fails, try to preserve existing timeline if possible
+                // This prevents the UI from going completely blank
+                if (this@AppViewModel.timelineEvents.isEmpty()) {
+                    android.util.Log.w("Andromuks", "AppViewModel: Timeline build failed and timeline is empty, keeping empty timeline")
+                } else {
+                    android.util.Log.w("Andromuks", "AppViewModel: Timeline build failed, preserving existing ${this@AppViewModel.timelineEvents.size} events")
+                }
+                // Don't re-throw - just log the error to prevent crashes
             }
-            // Re-throw to let caller handle it
-            throw e
         }
     }
     /**

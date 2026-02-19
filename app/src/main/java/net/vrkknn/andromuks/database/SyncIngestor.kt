@@ -63,6 +63,12 @@ class SyncIngestor(private val context: Context) {
          * Returns true if events were appended, false if cache was invalidated (needs re-render).
          */
         fun onEventsForCachedRoom(roomId: String, events: List<TimelineEvent>, requiresFullRerender: Boolean): Boolean
+        
+        /**
+         * Called when a sync_complete message indicates a notification will arrive (sound/highlight).
+         * This allows preemptive pagination to be triggered before the FCM notification arrives.
+         */
+        fun onNotificationExpected(roomId: String)
     }
     
     // Listener for cache updates (set by AppViewModel)
@@ -78,6 +84,7 @@ class SyncIngestor(private val context: Context) {
         val meta = roomObj.optJSONObject("meta")
         val receipts = roomObj.optJSONObject("receipts")
         val accountData = roomObj.optJSONObject("account_data")
+        val notifications = roomObj.optJSONArray("notifications")
         
         val parts = mutableListOf<String>()
         if (timeline != null) {
@@ -135,6 +142,11 @@ class SyncIngestor(private val context: Context) {
             } else {
                 parts.add("account_data=empty")
             }
+        }
+        if (notifications != null) {
+            parts.add("notifications=${notifications.length()}")
+        } else {
+            parts.add("notifications=null")
         }
         
         return parts.joinToString(", ")
@@ -350,7 +362,12 @@ class SyncIngestor(private val context: Context) {
         val roomsWithEvents = mutableSetOf<String>()
         
         // Check which rooms are currently cached before processing
+        // CRITICAL: This is called once at the start, so rooms must be marked as actively cached
+        // BEFORE ingestSyncComplete is called (e.g., in navigateToRoomWithCache before forceFlushBatch)
         val cachedRoomIds = cacheUpdateListener?.getCachedRoomIds() ?: emptySet()
+        if (BuildConfig.DEBUG && cachedRoomIds.isNotEmpty()) {
+            Log.d(TAG, "SyncIngestor: ingestSyncComplete - ${cachedRoomIds.size} rooms are actively cached: ${cachedRoomIds.take(5).joinToString(", ")}${if (cachedRoomIds.size > 5) "..." else ""}")
+        }
         
         // Check run_id first - this is critical!
         val runIdChanged = checkAndHandleRunIdChange(runId)
@@ -407,21 +424,96 @@ class SyncIngestor(private val context: Context) {
             }
             
             // Process all rooms immediately - no deferral or DB operations
+            if (BuildConfig.DEBUG) {
+                val cachedRoomsInSync = roomsToProcess.filter { it in cachedRoomIds }
+                Log.d(TAG, "SyncIngestor: Processing ${roomsToProcess.size} rooms from sync_complete (${cachedRoomsInSync.size} are cached: ${cachedRoomsInSync.take(3).joinToString(", ")})")
+            }
             for ((index, roomId) in roomsToProcess.withIndex()) {
                 val roomObj = roomsJson.optJSONObject(roomId) ?: continue
                 
                 // Log room contents for debugging
                 val roomContents = analyzeRoomContents(roomId, roomObj)
+                val isRoomCached = cachedRoomIds.contains(roomId)
                 if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "SyncIngestor: Processing room $roomId - $roomContents")
+                    Log.d(TAG, "SyncIngestor: Processing room $roomId - $roomContents (cached: $isRoomCached)")
                 }
                 
-                val hadEvents = processRoom(roomId, roomObj, isAppVisible)
+                // CRITICAL FIX: Check if this room has notifications that will trigger FCM
+                // If so, mark room as actively cached and trigger preemptive pagination BEFORE processing events
+                // This solves the race condition where events arrive via sync_complete before FCM notification
+                var hasNotificationWithSoundOrHighlight = false
+                val notificationsArray = roomObj.optJSONArray("notifications")
+                if (notificationsArray != null && notificationsArray.length() > 0) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "SyncIngestor: Room $roomId has notifications array with ${notificationsArray.length()} entries")
+                    }
+                    for (i in 0 until notificationsArray.length()) {
+                        val notification = notificationsArray.optJSONObject(i)
+                        if (notification != null) {
+                            val sound = notification.optBoolean("sound", false)
+                            val highlight = notification.optBoolean("highlight", false)
+                            if (BuildConfig.DEBUG) {
+                                Log.d(TAG, "SyncIngestor: Room $roomId notification[$i]: sound=$sound, highlight=$highlight")
+                            }
+                            if (sound || highlight) {
+                                hasNotificationWithSoundOrHighlight = true
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(TAG, "SyncIngestor: 🔔 Room $roomId has notification with sound/highlight - FCM will arrive soon")
+                                }
+                                break
+                            }
+                        }
+                    }
+                    
+                    if (hasNotificationWithSoundOrHighlight && !isRoomCached) {
+                        if (BuildConfig.DEBUG) {
+                            Log.d(TAG, "SyncIngestor: 🔔 Room $roomId has notification with sound/highlight and is NOT cached - marking as actively cached and triggering preemptive pagination")
+                        }
+                        // Mark room as actively cached immediately so events from this sync_complete will be cached
+                        cacheUpdateListener?.onNotificationExpected(roomId)
+                    } else if (hasNotificationWithSoundOrHighlight && isRoomCached) {
+                        if (BuildConfig.DEBUG) {
+                            Log.d(TAG, "SyncIngestor: Room $roomId has notification with sound/highlight but is already cached - events will be processed normally")
+                        }
+                    }
+                } else if (BuildConfig.DEBUG) {
+                    // Log when there's no notifications array to help debug
+                    val hasEvents = roomObj.has("events") || roomObj.has("timeline")
+                    if (hasEvents) {
+                        Log.d(TAG, "SyncIngestor: Room $roomId has events but no notifications array")
+                    }
+                }
+                
+                // Re-check if room is cached (may have been marked by onNotificationExpected)
+                // Get fresh cached room IDs from listener to account for onNotificationExpected marking
+                val isRoomCachedAfterNotification = if (hasNotificationWithSoundOrHighlight && !isRoomCached && cacheUpdateListener != null) {
+                    // Room was just marked as cached by onNotificationExpected, get fresh set
+                    val freshCachedIds = cacheUpdateListener.getCachedRoomIds()
+                    val isNowCached = freshCachedIds.contains(roomId)
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "SyncIngestor: Room $roomId was marked as cached by onNotificationExpected, fresh check: $isNowCached")
+                    }
+                    isNowCached
+                } else {
+                    cachedRoomIds.contains(roomId)
+                }
+                
+                if (BuildConfig.DEBUG && !isRoomCachedAfterNotification) {
+                    Log.d(TAG, "SyncIngestor: Room $roomId is NOT in actively cached set (${cachedRoomIds.size} cached rooms: ${cachedRoomIds.take(3).joinToString(", ")}) - events will NOT be cached")
+                }
+                val hadEvents = processRoom(roomId, roomObj, isAppVisible, isRoomCachedAfterNotification)
                 if (hadEvents) {
                     roomsWithEvents.add(roomId)
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "SyncIngestor: ✓ Room $roomId had events added to cache")
+                    }
                 } else if (BuildConfig.DEBUG) {
                     // Log when room had no events added to cache (room not cached or no events)
-                    Log.d(TAG, "SyncIngestor: Room $roomId had no events added to cache (contents: $roomContents)")
+                    if (isRoomCached) {
+                        Log.d(TAG, "SyncIngestor: Room $roomId is cached but had no events added to cache (contents: $roomContents)")
+                    } else {
+                        Log.d(TAG, "SyncIngestor: Room $roomId had no events added to cache - room not in actively cached set (contents: $roomContents)")
+                    }
                 }
                 // Yield every 20 rooms to allow other coroutines to run (prevents ANR on reconnect)
                 if ((index + 1) % 20 == 0) {
@@ -472,7 +564,8 @@ class SyncIngestor(private val context: Context) {
     private suspend fun processRoom(
         roomId: String,
         roomObj: JSONObject,
-        isAppVisible: Boolean = true
+        isAppVisible: Boolean = true,
+        isRoomCached: Boolean = false // Pass cached status to avoid double-checking
     ): Boolean {
         val existingTimelineRowCache = mutableMapOf<String, Long?>()
         var hasPersistedEvents = false
@@ -497,9 +590,8 @@ class SyncIngestor(private val context: Context) {
         val relatedEventsArray = roomObj.optJSONArray("related_events")
         val relatedEventsList = mutableListOf<TimelineEvent>()
         if (relatedEventsArray != null && relatedEventsArray.length() > 0) {
-            val listener = cacheUpdateListener
-            val isRoomCached = listener?.getCachedRoomIds()?.contains(roomId) == true
-            
+            // Use passed cached status (already checked in ingestSyncComplete)
+            // This avoids double-checking and ensures consistency
             if (isRoomCached) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Processing ${relatedEventsArray.length()} related_events from sync_complete for room $roomId (BEFORE main events)")
                 
@@ -547,11 +639,12 @@ class SyncIngestor(private val context: Context) {
         // 2. Process timeline events - only update cache if room is cached, no DB persistence
         val timeline = roomObj.optJSONArray("timeline")
         if (timeline != null) {
-            // Check if room is in cache before processing events
-            val listener = cacheUpdateListener
-            val isRoomCached = listener?.getCachedRoomIds()?.contains(roomId) == true
-            
+            // Use passed cached status (already checked in ingestSyncComplete)
+            // This avoids double-checking and ensures consistency
             if (isRoomCached) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "SyncIngestor: Processing ${timeline.length()} timeline events for cached room $roomId")
+                }
                 for (i in 0 until timeline.length()) {
                     val timelineEntry = timeline.optJSONObject(i) ?: continue
                     val timelineRowid = timelineEntry.optLong("timeline_rowid", -1)
@@ -605,11 +698,12 @@ class SyncIngestor(private val context: Context) {
         // 3. Process events array (preview/additional events) - only update cache if room is cached
         val eventsArray = roomObj.optJSONArray("events")
         if (eventsArray != null) {
-            // Check if room is in cache before processing events
-            val listener = cacheUpdateListener
-            val isRoomCached = listener?.getCachedRoomIds()?.contains(roomId) == true
-            
+            // Use passed cached status (already checked in ingestSyncComplete)
+            // This avoids double-checking and ensures consistency
             if (isRoomCached) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "SyncIngestor: Processing ${eventsArray.length()} events from 'events' array for cached room $roomId")
+                }
                 if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Processing ${eventsArray.length()} events from 'events' array for room $roomId (cached)")
                 for (i in 0 until eventsArray.length()) {
                     val eventJson = eventsArray.optJSONObject(i) ?: continue
@@ -675,9 +769,19 @@ class SyncIngestor(private val context: Context) {
         // LRU CACHE: Notify listener if this room is cached and has new events
         if (hasPersistedEvents && eventsForCacheUpdate.isNotEmpty()) {
             val listener = cacheUpdateListener
-            if (listener != null && listener.getCachedRoomIds().contains(roomId)) {
-                if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Notifying cache listener for room $roomId (${eventsForCacheUpdate.size} events, requiresRerender=$hasEditRedactionReaction)")
+            val isStillCached = listener?.getCachedRoomIds()?.contains(roomId) == true
+            if (listener != null && isStillCached) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "SyncIngestor: ✓ Notifying cache listener for room $roomId (${eventsForCacheUpdate.size} events, requiresRerender=$hasEditRedactionReaction)")
+                }
                 listener.onEventsForCachedRoom(roomId, eventsForCacheUpdate, hasEditRedactionReaction)
+            } else if (BuildConfig.DEBUG && eventsForCacheUpdate.isNotEmpty()) {
+                Log.w(TAG, "SyncIngestor: ⚠️ Room $roomId has ${eventsForCacheUpdate.size} events but is NOT in cached set - events will NOT be cached! (listener=${listener != null}, isStillCached=$isStillCached)")
+            }
+        } else if (BuildConfig.DEBUG && !hasPersistedEvents && eventsForCacheUpdate.isEmpty()) {
+            // Log when no events were found for a cached room
+            if (isRoomCached) {
+                Log.d(TAG, "SyncIngestor: Room $roomId is cached but sync_complete had no events to cache")
             }
         }
         

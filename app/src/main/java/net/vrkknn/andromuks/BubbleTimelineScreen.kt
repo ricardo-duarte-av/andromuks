@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -1482,6 +1483,10 @@ fun BubbleTimelineScreen(
 
     // Track if user is "attached" to the bottom (sticky scroll)
     var isAttachedToBottom by remember { mutableStateOf(true) }
+    
+    // Use imePadding for keyboard handling (defined early so it's accessible to all LaunchedEffects)
+    val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    var previousImeBottom by remember { mutableStateOf(0.dp) }
 
     // Track if this is the first load (to avoid animation on initial room open)
     var isInitialLoad by remember { mutableStateOf(true) }
@@ -1790,6 +1795,44 @@ fun BubbleTimelineScreen(
         if (!pendingScrollRestoration) {
             previousItemCount = timelineItems.size
         }
+    }
+    
+    // CRITICAL FIX: Scroll to bottom when keyboard opens (so latest message is visible above keyboard)
+    // In chat bubbles, users are typically at the bottom, so we always scroll when keyboard opens
+    LaunchedEffect(imeBottom) {
+        if (timelineItems.isEmpty() || listState.layoutInfo.totalItemsCount == 0) {
+            previousImeBottom = imeBottom
+            return@LaunchedEffect
+        }
+        
+        // Use threshold of 50dp to avoid false positives from small padding values during layout
+        val keyboardWasOpen = previousImeBottom > 50.dp
+        val keyboardIsOpen = imeBottom > 50.dp
+        val keyboardJustOpened = !keyboardWasOpen && keyboardIsOpen
+        
+        // When keyboard opens, always scroll to bottom in bubbles (users are typically at bottom)
+        if (keyboardJustOpened && hasInitialSnapCompleted) {
+            // Check actual scroll position for debugging
+            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val lastTimelineItemIndex = timelineItems.lastIndex
+            
+            if (BuildConfig.DEBUG) Log.d(
+                "Andromuks",
+                "BubbleTimelineScreen: Keyboard opening - lastVisibleIndex=$lastVisibleIndex, lastIndex=$lastTimelineItemIndex, isAttachedToBottom=$isAttachedToBottom"
+            )
+            
+            val lastIndex = timelineItems.lastIndex
+            if (lastIndex >= 0) {
+                // Wait for keyboard animation to start and layout to adjust
+                kotlinx.coroutines.delay(150)
+                // Scroll to bottom (we're already in LaunchedEffect coroutine context)
+                listState.scrollToItem(lastIndex, scrollOffset = 0)
+                isAttachedToBottom = true // Update state
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Keyboard opened, scrolled to bottom to show latest message above keyboard")
+            }
+        }
+        
+        previousImeBottom = imeBottom
     }
 
     // Auto-scroll after each individual message bubble animation completes
@@ -2250,7 +2293,14 @@ fun BubbleTimelineScreen(
                                                 showDeleteDialog = true
                                             },
                                             onUserClick = { userId ->
-                                                navController.navigateToUserInfo(userId, roomId)
+                                                // CRITICAL FIX: Disable user info navigation in chat bubbles - user_info route doesn't exist
+                                                // in the bubble navigation graph. Users can open the full app to access user info.
+                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: User click disabled - user info not available in bubble navigation")
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    "Open in full app to view user profile",
+                                                    android.widget.Toast.LENGTH_SHORT
+                                                ).show()
                                             },
                                             onRoomLinkClick = { roomLink ->
                                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Room link clicked: ${roomLink.roomIdOrAlias}")

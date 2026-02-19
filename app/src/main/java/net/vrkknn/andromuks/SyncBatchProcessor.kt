@@ -206,6 +206,44 @@ class SyncBatchProcessor(
     }
     
     /**
+     * Force flush batched messages (for notification navigation).
+     * This ensures we have the latest cached data before opening a room.
+     * @return Job that completes when batch flush finishes, null if no batch to flush
+     */
+    fun forceFlushBatch(): Job? {
+        return scope.launch {
+            val shouldFlush = batchLock.withLock {
+                if (batchQueue.isEmpty()) {
+                    return@launch // No batch to flush
+                }
+                
+                val batchSize = batchQueue.size
+                Log.i(TAG, "Force flushing ${batchSize} batched messages (notification navigation)")
+                
+                // Temporarily mark as visible to ensure proper state updates and caching
+                val wasVisible = isAppVisible
+                isAppVisible = true
+                
+                // Return visibility state to restore later
+                wasVisible
+            }
+            
+            try {
+                // Call flushBatchLocked which will process the batch
+                // We need to acquire the lock again since flushBatchLocked expects it
+                batchLock.withLock {
+                    flushBatchLocked()
+                }
+            } finally {
+                // Restore original visibility state
+                batchLock.withLock {
+                    isAppVisible = shouldFlush
+                }
+            }
+        }
+    }
+    
+    /**
      * Get current batch queue size (for debugging/metrics)
      */
     fun getBatchQueueSize(): Int {

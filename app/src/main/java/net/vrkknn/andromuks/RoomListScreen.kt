@@ -977,8 +977,8 @@ fun RoomListScreen(
                         LaunchedEffect(uiState.roomListUpdateCounter) {
                             if (uiState.roomListUpdateCounter > 0) {
                                 showSyncIndicator = true
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Showing sync indicator (counter=${uiState.roomListUpdateCounter})")
-                                kotlinx.coroutines.delay(2000) // Show for 2 seconds to be more visible
+                                //if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Showing sync indicator (counter=${uiState.roomListUpdateCounter})")
+                                kotlinx.coroutines.delay(500) // Show for 0.5 seconds to be more visible
                                 showSyncIndicator = false
                             }
                         }
