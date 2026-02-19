@@ -486,14 +486,19 @@ class SyncIngestor(private val context: Context) {
                 
                 // Re-check if room is cached (may have been marked by onNotificationExpected)
                 // Get fresh cached room IDs from listener to account for onNotificationExpected marking
-                val isRoomCachedAfterNotification = if (hasNotificationWithSoundOrHighlight && !isRoomCached && cacheUpdateListener != null) {
-                    // Room was just marked as cached by onNotificationExpected, get fresh set
-                    val freshCachedIds = cacheUpdateListener.getCachedRoomIds()
-                    val isNowCached = freshCachedIds.contains(roomId)
-                    if (BuildConfig.DEBUG) {
-                        Log.d(TAG, "SyncIngestor: Room $roomId was marked as cached by onNotificationExpected, fresh check: $isNowCached")
+                val isRoomCachedAfterNotification = if (hasNotificationWithSoundOrHighlight && !isRoomCached) {
+                    val listener = cacheUpdateListener
+                    if (listener != null) {
+                        // Room was just marked as cached by onNotificationExpected, get fresh set
+                        val freshCachedIds = listener.getCachedRoomIds()
+                        val isNowCached = freshCachedIds.contains(roomId)
+                        if (BuildConfig.DEBUG) {
+                            Log.d(TAG, "SyncIngestor: Room $roomId was marked as cached by onNotificationExpected, fresh check: $isNowCached")
+                        }
+                        isNowCached
+                    } else {
+                        cachedRoomIds.contains(roomId)
                     }
-                    isNowCached
                 } else {
                     cachedRoomIds.contains(roomId)
                 }

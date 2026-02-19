@@ -599,7 +599,48 @@ fun RoomTimelineScreen(
     var highlightedEventId by remember(roomId) { mutableStateOf<String?>(null) }
     var highlightRequestId by remember(roomId) { mutableStateOf(0) }
     var pendingNotificationJumpEventId by remember(roomId) {
-        mutableStateOf(appViewModel.consumePendingHighlightEvent(roomId))
+        val consumed = appViewModel.consumePendingHighlightEvent(roomId)
+        if (BuildConfig.DEBUG) Log.d(
+            "Andromuks",
+            "RoomTimelineScreen: remember(roomId=$roomId) pendingNotificationJumpEventId = ${consumed ?: "NULL"}"
+        )
+        mutableStateOf(consumed)
+    }
+
+    // CRITICAL FIX: Handle notification tap while this room is already open.
+    // When the user is on RoomTimelineScreen and taps a notification:
+    //   - RoomListScreen is NOT composed, so its reactive LaunchedEffect can't fire.
+    //   - onNewIntent → setDirectRoomNavigation stores the highlight event and calls
+    //     navigateToRoomWithCache (which rebuilds the timeline), but nothing updates
+    //     pendingNotificationJumpEventId (set to null by remember(roomId) on first composition).
+    // This LaunchedEffect watches for new navigation triggers and handles two cases:
+    //   1. Same room: consume the pending highlight event → scroll to it.
+    //   2. Different room: pop back to room_list where the reactive handler takes over.
+    val navTrigger = appViewModel.directRoomNavigationTrigger
+    LaunchedEffect(navTrigger) {
+        if (navTrigger == 0) return@LaunchedEffect // Skip initial composition
+        val targetRoomId = appViewModel.getDirectRoomNavigation()
+        if (targetRoomId != null) {
+            if (targetRoomId == roomId) {
+                // Same room — consume highlight event and clear the navigation request
+                appViewModel.clearDirectRoomNavigation()
+                val eventId = appViewModel.consumePendingHighlightEvent(roomId)
+                if (eventId != null) {
+                    if (BuildConfig.DEBUG) Log.d(
+                        "Andromuks",
+                        "RoomTimelineScreen: Notification tap while room $roomId is open — highlighting event $eventId"
+                    )
+                    pendingNotificationJumpEventId = eventId
+                }
+            } else {
+                // Different room — pop back to room_list so its reactive handler navigates
+                if (BuildConfig.DEBUG) Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Notification for different room $targetRoomId (current=$roomId), popping to room_list"
+                )
+                navController.popBackStack("room_list", inclusive = false)
+            }
+        }
     }
 
     // Auto-clear highlight after a short duration
@@ -2254,12 +2295,39 @@ fun RoomTimelineScreen(
         if (!readinessCheckComplete || timelineItems.isEmpty() || pendingScrollRestoration) {
             return@LaunchedEffect
         }
-        val targetIndex = timelineItems.indexOfFirst { item ->
-            (item as? TimelineItem.Event)?.event?.eventId == targetEventId
+        // CRITICAL FIX: When the notification jump handler fires, timelineItems may still
+        // contain the PREVIOUS room's events (or stale events).  This happens because:
+        //   1. navigateToRoomWithCache is async — it launches a coroutine that processes
+        //      the cache and calls buildTimelineFromChain (also async via Dispatchers.Main).
+        //   2. navController.navigate fires IMMEDIATELY after, creating the new
+        //      RoomTimelineScreen before the coroutine finishes.
+        //   3. readinessCheckComplete becomes true quickly (old timelineEvents is non-empty),
+        //      so this handler fires while timelineItems still holds old data.
+        //   4. The event from the notification isn't in the old items — search fails.
+        //   5. Later, when buildTimelineFromChain finishes, timelineItems is recomputed,
+        //      but if its SIZE is unchanged (same number of events), this LaunchedEffect
+        //      never re-fires and the event is never found.
+        //
+        // Fix: retry with delays to give the async pipeline time to complete:
+        //   timelineEvents → sortedEvents (Dispatchers.Default) → timelineItems (Dispatchers.Default)
+        val maxRetries = 8  // Up to ~2 seconds total (8 × 250ms)
+        var foundIndex = -1
+        for (attempt in 0..maxRetries) {
+            foundIndex = timelineItems.indexOfFirst { item ->
+                (item as? TimelineItem.Event)?.event?.eventId == targetEventId
+            }
+            if (foundIndex >= 0) break
+            if (attempt < maxRetries) {
+                if (BuildConfig.DEBUG) Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Notification target $targetEventId not found (attempt ${attempt + 1}/$maxRetries, timelineItems.size=${timelineItems.size}), retrying in 250ms"
+                )
+                kotlinx.coroutines.delay(250)
+            }
         }
-        if (targetIndex >= 0) {
-            listState.scrollToItem(targetIndex)
-            isAttachedToBottom = targetIndex >= timelineItems.lastIndex - 1
+        if (foundIndex >= 0) {
+            listState.scrollToItem(foundIndex)
+            isAttachedToBottom = foundIndex >= timelineItems.lastIndex - 1
             wasAttachedBeforeKeyboard = isAttachedToBottom
             hasInitialSnapCompleted = true
             hasLoadedInitialBatch = true
@@ -2269,13 +2337,26 @@ fun RoomTimelineScreen(
             pendingNotificationJumpEventId = null
             if (BuildConfig.DEBUG) Log.d(
                 "Andromuks",
-                "RoomTimelineScreen: Jumped to notification target event=$targetEventId at index=$targetIndex"
+                "RoomTimelineScreen: Jumped to notification target event=$targetEventId at index=$foundIndex"
             )
-        } else if (BuildConfig.DEBUG) {
-            Log.d(
+        } else {
+            // Event truly not found after retries — likely filtered out (reaction, edit,
+            // redaction, etc.) or the room was rebuilt with different events.
+            // Fall back to scrolling to bottom so the user sees the latest messages.
+            if (BuildConfig.DEBUG) Log.d(
                 "Andromuks",
-                "RoomTimelineScreen: Pending notification target $targetEventId not yet in timeline (size=${timelineItems.size})"
+                "RoomTimelineScreen: Notification target $targetEventId not found after $maxRetries retries (timelineItems.size=${timelineItems.size}), falling back to scroll-to-bottom"
             )
+            val lastIndex = timelineItems.lastIndex
+            if (lastIndex >= 0) {
+                listState.scrollToItem(lastIndex)
+            }
+            isAttachedToBottom = true
+            wasAttachedBeforeKeyboard = true
+            hasInitialSnapCompleted = true
+            hasLoadedInitialBatch = true
+            pendingInitialScroll = false
+            pendingNotificationJumpEventId = null
         }
     }
     

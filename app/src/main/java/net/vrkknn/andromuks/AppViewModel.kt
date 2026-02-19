@@ -4,6 +4,7 @@ import net.vrkknn.andromuks.BuildConfig
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.derivedStateOf
@@ -5814,6 +5815,10 @@ class AppViewModel : ViewModel() {
     // OPTIMIZATION #1: Direct room navigation (bypasses pending state)
     private var directRoomNavigation: String? = null
     private var directRoomNavigationTimestamp: Long? = null
+    // Observable trigger so RoomListScreen can react when onNewIntent sets a new
+    // directRoomNavigation on an already-composed screen.
+    var directRoomNavigationTrigger by mutableIntStateOf(0)
+        private set
     
     // Pending bubble navigation from chat bubbles
     private var pendingBubbleNavigation: String? = null
@@ -5868,6 +5873,7 @@ class AppViewModel : ViewModel() {
         )
         directRoomNavigation = roomId
         directRoomNavigationTimestamp = notificationTimestamp
+        directRoomNavigationTrigger++ // Notify observers (e.g. RoomListScreen) of new navigation request
         if (!targetEventId.isNullOrBlank()) {
             setPendingHighlightEvent(roomId, targetEventId)
         }
@@ -5934,10 +5940,10 @@ class AppViewModel : ViewModel() {
 
     fun consumePendingHighlightEvent(roomId: String): String? {
         val eventId = pendingHighlightEvents.remove(roomId)
-        if (eventId != null && BuildConfig.DEBUG) {
+        if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Consuming pending highlight event for $roomId -> $eventId"
+                "AppViewModel: consumePendingHighlightEvent($roomId) -> ${eventId ?: "NULL"} (pendingHighlightEvents keys: ${pendingHighlightEvents.keys})"
             )
         }
         return eventId
@@ -9435,6 +9441,30 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    /**
+     * Flush any buffered sync_complete messages and wait for completion.
+     * Must be called BEFORE navController.navigate() when opening from notification
+     * to ensure the cache has the latest events.
+     *
+     * Also marks the room as actively cached so SyncIngestor adds events to it
+     * during the flush.
+     */
+    suspend fun flushSyncBatchForRoom(roomId: String) {
+        // Ensure the room is marked as actively cached BEFORE flushing,
+        // so events for this room are added to cache during ingestion.
+        RoomTimelineCache.markRoomAsCached(roomId)
+        RoomTimelineCache.addOpenedRoom(roomId)
+
+        val flushJob = syncBatchProcessor.forceFlushBatch()
+        flushJob?.join()
+
+        if (BuildConfig.DEBUG) {
+            val count = RoomTimelineCache.getCachedEventCount(roomId)
+            android.util.Log.d("Andromuks",
+                "AppViewModel: flushSyncBatchForRoom($roomId) complete – cache now has $count events")
+        }
+    }
+
     // OPTIMIZATION #4: Cache-first navigation method
     fun navigateToRoomWithCache(roomId: String, notificationTimestamp: Long? = null) {
         android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: START - roomId=$roomId, notificationTimestamp=$notificationTimestamp, isProcessingPendingItems=$isProcessingPendingItems, initialSyncComplete=$initialSyncComplete")
@@ -9485,6 +9515,20 @@ class AppViewModel : ViewModel() {
                 // Verify cache was updated (events from batch flush should be in cache now)
                 val cacheAfterFlush = RoomTimelineCache.getCachedEventCount(roomId)
                 android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Batch flush completed - cache now has $cacheAfterFlush events (may have been updated)")
+                
+                // CRITICAL FIX: Clean up preemptive_paginate_rooms SharedPreferences.
+                // EnhancedNotificationDisplay writes room IDs here as a fallback when sending
+                // the PREEMPTIVE_PAGINATE broadcast.  The broadcast can be lost if the Activity
+                // was killed while backgrounded (BroadcastReceiver unregistered in onDestroy).
+                // Remove this room from the set so it doesn't accumulate stale entries.
+                appContext?.let { ctx ->
+                    val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                    val preemptiveRooms = prefs.getStringSet("preemptive_paginate_rooms", null)?.toMutableSet()
+                    if (preemptiveRooms != null && preemptiveRooms.remove(roomId)) {
+                        prefs.edit().putStringSet("preemptive_paginate_rooms", preemptiveRooms).apply()
+                        android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Cleared $roomId from preemptive_paginate_rooms SharedPreferences")
+                    }
+                }
             }
             
             // Re-check cache after flush (it may have been updated)
@@ -9517,12 +9561,52 @@ class AppViewModel : ViewModel() {
                 } else {
                     android.util.Log.w("Andromuks", "🔵 navigateToRoomWithCache: Cache miss - roomId=$roomId, cachedEventCount=$cachedEventCount but getCachedEvents returned null")
                 }
+            } else if (notificationTimestamp != null && cachedEventCount > 0) {
+                // OPTION B: Notification path with partial cache — show cached events immediately,
+                // paginate via background-merge path so the response MERGES into cache instead of
+                // wiping and rebuilding.  This avoids the "2 messages → flash → 100 messages" problem.
+                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Notification with partial cache ($cachedEventCount events) - showing immediately, will merge paginate in background")
+                val partialCachedEvents = RoomTimelineCache.getCachedEvents(roomId)
+                if (partialCachedEvents != null && partialCachedEvents.isNotEmpty()) {
+                    // Show whatever we have right now (e.g. 2 events from sync_complete flush)
+                    processCachedEvents(roomId, partialCachedEvents, openingFromNotification = true)
+                    RoomTimelineCache.markRoomAsCached(roomId)
+                    RoomTimelineCache.markRoomAccessed(roomId)
+                    roomOpenTimestamps[roomId] = System.currentTimeMillis()
+
+                    // Send paginate via backgroundPrefetchRequests so handleBackgroundPrefetch
+                    // merges the response into cache and rebuilds the timeline seamlessly.
+                    if (isWebSocketConnected() && INITIAL_ROOM_PAGINATE_LIMIT > 0) {
+                        val paginateRequestId = requestIdCounter++
+                        backgroundPrefetchRequests[paginateRequestId] = roomId
+                        roomsWithPendingPaginate.add(roomId)
+                        markInitialPaginate(roomId, "notification_background_merge")
+                        val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+                            "room_id" to roomId,
+                            "max_timeline_id" to 0, // Fetch latest events
+                            "limit" to INITIAL_ROOM_PAGINATE_LIMIT,
+                            "reset" to false
+                        ))
+                        if (result == WebSocketResult.SUCCESS) {
+                            android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Background merge paginate sent - showing ${partialCachedEvents.size} cached events immediately, history will merge seamlessly (reqId=$paginateRequestId)")
+                        } else {
+                            backgroundPrefetchRequests.remove(paginateRequestId)
+                            roomsWithPendingPaginate.remove(roomId)
+                            android.util.Log.w("Andromuks", "🔵 navigateToRoomWithCache: Failed to send background merge paginate for $roomId: $result")
+                        }
+                    }
+
+                    android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: SUCCESS (notification background merge) - roomId=$roomId, showing ${partialCachedEvents.size} events, paginate in flight")
+                    return@launch
+                }
+                // getCachedEvents returned null despite count > 0 — fall through to regular path
+                android.util.Log.w("Andromuks", "🔵 navigateToRoomWithCache: Partial cache count=$cachedEventCount but getCachedEvents returned null, falling through")
             } else {
                 android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Cache insufficient - roomId=$roomId, cachedEventCount=$cachedEventCount (<50), will request timeline")
             }
             
-            // OPTIMIZATION #4: Fallback to regular requestRoomTimeline if no cache
-            // This happens if cache is empty or has < 10 events
+            // Fallback: cache is empty or non-notification open — use regular requestRoomTimeline
+            // which sends a paginate via timelineRequests (wipe-and-rebuild).
             // CRITICAL FIX: Wait for pending items to finish processing before requesting timeline
             // This prevents race condition where timeline request is sent while sync_complete is still processing
             // which can cause the timeline to wait indefinitely for a response
@@ -9539,11 +9623,16 @@ class AppViewModel : ViewModel() {
                 android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Pending items finished - roomId=$roomId, waitDuration=${waitDuration}ms, isProcessingPendingItems=$isProcessingPendingItems")
             }
             
-            // REMOVED: Queue flush waiting - no longer needed since we removed queue blocking
-            // Commands can be sent immediately even while retries are happening
-            // Webmuks handles out-of-order messages and responses are matched by request_id
-            
-            android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Calling requestRoomTimeline - roomId=$roomId, isTimelineLoading=$isTimelineLoading")
+            // Clear timelineEvents before calling requestRoomTimeline.
+            // We may have set currentRoomId = roomId earlier (needed for the batch flush to
+            // update the correct room's timeline chain).  The flush may have added a
+            // handful of events to timelineEvents from sync_complete.  requestRoomTimeline
+            // checks `currentRoomId == roomId && timelineEvents.isNotEmpty()` to decide
+            // "isRefreshingSameRoom" – if true it SKIPS the paginate, assuming the room
+            // is already open and loaded.  Clearing timelineEvents here forces it to
+            // treat this as a fresh open and send the paginate request so we get history.
+            timelineEvents = emptyList()
+            android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Calling requestRoomTimeline (cleared timelineEvents to force fresh paginate) - roomId=$roomId, isTimelineLoading=$isTimelineLoading")
             requestRoomTimeline(roomId)
             android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: requestRoomTimeline returned - roomId=$roomId, isTimelineLoading=$isTimelineLoading")
         }
@@ -11302,11 +11391,28 @@ class AppViewModel : ViewModel() {
                     override fun getCachedRoomIds(): Set<String> = this@AppViewModel.getCachedRoomIds()
                     
                     override fun onEventsForCachedRoom(roomId: String, events: List<TimelineEvent>, requiresFullRerender: Boolean): Boolean {
-                        return if (requiresFullRerender) {
+                        if (requiresFullRerender) {
+                            // CRITICAL FIX: Always add events to the raw cache BEFORE invalidating.
+                            // Previously, when requiresFullRerender=true (edit/redaction/reaction present
+                            // in the same sync_complete), ALL events for this room were silently lost
+                            // because invalidateCachedRoom only cleared processed state without adding
+                            // the new events to RoomTimelineCache. This is the common case since
+                            // sync_complete messages frequently include reactions/edits.
+                            RoomTimelineCache.mergePaginatedEvents(roomId, events)
+                            RoomTimelineCache.markRoomAccessed(roomId)
                             invalidateCachedRoom(roomId)
-                            false
+                            // Rebuild timeline for the currently-open room so new events appear immediately
+                            if (currentRoomId == roomId) {
+                                val allCachedEvents = RoomTimelineCache.getCachedEvents(roomId)
+                                if (allCachedEvents != null && allCachedEvents.isNotEmpty()) {
+                                    buildEditChainsFromEvents(allCachedEvents, clearExisting = true)
+                                    processEditRelationships()
+                                    buildTimelineFromChain()
+                                }
+                            }
+                            return false
                         } else {
-                            appendEventsToCachedRoom(roomId, events)
+                            return appendEventsToCachedRoom(roomId, events)
                         }
                     }
                     
@@ -16500,8 +16606,24 @@ class AppViewModel : ViewModel() {
         // smallestRowId is a global variable that affects the currently open room's pagination
         // Updating it for a background prefetch of a different room would break pagination for the open room
         if (currentRoomId == roomId) {
+            // Room is currently open — rebuild timeline from merged cache so the UI
+            // seamlessly grows from the few cached events to the full paginate response.
+            // This is the "Option B" approach: show cache immediately, merge paginate in
+            // background, rebuild once.  No wipe, no flash.
+            val mergedEvents = RoomTimelineCache.getCachedEvents(roomId)
+            if (mergedEvents != null && mergedEvents.isNotEmpty()) {
+                android.util.Log.d("Andromuks", "AppViewModel: Background prefetch for OPEN room $roomId — rebuilding timeline from ${mergedEvents.size} merged events (${timelineList.size} new from paginate)")
+                processCachedEvents(roomId, mergedEvents, openingFromNotification = false)
+
+                // Track oldest rowId from the paginate response for pull-to-refresh
+                val oldestInResponse = timelineList.minOfOrNull { it.timelineRowid }
+                if (oldestInResponse != null && oldestInResponse != 0L) {
+                    oldestRowIdPerRoom[roomId] = oldestInResponse
+                }
+            }
             smallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated smallestRowId for background prefetch (room is currently open)")
+            roomsWithPendingPaginate.remove(roomId)
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated smallestRowId=$smallestRowId for background prefetch (room is currently open, timeline rebuilt)")
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipped updating smallestRowId for background prefetch (room $roomId is not currently open, currentRoomId=$currentRoomId)")
         }

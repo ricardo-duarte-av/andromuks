@@ -859,6 +859,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     private fun createRoomIntent(notificationData: NotificationData): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
             action = Intent.ACTION_VIEW
+            // CRITICAL: Reuse existing Activity so the ViewModel (and its SyncBatchProcessor
+            // buffer) survives.  Without these flags Android creates a *new* Activity, which
+            // gets a new empty SyncBatchProcessor and the buffered sync_complete messages
+            // from the old Activity are lost.
+            // CLEAR_TOP + SINGLE_TOP together: if the Activity already exists anywhere in the
+            // task, everything above it is removed and the intent is delivered via onNewIntent().
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             // OPTIMIZATION #2: Store room ID directly instead of complex URI parsing
             putExtra("room_id", notificationData.roomId)
             putExtra("event_id", notificationData.eventId)

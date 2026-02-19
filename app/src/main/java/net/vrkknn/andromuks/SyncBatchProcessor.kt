@@ -206,39 +206,40 @@ class SyncBatchProcessor(
     }
     
     /**
-     * Force flush batched messages (for notification navigation).
+     * Force flush batched messages for notification navigation.
      * This ensures we have the latest cached data before opening a room.
+     *
+     * Unlike the buffer-full safety flush (which calls flushBatchLocked()
+     * directly inside processSyncComplete and keeps isAppVisible=false),
+     * this method is called from AppViewModel when the user taps a
+     * notification — meaning the app IS coming to the foreground.
+     * We therefore set isAppVisible = true so that any sync_complete
+     * messages arriving *during* or *after* the flush are processed
+     * immediately rather than re-buffered.
+     *
      * @return Job that completes when batch flush finishes, null if no batch to flush
      */
     fun forceFlushBatch(): Job? {
         return scope.launch {
-            val shouldFlush = batchLock.withLock {
+            batchLock.withLock {
                 if (batchQueue.isEmpty()) {
-                    return@launch // No batch to flush
+                    // Still mark as visible even if queue is empty –
+                    // the app is coming to the foreground.
+                    isAppVisible = true
+                    return@launch
                 }
                 
                 val batchSize = batchQueue.size
                 Log.i(TAG, "Force flushing ${batchSize} batched messages (notification navigation)")
                 
-                // Temporarily mark as visible to ensure proper state updates and caching
-                val wasVisible = isAppVisible
+                // Mark as visible permanently – onResume/onAppBecameVisible will
+                // also set this, but doing it here avoids a race window.
                 isAppVisible = true
-                
-                // Return visibility state to restore later
-                wasVisible
             }
             
-            try {
-                // Call flushBatchLocked which will process the batch
-                // We need to acquire the lock again since flushBatchLocked expects it
-                batchLock.withLock {
-                    flushBatchLocked()
-                }
-            } finally {
-                // Restore original visibility state
-                batchLock.withLock {
-                    isAppVisible = shouldFlush
-                }
+            // Process the batch (acquires lock internally)
+            batchLock.withLock {
+                flushBatchLocked()
             }
         }
     }
