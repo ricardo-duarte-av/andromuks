@@ -111,6 +111,8 @@ import net.vrkknn.andromuks.utils.EditPreviewInput
 import net.vrkknn.andromuks.utils.EmojiSelectionDialog
 import net.vrkknn.andromuks.utils.EmojiShortcodes
 import net.vrkknn.andromuks.utils.EmojiSuggestionList
+import net.vrkknn.andromuks.utils.CommandSuggestionList
+import net.vrkknn.andromuks.utils.CommandDefinition
 import net.vrkknn.andromuks.utils.StickerSelectionDialog
 import net.vrkknn.andromuks.utils.ReplyPreviewInput
 import net.vrkknn.andromuks.utils.navigateToUserInfo
@@ -316,8 +318,90 @@ fun ThreadViewerScreen(
     var isUploading by remember { mutableStateOf(false) }
     var cameraPhotoUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var cameraVideoUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    
+    // Avatar command state (for commands that need image picker) - must be declared before launcher
+    var pendingAvatarCommand by remember { mutableStateOf<String?>(null) } // "myroomavatar", "globalavatar", or "roomavatar"
 
     // Media pickers
+    // Avatar image picker launcher (for avatar commands)
+    val avatarImagePickerLauncher =
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: android.net.Uri? ->
+            uri?.let {
+                val mimeType = context.contentResolver.getType(it)
+                if (mimeType?.startsWith("image/") == true) {
+                    // Handle avatar upload
+                    val command = pendingAvatarCommand
+                    pendingAvatarCommand = null
+                    
+                    if (command != null) {
+                        coroutineScope.launch {
+                            try {
+                                // Upload the image
+                                val uploadResult = MediaUploadUtils.uploadMedia(
+                                    context = context,
+                                    uri = it,
+                                    homeserverUrl = homeserverUrl,
+                                    authToken = authToken,
+                                    isEncrypted = false,
+                                    compressOriginal = false
+                                )
+                                
+                                if (uploadResult != null) {
+                                    // Set the avatar based on command type
+                                    when (command) {
+                                        "myroomavatar" -> {
+                                            appViewModel.setRoomMemberAvatar(roomId, uploadResult.mxcUrl)
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Room avatar updated",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                        "globalavatar" -> {
+                                            appViewModel.setGlobalAvatar(uploadResult.mxcUrl)
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Global avatar updated",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                        "roomavatar" -> {
+                                            appViewModel.setRoomAvatar(roomId, uploadResult.mxcUrl)
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Room avatar updated",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    }
+                                } else {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Failed to upload avatar",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.e("Andromuks", "ThreadViewerScreen: Avatar upload error", e)
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Error uploading avatar: ${e.message}",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    }
+                } else {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Please select an image file",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    pendingAvatarCommand = null
+                }
+            }
+        }
+    
     val mediaPickerLauncher =
         rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: android.net.Uri? ->
             uri?.let {
@@ -443,6 +527,11 @@ fun ThreadViewerScreen(
     var showRoomSuggestionList by remember { mutableStateOf(false) }
     var roomQuery by remember { mutableStateOf("") }
     var roomStartIndex by remember { mutableStateOf(-1) }
+    
+    // Command ( /command ) state
+    var showCommandSuggestionList by remember { mutableStateOf(false) }
+    var commandQuery by remember { mutableStateOf("") }
+    var commandStartIndex by remember { mutableStateOf(-1) }
     
     var showEmojiPickerForText by remember { mutableStateOf(false) }
     var showStickerPickerForText by remember { mutableStateOf(false) }
@@ -754,6 +843,60 @@ fun ThreadViewerScreen(
                 "" // Empty query when just # is typed
             }
             return Pair(query, hashIndex)
+        }
+        
+        return null
+    }
+
+    // Command detection function (for '/' based autocomplete)
+    fun detectCommand(text: String, cursorPosition: Int): Pair<String, Int>? {
+        if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
+        
+        // Look for '/' at or before cursor position
+        var slashIndex = -1
+        for (i in (cursorPosition - 1) downTo 0) {
+            if (i < text.length && text[i] == '/') {
+                slashIndex = i
+                break
+            }
+            // Stop if we hit a space or newline before finding /
+            if (i < text.length && (text[i] == ' ' || text[i] == '\n')) {
+                break
+            }
+        }
+        
+        // Also check if cursor is right after / (similar to mention detection)
+        if (slashIndex == -1 && cursorPosition > 0 && cursorPosition <= text.length) {
+            if (text[cursorPosition - 1] == '/') {
+                // Check if / is at beginning or preceded by space/newline
+                if (cursorPosition == 1 || (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))) {
+                    slashIndex = cursorPosition - 1
+                }
+            }
+        }
+        
+        if (slashIndex == -1) return null
+        
+        // Extract the query after / (only the command name, up to first space/newline or cursor)
+        val queryStart = slashIndex + 1
+        var queryEnd = cursorPosition
+        
+        // Find the first space or newline after / and before/at cursor position
+        for (i in queryStart until min(cursorPosition, text.length)) {
+            if (text[i] == ' ' || text[i] == '\n') {
+                queryEnd = i
+                break
+            }
+        }
+        
+        // Allow showing command list even if we just typed / (empty query)
+        if (queryStart <= cursorPosition) {
+            val query = if (queryStart < min(queryEnd, text.length)) {
+                text.substring(queryStart, min(queryEnd, text.length)).trim()
+            } else {
+                "" // Empty query when just / is typed
+            }
+            return Pair(query, slashIndex)
         }
         
         return null
@@ -1419,53 +1562,72 @@ fun ThreadViewerScreen(
                                             textFieldValue = replacedValue
                                             draft = replacedValue.text
                                             
-                                            // Detect mentions
-                                            val mentionResult = detectMention(replacedValue.text, replacedValue.selection.start)
-                                            if (mentionResult != null) {
-                                                val (query, startIndex) = mentionResult
-                                                mentionQuery = query
-                                                mentionStartIndex = startIndex
-
-                                                if (!isWaitingForFullMemberList && !showMentionList) {
-                                                    val memberMapCurrent = appViewModel.getMemberMap(roomId)
-                                                    if (memberMapCurrent.isEmpty() || memberMapCurrent.size < 10) {
-                                                        // Profiles are loaded opportunistically when rendering events
-                                                        // Request full member list to populate cache
-                                                        isWaitingForFullMemberList = true
-                                                        lastMemberUpdateCounterBeforeMention = appViewModel.memberUpdateCounter
-                                                        appViewModel.requestFullMemberList(roomId)
-                                                    } else {
-                                                        showMentionList = true
-                                                    }
-                                                }
-                                            } else {
-                                                showMentionList = false
-                                                isWaitingForFullMemberList = false
-                                            }
-
-                                            // Detect emoji shortcodes
-                                            val emojiResult = detectEmojiShortcode(replacedValue.text, replacedValue.selection.start)
-                                            if (emojiResult != null) {
-                                                val (query, startIndex) = emojiResult
-                                                emojiQuery = query
-                                                emojiStartIndex = startIndex
-                                                showEmojiSuggestionList = true
-                                            } else {
-                                                showEmojiSuggestionList = false
-                                            }
-
-                                            // Detect room mentions ( #roomalias )
-                                            val roomResult = detectRoomMention(
+                                            // Detect commands first ( /command ) - check before everything else
+                                            val commandResult = detectCommand(
                                                 replacedValue.text,
                                                 replacedValue.selection.start
                                             )
-                                            if (roomResult != null) {
-                                                val (query, startIndex) = roomResult
-                                                roomQuery = query
-                                                roomStartIndex = startIndex
-                                                showRoomSuggestionList = true
-                                            } else {
+                                            if (commandResult != null) {
+                                                val (query, startIndex) = commandResult
+                                                commandQuery = query
+                                                commandStartIndex = startIndex
+                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "ThreadViewerScreen: / detected, query='$query'")
+                                                showCommandSuggestionList = true
+                                                // Hide other suggestion lists when command is active
+                                                showMentionList = false
+                                                showEmojiSuggestionList = false
                                                 showRoomSuggestionList = false
+                                            } else {
+                                                showCommandSuggestionList = false
+                                                
+                                                // Detect mentions
+                                                val mentionResult = detectMention(replacedValue.text, replacedValue.selection.start)
+                                                if (mentionResult != null) {
+                                                    val (query, startIndex) = mentionResult
+                                                    mentionQuery = query
+                                                    mentionStartIndex = startIndex
+
+                                                    if (!isWaitingForFullMemberList && !showMentionList) {
+                                                        val memberMapCurrent = appViewModel.getMemberMap(roomId)
+                                                        if (memberMapCurrent.isEmpty() || memberMapCurrent.size < 10) {
+                                                            // Profiles are loaded opportunistically when rendering events
+                                                            // Request full member list to populate cache
+                                                            isWaitingForFullMemberList = true
+                                                            lastMemberUpdateCounterBeforeMention = appViewModel.memberUpdateCounter
+                                                            appViewModel.requestFullMemberList(roomId)
+                                                        } else {
+                                                            showMentionList = true
+                                                        }
+                                                    }
+                                                } else {
+                                                    showMentionList = false
+                                                    isWaitingForFullMemberList = false
+                                                }
+
+                                                // Detect emoji shortcodes
+                                                val emojiResult = detectEmojiShortcode(replacedValue.text, replacedValue.selection.start)
+                                                if (emojiResult != null) {
+                                                    val (query, startIndex) = emojiResult
+                                                    emojiQuery = query
+                                                    emojiStartIndex = startIndex
+                                                    showEmojiSuggestionList = true
+                                                } else {
+                                                    showEmojiSuggestionList = false
+                                                }
+
+                                                // Detect room mentions ( #roomalias )
+                                                val roomResult = detectRoomMention(
+                                                    replacedValue.text,
+                                                    replacedValue.selection.start
+                                                )
+                                                if (roomResult != null) {
+                                                    val (query, startIndex) = roomResult
+                                                    roomQuery = query
+                                                    roomStartIndex = startIndex
+                                                    showRoomSuggestionList = true
+                                                } else {
+                                                    showRoomSuggestionList = false
+                                                }
                                             }
                                         },
                                         placeholder = {
@@ -1534,6 +1696,41 @@ fun ThreadViewerScreen(
                                         keyboardActions = KeyboardActions(
                                             onSend = {
                                                 if (draft.isNotBlank()) {
+                                                    // Check if this is a command first
+                                                    val isCommand = appViewModel.executeCommand(roomId, draft, context, navController)
+                                                    if (isCommand) {
+                                                        // Command was executed, clear draft
+                                                        draft = ""
+                                                        textFieldValue = TextFieldValue("")
+                                                        return@KeyboardActions
+                                                    } else if (draft.trim().startsWith("/")) {
+                                                        // Check if it's an avatar command that needs image picker
+                                                        val command = draft.trim().lowercase()
+                                                        when {
+                                                            command == "/myroomavatar" || command == "/myroomavatar " -> {
+                                                                pendingAvatarCommand = "myroomavatar"
+                                                                avatarImagePickerLauncher.launch("image/*")
+                                                                draft = ""
+                                                                textFieldValue = TextFieldValue("")
+                                                                return@KeyboardActions
+                                                            }
+                                                            command == "/globalavatar" || command == "/globalavatar " -> {
+                                                                pendingAvatarCommand = "globalavatar"
+                                                                avatarImagePickerLauncher.launch("image/*")
+                                                                draft = ""
+                                                                textFieldValue = TextFieldValue("")
+                                                                return@KeyboardActions
+                                                            }
+                                                            command == "/roomavatar" || command == "/roomavatar " -> {
+                                                                pendingAvatarCommand = "roomavatar"
+                                                                avatarImagePickerLauncher.launch("image/*")
+                                                                draft = ""
+                                                                textFieldValue = TextFieldValue("")
+                                                                return@KeyboardActions
+                                                            }
+                                                        }
+                                                    }
+                                                    
                                                     when {
                                                         editingEvent != null -> {
                                                             appViewModel.sendEdit(roomId, draft, editingEvent!!)
@@ -1584,6 +1781,41 @@ fun ThreadViewerScreen(
                             Button(
                                 onClick = {
                                     if (draft.isNotBlank()) {
+                                        // Check if this is a command first
+                                        val isCommand = appViewModel.executeCommand(roomId, draft, context, navController)
+                                        if (isCommand) {
+                                            // Command was executed, clear draft
+                                            draft = ""
+                                            textFieldValue = TextFieldValue("")
+                                            return@Button
+                                        } else if (draft.trim().startsWith("/")) {
+                                            // Check if it's an avatar command that needs image picker
+                                            val command = draft.trim().lowercase()
+                                            when {
+                                                command == "/myroomavatar" || command == "/myroomavatar " -> {
+                                                    pendingAvatarCommand = "myroomavatar"
+                                                    avatarImagePickerLauncher.launch("image/*")
+                                                    draft = ""
+                                                    textFieldValue = TextFieldValue("")
+                                                    return@Button
+                                                }
+                                                command == "/globalavatar" || command == "/globalavatar " -> {
+                                                    pendingAvatarCommand = "globalavatar"
+                                                    avatarImagePickerLauncher.launch("image/*")
+                                                    draft = ""
+                                                    textFieldValue = TextFieldValue("")
+                                                    return@Button
+                                                }
+                                                command == "/roomavatar" || command == "/roomavatar " -> {
+                                                    pendingAvatarCommand = "roomavatar"
+                                                    avatarImagePickerLauncher.launch("image/*")
+                                                    draft = ""
+                                                    textFieldValue = TextFieldValue("")
+                                                    return@Button
+                                                }
+                                            }
+                                        }
+                                        
                                         when {
                                             editingEvent != null -> {
                                                 appViewModel.sendEdit(roomId, draft, editingEvent!!)
@@ -1824,6 +2056,43 @@ fun ThreadViewerScreen(
                 }
                 
                 // Floating room suggestion list for room mentions
+                // Floating command suggestion list
+                if (showCommandSuggestionList) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(
+                                start = 72.dp,
+                                bottom = 80.dp
+                            )
+                            .navigationBarsPadding()
+                            .imePadding()
+                            .zIndex(9f),
+                        contentAlignment = Alignment.BottomStart
+                    ) {
+                        CommandSuggestionList(
+                            query = commandQuery,
+                            onCommandSelected = { command ->
+                                // Replace the command text with the selected command
+                                val commandEndIndex = commandStartIndex + 1 + commandQuery.length
+                                val newText = draft.substring(0, commandStartIndex) + command.command + " " + draft.substring(commandEndIndex)
+                                val newCursorPosition = commandStartIndex + command.command.length + 1
+                                
+                                draft = newText
+                                textFieldValue = TextFieldValue(
+                                    text = newText,
+                                    selection = TextRange(newCursorPosition)
+                                )
+                                
+                                // Hide the command suggestion list
+                                showCommandSuggestionList = false
+                                commandQuery = ""
+                            },
+                            modifier = Modifier.zIndex(10f)
+                        )
+                    }
+                }
+                
                 if (showRoomSuggestionList) {
                     Box(
                         modifier = Modifier

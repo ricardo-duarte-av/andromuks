@@ -177,6 +177,8 @@ import net.vrkknn.andromuks.utils.extractStickerFromEvent
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
 import net.vrkknn.andromuks.utils.EmojiShortcodes
 import net.vrkknn.andromuks.utils.EmojiSuggestionList
+import net.vrkknn.andromuks.utils.CommandSuggestionList
+import net.vrkknn.andromuks.utils.CommandDefinition
 import net.vrkknn.andromuks.BuildConfig
 
 
@@ -756,6 +758,14 @@ fun RoomTimelineScreen(
     var roomQuery by remember { mutableStateOf("") }
     var roomStartIndex by remember { mutableStateOf(-1) }
     
+    // Command ( /command ) state
+    var showCommandSuggestionList by remember { mutableStateOf(false) }
+    var commandQuery by remember { mutableStateOf("") }
+    var commandStartIndex by remember { mutableStateOf(-1) }
+    
+    // Avatar command state (for commands that need image picker)
+    var pendingAvatarCommand by remember { mutableStateOf<String?>(null) } // "myroomavatar", "globalavatar", or "roomavatar"
+    
     // Sync draft with TextFieldValue
     LaunchedEffect(draft) {
         if (textFieldValue.text != draft) {
@@ -855,6 +865,85 @@ fun RoomTimelineScreen(
     // State to track which picker we're trying to launch after permission request
     var pendingMediaPickerType by remember { mutableStateOf("") }
 
+    // Avatar image picker launcher (for avatar commands)
+    val avatarImagePickerLauncher =
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
+            uri?.let {
+                val mimeType = context.contentResolver.getType(it)
+                if (mimeType?.startsWith("image/") == true) {
+                    // Handle avatar upload
+                    val command = pendingAvatarCommand
+                    pendingAvatarCommand = null
+                    
+                    if (command != null) {
+                        coroutineScope.launch {
+                            try {
+                                // Upload the image
+                                val uploadResult = MediaUploadUtils.uploadMedia(
+                                    context = context,
+                                    uri = it,
+                                    homeserverUrl = homeserverUrl,
+                                    authToken = authToken,
+                                    isEncrypted = false,
+                                    compressOriginal = false
+                                )
+                                
+                                if (uploadResult != null) {
+                                    // Set the avatar based on command type
+                                    when (command) {
+                                        "myroomavatar" -> {
+                                            appViewModel.setRoomMemberAvatar(roomId, uploadResult.mxcUrl)
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Room avatar updated",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                        "globalavatar" -> {
+                                            appViewModel.setGlobalAvatar(uploadResult.mxcUrl)
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Global avatar updated",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                        "roomavatar" -> {
+                                            appViewModel.setRoomAvatar(roomId, uploadResult.mxcUrl)
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Room avatar updated",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    }
+                                } else {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Failed to upload avatar",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.e("Andromuks", "RoomTimelineScreen: Avatar upload error", e)
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Error uploading avatar: ${e.message}",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    }
+                } else {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Please select an image file",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    pendingAvatarCommand = null
+                }
+            }
+        }
+    
     // Media picker launcher - accepts both images and videos
     val mediaPickerLauncher =
         rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) {
@@ -1054,7 +1143,13 @@ fun RoomTimelineScreen(
         // If permissions are granted, launch the appropriate picker
         if (hasRequiredPermissions) {
             when (pendingMediaPickerType) {
-                "image" -> mediaPickerLauncher.launch("image/*,video/*")
+                "image" -> {
+                    if (pendingAvatarCommand != null) {
+                        avatarImagePickerLauncher.launch("image/*")
+                    } else {
+                        mediaPickerLauncher.launch("image/*,video/*")
+                    }
+                }
                 "audio" -> audioPickerLauncher.launch("audio/*")
                 "file" -> filePickerLauncher.launch("*/*")
             }
@@ -1284,6 +1379,60 @@ fun RoomTimelineScreen(
                 "" // Empty query when just # is typed
             }
             return Pair(query, hashIndex)
+        }
+        
+        return null
+    }
+
+    // Command detection function (for '/' based autocomplete)
+    fun detectCommand(text: String, cursorPosition: Int): Pair<String, Int>? {
+        if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
+        
+        // Look for '/' at or before cursor position
+        var slashIndex = -1
+        for (i in (cursorPosition - 1) downTo 0) {
+            if (i < text.length && text[i] == '/') {
+                slashIndex = i
+                break
+            }
+            // Stop if we hit a space or newline before finding /
+            if (i < text.length && (text[i] == ' ' || text[i] == '\n')) {
+                break
+            }
+        }
+        
+        // Also check if cursor is right after / (similar to mention detection)
+        if (slashIndex == -1 && cursorPosition > 0 && cursorPosition <= text.length) {
+            if (text[cursorPosition - 1] == '/') {
+                // Check if / is at beginning or preceded by space/newline
+                if (cursorPosition == 1 || (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))) {
+                    slashIndex = cursorPosition - 1
+                }
+            }
+        }
+        
+        if (slashIndex == -1) return null
+        
+        // Extract the query after / (only the command name, up to first space/newline or cursor)
+        val queryStart = slashIndex + 1
+        var queryEnd = cursorPosition
+        
+        // Find the first space or newline after / and before/at cursor position
+        for (i in queryStart until min(cursorPosition, text.length)) {
+            if (text[i] == ' ' || text[i] == '\n') {
+                queryEnd = i
+                break
+            }
+        }
+        
+        // Allow showing command list even if we just typed / (empty query)
+        if (queryStart <= cursorPosition) {
+            val query = if (queryStart < min(queryEnd, text.length)) {
+                text.substring(queryStart, min(queryEnd, text.length)).trim()
+            } else {
+                "" // Empty query when just / is typed
+            }
+            return Pair(query, slashIndex)
         }
         
         return null
@@ -2971,68 +3120,87 @@ fun RoomTimelineScreen(
                                         textFieldValue = replacedValue
                                         draft = replacedValue.text
                                         
-                                        // Detect room mentions first ( #roomalias ) - check before mentions/emojis
-                                        val roomResult = detectRoomMention(
+                                        // Detect commands first ( /command ) - check before everything else
+                                        val commandResult = detectCommand(
                                             replacedValue.text,
                                             replacedValue.selection.start
                                         )
-                                        if (roomResult != null) {
-                                            val (query, startIndex) = roomResult
-                                            roomQuery = query
-                                            roomStartIndex = startIndex
-                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: # detected, query='$query', roomsWithAliases.size=${roomsWithAliases.size}")
-                                            showRoomSuggestionList = true
-                                            // Hide other suggestion lists when room mention is active
+                                        if (commandResult != null) {
+                                            val (query, startIndex) = commandResult
+                                            commandQuery = query
+                                            commandStartIndex = startIndex
+                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: / detected, query='$query'")
+                                            showCommandSuggestionList = true
+                                            // Hide other suggestion lists when command is active
                                             showMentionList = false
                                             showEmojiSuggestionList = false
-                                        } else {
                                             showRoomSuggestionList = false
+                                        } else {
+                                            showCommandSuggestionList = false
                                             
-                                            // Detect mentions
-                                            val mentionResult = detectMention(
+                                            // Detect room mentions ( #roomalias ) - check before mentions/emojis
+                                            val roomResult = detectRoomMention(
                                                 replacedValue.text,
                                                 replacedValue.selection.start
                                             )
-                                            if (mentionResult != null) {
-                                                val (query, startIndex) = mentionResult
-                                                mentionQuery = query
-                                                mentionStartIndex = startIndex
-                                                
-                                                // CRITICAL FIX: Load cached members immediately, then request fresh data
-                                                if (!isWaitingForFullMemberList && !showMentionList) {
-                                                    // Check if we already have members in memory cache
-                                                    val memberMap = appViewModel.getMemberMap(roomId)
-                                                    if (memberMap.isEmpty() || memberMap.size < 10) {
-                                                        // Profiles are loaded opportunistically when rendering events
-                                                        // Request full member list to populate cache
-                                                        // Request fresh data from server (will update when it arrives)
-                                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: @ detected, requesting fresh member list for room $roomId")
-                                                        isWaitingForFullMemberList = true
-                                                        lastMemberUpdateCounterBeforeMention = appViewModel.memberUpdateCounter
-                                                        appViewModel.requestFullMemberList(roomId)
-                                                    } else {
-                                                        // We already have members in memory, show list immediately
-                                                        showMentionList = true
-                                                    }
-                                                }
-                                                // Hide other suggestion lists when mention is active
+                                            if (roomResult != null) {
+                                                val (query, startIndex) = roomResult
+                                                roomQuery = query
+                                                roomStartIndex = startIndex
+                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: # detected, query='$query', roomsWithAliases.size=${roomsWithAliases.size}")
+                                                showRoomSuggestionList = true
+                                                // Hide other suggestion lists when room mention is active
+                                                showMentionList = false
                                                 showEmojiSuggestionList = false
                                             } else {
-                                                showMentionList = false
-                                                isWaitingForFullMemberList = false
+                                                showRoomSuggestionList = false
                                                 
-                                                // Detect emoji shortcodes ( :shortname )
-                                                val emojiResult = detectEmojiShortcode(
+                                                // Detect mentions
+                                                val mentionResult = detectMention(
                                                     replacedValue.text,
                                                     replacedValue.selection.start
                                                 )
-                                                if (emojiResult != null) {
-                                                    val (query, startIndex) = emojiResult
-                                                    emojiQuery = query
-                                                    emojiStartIndex = startIndex
-                                                    showEmojiSuggestionList = true
-                                                } else {
+                                                if (mentionResult != null) {
+                                                    val (query, startIndex) = mentionResult
+                                                    mentionQuery = query
+                                                    mentionStartIndex = startIndex
+                                                    
+                                                    // CRITICAL FIX: Load cached members immediately, then request fresh data
+                                                    if (!isWaitingForFullMemberList && !showMentionList) {
+                                                        // Check if we already have members in memory cache
+                                                        val memberMap = appViewModel.getMemberMap(roomId)
+                                                        if (memberMap.isEmpty() || memberMap.size < 10) {
+                                                            // Profiles are loaded opportunistically when rendering events
+                                                            // Request full member list to populate cache
+                                                            // Request fresh data from server (will update when it arrives)
+                                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: @ detected, requesting fresh member list for room $roomId")
+                                                            isWaitingForFullMemberList = true
+                                                            lastMemberUpdateCounterBeforeMention = appViewModel.memberUpdateCounter
+                                                            appViewModel.requestFullMemberList(roomId)
+                                                        } else {
+                                                            // We already have members in memory, show list immediately
+                                                            showMentionList = true
+                                                        }
+                                                    }
+                                                    // Hide other suggestion lists when mention is active
                                                     showEmojiSuggestionList = false
+                                                } else {
+                                                    showMentionList = false
+                                                    isWaitingForFullMemberList = false
+                                                    
+                                                    // Detect emoji shortcodes ( :shortname )
+                                                    val emojiResult = detectEmojiShortcode(
+                                                        replacedValue.text,
+                                                        replacedValue.selection.start
+                                                    )
+                                                    if (emojiResult != null) {
+                                                        val (query, startIndex) = emojiResult
+                                                        emojiQuery = query
+                                                        emojiStartIndex = startIndex
+                                                        showEmojiSuggestionList = true
+                                                    } else {
+                                                        showEmojiSuggestionList = false
+                                                    }
                                                 }
                                             }
                                         }
@@ -3116,6 +3284,65 @@ fun RoomTimelineScreen(
                                                 return@KeyboardActions
                                             }
                                             if (draft.isNotBlank()) {
+                                                // Check if this is a command first
+                                                val isCommand = appViewModel.executeCommand(roomId, draft, context, navController)
+                                                if (isCommand) {
+                                                    // Command was executed, clear draft
+                                                    draft = ""
+                                                    textFieldValue = TextFieldValue("")
+                                                    return@KeyboardActions
+                                                } else if (draft.trim().startsWith("/")) {
+                                                    // Check if it's an avatar command that needs image picker
+                                                    val command = draft.trim().lowercase()
+                                                    when {
+                                                        command == "/myroomavatar" || command == "/myroomavatar " -> {
+                                                            pendingAvatarCommand = "myroomavatar"
+                                                            if (needsMediaPermissions() && !hasRequiredMediaPermissions("image")) {
+                                                                pendingMediaPickerType = "image"
+                                                                mediaPermissionLauncher.launch(arrayOf(
+                                                                    Manifest.permission.READ_MEDIA_IMAGES,
+                                                                    Manifest.permission.READ_MEDIA_VIDEO
+                                                                ))
+                                                            } else {
+                                                                avatarImagePickerLauncher.launch("image/*")
+                                                            }
+                                                            draft = ""
+                                                            textFieldValue = TextFieldValue("")
+                                                            return@KeyboardActions
+                                                        }
+                                                        command == "/globalavatar" || command == "/globalavatar " -> {
+                                                            pendingAvatarCommand = "globalavatar"
+                                                            if (needsMediaPermissions() && !hasRequiredMediaPermissions("image")) {
+                                                                pendingMediaPickerType = "image"
+                                                                mediaPermissionLauncher.launch(arrayOf(
+                                                                    Manifest.permission.READ_MEDIA_IMAGES,
+                                                                    Manifest.permission.READ_MEDIA_VIDEO
+                                                                ))
+                                                            } else {
+                                                                avatarImagePickerLauncher.launch("image/*")
+                                                            }
+                                                            draft = ""
+                                                            textFieldValue = TextFieldValue("")
+                                                            return@KeyboardActions
+                                                        }
+                                                        command == "/roomavatar" || command == "/roomavatar " -> {
+                                                            pendingAvatarCommand = "roomavatar"
+                                                            if (needsMediaPermissions() && !hasRequiredMediaPermissions("image")) {
+                                                                pendingMediaPickerType = "image"
+                                                                mediaPermissionLauncher.launch(arrayOf(
+                                                                    Manifest.permission.READ_MEDIA_IMAGES,
+                                                                    Manifest.permission.READ_MEDIA_VIDEO
+                                                                ))
+                                                            } else {
+                                                                avatarImagePickerLauncher.launch("image/*")
+                                                            }
+                                                            draft = ""
+                                                            textFieldValue = TextFieldValue("")
+                                                            return@KeyboardActions
+                                                        }
+                                                    }
+                                                }
+                                                
                                                 // Send edit if editing a message
                                                 if (editingEvent != null) {
                                                     appViewModel.sendEdit(roomId, draft, editingEvent!!)
@@ -3169,6 +3396,65 @@ fun RoomTimelineScreen(
                                     return@Button
                                 }
                                 if (draft.isNotBlank()) {
+                                    // Check if this is a command first
+                                    val isCommand = appViewModel.executeCommand(roomId, draft, context, navController)
+                                    if (isCommand) {
+                                        // Command was executed, clear draft
+                                        draft = ""
+                                        textFieldValue = TextFieldValue("")
+                                        return@Button
+                                    } else if (draft.trim().startsWith("/")) {
+                                        // Check if it's an avatar command that needs image picker
+                                        val command = draft.trim().lowercase()
+                                        when {
+                                            command == "/myroomavatar" || command == "/myroomavatar " -> {
+                                                pendingAvatarCommand = "myroomavatar"
+                                                if (needsMediaPermissions() && !hasRequiredMediaPermissions("image")) {
+                                                    pendingMediaPickerType = "image"
+                                                    mediaPermissionLauncher.launch(arrayOf(
+                                                        Manifest.permission.READ_MEDIA_IMAGES,
+                                                        Manifest.permission.READ_MEDIA_VIDEO
+                                                    ))
+                                                } else {
+                                                    avatarImagePickerLauncher.launch("image/*")
+                                                }
+                                                draft = ""
+                                                textFieldValue = TextFieldValue("")
+                                                return@Button
+                                            }
+                                            command == "/globalavatar" || command == "/globalavatar " -> {
+                                                pendingAvatarCommand = "globalavatar"
+                                                if (needsMediaPermissions() && !hasRequiredMediaPermissions("image")) {
+                                                    pendingMediaPickerType = "image"
+                                                    mediaPermissionLauncher.launch(arrayOf(
+                                                        Manifest.permission.READ_MEDIA_IMAGES,
+                                                        Manifest.permission.READ_MEDIA_VIDEO
+                                                    ))
+                                                } else {
+                                                    avatarImagePickerLauncher.launch("image/*")
+                                                }
+                                                draft = ""
+                                                textFieldValue = TextFieldValue("")
+                                                return@Button
+                                            }
+                                            command == "/roomavatar" || command == "/roomavatar " -> {
+                                                pendingAvatarCommand = "roomavatar"
+                                                if (needsMediaPermissions() && !hasRequiredMediaPermissions("image")) {
+                                                    pendingMediaPickerType = "image"
+                                                    mediaPermissionLauncher.launch(arrayOf(
+                                                        Manifest.permission.READ_MEDIA_IMAGES,
+                                                        Manifest.permission.READ_MEDIA_VIDEO
+                                                    ))
+                                                } else {
+                                                    avatarImagePickerLauncher.launch("image/*")
+                                                }
+                                                draft = ""
+                                                textFieldValue = TextFieldValue("")
+                                                return@Button
+                                            }
+                                        }
+                                    }
+                                    
                                     // Send edit if editing a message
                                     if (editingEvent != null) {
                                         appViewModel.sendEdit(roomId, draft, editingEvent!!)
@@ -3548,6 +3834,42 @@ fun RoomTimelineScreen(
                                 
                                 showEmojiSuggestionList = false
                                 emojiQuery = ""
+                            },
+                            modifier = Modifier.zIndex(10f)
+                        )
+                    }
+                }
+                
+                // Floating command suggestion list
+                if (showCommandSuggestionList) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(
+                                start = 72.dp, // Align with text input (attach button width + spacing)
+                                bottom = 60.dp  // Closer to text input
+                            )
+                            .navigationBarsPadding()
+                            .imePadding()
+                            .zIndex(9f)
+                    ) {
+                        CommandSuggestionList(
+                            query = commandQuery,
+                            onCommandSelected = { command ->
+                                // Replace the command text with the selected command
+                                val commandEndIndex = commandStartIndex + 1 + commandQuery.length
+                                val newText = draft.substring(0, commandStartIndex) + command.command + " " + draft.substring(commandEndIndex)
+                                val newCursorPosition = commandStartIndex + command.command.length + 1
+                                
+                                draft = newText
+                                textFieldValue = TextFieldValue(
+                                    text = newText,
+                                    selection = TextRange(newCursorPosition)
+                                )
+                                
+                                // Hide the command suggestion list
+                                showCommandSuggestionList = false
+                                commandQuery = ""
                             },
                             modifier = Modifier.zIndex(10f)
                         )

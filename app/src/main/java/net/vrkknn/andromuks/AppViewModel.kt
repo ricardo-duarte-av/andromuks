@@ -14962,6 +14962,302 @@ class AppViewModel : ViewModel() {
             leaveRoomRequests.remove(requestId)
         }
     }
+    
+    /**
+     * Parse and execute a command from user input
+     * Returns true if the text was a command and was executed, false otherwise
+     */
+    fun executeCommand(roomId: String, text: String, context: android.content.Context, navController: androidx.navigation.NavController? = null): Boolean {
+        val trimmed = text.trim()
+        if (!trimmed.startsWith("/")) return false
+        
+        val parts = trimmed.split("\\s+".toRegex(), limit = 10) // Limit to prevent issues with very long inputs
+        if (parts.isEmpty()) return false
+        
+        val command = parts[0].lowercase()
+        val args = parts.drop(1)
+        
+        return when {
+            command == "/join" || command == "/j" -> {
+                if (args.isNotEmpty()) {
+                    val roomRef = args[0]
+                    val reason = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() }
+                    // Navigate to join view or join room directly
+                    if (navController != null) {
+                        // TODO: Navigate to join view or handle join
+                        android.util.Log.d("Andromuks", "AppViewModel: /join command - room: $roomRef, reason: $reason")
+                    }
+                }
+                true
+            }
+            command == "/leave" || command == "/part" -> {
+                val reason = args.joinToString(" ").takeIf { it.isNotBlank() }
+                leaveRoom(roomId)
+                true
+            }
+            command == "/invite" -> {
+                if (args.isNotEmpty()) {
+                    val userId = args[0]
+                    val reason = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() }
+                    val requestId = requestIdCounter++
+                    sendWebSocketCommand("set_membership", requestId, mapOf(
+                        "room_id" to roomId,
+                        "user_id" to userId,
+                        "action" to "invite",
+                        "reason" to (reason ?: "")
+                    ))
+                }
+                true
+            }
+            command == "/kick" -> {
+                if (args.isNotEmpty()) {
+                    val userId = args[0]
+                    val reason = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() }
+                    val requestId = requestIdCounter++
+                    sendWebSocketCommand("set_membership", requestId, mapOf(
+                        "room_id" to roomId,
+                        "user_id" to userId,
+                        "action" to "kick",
+                        "reason" to (reason ?: "")
+                    ))
+                }
+                true
+            }
+            command == "/ban" -> {
+                if (args.isNotEmpty()) {
+                    val userId = args[0]
+                    val reason = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() }
+                    val requestId = requestIdCounter++
+                    sendWebSocketCommand("set_membership", requestId, mapOf(
+                        "room_id" to roomId,
+                        "user_id" to userId,
+                        "action" to "ban",
+                        "reason" to (reason ?: "")
+                    ))
+                }
+                true
+            }
+            command == "/myroomnick" || command == "/roomnick" -> {
+                if (args.isNotEmpty()) {
+                    val name = args.joinToString(" ")
+                    // Send m.room.member state event to set display name
+                    val requestId = requestIdCounter++
+                    sendWebSocketCommand("set_state", requestId, mapOf(
+                        "room_id" to roomId,
+                        "type" to "m.room.member",
+                        "state_key" to currentUserId,
+                        "content" to mapOf(
+                            "displayname" to name,
+                            "membership" to "join"
+                        )
+                    ))
+                }
+                true
+            }
+            command == "/myroomavatar" -> {
+                // Return false so UI can handle image picker, upload, and set_state
+                return false
+            }
+            command == "/globalnick" || command == "/globalname" -> {
+                if (args.isNotEmpty()) {
+                    val name = args.joinToString(" ")
+                    // Use set_profile_field command for global display name
+                    val requestId = requestIdCounter++
+                    sendWebSocketCommand("set_profile_field", requestId, mapOf(
+                        "field" to "displayname",
+                        "value" to name
+                    ))
+                }
+                true
+            }
+            command == "/globalavatar" -> {
+                // Return special value to indicate UI should open image picker
+                // The UI will handle upload and then call setAvatarProfileField
+                return false // UI will handle this
+            }
+            command == "/roomname" -> {
+                if (args.isNotEmpty()) {
+                    val name = args.joinToString(" ")
+                    val requestId = requestIdCounter++
+                    sendWebSocketCommand("set_state", requestId, mapOf(
+                        "room_id" to roomId,
+                        "type" to "m.room.name",
+                        "state_key" to "",
+                        "content" to mapOf("name" to name)
+                    ))
+                }
+                true
+            }
+            command == "/roomavatar" -> {
+                // Return false so UI can handle image picker, upload, and set_state
+                return false
+            }
+            command == "/redact" -> {
+                if (args.isNotEmpty()) {
+                    val eventId = args[0]
+                    val reason = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() }
+                    val requestId = requestIdCounter++
+                    sendWebSocketCommand("redact_event", requestId, mapOf(
+                        "room_id" to roomId,
+                        "event_id" to eventId,
+                        "reason" to (reason ?: "")
+                    ))
+                }
+                true
+            }
+            command == "/raw" -> {
+                if (args.isNotEmpty()) {
+                    val eventType = args[0]
+                    val jsonStr = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() } ?: "{}"
+                    val requestId = requestIdCounter++
+                    try {
+                        val content = org.json.JSONObject(jsonStr)
+                        val contentMap = mutableMapOf<String, Any>()
+                        val keys = content.keys()
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            contentMap[key] = content.get(key)
+                        }
+                        sendWebSocketCommand("send_event", requestId, mapOf(
+                            "room_id" to roomId,
+                            "type" to eventType,
+                            "content" to contentMap,
+                            "disable_encryption" to false
+                        ))
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: Invalid JSON in /raw command", e)
+                    }
+                }
+                true
+            }
+            command == "/unencryptedraw" -> {
+                if (args.isNotEmpty()) {
+                    val eventType = args[0]
+                    val jsonStr = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() } ?: "{}"
+                    val requestId = requestIdCounter++
+                    try {
+                        val content = org.json.JSONObject(jsonStr)
+                        val contentMap = mutableMapOf<String, Any>()
+                        val keys = content.keys()
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            contentMap[key] = content.get(key)
+                        }
+                        sendWebSocketCommand("send_event", requestId, mapOf(
+                            "room_id" to roomId,
+                            "type" to eventType,
+                            "content" to contentMap,
+                            "disable_encryption" to true
+                        ))
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: Invalid JSON in /unencryptedraw command", e)
+                    }
+                }
+                true
+            }
+            command == "/rawstate" -> {
+                if (args.size >= 2) {
+                    val eventType = args[0]
+                    val stateKey = args[1]
+                    val jsonStr = args.drop(2).joinToString(" ").takeIf { it.isNotBlank() } ?: "{}"
+                    val requestId = requestIdCounter++
+                    try {
+                        val content = org.json.JSONObject(jsonStr)
+                        val contentMap = mutableMapOf<String, Any>()
+                        val keys = content.keys()
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            contentMap[key] = content.get(key)
+                        }
+                        sendWebSocketCommand("set_state", requestId, mapOf(
+                            "room_id" to roomId,
+                            "type" to eventType,
+                            "state_key" to stateKey,
+                            "content" to contentMap
+                        ))
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: Invalid JSON in /rawstate command", e)
+                    }
+                }
+                true
+            }
+            command == "/alias" -> {
+                if (args.size >= 2) {
+                    val action = args[0].lowercase()
+                    val alias = args[1]
+                    val requestId = requestIdCounter++
+                    when (action) {
+                        "add", "create" -> {
+                            // Add alias - send m.room.canonical_alias state event
+                            sendWebSocketCommand("set_state", requestId, mapOf(
+                                "room_id" to roomId,
+                                "type" to "m.room.canonical_alias",
+                                "state_key" to "",
+                                "content" to mapOf("alias" to alias)
+                            ))
+                        }
+                        "del", "remove", "rm", "delete" -> {
+                            // Remove alias - send m.room.canonical_alias state event with empty alias
+                            sendWebSocketCommand("set_state", requestId, mapOf(
+                                "room_id" to roomId,
+                                "type" to "m.room.canonical_alias",
+                                "state_key" to "",
+                                "content" to mapOf("alias" to "")
+                            ))
+                        }
+                    }
+                }
+                true
+            }
+            else -> false // Not a recognized command
+        }
+    }
+    
+    /**
+     * Set room member avatar (myroomavatar command)
+     * Called after image is uploaded
+     */
+    fun setRoomMemberAvatar(roomId: String, mxcUrl: String) {
+        val requestId = requestIdCounter++
+        sendWebSocketCommand("set_state", requestId, mapOf(
+            "room_id" to roomId,
+            "type" to "m.room.member",
+            "state_key" to currentUserId,
+            "content" to mapOf(
+                "avatar_url" to mxcUrl,
+                "membership" to "join"
+            )
+        ))
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting room member avatar: $mxcUrl")
+    }
+    
+    /**
+     * Set room avatar (roomavatar command)
+     * Called after image is uploaded
+     */
+    fun setRoomAvatar(roomId: String, mxcUrl: String) {
+        val requestId = requestIdCounter++
+        sendWebSocketCommand("set_state", requestId, mapOf(
+            "room_id" to roomId,
+            "type" to "m.room.avatar",
+            "state_key" to "",
+            "content" to mapOf("url" to mxcUrl)
+        ))
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting room avatar: $mxcUrl")
+    }
+    
+    /**
+     * Set global avatar (globalavatar command)
+     * Called after image is uploaded
+     */
+    fun setGlobalAvatar(mxcUrl: String) {
+        val requestId = requestIdCounter++
+        sendWebSocketCommand("set_profile_field", requestId, mapOf(
+            "field" to "avatar",
+            "value" to mxcUrl
+        ))
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting global avatar: $mxcUrl")
+    }
     /**
      * Send WebSocket command to the backend
      * Commands are sent individually with sequential request IDs
