@@ -264,71 +264,94 @@ fun RoomListScreen(
             android.util.Log.d("Andromuks", "RoomListScreen: isProcessingBatch=$isProcessingBatch")
         }
     }
-    var previousSectionType by remember { mutableStateOf(stableSection.type) }
-    var sectionAnimationDirection by remember { mutableStateOf(0) }
-    // CRASH FIX: Track animation state to prevent updates during tab animations
+    // CRASH FIX: Track animation state to prevent stableSection updates during tab animations.
+    // animationGeneration increments on each type-change so the guard LaunchedEffect restarts,
+    // correctly handling rapid tab switches (previous delay is cancelled, new one starts).
     var isAnimationInProgress by remember { mutableStateOf(false) }
+    var animationGeneration by remember { mutableStateOf(0) }
     var pendingSectionUpdate by remember { mutableStateOf<RoomSection?>(null) }
     // Room summaries are now in-memory only - no need for separate summary tracking
     var lastRoomSectionSignature by remember { mutableStateOf("") }
 
-    // Initial load is now handled in the LaunchedEffect below that also handles cleanup and sorting
-    
-    // Refresh stableSection from in-memory data when counters or space/bridge selection change
-    // CRASH FIX: Skip updates during tab animations to prevent mid-animation state changes
+    // ──────────────────────────────────────────────────────────────────────────
+    // SINGLE stableSection updater (merged from two formerly competing effects).
+    // Keyed on every trigger that can change the room section: update counters,
+    // summary counter, space/bridge selection.  Only ONE call to
+    // getCurrentRoomSection() per trigger, eliminating the race condition where
+    // two LaunchedEffects would write stableSection concurrently.
+    // ──────────────────────────────────────────────────────────────────────────
     LaunchedEffect(roomListUpdateCounter, uiState.roomSummaryUpdateCounter, uiState.currentSpaceId, appViewModel.currentBridgeId) {
-        // If initial sync isn't complete yet and we already have data, keep current UI to avoid flicker.
+        // During initial sync, keep existing content to avoid flicker.
         if (!uiState.initialSyncComplete) {
             val hadContent = stableSection.rooms.isNotEmpty() || stableSection.spaces.isNotEmpty()
             if (hadContent) return@LaunchedEffect
         }
 
-        val snapshot = appViewModel.getCurrentRoomSection()
-        
-        // CRASH FIX: Don't update during animations unless it's a section type change
-        if (isAnimationInProgress && snapshot.type == stableSection.type) {
-            // Queue the update for after animation completes
-            pendingSectionUpdate = snapshot
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Animation in progress, queuing stableSection update")
+        val newSection = appViewModel.getCurrentRoomSection()
+
+        // ── Section TYPE changed (tab switch) ───────────────────────────────
+        if (newSection.type != stableSection.type) {
+            isAnimationInProgress = true
+            animationGeneration++ // Restarts the guard LaunchedEffect below
+            stableSection = newSection
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section type changed to ${newSection.type}, animation started (gen=$animationGeneration)")
             return@LaunchedEffect
         }
-        // CRITICAL FIX: Always update if rooms are added or removed (by ID comparison)
-        // This ensures rooms don't vanish when they temporarily lose summaries/timestamps
+
+        // ── Mid-animation data update (same type) → queue ──────────────────
+        if (isAnimationInProgress) {
+            pendingSectionUpdate = newSection
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Animation in progress, queuing section update (rooms:${newSection.rooms.size})")
+            return@LaunchedEffect
+        }
+
+        // ── Rooms added or removed → always apply immediately ───────────────
         val oldRoomIds = stableSection.rooms.map { it.id }.toSet()
-        val newRoomIds = snapshot.rooms.map { it.id }.toSet()
+        val newRoomIds = newSection.rooms.map { it.id }.toSet()
         val roomsAdded = newRoomIds - oldRoomIds
         val roomsRemoved = oldRoomIds - newRoomIds
-        
-        // If rooms were added or removed, always update
+
         if (roomsAdded.isNotEmpty() || roomsRemoved.isNotEmpty()) {
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "RoomListScreen: Rooms added/removed - added:${roomsAdded.size} removed:${roomsRemoved.size}, updating stableSection")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Rooms added/removed – added:${roomsAdded.size} removed:${roomsRemoved.size}")
+            stableSection = newSection
+            return@LaunchedEffect
+        }
+
+        // ── Anti-flicker: don't replace populated list with empty one ───────
+        if (stableSection.rooms.isNotEmpty() && newSection.rooms.isEmpty() && uiState.initialSyncComplete) {
+            return@LaunchedEffect
+        }
+
+        // ── Fine-grained diff: unread counts, names, order, spaces ──────────
+        val oldSig = stableSection.rooms.map { "${it.id}:${it.unreadCount}:${it.highlightCount}:${it.name}" }
+        val newSig = newSection.rooms.map { "${it.id}:${it.unreadCount}:${it.highlightCount}:${it.name}" }
+        val roomsChanged = oldSig != newSig
+        val orderChanged = stableSection.rooms.map { it.id } != newSection.rooms.map { it.id }
+        val spacesChanged = stableSection.spaces.map { "${it.id}:${it.name}" } !=
+                           newSection.spaces.map { "${it.id}:${it.name}" }
+
+        if (roomsChanged || spacesChanged) {
+            if (orderChanged && !roomsChanged) {
+                // ANTI-FLICKER: Only order changed – reuse existing room instances to avoid avatar flicker
+                val oldRoomsById = stableSection.rooms.associateBy { it.id }
+                val reorderedRooms = newSection.rooms.map { oldRoomsById[it.id] ?: it }
+                stableSection = newSection.copy(rooms = reorderedRooms)
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Order changed only – preserved ${reorderedRooms.size} room instances")
+            } else {
+                stableSection = newSection
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section data changed – rooms:$roomsChanged order:$orderChanged spaces:$spacesChanged")
             }
-            stableSection = snapshot
-            return@LaunchedEffect
-        }
-        
-        // If we already have rooms and the new snapshot is empty, keep the old one to avoid flicker
-        // BUT only if we're not in initial sync (to allow empty state during startup)
-        if (stableSection.rooms.isNotEmpty() && snapshot.rooms.isEmpty() && uiState.initialSyncComplete) {
-            return@LaunchedEffect
-        }
-        
-        // For other cases, update if snapshot has any rooms or spaces
-        if (snapshot.rooms.isNotEmpty() || snapshot.spaces.isNotEmpty()) {
-            stableSection = snapshot
         } else if (stableSection.rooms.isEmpty() && stableSection.spaces.isEmpty()) {
-            // Both old and new are empty - safe to update
-            stableSection = snapshot
+            // Both old and new are empty – safe to apply (e.g. initial population)
+            stableSection = newSection
         }
+        // Otherwise nothing meaningful changed – skip update to avoid avatar flashing
     }
 
     // Room summaries are now in-memory only - data is already in stableSection.rooms
     // No need for separate summary tracking
 
-    // Consider the room list "settled" once we receive two identical signatures in a row.
-    // This prevents showing the list until sorting/unread counts stop bouncing.
-    // Keep previous signature for potential future analytics; no gating on it to unblock UI.
+    // Track room section signature for potential analytics / future settling logic
     LaunchedEffect(stableSection.rooms) {
         lastRoomSectionSignature = stableSection.rooms.joinToString("|") { room ->
             "${room.id}:${room.unreadCount}:${room.highlightCount}:${room.messagePreview}:${room.sortingTimestamp}"
@@ -401,93 +424,25 @@ fun RoomListScreen(
         }
     }
 
-    // PERFORMANCE: Only update section if data actually changed
-    // ANTI-FLICKER FIX: Preserve room instances when only order changes
-    LaunchedEffect(roomListUpdateCounter) {
-        // Use in-memory snapshot (no DB queries needed)
-        val newSection = appViewModel.getCurrentRoomSection()
-        
-        // CRITICAL FIX: Check if rooms were added or removed first (by ID comparison)
-        // This ensures rooms don't vanish when they temporarily lose summaries/timestamps
-        val oldRoomIds = stableSection.rooms.map { it.id }.toSet()
-        val newRoomIds = newSection.rooms.map { it.id }.toSet()
-        val roomsAdded = newRoomIds - oldRoomIds
-        val roomsRemoved = oldRoomIds - newRoomIds
-        
-        // FIX: Compare only meaningful fields, ignore micro timestamp changes
-        // Compare room order (by ID sequence), unread counts, and names
-        // Don't compare exact sortingTimestamp (millisecond differences don't matter visually)
-        val oldRoomSignature = stableSection.rooms.map { "${it.id}:${it.unreadCount}:${it.highlightCount}:${it.name}" }
-        val newRoomSignature = newSection.rooms.map { "${it.id}:${it.unreadCount}:${it.highlightCount}:${it.name}" }
-        val roomsChanged = oldRoomSignature != newRoomSignature
-        
-        // Also check if room order changed (by ID sequence)
-        val orderChanged = oldRoomIds.toList() != newRoomIds.toList()
-        
-        val spacesChanged = stableSection.spaces.map { "${it.id}:${it.name}" } != 
-                           newSection.spaces.map { "${it.id}:${it.name}" }
-        
-        if (newSection.type != stableSection.type) {
-            // Section type changed - update with animation
-            // CRASH FIX: Always allow section type changes (user-initiated tab switch)
-            val oldIndex = RoomSectionType.values().indexOf(previousSectionType)
-            val newIndex = RoomSectionType.values().indexOf(newSection.type)
-            sectionAnimationDirection = when {
-                newIndex > oldIndex -> 1
-                newIndex < oldIndex -> -1
-                else -> 0
-            }
-            previousSectionType = stableSection.type
-            isAnimationInProgress = true // Mark animation as in progress
-            stableSection = newSection
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section type changed from ${previousSectionType} to ${newSection.type}, animation started")
-        } else if (isAnimationInProgress) {
-            // CRASH FIX: During animation, queue updates instead of applying immediately
-            // This prevents mid-animation state changes that cause crashes
-            pendingSectionUpdate = newSection
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Animation in progress, queuing section update (rooms:${newSection.rooms.size})")
-        } else if (roomsAdded.isNotEmpty() || roomsRemoved.isNotEmpty()) {
-            // CRITICAL FIX: Rooms were added or removed - always update to show/hide them
-            // This prevents rooms from vanishing when they temporarily lose summary data
-            stableSection = newSection
-            sectionAnimationDirection = 0
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "RoomListScreen: Rooms added/removed - added:${roomsAdded.size} removed:${roomsRemoved.size}, updating section")
-            }
-        } else if (roomsChanged || spacesChanged) {
-            // Same section type but data changed - update without animation
-            // ANTI-FLICKER: If only order changed (not data), preserve room instances from old section
-            if (orderChanged && !roomsChanged) {
-                // Only order changed - preserve room instances to prevent avatar flicker
-                val oldRoomsById = stableSection.rooms.associateBy { it.id }
-                val reorderedRooms = newSection.rooms.map { oldRoomsById[it.id] ?: it }
-                stableSection = newSection.copy(rooms = reorderedRooms)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Order changed only - preserved ${reorderedRooms.size} room instances")
-            } else {
-                // Data changed - update normally
-                stableSection = newSection
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section data changed - rooms:$roomsChanged order:$orderChanged spaces:$spacesChanged")
-            }
-            sectionAnimationDirection = 0
-        }
-        // If nothing changed, skip update - prevents unnecessary recomposition and avatar flashing
-    }
-    
-    // CRASH FIX: Clear animation state and apply pending updates after animation completes
-    // Animation duration is 420ms (enter) + 360ms (exit) = ~800ms max, wait 1000ms to be safe
-    LaunchedEffect(isAnimationInProgress) {
+    // ──────────────────────────────────────────────────────────────────────────
+    // Animation guard: waits for the tab-switch animation to finish before
+    // applying any queued data updates.  Keyed on animationGeneration so rapid
+    // tab switches cancel the previous delay and start a fresh one (the old
+    // delay(1000) could expire mid-animation if two tabs were tapped quickly).
+    // Duration matches the actual AnimatedContent transitionSpec: 420ms enter +
+    // 30ms safety buffer = 450ms.
+    // ──────────────────────────────────────────────────────────────────────────
+    LaunchedEffect(animationGeneration) {
         if (isAnimationInProgress) {
-            kotlinx.coroutines.delay(1000) // Wait for animation to complete
+            delay(450) // 420ms animation + 30ms buffer
             isAnimationInProgress = false
-            if (pendingSectionUpdate != null) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Animation completed, applying pending section update (${pendingSectionUpdate!!.rooms.size} rooms)")
-                stableSection = pendingSectionUpdate!!
+            pendingSectionUpdate?.let { pending ->
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Animation completed (gen=$animationGeneration), applying pending section update (${pending.rooms.size} rooms)")
+                stableSection = pending
                 pendingSectionUpdate = null
             }
         }
     }
-    
-    //if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: stableSection = ${stableSection.type}, roomListUpdateCounter = $roomListUpdateCounter, rooms.size = ${stableSection.rooms.size}")
     
     // Always show the interface, even if rooms/spaces are empty
     var searchQuery by remember { mutableStateOf("") }

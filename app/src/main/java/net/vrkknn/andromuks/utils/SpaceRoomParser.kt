@@ -12,7 +12,13 @@ object SpaceRoomParser {
     /**
      * Parses the sync JSON and returns a list of all non-space rooms.
      * Ignores spaces for now and just shows a flat list of rooms.
-     * @deprecated Use parseSyncUpdate instead for incremental updates
+     *
+     * This function is the legacy full-parse path from before incremental sync
+     * was implemented.  It is retained as a reference and potential fallback but
+     * is NOT called in any production code path.  [parseSyncUpdate] handles all
+     * incoming `sync_complete` messages incrementally.
+     *
+     * @deprecated Use [parseSyncUpdate] instead for incremental updates.
      */
     fun parseRooms(syncJson: JSONObject): List<RoomItem> {
         val data = syncJson.optJSONObject("data") ?: return emptyList()
