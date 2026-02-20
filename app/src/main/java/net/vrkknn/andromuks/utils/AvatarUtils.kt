@@ -8,10 +8,15 @@ import coil.request.ImageRequest
 import coil.request.ErrorResult
 import coil.request.SuccessResult
 import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.CircleAvatarCache
 
 object AvatarUtils {
+    // PERFORMANCE: In-memory cache of mxcUrl -> resolved local/HTTP URL.
+    // Eliminates Mutex contention, SHA-256 hashing, and file I/O on repeated lookups.
+    // Only used for the room-list path (useCircleCache = true).
+    private val resolvedUrlCache = ConcurrentHashMap<String, String>(256)
     private const val FALLBACK_COLOR_COUNT = 10
     
     // Fallback colors matching the web client (hex codes converted to Color objects)
@@ -146,8 +151,19 @@ object AvatarUtils {
     }
     
     /**
+     * PERFORMANCE: Synchronous, lock-free lookup for the room list.
+     * Returns a previously resolved URL from the in-memory cache, or null on miss.
+     * This avoids launching a coroutine, acquiring Mutexes, SHA-256 hashing, and file I/O
+     * for the vast majority of items during scroll.
+     */
+    fun getAvatarUrlForRoomListCached(mxcUrl: String?, homeserverUrl: String): String? {
+        if (mxcUrl == null) return null
+        return resolvedUrlCache[mxcUrl] ?: mxcToHttpUrl(mxcUrl, homeserverUrl)
+    }
+
+    /**
      * Gets the avatar URL for RoomListScreen with CircleAvatarCache priority.
-     * Checks in order: CircleAvatarCache -> MediaCache -> Coil cache -> Network
+     * Checks in order: in-memory cache -> CircleAvatarCache -> MediaCache -> Coil cache -> Network
      * 
      * @param context Android context
      * @param mxcUrl The MXC URL from the room/user data
@@ -161,21 +177,42 @@ object AvatarUtils {
     ): String? {
         if (mxcUrl == null) return null
         
+        // 0. Check in-memory resolution cache first (no locks, no I/O)
+        resolvedUrlCache[mxcUrl]?.let { return it }
+        
         // 1. Check CircleAvatarCache first (pre-processed circular avatars)
         val circleCachedFile = CircleAvatarCache.getCachedFile(context, mxcUrl)
         if (circleCachedFile != null) {
-            return circleCachedFile.absolutePath
+            val path = circleCachedFile.absolutePath
+            resolvedUrlCache[mxcUrl] = path
+            return path
         }
         
         // 2. Check IntelligentMediaCache (original images)
         val cachedFile = IntelligentMediaCache.getCachedFile(context, mxcUrl)
         if (cachedFile != null) {
-            return cachedFile.absolutePath
+            val path = cachedFile.absolutePath
+            resolvedUrlCache[mxcUrl] = path
+            return path
         }
         
         // 3. Convert to HTTP URL (Coil will check its cache, then network)
-        return mxcToHttpUrl(mxcUrl, homeserverUrl)
+        val httpUrl = mxcToHttpUrl(mxcUrl, homeserverUrl)
+        // Don't cache HTTP URLs — they'll be replaced by local paths once Coil downloads them
+        return httpUrl
     }
+
+    /**
+     * Called after Coil successfully loads and caches an avatar from the network.
+     * Updates the in-memory resolution cache with the local file path so future lookups
+     * are instant.
+     */
+    fun updateResolvedUrl(mxcUrl: String, localPath: String) {
+        resolvedUrlCache[mxcUrl] = localPath
+    }
+
+    // No invalidateResolvedUrl needed — mxc:// URLs are immutable.
+    // If an avatar changes, the server issues a new mxc:// URL (different key).
 
     /**
      * Converts an MXC URL to the original media URL without thumbnail parameters.

@@ -149,6 +149,9 @@ object DownloadDeduplicationManager {
         val cacheKey = IntelligentMediaCache.getCacheKey(mxcUrl)
         val cachedFile = File(cacheDir, cacheKey)
         
+        // Ensure parent directory exists (server subdirectory)
+        cachedFile.parentFile?.mkdirs()
+        
         var retryCount = 0
         var lastException: Exception? = null
         

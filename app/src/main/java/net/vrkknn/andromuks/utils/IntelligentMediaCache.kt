@@ -6,7 +6,6 @@ import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.util.Log
 import java.io.File
-import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -58,12 +57,27 @@ object IntelligentMediaCache {
     }
     
     /**
-     * Generate cache key from MXC URL.
+     * Generate cache key from MXC URL (returns relative path with server subdirectory).
+     * MXC URLs are immutable and their server/mediaId path is already filesystem-safe.
+     * Uses subdirectories per server to avoid thousands of files in a single directory.
+     * e.g. "mxc://aguiarvieira.pt/MGUPvTkAoIFxQBkqdQIlyvxP" → "aguiarvieira.pt/MGUPvTkAoIFxQBkqdQIlyvxP"
      */
     fun getCacheKey(mxcUrl: String): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        val hash = digest.digest(mxcUrl.toByteArray())
-        return hash.joinToString("") { "%02x".format(it) }
+        return mxcUrl.removePrefix("mxc://")
+    }
+    
+    /**
+     * Get the full cache file path, ensuring the server subdirectory exists.
+     */
+    private fun getCacheFile(context: Context, mxcUrl: String): File {
+        val cacheDir = getCacheDir(context)
+        val relativePath = getCacheKey(mxcUrl)
+        val cacheFile = File(cacheDir, relativePath)
+        
+        // Ensure parent directory exists (server subdirectory)
+        cacheFile.parentFile?.mkdirs()
+        
+        return cacheFile
     }
     
     /**
@@ -235,9 +249,7 @@ object IntelligentMediaCache {
         authToken: String
     ): File? = withContext(Dispatchers.IO) {
         try {
-            val cacheDir = getCacheDir(context)
-            val cacheKey = getCacheKey(mxcUrl)
-            val cachedFile = File(cacheDir, cacheKey)
+            val cachedFile = getCacheFile(context, mxcUrl)
             
             // Check if already cached
             if (cachedFile.exists()) {
@@ -272,16 +284,13 @@ object IntelligentMediaCache {
      */
     suspend fun cleanupCache(context: Context) = cacheMutex.withLock {
         try {
-            val cacheDir = getCacheDir(context)
-            val files = cacheDir.listFiles() ?: return@withLock
-            
-            // Calculate total cache size
-            val totalSize = files.sumOf { it.length() }
+            // Calculate total cache size (recursively handles subdirectories)
+            val totalSize = getCacheDirectorySize(context)
             
             if (totalSize > MAX_CACHE_SIZE) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Cache size ${totalSize / 1024 / 1024}MB exceeds limit ${MAX_CACHE_SIZE / 1024 / 1024}MB, cleaning up...")
                 
-                // Use intelligent eviction
+                // Use intelligent eviction (uses in-memory cacheEntries map)
                 ensureCacheSize(context)
             }
         } catch (e: Exception) {
@@ -354,20 +363,34 @@ object IntelligentMediaCache {
     
     /**
      * Clear all cache entries.
+     * Recursively deletes files from subdirectories.
      */
     suspend fun clearCache(context: Context) = cacheMutex.withLock {
         val cacheDir = getCacheDir(context)
-        val files = cacheDir.listFiles() ?: emptyArray()
         
-        var deletedCount = 0
-        var deletedSize = 0L
-        
-        files.forEach { file ->
-            if (file.delete()) {
-                deletedCount++
-                deletedSize += file.length()
+        // Recursively delete all files from subdirectories
+        fun deleteFiles(dir: File): Pair<Int, Long> {
+            var deletedCount = 0
+            var deletedSize = 0L
+            dir.listFiles()?.forEach { file ->
+                if (file.isDirectory) {
+                    val (count, size) = deleteFiles(file)
+                    deletedCount += count
+                    deletedSize += size
+                    // Delete empty subdirectory
+                    file.delete()
+                } else if (file.isFile) {
+                    val size = file.length()
+                    if (file.delete()) {
+                        deletedCount++
+                        deletedSize += size
+                    }
+                }
             }
+            return deletedCount to deletedSize
         }
+        
+        val (deletedCount, deletedSize) = deleteFiles(cacheDir)
         
         cacheEntries.clear()
         visibleMedia.clear()
@@ -377,11 +400,24 @@ object IntelligentMediaCache {
     
     /**
      * Get cache directory size.
+     * Recursively sums files from subdirectories.
      */
     fun getCacheDirectorySize(context: Context): Long {
         val cacheDir = getCacheDir(context)
-        val files = cacheDir.listFiles() ?: emptyArray()
-        return files.sumOf { it.length() }
+        
+        fun sumFiles(dir: File): Long {
+            var total = 0L
+            dir.listFiles()?.forEach { file ->
+                if (file.isDirectory) {
+                    total += sumFiles(file)
+                } else if (file.isFile) {
+                    total += file.length()
+                }
+            }
+            return total
+        }
+        
+        return sumFiles(cacheDir)
     }
     
     /**

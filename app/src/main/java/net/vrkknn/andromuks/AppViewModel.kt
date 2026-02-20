@@ -674,17 +674,19 @@ class AppViewModel : ViewModel() {
     // PERFORMANCE: Track which sections have been loaded (for lazy loading)
     private val loadedSections = mutableSetOf<RoomSectionType>()
     
-    // Cache invalidation tracking - use size + content hash for reliability
-    private var lastAllRoomsSize: Int = 0
-    private var lastAllRoomsContentHash: String = ""
-    
+    // PERFORMANCE: Cheap monotonic version counter for cache invalidation.
+    // Bumped by invalidateRoomSectionCache() whenever room data actually changes
+    // (performRoomReorder, setSpaces, registerSpaceIds, etc.).
+    // updateCachedRoomSections() compares against its own snapshot to skip work.
+    private var roomDataVersion: Long = 0L
+    private var lastCachedVersion: Long = -1L
     
     /**
-     * Invalidate room section cache when allRooms data changes
+     * Invalidate room section cache when allRooms data changes.
+     * Cheap O(1) — just bumps a counter.
      */
     private fun invalidateRoomSectionCache() {
-        lastAllRoomsSize = -1 // Force cache recalculation on next access
-        lastAllRoomsContentHash = ""
+        roomDataVersion++
     }
     
     /**
@@ -1308,7 +1310,6 @@ class AppViewModel : ViewModel() {
     }
     
     fun changeSelectedSection(section: RoomSectionType) {
-        val previousSection = selectedSection
         selectedSection = section
         // Exit space/bridge when switching to a different section
         if (section != RoomSectionType.SPACES && currentSpaceId != null) {
@@ -1322,11 +1323,9 @@ class AppViewModel : ViewModel() {
             currentSpaceId = null
         }
         
-        // PERFORMANCE: Force immediate sort when switching tabs to show correct order
-        if (previousSection != section) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Tab changed from $previousSection to $section - forcing immediate sort")
-            forceRoomListSort()
-        }
+        // PERFORMANCE: No forceRoomListSort() here — rooms are already sorted by
+        // performRoomReorder(). Tab switching only changes the view, not the data.
+        // The roomListUpdateCounter bump is sufficient to trigger the UI update.
         
         roomListUpdateCounter++
         updateCounter++ // Keep for backward compatibility temporarily
@@ -1594,6 +1593,12 @@ class AppViewModel : ViewModel() {
      * filters room lists for sections that have been loaded (lazy loading)
      */
     private fun updateCachedRoomSections() {
+        // PERFORMANCE: Skip if nothing has changed since last computation.
+        // roomDataVersion is bumped by invalidateRoomSectionCache() only when
+        // actual room data changes — not on tab switches.
+        if (lastCachedVersion == roomDataVersion) return
+        lastCachedVersion = roomDataVersion
+        
         // Get rooms from spaceList if allRooms is empty (fallback for existing data)
         val roomsToUse = if (allRooms.isEmpty() && spaceList.isNotEmpty()) {
             spaceList.firstOrNull()?.rooms ?: emptyList()
@@ -1602,23 +1607,6 @@ class AppViewModel : ViewModel() {
         }
         val spaceIds = currentSpaceIds()
         val roomsWithoutSpaces = filterOutSpaces(roomsToUse, spaceIds)
-        
-        // BUG FIX: Use size + content hash for reliable cache invalidation
-        // Content hash is based on room IDs and key properties to detect actual changes
-        val currentSize = roomsWithoutSpaces.size
-        val spaceIdsHash = if (spaceIds.isEmpty()) "none" else spaceIds.sorted().joinToString(",")
-        val currentContentHash = roomsWithoutSpaces.joinToString("|") {
-            // Include sortingTimestamp so cached sections reorder when last message changes
-            "${it.id}:${it.isDirectMessage}:${it.isFavourite}:${it.unreadCount}:${it.highlightCount}:${it.sortingTimestamp ?: 0L}"
-        } + "|spaces:$spaceIdsHash"
-        
-        // Check if we need to update cache
-        if (currentSize == lastAllRoomsSize && currentContentHash == lastAllRoomsContentHash) {
-            return // Cache is still valid
-        }
-        
-        lastAllRoomsSize = currentSize
-        lastAllRoomsContentHash = currentContentHash
         
         // PERFORMANCE: Always pre-compute badge counts (needed for tab bar badges)
         // This is fast even for large room lists (O(n) single pass)

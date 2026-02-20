@@ -71,23 +71,28 @@ fun AvatarImage(
     val imageLoader = remember { ImageLoaderSingleton.get(context) }
     
     // Get avatar URL - use CircleAvatarCache if useCircleCache is true (for RoomListScreen)
-    // PERFORMANCE FIX: Use getAvatarUrlForRoomList which checks CircleAvatarCache first, avoiding double checks
+    // PERFORMANCE: For room list, try the synchronous in-memory cache first to avoid the
+    // null → LaunchedEffect → recompose cycle.  Only fall back to the suspend path on cache miss.
     var avatarUrl by remember(mxcUrl, useCircleCache) {
         if (useCircleCache && mxcUrl != null) {
-            // For RoomListScreen: Check CircleAvatarCache -> MediaCache -> Coil -> Network
-            // Start with null, will be set async by LaunchedEffect
-            mutableStateOf<String?>(null)
+            // Synchronous: check in-memory resolved-URL cache (ConcurrentHashMap get, no I/O)
+            val cached = AvatarUtils.getAvatarUrlForRoomListCached(mxcUrl, homeserverUrl)
+            mutableStateOf(cached)
         } else {
             // Normal flow: Check MediaCache -> Coil -> Network
             mutableStateOf(AvatarUtils.getAvatarUrl(context, mxcUrl, homeserverUrl))
         }
     }
     
-    // For RoomListScreen, check CircleAvatarCache first, then fall back to MediaCache
+    // For RoomListScreen, resolve via suspend path only when the synchronous cache missed
+    // (avatarUrl will be an HTTP URL in that case, not a local path).
+    // Once resolved, the in-memory cache is populated so future compositions skip this entirely.
     LaunchedEffect(mxcUrl, useCircleCache) {
         if (useCircleCache && mxcUrl != null) {
-            // Use getAvatarUrlForRoomList which checks in correct order: CircleAvatarCache -> MediaCache -> Coil -> Network
-            avatarUrl = AvatarUtils.getAvatarUrlForRoomList(context, mxcUrl, homeserverUrl)
+            val resolved = AvatarUtils.getAvatarUrlForRoomList(context, mxcUrl, homeserverUrl)
+            if (resolved != avatarUrl) {
+                avatarUrl = resolved
+            }
         }
     }
     
@@ -276,6 +281,12 @@ fun AvatarImage(
                         onSuccess = {
                             imageLoadFailed = false
                             imageHasLoaded = true // Mark as loaded - will stay visible even during fast scrolling
+                            
+                            // PERFORMANCE: Update in-memory resolved URL cache with the loaded URL
+                            // so future compositions of this item skip the suspend resolution entirely
+                            if (useCircleCache && mxcUrl != null) {
+                                AvatarUtils.updateResolvedUrl(mxcUrl, avatarUrlForRequest)
+                            }
                             
                             // CIRCLE AVATAR CACHE: Cache square thumbnail for RoomListScreen
                             if (useCircleCache && mxcUrl != null) {

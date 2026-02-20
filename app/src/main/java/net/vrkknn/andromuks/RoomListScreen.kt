@@ -396,12 +396,9 @@ fun RoomListScreen(
     }
     val showNotificationActionIndicator = uiState.notificationActionInProgress
     
-    // Room summaries are already in stableSection.rooms - no enrichment needed
-    // Always sort by latest message timestamp (newest first)
-    val displayedSection = remember(stableSection) {
-        val sortedRooms = stableSection.rooms.sortedByDescending { it.sortingTimestamp ?: 0L }
-        if (sortedRooms === stableSection.rooms) stableSection else stableSection.copy(rooms = sortedRooms)
-    }
+    // PERFORMANCE: allRooms is already sorted by performRoomReorder() and filtered
+    // subsets (DMs, Unread, Favourites) inherit that order — no re-sort needed.
+    val displayedSection = stableSection
 
     // One-time hydration: if any rooms lack timestamps, prefetch a small batch from server for all of them.
     LaunchedEffect(initialLoadComplete, displayedSection.rooms.map { it.id to it.sortingTimestamp }) {
@@ -1800,32 +1797,45 @@ fun RoomListItem(
                     }
                 
                     // Bridge protocol avatar badge (bottom-right corner)
+                    // PERFORMANCE: Use lightweight AsyncImage directly instead of full AvatarImage.
+                    // Protocol icons are small static images — they don't need BlurHash, fallback
+                    // letters, CircleAvatarCache, or scroll-awareness.
                     room.bridgeProtocolAvatarUrl?.let { protocolAvatarUrl ->
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .size(16.dp)
-                                .background(
-                                    MaterialTheme.colorScheme.surface,
-                                    CircleShape
+                        val badgeUrl = remember(protocolAvatarUrl) {
+                            net.vrkknn.andromuks.utils.AvatarUtils.mxcToHttpUrl(protocolAvatarUrl, homeserverUrl)
+                        }
+                        if (badgeUrl != null) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .size(16.dp)
+                                    .background(
+                                        MaterialTheme.colorScheme.surface,
+                                        CircleShape
+                                    )
+                                    .border(
+                                        width = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                coil.compose.AsyncImage(
+                                    model = coil.request.ImageRequest.Builder(context)
+                                        .data(badgeUrl)
+                                        .size(48) // Small icon, minimal decode
+                                        .addHeader("Cookie", "gomuks_auth=$authToken")
+                                        .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                                        .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                                        .build(),
+                                    imageLoader = remember { net.vrkknn.andromuks.utils.ImageLoaderSingleton.get(context) },
+                                    contentDescription = "Bridge protocol",
+                                    modifier = Modifier
+                                        .size(14.dp)
+                                        .clip(CircleShape),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
                                 )
-                                .border(
-                                    width = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    shape = CircleShape
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            // 16dp avatar image centered inside the 24dp circle (24dp - 4dp border on each side = 16dp)
-                            net.vrkknn.andromuks.ui.components.AvatarImage(
-                                mxcUrl = protocolAvatarUrl,
-                                homeserverUrl = homeserverUrl,
-                                authToken = authToken,
-                                fallbackText = "",
-                                size = 14.dp,
-                                userId = "",
-                                displayName = ""
-                            )
+                            }
                         }
                     }
                 }
@@ -2459,10 +2469,14 @@ fun RoomListContent(
     // CRITICAL FIX: Skip debounce when searchQuery changes to make search responsive
     var debouncedRooms by remember { mutableStateOf(filteredRooms) }
     var previousSearchQuery by remember { mutableStateOf(searchQuery) }
+    // PERFORMANCE: Use a cheap structural hash instead of building a giant joinToString.
+    // RoomItem is @Immutable data class, so its hashCode() is stable and fast.
     val targetHash = remember(filteredRooms) {
-        filteredRooms.joinToString("|") {
-            "${it.id}:${it.sortingTimestamp ?: 0L}:${it.unreadCount ?: 0}:${it.highlightCount ?: 0}:${it.messagePreview ?: ""}:${it.messageSender ?: ""}:${it.bridgeProtocolAvatarUrl ?: ""}"
+        var h = filteredRooms.size
+        for (room in filteredRooms) {
+            h = h * 31 + room.hashCode()
         }
+        h
     }
     
     LaunchedEffect(targetHash, searchQuery) {
@@ -2566,6 +2580,16 @@ fun RoomListContent(
     val coroutineScope = rememberCoroutineScope()
     var roomOpenInProgress by remember { mutableStateOf<String?>(null) }
     
+    // PERFORMANCE: Hoist layoutInfo read outside items{} so it's computed once per frame,
+    // not once per item during scroll.  derivedStateOf avoids redundant recompositions when
+    // the value hasn't actually changed.
+    val avatarLoadCutoff by remember {
+        derivedStateOf {
+            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            last + 25
+        }
+    }
+    
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
@@ -2579,7 +2603,7 @@ fun RoomListContent(
         items(
             count = debouncedRooms.size,
             key = { index -> debouncedRooms[index].id }, // Stable key - room ID stays constant
-            contentType = { index -> debouncedRooms[index].id } // Distinct content type per room for finer diffing
+            contentType = { "room" } // PERFORMANCE: Shared type enables composition recycling across items
         ) { index ->
             val room = debouncedRooms[index]
             // PERFORMANCE FIX: Removed AnimatedVisibility wrapper that caused animation overhead
@@ -2587,10 +2611,8 @@ fun RoomListContent(
             // CRITICAL FIX: Capture room.id OUTSIDE the lambda to prevent wrong room navigation
             val roomIdForNavigation = room.id
             
-            // PERFORMANCE: Calculate if item should load images (visible or within 25 items below viewport)
-            val layoutInfo = listState.layoutInfo
-            val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-            val shouldLoadAvatar = index <= lastVisibleIndex + 25 // Load for items up to 25 below viewport
+            // PERFORMANCE: Use hoisted cutoff instead of per-item layoutInfo read
+            val shouldLoadAvatar = index <= avatarLoadCutoff
             
             Column(
                 modifier = Modifier.animateItem()
@@ -2642,7 +2664,6 @@ fun RoomListContent(
                     },
                     timestampUpdateTrigger = timestampUpdateTrigger,
                     appViewModel = appViewModel,
-                    modifier = Modifier.animateContentSize(),
                     isEnabled = roomOpenInProgress == null || roomOpenInProgress == roomIdForNavigation
                 )
                 

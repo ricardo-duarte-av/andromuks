@@ -17,7 +17,6 @@ import coil.request.SuccessResult
 import coil.request.ErrorResult
 import java.io.File
 import java.io.FileOutputStream
-import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
@@ -57,34 +56,59 @@ object CircleAvatarCache {
     }
     
     /**
-     * Generate cache key from MXC URL (SHA-256 hash).
+     * Generate cache key from MXC URL (returns relative path with server subdirectory).
+     * MXC URLs are immutable and their server/mediaId path is already filesystem-safe.
+     * Uses subdirectories per server to avoid thousands of files in a single directory.
+     * e.g. "mxc://aguiarvieira.pt/MGUPvTkAoIFxQBkqdQIlyvxP" → "aguiarvieira.pt/MGUPvTkAoIFxQBkqdQIlyvxP"
      */
     fun getCacheKey(mxcUrl: String): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        val hash = digest.digest(mxcUrl.toByteArray())
-        return hash.joinToString("") { "%02x".format(it) }
+        return mxcUrl.removePrefix("mxc://")
     }
     
     /**
+     * Get the full cache file path, ensuring the server subdirectory exists.
+     */
+    private fun getCacheFile(context: Context, mxcUrl: String): File {
+        val cacheDir = getCacheDir(context)
+        val relativePath = getCacheKey(mxcUrl)
+        val cacheFile = File(cacheDir, relativePath)
+        
+        // Ensure parent directory exists (server subdirectory)
+        cacheFile.parentFile?.mkdirs()
+        
+        return cacheFile
+    }
+    
+    // PERFORMANCE: In-memory set of mxcUrls known to exist on disk.
+    // Avoids file I/O (File.exists()) on every scroll frame after first load.
+    private val knownOnDisk = java.util.concurrent.ConcurrentHashMap<String, File>(256)
+    
+    /**
      * Get cached circular avatar file for MXC URL.
+     * PERFORMANCE: Lock-free fast path — checks in-memory map first, falls back to
+     * file I/O only once per mxcUrl. No Mutex contention during scrolling.
      * 
      * @param context Android context
      * @param mxcUrl MXC URL to look up
      * @return Cached file if exists, null otherwise
      */
-    suspend fun getCachedFile(context: Context, mxcUrl: String): File? = cacheMutex.withLock {
-        val cacheKey = getCacheKey(mxcUrl)
-        val cacheFile = File(getCacheDir(context), cacheKey)
-        
-        if (cacheFile.exists() && cacheFile.length() > 0) {
-            // PERFORMANCE: Reduced logging to avoid log spam during fast scrolling
-            // Logging removed - use logcat filters if needed for debugging
-            return@withLock cacheFile
+    suspend fun getCachedFile(context: Context, mxcUrl: String): File? {
+        // Fast path: already known to exist on disk
+        knownOnDisk[mxcUrl]?.let { file ->
+            if (file.exists()) return file
+            // File was deleted externally — evict from map
+            knownOnDisk.remove(mxcUrl)
         }
         
-        // PERFORMANCE: Reduced logging to avoid log spam during fast scrolling
-        // Logging removed - use logcat filters if needed for debugging
-        return@withLock null
+        // Slow path: check disk (still no Mutex needed for a read-only file existence check)
+        val cacheFile = getCacheFile(context, mxcUrl)
+        
+        if (cacheFile.exists() && cacheFile.length() > 0) {
+            knownOnDisk[mxcUrl] = cacheFile
+            return cacheFile
+        }
+        
+        return null
     }
     
     /**
@@ -154,8 +178,7 @@ object CircleAvatarCache {
         }
         
         // Check if already cached (fast check before acquiring mutex)
-        val cacheKey = getCacheKey(mxcUrl)
-        val cacheFile = File(getCacheDir(context), cacheKey)
+        val cacheFile = getCacheFile(context, mxcUrl)
         if (cacheFile.exists() && cacheFile.length() > 0) {
             return@withContext
         }
@@ -201,6 +224,11 @@ object CircleAvatarCache {
                         squareBitmap.recycle()
                     }
                     
+                    // PERFORMANCE: Register in lock-free lookup map so future reads skip file I/O
+                    knownOnDisk[mxcUrl] = cacheFile
+                    // Also update the in-memory URL resolution cache
+                    AvatarUtils.updateResolvedUrl(mxcUrl, cacheFile.absolutePath)
+                    
                     // Ensure cache size is within limits (occasional check)
                     if (Math.random() < 0.05) { // 5% chance to check cleanup to avoid overhead
                         ensureCacheSize(context)
@@ -221,10 +249,26 @@ object CircleAvatarCache {
     
     /**
      * Ensure cache size is within limits by evicting oldest files.
+     * Recursively walks subdirectories to find all cached files.
      */
     private suspend fun ensureCacheSize(context: Context) = withContext(Dispatchers.IO) {
         val cacheDir = getCacheDir(context)
-        val files = cacheDir.listFiles() ?: return@withContext
+        
+        // Recursively collect all files from subdirectories
+        fun collectFiles(dir: File): List<File> {
+            val files = mutableListOf<File>()
+            dir.listFiles()?.forEach { file ->
+                if (file.isDirectory) {
+                    files.addAll(collectFiles(file))
+                } else if (file.isFile) {
+                    files.add(file)
+                }
+            }
+            return files
+        }
+        
+        val files = collectFiles(cacheDir)
+        if (files.isEmpty()) return@withContext
         
         var totalSize = files.sumOf { it.length() }
         
@@ -253,22 +297,35 @@ object CircleAvatarCache {
     
     /**
      * Clear all cached circular avatars.
+     * Recursively deletes files from subdirectories.
      */
     suspend fun clearCache(context: Context) = withContext(Dispatchers.IO) {
         cacheMutex.withLock {
             val cacheDir = getCacheDir(context)
-            val files = cacheDir.listFiles() ?: return@withLock
             
-            var deletedCount = 0
-            var deletedSize = 0L
-            
-            for (file in files) {
-                val size = file.length()
-                if (file.delete()) {
-                    deletedCount++
-                    deletedSize += size
+            // Recursively delete all files from subdirectories
+            fun deleteFiles(dir: File): Pair<Int, Long> {
+                var deletedCount = 0
+                var deletedSize = 0L
+                dir.listFiles()?.forEach { file ->
+                    if (file.isDirectory) {
+                        val (count, size) = deleteFiles(file)
+                        deletedCount += count
+                        deletedSize += size
+                        // Delete empty subdirectory
+                        file.delete()
+                    } else if (file.isFile) {
+                        val size = file.length()
+                        if (file.delete()) {
+                            deletedCount++
+                            deletedSize += size
+                        }
+                    }
                 }
+                return deletedCount to deletedSize
             }
+            
+            val (deletedCount, deletedSize) = deleteFiles(cacheDir)
             
             if (BuildConfig.DEBUG) {
                 Log.d(TAG, "CircleAvatarCache: Cleared $deletedCount files (${deletedSize / 1024 / 1024}MB)")
