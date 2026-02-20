@@ -1751,7 +1751,6 @@ fun RoomListItem(
                     // Shared-element tagged avatar when transition scopes are available
                     if (sharedTransitionScope != null && animatedVisibilityScope != null) {
                         val sharedKey = "avatar-${room.id}"
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomList: sharedKey = $sharedKey")
                         with(sharedTransitionScope) {
                             net.vrkknn.andromuks.ui.components.AvatarImage(
                                 mxcUrl = room.avatarUrl,

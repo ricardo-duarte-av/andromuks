@@ -1323,14 +1323,6 @@ fun extractSanitizedHtml(event: TimelineEvent): String? {
     // local_content is a top-level field in the event JSON, parsed into TimelineEvent.localContent
     val sanitizedHtml = event.localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
     
-    if (BuildConfig.DEBUG) {
-        if (sanitizedHtml != null) {
-            Log.d("Andromuks", "extractSanitizedHtml: Found sanitized_html for event ${event.eventId}, length: ${sanitizedHtml.length}, preview: ${sanitizedHtml.take(100)}")
-        } else {
-            Log.d("Andromuks", "extractSanitizedHtml: No sanitized_html found for event ${event.eventId}, localContent is null: ${event.localContent == null}")
-        }
-    }
-    
     // Decode HTML entities before returning
     return sanitizedHtml?.let { decodeHtmlEntities(it) }
 }

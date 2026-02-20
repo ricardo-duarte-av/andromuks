@@ -1277,7 +1277,6 @@ class AppViewModel : ViewModel() {
     }
 
     fun setSpaces(spaces: List<SpaceItem>, skipCounterUpdate: Boolean = false) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: setSpaces called with ${spaces.size} spaces")
         if (spaces.isNotEmpty() && !initialSyncComplete) {
             addStartupProgressMessage("Processing ${spaces.size} spaces...")
         }
@@ -2667,9 +2666,6 @@ class AppViewModel : ViewModel() {
         // to_device can be either an array directly, or an object with "events" key
         val toDeviceValue = data.opt("to_device")
         if (toDeviceValue == null) {
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "AppViewModel: No to_device in sync_complete")
-            }
             return
         }
         
@@ -4305,11 +4301,7 @@ class AppViewModel : ViewModel() {
             needsRoomListUpdate = true
             scheduleUIUpdate("roomList")
             
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PERFORMANCE - Debounced room reorder completed (${sortedRooms.size} rooms, order changed: $orderChanged)")
-        } else {
-            // Order didn't change - skip update to prevent unnecessary recomposition
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PERFORMANCE - Room reorder skipped (order unchanged, ${sortedRooms.size} rooms)")
-        }
+        } 
     }
     /**
      * Perform batched UI updates only for changed sections
@@ -5139,7 +5131,6 @@ class AppViewModel : ViewModel() {
             
             // SYNC OPTIMIZATION: Selective updates - only update what actually changed
             if (roomStateChanged) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room state changed, updating data without sorting")
                 
                 // PERFORMANCE: Update room data in current order (preserves visual stability)
                 // If allRooms is empty or this is first sync, initialize with sorted list
@@ -5176,9 +5167,6 @@ class AppViewModel : ViewModel() {
                         // Mark for batched UI update (for badges/timestamps - no sorting)
                         needsRoomListUpdate = true
                         scheduleUIUpdate("roomList")
-                    } else {
-                        // No changes - skip cache invalidation and UI updates to avoid recomposition
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room data unchanged, skipping updates")
                     }
                 }
                 
@@ -5187,7 +5175,6 @@ class AppViewModel : ViewModel() {
                 scheduleRoomReorder()
                 
                 lastRoomStateHash = newRoomStateHash
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room data updated (no sorting), debounced sort scheduled")
                 
                 // SHORTCUT OPTIMIZATION: Shortcuts only update when user sends messages (not on sync_complete)
                 // This drastically reduces shortcut updates. Removed shortcut updates from sync_complete processing.
@@ -5230,15 +5217,10 @@ class AppViewModel : ViewModel() {
                         // Trigger UI update for timestamp changes only
                         needsRoomListUpdate = true
                         scheduleUIUpdate("roomList")
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Some room timestamps changed, updating UI")
-                    } else {
-                        // No changes - skip cache invalidation and UI updates to avoid recomposition
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - No room changes detected, skipping all updates")
                     }
-                } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room state unchanged, allRooms empty")
                 }
             }
+            
             
             // SYNC OPTIMIZATION: Check if current room needs timeline update with diff-based detection
             checkAndUpdateCurrentRoomTimelineOptimized(syncJson)
@@ -7178,7 +7160,6 @@ class AppViewModel : ViewModel() {
                     .putString("activity_log", logArray.toString())
                     .apply()
                 
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved ${entriesToSave.size} activity log entries to storage")
             } catch (e: Exception) {
                 android.util.Log.e("Andromuks", "AppViewModel: Failed to save activity log to storage", e)
             }
@@ -7205,7 +7186,6 @@ class AppViewModel : ViewModel() {
         // Persist to storage
         saveActivityLogToStorage()
         
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Logged activity - $event")
     }
     
     /**
@@ -7730,7 +7710,6 @@ class AppViewModel : ViewModel() {
                     .putString("pending_websocket_operations", operationsArray.toString())
                     .apply()
                 
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved ${operationsSnapshot.size} pending WebSocket operations to storage")
             } catch (e: ConcurrentModificationException) {
                 // Retry once with a fresh snapshot if we still get CME
                 android.util.Log.w("Andromuks", "AppViewModel: ConcurrentModificationException in savePendingOperationsToStorage, retrying", e)
@@ -7747,7 +7726,6 @@ class AppViewModel : ViewModel() {
                     prefs.edit()
                         .putString("pending_websocket_operations", operationsArray.toString())
                         .apply()
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved ${operationsSnapshot.size} pending WebSocket operations to storage (retry succeeded)")
                 } catch (e2: Exception) {
                     android.util.Log.e("Andromuks", "AppViewModel: Failed to save pending WebSocket operations to storage (retry also failed)", e2)
                 }
@@ -8142,7 +8120,6 @@ class AppViewModel : ViewModel() {
             editor.putLong("state_saved_timestamp", System.currentTimeMillis())
             
             editor.apply()
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved state to storage - run_id: $currentRunId, rooms: ${allRooms.size}")
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to save state to storage", e)
         }
@@ -12222,7 +12199,6 @@ class AppViewModel : ViewModel() {
                                     val eventId = keys.next()
                                     val receiptsArray = parsedReceipts.optJSONArray(eventId)
                                     if (receiptsArray != null) {
-                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing receipts for eventId=$eventId, roomId=$roomId - ${receiptsArray.length()} receipts in array")
                                         val receiptsForEvent = mutableListOf<ReadReceipt>()
 
                                         for (i in 0 until receiptsArray.length()) {
@@ -12239,7 +12215,6 @@ class AppViewModel : ViewModel() {
                                                 // Validate receipt has required fields and eventId matches
                                                 if (receipt.userId.isNotBlank() && receipt.eventId.isNotBlank() && receipt.eventId == eventId) {
                                                     receiptsForEvent.add(receipt)
-                                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added receipt for eventId=$eventId, userId=${receipt.userId}, timestamp=${receipt.timestamp}, roomId=$roomId")
                                                 } else {
                                                     if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Invalid receipt - eventId=$eventId, receiptEventId=${receipt.eventId}, userId=${receipt.userId}, roomId=$roomId")
                                                 }
@@ -12248,7 +12223,6 @@ class AppViewModel : ViewModel() {
                                         
                                         // Store all receipts for this event
                                         authoritativeReceipts[eventId] = receiptsForEvent
-                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Final receipts for eventId=$eventId, roomId=$roomId: ${receiptsForEvent.size} receipts")
                                     } else {
                                         // Event has no receipts array - mark as empty (remove existing receipts)
                                         authoritativeReceipts[eventId] = mutableListOf()
@@ -12471,8 +12445,6 @@ class AppViewModel : ViewModel() {
         
         // PERFORMANCE: Remove from pending requests set
         pendingRoomStateRequests.remove(roomId)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling room state response for room: $roomId")
-        
         // CRITICAL FIX: Track completion of initial room state loading
         if (allRoomStatesRequested && !allRoomStatesLoaded) {
             var wasInPendingSet = false
@@ -12778,8 +12750,6 @@ class AppViewModel : ViewModel() {
             roomStateUpdateCounter++
             updateCounter++ // Keep for backward compatibility temporarily
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✓ Updated current room state - Name: $name, Alias: $canonicalAlias, Topic: $topic, Avatar: $avatarUrl, Encrypted: $isEncrypted")
-        } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Parsed room state for $roomId (not current room) - Name: $name, Bridge Protocol Avatar: $bridgeProtocolAvatarUrl")
         }
     }
     
@@ -13606,8 +13576,6 @@ class AppViewModel : ViewModel() {
         if (data != null) {
             val rooms = data.optJSONObject("rooms")
             if (rooms != null && currentRoomId.isNotEmpty() && rooms.has(currentRoomId)) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Checking timeline diff for room: $currentRoomId")
-                
                 // CRITICAL FIX: Check if sync_complete has timeline events BEFORE updating
                 // This ensures we process events even if buildTimelineFromChain is async
                 val roomData = rooms.optJSONObject(currentRoomId)
@@ -13620,7 +13588,6 @@ class AppViewModel : ViewModel() {
                 // buildTimelineFromChain is async, so hash check might happen before timeline updates
                 // Always update UI if we processed timeline events to ensure they appear
                 if (hasTimelineEvents) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Timeline events processed, scheduling UI update")
                     needsTimelineUpdate = true
                     scheduleUIUpdate("timeline")
                     // Update hash after a delay to allow async buildTimelineFromChain to complete
@@ -13634,12 +13601,9 @@ class AppViewModel : ViewModel() {
                     val timelineStateChanged = newTimelineStateHash != lastTimelineStateHash
                     
                     if (timelineStateChanged) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Timeline state changed, scheduling UI update")
                         needsTimelineUpdate = true
                         scheduleUIUpdate("timeline")
                         lastTimelineStateHash = newTimelineStateHash
-                    } else {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Timeline state unchanged, skipping UI update")
                     }
                 }
             }
@@ -14962,16 +14926,11 @@ class AppViewModel : ViewModel() {
         if (operation != null) {
             val command = operation.data["command"] as? String ?: operation.type.removePrefix("command_")
             val elapsed = System.currentTimeMillis() - operation.timestamp
-            android.util.Log.i("Andromuks", "AppViewModel: PHASE 5.3 - Command acknowledged by request_id: requestId=$requestId, command=$command, type=${operation.type}, elapsed=${elapsed}ms")
             logActivity("Command Acknowledged - $command (request_id: $requestId)", null)
             synchronized(pendingOperationsLock) {
             pendingWebSocketOperations.remove(operation)
             }
             savePendingOperationsToStorage()
-            if (BuildConfig.DEBUG) {
-                val remaining = synchronized(pendingOperationsLock) { pendingWebSocketOperations.size }
-                android.util.Log.d("Andromuks", "AppViewModel: Removed acknowledged command from queue ($remaining remaining)")
-            }
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.3 - No pending operation found for requestId: $requestId (may have been already acknowledged, not tracked, or request_id=0)")
         }
@@ -15213,8 +15172,6 @@ class AppViewModel : ViewModel() {
                 }
                 pendingWebSocketOperations.add(operation)
             }
-            // Don't save to storage - command was sent successfully, only need in-memory tracking
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Tracking command '$command' with request_id: $requestId for acknowledgment (in-memory only)")
         }
         
         return sendResult

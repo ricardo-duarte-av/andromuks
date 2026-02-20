@@ -72,13 +72,6 @@ object BridgeInfoCache {
         editor.putString(key, avatarUrl)
         editor.apply() // Use apply() for async write (not critical path)
         
-        if (BuildConfig.DEBUG) {
-            if (avatarUrl.isNotEmpty()) {
-                android.util.Log.d("Andromuks", "BridgeInfoCache: Saved bridge avatar for $roomId: $avatarUrl")
-            } else {
-                android.util.Log.d("Andromuks", "BridgeInfoCache: Saved 'not bridged' for $roomId")
-            }
-        }
     }
     
     /**
@@ -93,9 +86,6 @@ object BridgeInfoCache {
         editor.putString(key, displayName)
         editor.apply() // Use apply() for async write (not critical path)
         
-        if (BuildConfig.DEBUG && displayName.isNotEmpty()) {
-            android.util.Log.d("Andromuks", "BridgeInfoCache: Saved bridge display name for $roomId: $displayName")
-        }
     }
     
     /**

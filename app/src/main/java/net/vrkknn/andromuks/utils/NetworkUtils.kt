@@ -542,9 +542,6 @@ fun connectToWebsocket(
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            if (BuildConfig.DEBUG) {
-                Log.d("Andromuks", "NetworkUtils: onMessage received (text, length=${text.length})")
-            }
             val jsonObject = try { JSONObject(text) } catch (e: Exception) { 
                 Log.e("Andromuks", "NetworkUtils: Failed to parse JSON message: ${text.take(200)}", e)
                 null 
@@ -556,9 +553,6 @@ fun connectToWebsocket(
                 // REFACTORING: Request ID tracking can be handled by service if needed
                 // For now, we'll skip it as it's not critical for connection
                 val command = jsonObject.optString("command")
-                if (BuildConfig.DEBUG) {
-                    Log.d("Andromuks", "NetworkUtils: Processing command: $command")
-                }
                 when (command) {
                     "pong" -> {
                         val requestId = jsonObject.optInt("request_id")
@@ -669,11 +663,6 @@ fun connectToWebsocket(
                     "response" -> {
                         val requestId = jsonObject.optInt("request_id")
                         val data = jsonObject.opt("data")
-                        
-                        // PHASE 5.3: Log response receipt for acknowledgment tracking
-                        if (BuildConfig.DEBUG && requestId > 0) {
-                            Log.d("Andromuks", "NetworkUtils: PHASE 5.3 - Received response command with request_id=$requestId")
-                        }
                         
                         // PHASE 4: Distribute to all registered ViewModels
                         // PHASE 5.3: handleResponse() will acknowledge by request_id

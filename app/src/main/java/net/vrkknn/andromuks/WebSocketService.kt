@@ -59,11 +59,11 @@ class WebSocketService : Service() {
         private val MIN_NOTIFICATION_UPDATE_INTERVAL_MS = 1000L // 500ms minimum between notification updates (UI smoothing)
         private const val BACKEND_HEALTH_RETRY_DELAY_MS = 1_000L
         private const val PONG_TIMEOUT_MS = 1_000L // 1 second - "rush to healthy"
-        // BATTERY OPTIMIZATION: Ping interval kept at 15s foreground, 60s background
-        // Backend closes WebSocket if no message received in 60 seconds, so we can't go higher
-        // 60 seconds is the maximum safe interval to prevent connection drops
+        // BATTERY OPTIMIZATION: Ping interval kept at 15s foreground, 30s background
+        // Backend closes WebSocket if no message received in 60 seconds.
+        // 30s gives a safe 50% margin against scheduling jitter, GC pauses, and network latency.
         private const val PING_INTERVAL_MS = 15_000L // 15 seconds normal interval (foreground)
-        private const val PING_INTERVAL_BACKGROUND_MS = 60_000L // 60 seconds when backgrounded (backend requirement)
+        private const val PING_INTERVAL_BACKGROUND_MS = 30_000L // 30 seconds when backgrounded (safe margin vs 60s backend timeout)
         private const val CONSECUTIVE_FAILURES_TO_DROP = 3 // Drop WebSocket after 3 consecutive ping failures
         private const val INIT_COMPLETE_TIMEOUT_MS = 15_000L // 15 seconds to wait for init_complete (fallback)
         private const val RUN_ID_TIMEOUT_MS = 500L // 500ms to wait for run_id after connection
@@ -364,7 +364,6 @@ class WebSocketService : Service() {
                 }
                 
                 // All checks passed - primary is alive and healthy
-                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 3.1 - Primary health check: Primary ViewModel $primaryId is alive and healthy")
                 return true
             }
         }
@@ -784,7 +783,7 @@ class WebSocketService : Service() {
                         100L // Small delay to prevent ping storm (100ms minimum)
                     } else {
                         // BATTERY OPTIMIZATION: Use adaptive interval based on app visibility
-                        // Foreground: 15s, Background: 60s (backend requirement)
+                        // Foreground: 15s, Background: 30s (safe margin vs 60s backend timeout)
                         if (serviceInstance.isAppVisible) PING_INTERVAL_MS else PING_INTERVAL_BACKGROUND_MS
                     }
                     
@@ -845,7 +844,7 @@ class WebSocketService : Service() {
             
             // BATTERY OPTIMIZATION: Adaptive ping interval based on app visibility
             // Foreground: 15 seconds (normal interval)
-            // Background: 60 seconds (backend requirement - closes connection if no message in 60s)
+            // Background: 30 seconds (safe margin vs 60s backend timeout)
             val interval = instance?.let { serviceInstance ->
                 if (serviceInstance.isAppVisible) PING_INTERVAL_MS else PING_INTERVAL_BACKGROUND_MS
             } ?: PING_INTERVAL_BACKGROUND_MS
@@ -2582,9 +2581,7 @@ class WebSocketService : Service() {
                     val isAlive = isPrimaryAlive()
                     val primaryId = getPrimaryViewModelId()
                     
-                    if (isAlive) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 3.2 - Primary health check: Primary ViewModel $primaryId is alive and healthy")
-                    } else {
+                    if (!isAlive) {
                         android.util.Log.w("WebSocketService", "STEP 3.2 - Primary health check: Primary ViewModel is NOT alive (primaryId=$primaryId)")
                         
                         // Log detailed status for debugging
@@ -4381,7 +4378,7 @@ class WebSocketService : Service() {
             
             // Calculate next alarm time: current interval + margin
             // BATTERY OPTIMIZATION: Adaptive ping interval based on app visibility
-            // Foreground: 15s, Background: 60s (backend requirement)
+            // Foreground: 15s, Background: 30s (safe margin vs 60s backend timeout)
             val interval = if (isAppVisible) PING_INTERVAL_MS else PING_INTERVAL_BACKGROUND_MS
             val triggerTime = System.currentTimeMillis() + interval + HEARTBEAT_MARGIN_MS
             
