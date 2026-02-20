@@ -324,6 +324,18 @@ class FCMService : FirebaseMessagingService() {
      * Handle message notification payload
      */
     private suspend fun handleMessageNotification(jsonObject: JSONObject) {
+        // Instantly purge any buffered sync_complete messages in the background so the
+        // app state is up-to-date before the user opens the notification.
+        try {
+            val purgeIntent = android.content.Intent("net.vrkknn.andromuks.PURGE_BUFFER").apply {
+                setPackage(packageName)
+            }
+            sendBroadcast(purgeIntent)
+            if (BuildConfig.DEBUG) Log.d(TAG, "Sent PURGE_BUFFER broadcast to flush sync_complete buffer")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to send PURGE_BUFFER broadcast: ${e.message}")
+        }
+
         try {
             val messagesArray = jsonObject.getJSONArray("messages")
             if (BuildConfig.DEBUG) Log.d(TAG, "Found ${messagesArray.length()} messages in notification")

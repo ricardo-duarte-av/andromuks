@@ -461,6 +461,10 @@ class MainActivity : ComponentActivity() {
                             Log.w("Andromuks", "MainActivity: PREEMPTIVE_PAGINATE broadcast missing roomId")
                         }
                     }
+                    "net.vrkknn.andromuks.PURGE_BUFFER" -> {
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: PURGE_BUFFER broadcast received — flushing sync_complete buffer in background")
+                        appViewModel.triggerBackgroundBufferPurge()
+                    }
                     else -> {
                         Log.w("Andromuks", "MainActivity: Unknown broadcast action: ${intent?.action}")
                     }
@@ -472,6 +476,7 @@ class MainActivity : ComponentActivity() {
             addAction("net.vrkknn.andromuks.SEND_MESSAGE")
             addAction("net.vrkknn.andromuks.MARK_READ")
             addAction("net.vrkknn.andromuks.PREEMPTIVE_PAGINATE")
+            addAction("net.vrkknn.andromuks.PURGE_BUFFER")
         }
         registerReceiver(notificationBroadcastReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Notification broadcast receiver registered successfully")

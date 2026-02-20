@@ -17,15 +17,17 @@ import org.json.JSONObject
 /**
  * Batches sync_complete messages to reduce battery drain when app is backgrounded.
  * 
- * **Background Mode**: Batches messages and processes every 10 seconds
+ * **Background Mode**: Batches messages and processes periodically (configurable)
  * **Foreground Mode**: Processes immediately + flushes any pending batch
  * 
- * This reduces CPU wake-ups from 480/min (8 Hz) to 6/min (every 10s) = 98.75% reduction
+ * Periodic background purge is governed by two user-configurable knobs:
+ *   • [batchIntervalMs]  – elapsed time since last purge (default 5 min)
+ *   • [maxBatchSize]     – max buffered messages before forced purge (default 500)
  */
 class SyncBatchProcessor(
     private val scope: CoroutineScope,
     private val processSyncImmediately: suspend (JSONObject, Int, String) -> Unit,
-    private val onBatchComplete: (suspend () -> Unit)? = null // Callback after batch completes (for batched UI updates)
+    private val onBatchComplete: (suspend () -> Unit)? = null
 ) {
     private val batchQueue = mutableListOf<SyncMessage>()
     private val batchLock = Mutex()
@@ -33,12 +35,12 @@ class SyncBatchProcessor(
     private var isAppVisible = true
     
     // CRASH FIX: Track batch processing state to prevent animations during flush
-    private var _isProcessingBatch = kotlinx.coroutines.flow.MutableStateFlow(false)
+    private var _isProcessingBatch = MutableStateFlow(false)
     val isProcessingBatch = _isProcessingBatch.asStateFlow()
     
-    // Configuration
-    private val BATCH_INTERVAL_MS = 3_600_000L // 1 hour (3600 seconds)
-    private val MAX_BATCH_SIZE = 10_000 // Maximum messages to buffer in memory
+    // ── Configurable knobs (updated from AppViewModel.loadSettings) ──────────
+    @Volatile var batchIntervalMs: Long = DEFAULT_BATCH_INTERVAL_MS
+    @Volatile var maxBatchSize: Int = DEFAULT_MAX_BATCH_SIZE
     
     private data class SyncMessage(
         val syncJson: JSONObject,
@@ -48,6 +50,10 @@ class SyncBatchProcessor(
     
     companion object {
         private const val TAG = "SyncBatchProcessor"
+
+        // Defaults – also used as fallbacks in SharedPreferences
+        const val DEFAULT_BATCH_INTERVAL_MS = 5L * 60_000L   // 5 minutes
+        const val DEFAULT_MAX_BATCH_SIZE = 500
     }
     
     
@@ -77,8 +83,8 @@ class SyncBatchProcessor(
                 }
                 
                 // Safety: Force flush if batch gets too large
-                if (batchQueue.size >= MAX_BATCH_SIZE) {
-                    Log.w(TAG, "Batch size limit reached (${batchQueue.size}) - forcing flush")
+                if (batchQueue.size >= maxBatchSize) {
+                    Log.w(TAG, "Batch size limit reached (${batchQueue.size}/$maxBatchSize) - forcing flush")
                     flushBatchLocked()
                 }
             }
@@ -86,13 +92,14 @@ class SyncBatchProcessor(
     }
     
     /**
-     * Schedule batch processing after BATCH_INTERVAL_MS delay
+     * Schedule batch processing after [batchIntervalMs] delay.
      */
     private fun scheduleBatchProcessing() {
         batchJob = scope.launch {
-            delay(BATCH_INTERVAL_MS)
+            delay(batchIntervalMs)
             batchLock.withLock {
                 if (batchQueue.isNotEmpty() && !isAppVisible) {
+                    Log.i(TAG, "Periodic background purge triggered (interval=${batchIntervalMs}ms)")
                     flushBatchLocked()
                 }
             }
@@ -111,9 +118,7 @@ class SyncBatchProcessor(
         Log.i(TAG, "Processing batch of $batchSize sync_complete messages")
         
         // BATTERY OPTIMIZATION: Only update UI state when foregrounded
-        // When backgrounded, skip StateFlow updates (UI won't observe them anyway)
         if (isAppVisible) {
-            // CRASH FIX: Mark batch processing as started (on main thread for Compose)
             withContext(Dispatchers.Main) {
                 _isProcessingBatch.value = true
                 Log.i(TAG, "Batch processing STARTED - isProcessingBatch set to true (foreground)")
@@ -123,26 +128,17 @@ class SyncBatchProcessor(
         }
         
         try {
-            // Process all batched messages
             val batch = batchQueue.toList()
             batchQueue.clear()
             
-            // Process in order (FIFO)
             batch.forEach { msg ->
                 processSyncImmediately(msg.syncJson, msg.requestId, msg.runId)
             }
             
             val elapsed = System.currentTimeMillis() - startTime
-            Log.i(TAG, "Batch processed: $batchSize messages in ${elapsed}ms (${elapsed/batchSize}ms/msg)")
+            Log.i(TAG, "Batch processed: $batchSize messages in ${elapsed}ms (${if (batchSize > 0) elapsed / batchSize else 0}ms/msg)")
             
-            // BATTERY OPTIMIZATION: Don't trigger UI updates when backgrounded
-            // When app comes to foreground, refreshUIState() will refresh UI from current state
-            // This saves CPU/battery by avoiding unnecessary state updates when UI won't recompose
-            // Note: onBatchComplete is only used for foreground batches now (if needed in future)
-            
-            // CRASH FIX: Ensure minimum visible duration (200ms) so UI can observe the state change
-            // This is especially important for fast batches (<100ms) where UI might miss the state change
-            // Only delay when foregrounded (no point delaying when backgrounded)
+            // CRASH FIX: Ensure minimum visible duration so UI can observe state change
             if (isAppVisible) {
                 val minVisibleDuration = 200L
                 val remainingTime = minVisibleDuration - elapsed
@@ -151,9 +147,7 @@ class SyncBatchProcessor(
                 }
             }
         } finally {
-            // BATTERY OPTIMIZATION: Only update UI state when foregrounded
             if (isAppVisible) {
-                // CRASH FIX: Mark batch processing as complete (on main thread for Compose)
                 withContext(Dispatchers.Main) {
                     _isProcessingBatch.value = false
                     Log.i(TAG, "Batch processing COMPLETED - isProcessingBatch set to false (foreground)")
@@ -170,76 +164,96 @@ class SyncBatchProcessor(
     }
     
     /**
-     * Called when app visibility changes
-     * @return Job that completes when batch flush finishes (if a flush was triggered), null otherwise
+     * Called when app visibility changes.
+     *
+     * @return a Pair of (batchSize, Job?) — batchSize is the number of messages
+     *         that will be flushed (0 if nothing to flush), and the Job completes
+     *         when the flush finishes.  The caller can use batchSize to show a
+     *         Toast *before* the flush blocks the main thread.
      */
-    fun onAppVisibilityChanged(visible: Boolean): Job? {
-        return scope.launch {
-            val shouldFlushBatch = batchLock.withLock {
-                val wasVisible = isAppVisible
-                isAppVisible = visible
-                
-                if (visible && !wasVisible && batchQueue.isNotEmpty()) {
-                    // RUSH TO PROCESS: App just came to foreground
-                    // CRASH FIX: Small delay to allow UI animations to settle before processing batch
-                    // This prevents rapid updates from interrupting tab animations
-                    val batchSize = batchQueue.size
-                    Log.i(TAG, "App foregrounded - will process ${batchSize} batched messages after brief delay")
-                    true // Signal to flush after delay
-                } else {
-                    false
-                }
-            }
-            
-            if (shouldFlushBatch) {
-                // Small delay (500ms) to allow any in-progress animations to complete
+    fun onAppVisibilityChanged(visible: Boolean): Pair<Int, Job?> {
+        // Peek at queue size BEFORE launching, so caller can show a toast synchronously.
+        val pendingCount: Int
+        val job: Job?
+
+        // We need to read batchQueue.size while setting isAppVisible.  Because
+        // batchLock is a Mutex (suspend-only), we use a quick synchronised block
+        // on the list itself for the non-suspend read, then launch the real flush.
+        synchronized(batchQueue) {
+            val wasVisible = isAppVisible
+            isAppVisible = visible
+            pendingCount = if (visible && !wasVisible) batchQueue.size else 0
+        }
+
+        if (pendingCount > 0) {
+            job = scope.launch {
+                // Small delay to allow UI animations to settle
                 delay(500)
                 batchLock.withLock {
-                    // Re-check queue size in case more messages arrived
                     if (batchQueue.isNotEmpty()) {
                         Log.i(TAG, "App foregrounded - processing ${batchQueue.size} batched messages")
                         flushBatchLocked()
                     }
                 }
             }
+        } else {
+            // Still need to update isAppVisible under the mutex for correctness
+            job = scope.launch {
+                batchLock.withLock {
+                    isAppVisible = visible
+                }
+            }
         }
+
+        return Pair(pendingCount, job)
     }
     
     /**
      * Force flush batched messages for notification navigation.
-     * This ensures we have the latest cached data before opening a room.
+     * Sets isAppVisible = true because the app IS coming to the foreground.
      *
-     * Unlike the buffer-full safety flush (which calls flushBatchLocked()
-     * directly inside processSyncComplete and keeps isAppVisible=false),
-     * this method is called from AppViewModel when the user taps a
-     * notification — meaning the app IS coming to the foreground.
-     * We therefore set isAppVisible = true so that any sync_complete
-     * messages arriving *during* or *after* the flush are processed
-     * immediately rather than re-buffered.
-     *
-     * @return Job that completes when batch flush finishes, null if no batch to flush
+     * @return Job that completes when batch flush finishes
      */
     fun forceFlushBatch(): Job? {
         return scope.launch {
             batchLock.withLock {
                 if (batchQueue.isEmpty()) {
-                    // Still mark as visible even if queue is empty –
-                    // the app is coming to the foreground.
                     isAppVisible = true
                     return@launch
                 }
                 
                 val batchSize = batchQueue.size
-                Log.i(TAG, "Force flushing ${batchSize} batched messages (notification navigation)")
+                Log.i(TAG, "Force flushing $batchSize batched messages (notification navigation)")
                 
-                // Mark as visible permanently – onResume/onAppBecameVisible will
-                // also set this, but doing it here avoids a race window.
                 isAppVisible = true
             }
             
-            // Process the batch (acquires lock internally)
             batchLock.withLock {
                 flushBatchLocked()
+            }
+        }
+    }
+
+    /**
+     * Background flush triggered by an FCM notification while the app is backgrounded.
+     * Processes all buffered messages so the app state is up-to-date *before* the user
+     * taps the notification.  Unlike [forceFlushBatch], this keeps isAppVisible = false
+     * so subsequent sync_complete messages continue to be batched.
+     *
+     * @return Job that completes when the flush finishes, or null if the queue is empty.
+     */
+    fun backgroundFlush(): Job? {
+        // Quick non-blocking size check
+        val size = synchronized(batchQueue) { batchQueue.size }
+        if (size == 0) return null
+
+        Log.i(TAG, "Background flush requested by FCM notification ($size buffered messages)")
+
+        return scope.launch {
+            batchLock.withLock {
+                if (batchQueue.isNotEmpty()) {
+                    flushBatchLocked()
+                }
             }
         }
     }

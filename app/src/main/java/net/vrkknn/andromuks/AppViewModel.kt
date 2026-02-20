@@ -549,6 +549,16 @@ class AppViewModel : ViewModel() {
     var elementCallBaseUrl by mutableStateOf("")
         private set
 
+    // ── Background purge settings (exposed for SettingsScreen) ──────────────
+    var backgroundPurgeIntervalMinutes by mutableStateOf(
+        (SyncBatchProcessor.DEFAULT_BATCH_INTERVAL_MS / 60_000L).toInt()
+    )
+        private set
+    var backgroundPurgeMessageThreshold by mutableStateOf(
+        SyncBatchProcessor.DEFAULT_MAX_BATCH_SIZE
+    )
+        private set
+
     var pendingShare by mutableStateOf<PendingSharePayload?>(null)
         private set
     var pendingShareNavigationRequested by mutableStateOf(false)
@@ -5959,7 +5969,20 @@ class AppViewModel : ViewModel() {
         
         // BATTERY OPTIMIZATION: Notify batch processor to flush pending messages and process immediately
         // CRITICAL: Wait for batches to flush BEFORE refreshing UI, so UI shows up-to-date data
-        val batchFlushJob = syncBatchProcessor.onAppVisibilityChanged(true)
+        val (pendingCount, batchFlushJob) = syncBatchProcessor.onAppVisibilityChanged(true)
+
+        // Show a Toast so the user knows why the app is momentarily unresponsive
+        if (pendingCount > 0) {
+            appContext?.let { ctx ->
+                viewModelScope.launch(Dispatchers.Main) {
+                    android.widget.Toast.makeText(
+                        ctx,
+                        "Processing $pendingCount buffered messages…",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
         
         // Notify service of app visibility change
         WebSocketService.setAppVisibility(true)
@@ -15709,6 +15732,52 @@ class AppViewModel : ViewModel() {
             )
         }
     }
+
+    // ── Background purge settings ───────────────────────────────────────────
+
+    /**
+     * Update the periodic background purge interval (in minutes).
+     * Also pushes the value into the live [SyncBatchProcessor].
+     */
+    fun updateBackgroundPurgeInterval(minutes: Int) {
+        val clamped = minutes.coerceIn(1, 1440) // 1 min … 24 h
+        backgroundPurgeIntervalMinutes = clamped
+        syncBatchProcessor.batchIntervalMs = clamped.toLong() * 60_000L
+        appContext?.let { ctx ->
+            ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                .edit()
+                .putInt("background_purge_interval_minutes", clamped)
+                .apply()
+        }
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks",
+            "AppViewModel: backgroundPurgeIntervalMinutes=$clamped → ${syncBatchProcessor.batchIntervalMs}ms")
+    }
+
+    /**
+     * Update the message-count threshold that triggers an automatic background purge.
+     */
+    fun updateBackgroundPurgeThreshold(count: Int) {
+        val clamped = count.coerceIn(10, 100_000)
+        backgroundPurgeMessageThreshold = clamped
+        syncBatchProcessor.maxBatchSize = clamped
+        appContext?.let { ctx ->
+            ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                .edit()
+                .putInt("background_purge_message_threshold", clamped)
+                .apply()
+        }
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks",
+            "AppViewModel: backgroundPurgeMessageThreshold=$clamped")
+    }
+
+    /**
+     * Trigger a background buffer purge (called from FCM notification receiver).
+     * Processes all buffered sync_complete messages WITHOUT changing app visibility,
+     * so the app state is up-to-date before the user opens the notification.
+     */
+    fun triggerBackgroundBufferPurge() {
+        syncBatchProcessor.backgroundFlush()
+    }
     
     /**
      * Load settings from SharedPreferences
@@ -15724,11 +15793,23 @@ class AppViewModel : ViewModel() {
             loadThumbnailsIfAvailable = prefs.getBoolean("load_thumbnails_if_available", true) // Default to true
             renderThumbnailsAlways = prefs.getBoolean("render_thumbnails_always", true) // Default to true
             elementCallBaseUrl = prefs.getString("element_call_base_url", "") ?: ""
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded enableCompression setting: $enableCompression")
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded enterKeySendsMessage setting: $enterKeySendsMessage")
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded loadThumbnailsIfAvailable setting: $loadThumbnailsIfAvailable")
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded renderThumbnailsAlways setting: $renderThumbnailsAlways")
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded elementCallBaseUrl setting: $elementCallBaseUrl")
+
+            // Background purge settings
+            val defaultIntervalMin = (SyncBatchProcessor.DEFAULT_BATCH_INTERVAL_MS / 60_000L).toInt()
+            backgroundPurgeIntervalMinutes = prefs.getInt("background_purge_interval_minutes", defaultIntervalMin)
+            backgroundPurgeMessageThreshold = prefs.getInt("background_purge_message_threshold", SyncBatchProcessor.DEFAULT_MAX_BATCH_SIZE)
+            // Push to live processor
+            syncBatchProcessor.batchIntervalMs = backgroundPurgeIntervalMinutes.toLong() * 60_000L
+            syncBatchProcessor.maxBatchSize = backgroundPurgeMessageThreshold
+
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "AppViewModel: Loaded enableCompression setting: $enableCompression")
+                android.util.Log.d("Andromuks", "AppViewModel: Loaded enterKeySendsMessage setting: $enterKeySendsMessage")
+                android.util.Log.d("Andromuks", "AppViewModel: Loaded loadThumbnailsIfAvailable setting: $loadThumbnailsIfAvailable")
+                android.util.Log.d("Andromuks", "AppViewModel: Loaded renderThumbnailsAlways setting: $renderThumbnailsAlways")
+                android.util.Log.d("Andromuks", "AppViewModel: Loaded elementCallBaseUrl setting: $elementCallBaseUrl")
+                android.util.Log.d("Andromuks", "AppViewModel: Loaded backgroundPurgeIntervalMinutes=$backgroundPurgeIntervalMinutes, backgroundPurgeMessageThreshold=$backgroundPurgeMessageThreshold")
+            }
         }
     }
     /**

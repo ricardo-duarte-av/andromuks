@@ -165,6 +165,16 @@ fun SettingsScreen(
                 }
             }
 
+            // ── Background Sync Section ──────────────────────────────────────
+            Text(
+                text = "Background Sync",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+
+            BackgroundSyncSettings(appViewModel = appViewModel)
+
             // Calls Section
             Text(
                 text = "Calls",
@@ -733,6 +743,124 @@ fun CacheStatItem(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 2.dp)
             )
+        }
+    }
+}
+
+// ── Background Sync Settings Card ────────────────────────────────────────────
+
+@Composable
+fun BackgroundSyncSettings(appViewModel: AppViewModel) {
+    // ── Purge interval (minutes) ─────────────────────────────────────────────
+    var intervalText by remember { mutableStateOf(appViewModel.backgroundPurgeIntervalMinutes.toString()) }
+    LaunchedEffect(appViewModel.backgroundPurgeIntervalMinutes) {
+        intervalText = appViewModel.backgroundPurgeIntervalMinutes.toString()
+    }
+
+    // ── Message threshold ────────────────────────────────────────────────────
+    var thresholdText by remember { mutableStateOf(appViewModel.backgroundPurgeMessageThreshold.toString()) }
+    LaunchedEffect(appViewModel.backgroundPurgeMessageThreshold) {
+        thresholdText = appViewModel.backgroundPurgeMessageThreshold.toString()
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "While the app is backgrounded, incoming sync messages are buffered to save battery. " +
+                        "The buffer is purged automatically when either threshold below is reached, " +
+                        "or immediately when an FCM notification arrives.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            // ── Interval slider + text field ─────────────────────────────────
+            Text(
+                text = "Purge interval",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = "Maximum time between automatic background purges (minutes).",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Slider(
+                    value = appViewModel.backgroundPurgeIntervalMinutes.toFloat(),
+                    onValueChange = {
+                        val newVal = it.toInt().coerceIn(1, 60)
+                        appViewModel.updateBackgroundPurgeInterval(newVal)
+                    },
+                    valueRange = 1f..60f,
+                    steps = 58, // 1-minute increments
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = "${appViewModel.backgroundPurgeIntervalMinutes} min",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.widthIn(min = 52.dp)
+                )
+            }
+
+            HorizontalDivider()
+
+            // ── Message count threshold ──────────────────────────────────────
+            Text(
+                text = "Message count threshold",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = "Maximum buffered sync messages before an automatic purge is triggered, even if the interval hasn't elapsed.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Slider(
+                    value = appViewModel.backgroundPurgeMessageThreshold.toFloat(),
+                    onValueChange = {
+                        val newVal = it.toInt().coerceIn(10, 2000)
+                        appViewModel.updateBackgroundPurgeThreshold(newVal)
+                    },
+                    valueRange = 10f..2000f,
+                    steps = 0, // continuous
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = "${appViewModel.backgroundPurgeMessageThreshold}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.widthIn(min = 52.dp)
+                )
+            }
+
+            // ── Battery warning ──────────────────────────────────────────────
+            val defaultInterval = (SyncBatchProcessor.DEFAULT_BATCH_INTERVAL_MS / 60_000L).toInt()
+            val defaultThreshold = SyncBatchProcessor.DEFAULT_MAX_BATCH_SIZE
+            if (appViewModel.backgroundPurgeIntervalMinutes < defaultInterval ||
+                appViewModel.backgroundPurgeMessageThreshold < defaultThreshold
+            ) {
+                Text(
+                    text = "⚠️ Lower values mean more frequent background processing, which may increase battery usage.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
         }
     }
 }
