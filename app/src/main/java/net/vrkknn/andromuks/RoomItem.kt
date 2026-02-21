@@ -81,6 +81,8 @@ data class PowerLevelsInfo(
     val users: Map<String, Int>,
     val usersDefault: Int,
     val redact: Int,
+    val kick: Int = 50, // Default kick power level
+    val ban: Int = 50, // Default ban power level
     val events: Map<String, Int> = emptyMap(),
     val eventsDefault: Int = 0
 )

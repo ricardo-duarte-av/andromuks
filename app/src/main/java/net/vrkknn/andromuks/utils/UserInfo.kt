@@ -28,6 +28,8 @@ import androidx.navigation.NavController
 import androidx.navigation.NavOptionsBuilder
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.RoomItem
+import net.vrkknn.andromuks.TimelineEvent
+import net.vrkknn.andromuks.RoomTimelineCache
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import androidx.compose.foundation.gestures.rememberTransformableState
@@ -89,6 +91,43 @@ import kotlinx.coroutines.launch
 
 private fun usernameFromMatrixId(userId: String): String =
     userId.removePrefix("@").substringBefore(":")
+
+/**
+ * Helper function to parse power levels from JSON content
+ */
+private fun parsePowerLevelsFromContent(content: JSONObject): net.vrkknn.andromuks.PowerLevelsInfo {
+    val usersObj = content.optJSONObject("users")
+    val usersMap = if (usersObj != null) {
+        mutableMapOf<String, Int>().apply {
+            usersObj.keys()?.forEach { userId ->
+                put(userId, usersObj.optInt(userId, 0))
+            }
+        }
+    } else {
+        emptyMap()
+    }
+    
+    val eventsObj = content.optJSONObject("events")
+    val eventsMap = if (eventsObj != null) {
+        mutableMapOf<String, Int>().apply {
+            eventsObj.keys()?.forEach { ev ->
+                put(ev, eventsObj.optInt(ev, 0))
+            }
+        }
+    } else {
+        emptyMap()
+    }
+    
+    return net.vrkknn.andromuks.PowerLevelsInfo(
+        users = usersMap,
+        usersDefault = content.optInt("users_default", 0),
+        redact = content.optInt("redact", 50),
+        kick = content.optInt("kick", 50),
+        ban = content.optInt("ban", 50),
+        events = eventsMap,
+        eventsDefault = content.optInt("events_default", 0)
+    )
+}
 
 /**
  * Helper function to navigate to user info screen with optional roomId
@@ -291,6 +330,23 @@ fun UserInfoScreen(
     var showDeviceListDialog by remember { mutableStateOf(false) }
     var showSharedRoomsDialog by remember { mutableStateOf(false) }
     
+    // Moderation dialog state
+    var showKickDialog by remember { mutableStateOf(false) }
+    var showBanDialog by remember { mutableStateOf(false) }
+    var showRedactDialog by remember { mutableStateOf(false) }
+    var kickReason by remember { mutableStateOf("") }
+    var banReason by remember { mutableStateOf("") }
+    var redactReason by remember { mutableStateOf("") }
+    var banRedactRecentMessages by remember { mutableStateOf(false) } // OFF by default
+    var banRedactSystemMessages by remember { mutableStateOf(true) }
+    
+    // Room state and power levels (for moderation buttons)
+    var roomPowerLevels by remember { mutableStateOf<net.vrkknn.andromuks.PowerLevelsInfo?>(null) }
+    
+    // Ignore dialog state
+    var showIgnoreDialog by remember { mutableStateOf(false) }
+    var isUserIgnored by remember { mutableStateOf(false) }
+    
     // Current time state for user's timezone
     var currentTimeInUserTz by remember { mutableStateOf("") }
 
@@ -300,8 +356,112 @@ fun UserInfoScreen(
             ?: navController.currentBackStackEntry?.savedStateHandle?.get<String>("user_info_roomId")?.takeIf { it.isNotBlank() }
     }
     val effectiveRoomId = roomId ?: roomIdFromState
+    val myUserId = appViewModel.currentUserId
+    
+    // Debug logging for moderation buttons visibility
+    LaunchedEffect(effectiveRoomId, myUserId, userId, roomPowerLevels) {
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "UserInfoScreen: Moderation buttons check - effectiveRoomId=$effectiveRoomId, myUserId=$myUserId, userId=$userId, roomPowerLevels=${roomPowerLevels != null}, willShow=${effectiveRoomId != null && myUserId != userId}")
+        }
+    }
+    
+    // Get power levels from current room state if available (same room)
+    val currentRoomState = appViewModel.currentRoomState
+    val powerLevelsFromCurrentRoom = remember(effectiveRoomId, currentRoomState) {
+        if (effectiveRoomId != null && currentRoomState?.roomId == effectiveRoomId) {
+            currentRoomState.powerLevels
+        } else {
+            null
+        }
+    }
+    
+    // Request room state to get power levels (for moderation buttons)
+    LaunchedEffect(effectiveRoomId) {
+        if (effectiveRoomId != null) {
+            // First check if we already have power levels from current room state
+            if (powerLevelsFromCurrentRoom != null) {
+                roomPowerLevels = powerLevelsFromCurrentRoom
+                return@LaunchedEffect
+            }
+            
+            // Otherwise, request room state and parse power levels
+            appViewModel.requestRoomState(effectiveRoomId)
+            
+            // Try multiple times with delays to get the state
+            var attempts = 0
+            while (attempts < 5 && roomPowerLevels == null) {
+                delay(300)
+                val roomStateJson = appViewModel.getRoomState(effectiveRoomId)
+                if (roomStateJson != null) {
+                    // Parse power levels from the state events
+                    for (i in 0 until roomStateJson.length()) {
+                        val event = roomStateJson.optJSONObject(i)
+                        if (event?.optString("type") == "m.room.power_levels") {
+                            val content = event.optJSONObject("content")
+                            if (content != null) {
+                                roomPowerLevels = parsePowerLevelsFromContent(content)
+                                break
+                            }
+                        }
+                    }
+                    if (roomPowerLevels != null) break
+                }
+                attempts++
+            }
+        } else {
+            roomPowerLevels = null
+        }
+    }
+    
+    // Also update when current room state changes (if it's the same room)
+    LaunchedEffect(powerLevelsFromCurrentRoom) {
+        if (powerLevelsFromCurrentRoom != null) {
+            roomPowerLevels = powerLevelsFromCurrentRoom
+        }
+    }
+    
+    // Calculate power levels for current user and target user
+    val myPowerLevel = remember(roomPowerLevels, myUserId) {
+        if (roomPowerLevels != null && myUserId.isNotBlank()) {
+            roomPowerLevels!!.users[myUserId] ?: roomPowerLevels!!.usersDefault
+        } else {
+            0
+        }
+    }
+    
+    val targetUserPowerLevel = remember(roomPowerLevels, userId) {
+        if (roomPowerLevels != null) {
+            roomPowerLevels!!.users[userId] ?: roomPowerLevels!!.usersDefault
+        } else {
+            0
+        }
+    }
+    
+    // Check if moderation actions are allowed
+    val canKick = remember(roomPowerLevels, myPowerLevel, targetUserPowerLevel) {
+        roomPowerLevels != null && 
+        myPowerLevel >= roomPowerLevels!!.kick && 
+        myPowerLevel > targetUserPowerLevel
+    }
+    
+    val canBan = remember(roomPowerLevels, myPowerLevel, targetUserPowerLevel) {
+        roomPowerLevels != null && 
+        myPowerLevel >= roomPowerLevels!!.ban && 
+        myPowerLevel > targetUserPowerLevel
+    }
+    
+    val canRedact = remember(roomPowerLevels, myPowerLevel, targetUserPowerLevel) {
+        roomPowerLevels != null && 
+        myPowerLevel >= roomPowerLevels!!.redact && 
+        myPowerLevel > targetUserPowerLevel
+    }
     
     // CRITICAL FIX: Always request fresh profile data from backend (never use cache)
+    // Check if user is ignored
+    LaunchedEffect(userId) {
+        isUserIgnored = appViewModel.isUserIgnored(userId)
+    }
+    
     // This ensures we get the latest profile info including pronouns, timezone, etc.
     LaunchedEffect(userId, effectiveRoomId) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UserInfoScreen: Requesting FRESH user info for $userId${if (effectiveRoomId != null) " in room $effectiveRoomId" else ""} (bypassing cache)")
@@ -739,6 +899,78 @@ fun UserInfoScreen(
                     }
                 }
                 
+                // Moderation buttons (only shown if we have a room context and not viewing own profile)
+                if (effectiveRoomId != null && myUserId != userId) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    
+                    // 2x2 grid of moderation buttons
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // First row: Kick and Ban
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            // Kick button
+                            Button(
+                                onClick = {
+                                    kickReason = ""
+                                    showKickDialog = true
+                                },
+                                enabled = canKick,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Kick")
+                            }
+                            
+                            // Ban button
+                            Button(
+                                onClick = {
+                                    banReason = ""
+                                    banRedactRecentMessages = false // OFF by default
+                                    banRedactSystemMessages = true
+                                    showBanDialog = true
+                                },
+                                enabled = canBan,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Ban")
+                            }
+                        }
+                        
+                        // Second row: Redact and Ignore
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            // Redact button
+                            Button(
+                                onClick = {
+                                    redactReason = ""
+                                    showRedactDialog = true
+                                },
+                                enabled = canRedact,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Redact")
+                            }
+                            
+                            // Ignore/Unignore button
+                            Button(
+                                onClick = {
+                                    showIgnoreDialog = true
+                                },
+                                enabled = true,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(if (isUserIgnored) "Unignore" else "Ignore")
+                            }
+                        }
+                    }
+                }
+                
                 // Arbitrary profile fields
                 val arbitraryFields = userProfileInfo!!.arbitraryFields
                 if (arbitraryFields.isNotEmpty()) {
@@ -805,6 +1037,156 @@ fun UserInfoScreen(
             appViewModel = appViewModel,
             navController = navController,
             onDismiss = { showSharedRoomsDialog = false }
+        )
+    }
+    
+    // Kick confirmation dialog
+    if (showKickDialog && effectiveRoomId != null) {
+        val displayName = userProfileInfo?.roomDisplayName ?: userProfileInfo?.displayName ?: usernameFromMatrixId(userId)
+        KickConfirmationDialog(
+            displayName = displayName,
+            userId = userId,
+            reason = kickReason,
+            onReasonChange = { kickReason = it },
+            onConfirm = {
+                // Execute kick command (same as /kick command)
+                val commandText = if (kickReason.isNotBlank()) {
+                    "/kick $userId $kickReason"
+                } else {
+                    "/kick $userId"
+                }
+                appViewModel.executeCommand(effectiveRoomId, commandText, context)
+                showKickDialog = false
+                kickReason = ""
+            },
+            onDismiss = {
+                showKickDialog = false
+                kickReason = ""
+            }
+        )
+    }
+    
+    // Ban confirmation dialog
+    if (showBanDialog && effectiveRoomId != null) {
+        val displayName = userProfileInfo?.roomDisplayName ?: userProfileInfo?.displayName ?: usernameFromMatrixId(userId)
+        // Get user messages count for the room (only message events, not state events)
+        val userMessages = remember(effectiveRoomId, userId) {
+            RoomTimelineCache.getCachedEvents(effectiveRoomId).orEmpty()
+                .filter { 
+                    it.sender == userId && 
+                    it.stateKey == null && // Exclude state events
+                    (it.type == "m.room.message" || (it.type == "m.room.encrypted" && it.decryptedType == "m.room.message"))
+                }
+        }
+        val messageCount = userMessages.size
+        
+        // Get all user events (including state events) for system message redaction
+        val allUserEvents = remember(effectiveRoomId, userId) {
+            RoomTimelineCache.getCachedEvents(effectiveRoomId).orEmpty()
+                .filter { it.sender == userId }
+        }
+        
+        BanConfirmationDialog(
+            displayName = displayName,
+            userId = userId,
+            messageCount = messageCount,
+            reason = banReason,
+            onReasonChange = { banReason = it },
+            redactRecentMessages = banRedactRecentMessages,
+            onRedactRecentMessagesChange = { banRedactRecentMessages = it },
+            redactSystemMessages = banRedactSystemMessages,
+            onRedactSystemMessagesChange = { banRedactSystemMessages = it },
+            onConfirm = {
+                coroutineScope.launch {
+                    // Execute ban command
+                    // msc4293_redact_events is true if "Redact n recent messages" is ON
+                    appViewModel.banUser(effectiveRoomId, userId, banReason, banRedactRecentMessages)
+                    
+                    // If redact recent messages is enabled, redact all user message events (NOT state events)
+                    if (banRedactRecentMessages) {
+                        userMessages.forEach { event ->
+                            appViewModel.redactEvent(effectiveRoomId, event.eventId, banReason)
+                            // Small delay to avoid overwhelming the backend
+                            delay(50)
+                        }
+                    }
+                    
+                    // If redact system messages is enabled, redact all user events (including state events)
+                    if (banRedactSystemMessages) {
+                        allUserEvents.forEach { event ->
+                            appViewModel.redactEvent(effectiveRoomId, event.eventId, banReason)
+                            // Small delay to avoid overwhelming the backend
+                            delay(50)
+                        }
+                    }
+                    
+                    showBanDialog = false
+                    banReason = ""
+                    banRedactRecentMessages = false
+                    banRedactSystemMessages = true
+                }
+            },
+            onDismiss = {
+                showBanDialog = false
+                banReason = ""
+                banRedactRecentMessages = false
+                banRedactSystemMessages = true
+            }
+        )
+    }
+    
+    // Redact confirmation dialog
+    if (showRedactDialog && effectiveRoomId != null) {
+        val displayName = userProfileInfo?.roomDisplayName ?: userProfileInfo?.displayName ?: usernameFromMatrixId(userId)
+        // Get user messages count for the room
+        val userMessages = remember(effectiveRoomId, userId) {
+            RoomTimelineCache.getCachedEvents(effectiveRoomId).orEmpty()
+                .filter { it.sender == userId && (it.type == "m.room.message" || (it.type == "m.room.encrypted" && it.decryptedType == "m.room.message")) }
+        }
+        val messageCount = userMessages.size
+        
+        RedactConfirmationDialog(
+            displayName = displayName,
+            userId = userId,
+            messageCount = messageCount,
+            reason = redactReason,
+            onReasonChange = { redactReason = it },
+            onConfirm = {
+                coroutineScope.launch {
+                    // Redact all user messages
+                    userMessages.forEach { event ->
+                        appViewModel.redactEvent(effectiveRoomId, event.eventId, redactReason)
+                        // Small delay to avoid overwhelming the backend
+                        delay(50)
+                    }
+                    
+                    showRedactDialog = false
+                    redactReason = ""
+                }
+            },
+            onDismiss = {
+                showRedactDialog = false
+                redactReason = ""
+            }
+        )
+    }
+    
+    // Ignore confirmation dialog
+    val currentUserProfileInfo = userProfileInfo
+    if (showIgnoreDialog && currentUserProfileInfo != null) {
+        val displayName = currentUserProfileInfo.roomDisplayName ?: currentUserProfileInfo.displayName ?: usernameFromMatrixId(userId)
+        IgnoreConfirmationDialog(
+            displayName = displayName,
+            userId = userId,
+            isIgnored = isUserIgnored,
+            onConfirm = {
+                appViewModel.setIgnoredUser(userId, !isUserIgnored)
+                isUserIgnored = !isUserIgnored
+                showIgnoreDialog = false
+            },
+            onDismiss = {
+                showIgnoreDialog = false
+            }
         )
     }
 }
@@ -1424,5 +1806,239 @@ private suspend fun saveAvatarToGallery(
             Toast.makeText(context, "Error saving avatar: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
+}
+
+/**
+ * Kick confirmation dialog
+ */
+@Composable
+fun KickConfirmationDialog(
+    displayName: String,
+    userId: String,
+    reason: String,
+    onReasonChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Kick User") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Are you sure you want to kick $displayName ($userId)?",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = onReasonChange,
+                    label = { Text("Reason (optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 3
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Text("Yes")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("No")
+            }
+        }
+    )
+}
+
+/**
+ * Ban confirmation dialog
+ */
+@Composable
+fun BanConfirmationDialog(
+    displayName: String,
+    userId: String,
+    messageCount: Int,
+    reason: String,
+    onReasonChange: (String) -> Unit,
+    redactRecentMessages: Boolean,
+    onRedactRecentMessagesChange: (Boolean) -> Unit,
+    redactSystemMessages: Boolean,
+    onRedactSystemMessagesChange: (Boolean) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Ban User") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Are you sure you want to ban $displayName ($userId)?",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = onReasonChange,
+                    label = { Text("Reason (optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 3
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Redact $messageCount recent messages",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                        color = if (redactRecentMessages) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    )
+                    Switch(
+                        checked = redactRecentMessages,
+                        onCheckedChange = onRedactRecentMessagesChange
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Redact system messages",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                        color = if (redactRecentMessages) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    )
+                    Switch(
+                        checked = redactSystemMessages,
+                        onCheckedChange = onRedactSystemMessagesChange,
+                        enabled = redactRecentMessages
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Text("Yes")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("No")
+            }
+        }
+    )
+}
+
+/**
+ * Redact confirmation dialog
+ */
+@Composable
+fun RedactConfirmationDialog(
+    displayName: String,
+    userId: String,
+    messageCount: Int,
+    reason: String,
+    onReasonChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Redact Messages") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Do you want to redact $messageCount messages for $displayName ($userId)?",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = onReasonChange,
+                    label = { Text("Reason (optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 3
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Text("Yes")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("No")
+            }
+        }
+    )
+}
+
+/**
+ * Ignore/Unignore confirmation dialog
+ */
+@Composable
+fun IgnoreConfirmationDialog(
+    displayName: String,
+    userId: String,
+    isIgnored: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (isIgnored) "Unignore User" else "Ignore User") },
+        text = {
+            Text(
+                text = if (isIgnored) {
+                    "Are you sure you want to unignore $displayName ($userId)?"
+                } else {
+                    "Are you sure you want to ignore $displayName ($userId)?"
+                },
+                style = MaterialTheme.typography.bodyMedium
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Text("Yes")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("No")
+            }
+        }
+    )
 }
 

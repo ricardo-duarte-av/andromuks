@@ -911,6 +911,10 @@ class AppViewModel : ViewModel() {
     // Cache for DM room IDs from m.direct account data
     private var directMessageRoomIds by mutableStateOf(setOf<String>())
         private set
+    
+    // Ignored users list from m.ignored_user_list account data
+    private var ignoredUsers by mutableStateOf(setOf<String>())
+        private set
 
     // Cache mapping of userId -> set of direct room IDs (from m.direct)
     private var directMessageUserMap: Map<String, Set<String>> = emptyMap()
@@ -4058,8 +4062,46 @@ class AppViewModel : ViewModel() {
             } else {
                 // Key is present but value is null - clear DM room IDs
                 directMessageRoomIds = emptySet()
-                directMessageUserMap = emptyMap()
+                    directMessageUserMap = emptyMap()
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: m.direct is null, cleared DM room IDs")
+            }
+        }
+        // If key is missing, don't process it (preserve existing state)
+        
+        // Process m.ignored_user_list account data
+        if (accountDataJson.has("m.ignored_user_list")) {
+            val ignoredUserListData = accountDataJson.optJSONObject("m.ignored_user_list")
+            if (ignoredUserListData != null) {
+                val content = ignoredUserListData.optJSONObject("content")
+                if (content != null) {
+                    val ignoredUsersObj = content.optJSONObject("ignored_users")
+                    if (ignoredUsersObj != null) {
+                        val ignoredSet = mutableSetOf<String>()
+                        val keys = ignoredUsersObj.names()
+                        if (keys != null) {
+                            for (i in 0 until keys.length()) {
+                                val userId = keys.optString(i)
+                                if (userId.isNotBlank()) {
+                                    ignoredSet.add(userId)
+                                }
+                            }
+                        }
+                        ignoredUsers = ignoredSet
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${ignoredSet.size} ignored users from m.ignored_user_list")
+                    } else {
+                        // Key is present but ignored_users is null or empty - clear ignored users
+                        ignoredUsers = emptySet()
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: m.ignored_user_list.ignored_users is null/empty, cleared ignored users")
+                    }
+                } else {
+                    // Key is present but content is null - clear ignored users
+                    ignoredUsers = emptySet()
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: m.ignored_user_list.content is null, cleared ignored users")
+                }
+            } else {
+                // Key is present but value is null - clear ignored users
+                ignoredUsers = emptySet()
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: m.ignored_user_list is null, cleared ignored users")
             }
         }
         // If key is missing, don't process it (preserve existing state)
@@ -12591,6 +12633,8 @@ class AppViewModel : ViewModel() {
                             users = usersMap,
                             usersDefault = content.optInt("users_default", 0),
                             redact = content.optInt("redact", 50),
+                            kick = content.optInt("kick", 50),
+                            ban = content.optInt("ban", 50),
                             events = eventsMap,
                             eventsDefault = content.optInt("events_default", 0)
                         )
@@ -15229,6 +15273,103 @@ class AppViewModel : ViewModel() {
             )
         ))
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting room member avatar: $mxcUrl")
+    }
+    
+    /**
+     * Ban a user from a room with optional redaction
+     */
+    fun banUser(roomId: String, userId: String, reason: String, redactSystemMessages: Boolean = false) {
+        val requestId = requestIdCounter++
+        sendWebSocketCommand("set_membership", requestId, mapOf(
+            "room_id" to roomId,
+            "user_id" to userId,
+            "action" to "ban",
+            "reason" to reason,
+            "msc4293_redact_events" to redactSystemMessages
+        ))
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Banning user $userId from room $roomId with reason: $reason")
+    }
+    
+    /**
+     * Redact an event
+     */
+    fun redactEvent(roomId: String, eventId: String, reason: String) {
+        val requestId = requestIdCounter++
+        sendWebSocketCommand("redact_event", requestId, mapOf(
+            "room_id" to roomId,
+            "event_id" to eventId,
+            "reason" to reason
+        ))
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Redacting event $eventId in room $roomId with reason: $reason")
+    }
+    
+    /**
+     * Check if a user is ignored
+     */
+    fun isUserIgnored(userId: String): Boolean {
+        return ignoredUsers.contains(userId)
+    }
+    
+    /**
+     * Set ignored users list (add or remove a user)
+     */
+    fun setIgnoredUser(userId: String, ignore: Boolean) {
+        val currentIgnored = ignoredUsers.toMutableSet()
+        
+        if (ignore) {
+            // Add user to ignored list
+            currentIgnored.add(userId)
+        } else {
+            // Remove user from ignored list
+            currentIgnored.remove(userId)
+        }
+        
+        // Build the ignored_users object with empty objects as values
+        val ignoredUsersObj = org.json.JSONObject()
+        currentIgnored.forEach { ignoredUserId ->
+            ignoredUsersObj.put(ignoredUserId, org.json.JSONObject())
+        }
+        
+        // Convert JSONObject to Map for the command
+        val ignoredUsersMap = mutableMapOf<String, Any>()
+        val keys = ignoredUsersObj.names()
+        if (keys != null) {
+            for (i in 0 until keys.length()) {
+                val key = keys.optString(i)
+                val value = ignoredUsersObj.optJSONObject(key)
+                if (value != null) {
+                    // Convert empty JSONObject to empty Map
+                    ignoredUsersMap[key] = emptyMap<String, Any>()
+                }
+            }
+        }
+        
+        // Send set_account_data command
+        val requestId = requestIdCounter++
+        val commandData = mapOf(
+            "type" to "m.ignored_user_list",
+            "content" to mapOf(
+                "ignored_users" to ignoredUsersMap
+            )
+        )
+        
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AppViewModel: Setting ignored users: ${if (ignore) "ignoring" else "unignoring"} $userId")
+            android.util.Log.d("Andromuks", "AppViewModel: Total ignored users: ${currentIgnored.size}")
+        }
+        
+        // Update local state immediately (optimistic update)
+        ignoredUsers = currentIgnored.toSet()
+        
+        // Send to server
+        sendWebSocketCommand("set_account_data", requestId, commandData)
+    }
+    
+    /**
+     * Get next request ID (for operations that need multiple requests)
+     */
+    fun getNextRequestId(): Int {
+        return requestIdCounter++
     }
     
     /**
