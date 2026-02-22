@@ -84,7 +84,7 @@ android {
 }
 
 dependencies {
-
+    implementation("androidx.profileinstaller:profileinstaller:1.3.1")
     implementation("androidx.core:core-ktx:1.17.0")
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
