@@ -1990,7 +1990,73 @@ private fun EncryptedMessageContent(
                 timelineEvents.find<TimelineEvent> { it.eventId == reply.eventId }
             }
 
-        // Check if it's a media message
+        // CRITICAL: Check if message is redacted BEFORE checking media type
+        // Redacted messages should show deletion message, not original content (including media)
+        // If redacted, render deletion message using MessageBubbleWithMenu
+        if (isRedacted) {
+            val deletionMessage = finalBody // finalBody already contains the deletion message when isRedacted is true
+            
+            val bubbleShape =
+                if (actualIsMine) {
+                    RoundedCornerShape(
+                        topStart = 12.dp,
+                        topEnd = 2.dp,
+                        bottomEnd = 12.dp,
+                        bottomStart = 12.dp
+                    )
+                } else {
+                    RoundedCornerShape(
+                        topStart = 2.dp,
+                        topEnd = 12.dp,
+                        bottomEnd = 12.dp,
+                        bottomStart = 12.dp
+                    )
+                }
+
+            val deletionColors = BubblePalette.colors(
+                colorScheme = MaterialTheme.colorScheme,
+                isMine = actualIsMine,
+                isRedacted = true
+            )
+            val bubbleColor = deletionColors.container
+            val textColor = deletionColors.content
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement =
+                    if (actualIsMine) Arrangement.End else Arrangement.Start
+            ) {
+                MessageBubbleWithMenu(
+                    event = event,
+                    bubbleColor = bubbleColor,
+                    bubbleShape = bubbleShape,
+                    modifier = Modifier
+                        .padding(top = 4.dp),
+                    isMine = actualIsMine,
+                    myUserId = myUserId,
+                    powerLevels = appViewModel?.currentRoomState?.powerLevels,
+                    onReply = { onReply(event) },
+                    onReact = { onReact(event) },
+                    onEdit = { onEdit(event) },
+                    onDelete = { onDelete(event) },
+                    appViewModel = appViewModel,
+                    onBubbleClick = { onThreadClick(event) },
+                    onShowEditHistory = null,
+                    mentionBorder = deletionColors.mentionBorder
+                ) {
+                    Text(
+                        text = deletionMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = textColor,
+                        fontStyle = FontStyle.Italic,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                    )
+                }
+            }
+            return
+        }
+
+        // Check if it's a media message (only for non-redacted messages)
         if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio" || msgType == "m.file") {
             if (BuildConfig.DEBUG) Log.d(
                 "Andromuks",

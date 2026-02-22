@@ -879,8 +879,9 @@ class SyncIngestor(private val context: Context) {
         val relType = relatesTo?.optString("rel_type")
         val isThreadMessage = relType == "m.thread"
         
-        // Check if this is a redaction
-        val isRedaction = type == "m.room.redaction"
+        // Check if this is a redaction (can be m.room.redaction or m.room.encrypted with decryptedType == m.room.redaction)
+        val isRedaction = type == "m.room.redaction" ||
+            (type == "m.room.encrypted" && decryptedType == "m.room.redaction")
         
         // Extract thread root and relates_to based on message type
         var threadRootEventId: String? = null
@@ -899,9 +900,17 @@ class SyncIngestor(private val context: Context) {
             relatesToEventId = relatesTo.optString("event_id")?.takeIf { it.isNotBlank() }
         }
         
-        // For redactions, the redacted event ID is in content.redacts, not m.relates_to
+        // For redactions, the redacted event ID is in content.redacts (or decrypted.redacts for encrypted redactions), not m.relates_to
         if (isRedaction && relatesToEventId == null) {
-            relatesToEventId = messageContent?.optString("redacts")?.takeIf { it.isNotBlank() }
+            // For encrypted redactions, check decrypted content; for non-encrypted, check content
+            relatesToEventId = when {
+                type == "m.room.encrypted" && decryptedType == "m.room.redaction" -> {
+                    eventJson.optJSONObject("decrypted")?.optString("redacts")?.takeIf { it.isNotBlank() }
+                }
+                else -> {
+                    messageContent?.optString("redacts")?.takeIf { it.isNotBlank() }
+                }
+            }
         }
         
         // Include aggregated reactions (if any) in content for cache consumption

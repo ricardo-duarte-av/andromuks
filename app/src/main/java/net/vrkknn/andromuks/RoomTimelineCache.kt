@@ -260,15 +260,33 @@ object RoomTimelineCache {
         for (event in filteredEvents) {
             if (event.eventId.isBlank()) continue
             
-            // Handle redaction events separately
-            if (event.type == "m.room.redaction") {
+            // Handle redaction events separately (both encrypted and non-encrypted for E2EE rooms)
+            val isRedaction = event.type == "m.room.redaction" ||
+                (event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction")
+            
+            if (isRedaction) {
                 if (cache.redactionEvents.none { it.eventId == event.eventId }) {
                     cache.redactionEvents.add(event)
                     addedCount++
                     
                     // Extract the event ID being redacted and store mapping
-                    val redactsString = event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
-                    val redactsObject = event.content?.optJSONObject("redacts")?.optString("event_id")?.takeIf { it.isNotBlank() }
+                    // For encrypted redactions, check decrypted content; for non-encrypted, check content
+                    val redactsString = when {
+                        event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction" -> {
+                            event.decrypted?.optString("redacts")?.takeIf { it.isNotBlank() }
+                        }
+                        else -> {
+                            event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+                        }
+                    }
+                    val redactsObject = when {
+                        event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction" -> {
+                            event.decrypted?.optJSONObject("redacts")?.optString("event_id")?.takeIf { it.isNotBlank() }
+                        }
+                        else -> {
+                            event.content?.optJSONObject("redacts")?.optString("event_id")?.takeIf { it.isNotBlank() }
+                        }
+                    }
                     val originalEventId = redactsString ?: redactsObject
                     
                     if (originalEventId != null) {
@@ -1194,9 +1212,11 @@ object RoomTimelineCache {
                         true // Will be handled separately in addEventsToCache
                     }
                     event.type == "m.room.member" && event.timelineRowid < 0 && !isKick -> false
-                    event.type == "m.room.redaction" -> {
+                    event.type == "m.room.redaction" ||
+                    (event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction") -> {
                         // Store redaction events separately - they're needed to show deleted messages
                         // Similar to how we store edit events
+                        // Handle both encrypted and non-encrypted redactions for E2EE rooms
                         true // Will be handled separately
                     }
                     allowedEventTypes.contains(event.type) -> true  // Allow all allowed types regardless of timelineRowid
@@ -1210,9 +1230,18 @@ object RoomTimelineCache {
                     if (BuildConfig.DEBUG) {
                         if (isKick) {
                             Log.d(TAG, "Cached kick event: ${event.eventId} type=${event.type} sender=${event.sender} stateKey=${event.stateKey} timelineRowid=${event.timelineRowid}")
-                        } else if (event.type == "m.room.redaction") {
-                            val redactsId = event.content?.optString("redacts") ?: event.content?.optJSONObject("redacts")?.optString("event_id")
-                            Log.d(TAG, "Cached redaction event: ${event.eventId} type=${event.type} sender=${event.sender} redacts=${redactsId} timelineRowid=${event.timelineRowid}")
+                        } else if (event.type == "m.room.redaction" ||
+                            (event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction")) {
+                            // For encrypted redactions, check decrypted content; for non-encrypted, check content
+                            val redactsId = when {
+                                event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction" -> {
+                                    event.decrypted?.optString("redacts") ?: event.decrypted?.optJSONObject("redacts")?.optString("event_id")
+                                }
+                                else -> {
+                                    event.content?.optString("redacts") ?: event.content?.optJSONObject("redacts")?.optString("event_id")
+                                }
+                            }
+                            Log.d(TAG, "Cached redaction event: ${event.eventId} type=${event.type} decryptedType=${event.decryptedType} sender=${event.sender} redacts=${redactsId} timelineRowid=${event.timelineRowid}")
                         } else {
                             Log.d(TAG, "Cached event: ${event.eventId} type=${event.type} sender=${event.sender} timelineRowid=${event.timelineRowid}")
                         }

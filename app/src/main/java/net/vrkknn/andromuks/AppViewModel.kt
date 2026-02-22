@@ -3610,9 +3610,18 @@ class AppViewModel : ViewModel() {
     private fun processVersionedMessages(events: List<TimelineEvent>) {
         for (event in events) {
             when {
-                // Handle redaction events - O(1) storage
-                event.type == "m.room.redaction" -> {
-                    val redactsEventId = event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+                // Handle redaction events - O(1) storage (both encrypted and non-encrypted for E2EE rooms)
+                event.type == "m.room.redaction" ||
+                (event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction") -> {
+                    // For encrypted redactions, check decrypted content; for non-encrypted, check content
+                    val redactsEventId = when {
+                        event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction" -> {
+                            event.decrypted?.optString("redacts")?.takeIf { it.isNotBlank() }
+                        }
+                        else -> {
+                            event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+                        }
+                    }
                     
                     if (redactsEventId != null) {
                         // Mark the original message as redacted
@@ -3636,7 +3645,7 @@ class AppViewModel : ViewModel() {
                                     redactedBy = event.eventId,
                                     redactionEvent = event
                                 ))
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Redaction event ${event.eventId} received before original $redactsEventId, but found original in cache")
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Redaction event ${event.eventId} (type=${event.type}, decryptedType=${event.decryptedType}) received before original $redactsEventId, but found original in cache")
                             } else {
                                 // Original not in cache yet - create placeholder so redaction can be found
                                 // We'll use the redaction event itself as a temporary originalEvent
@@ -3648,7 +3657,7 @@ class AppViewModel : ViewModel() {
                                     redactedBy = event.eventId,
                                     redactionEvent = event
                                 ))
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Redaction event ${event.eventId} received before original $redactsEventId - created placeholder")
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Redaction event ${event.eventId} (type=${event.type}, decryptedType=${event.decryptedType}) received before original $redactsEventId - created placeholder")
                             }
                         }
                     }
@@ -13811,13 +13820,22 @@ class AppViewModel : ViewModel() {
                 // Also extract and update member profile if display name/avatar changed
                 updateMemberProfileFromTimelineEvent(roomId, event)
                 addNewEventToChain(event)
-            } else if (event.type == "m.room.redaction") {
+            } else if (event.type == "m.room.redaction" ||
+                (event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction")) {
                 
                 // Add redaction event to timeline so findLatestRedactionEvent can find it
                 addNewEventToChain(event)
                 
                 // Extract the event ID being redacted
-                val redactsEventId = event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+                // For encrypted redactions, check decrypted content; for non-encrypted, check content
+                val redactsEventId = when {
+                    event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction" -> {
+                        event.decrypted?.optString("redacts")?.takeIf { it.isNotBlank() }
+                    }
+                    else -> {
+                        event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+                    }
+                }
                 
                 if (redactsEventId != null) {
                     
@@ -13832,12 +13850,12 @@ class AppViewModel : ViewModel() {
                         currentEvents[originalIndex] = redactedEvent
                         timelineEvents = currentEvents
                         
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Marked event $redactsEventId as redacted by ${event.eventId}")
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Marked event $redactsEventId as redacted by ${event.eventId} (type=${event.type}, decryptedType=${event.decryptedType})")
                     } else {
                         android.util.Log.w("Andromuks", "AppViewModel: [LIVE SYNC] Could not find event $redactsEventId to mark as redacted (might be in paginated history)")
                     }
                 } else {
-                    android.util.Log.w("Andromuks", "AppViewModel: [LIVE SYNC] Redaction event has no 'redacts' field")
+                    android.util.Log.w("Andromuks", "AppViewModel: [LIVE SYNC] Redaction event has no 'redacts' field (type=${event.type}, decryptedType=${event.decryptedType})")
                 }
                 
                 // Request sender profile if missing from cache
@@ -14255,16 +14273,39 @@ class AppViewModel : ViewModel() {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "buildTimelineFromChain: Created snapshot with ${eventChainSnapshot.size} entries")
             
                 // First collect all redactions so order doesn't matter
+                // CRITICAL: Handle both encrypted and non-encrypted redaction events for E2EE rooms
                 for ((_, entry) in eventChainSnapshot) {
                 val redactionEvent = entry.ourBubble
-                if (redactionEvent != null && redactionEvent.type == "m.room.redaction") {
-                    val redactsEventId = redactionEvent.content?.optString("redacts")?.takeIf { it.isNotBlank() }
-                    if (redactsEventId != null) {
-                        redactionMap[redactsEventId] = redactionEvent.eventId
-                        if (BuildConfig.DEBUG) android.util.Log.d(
-                            "Andromuks",
-                            "buildTimelineFromChain: redaction ${redactionEvent.eventId} targets $redactsEventId"
-                        )
+                if (redactionEvent != null) {
+                    // Check if this is a redaction event (can be m.room.redaction or m.room.encrypted with decryptedType == m.room.redaction)
+                    val isRedaction = redactionEvent.type == "m.room.redaction" ||
+                        (redactionEvent.type == "m.room.encrypted" && redactionEvent.decryptedType == "m.room.redaction")
+                    
+                    if (isRedaction) {
+                        // For encrypted redactions, check decrypted content; for non-encrypted, check content
+                        val redactsEventId = when {
+                            redactionEvent.type == "m.room.encrypted" && redactionEvent.decryptedType == "m.room.redaction" -> {
+                                // Encrypted redaction: redacts is in decrypted content
+                                redactionEvent.decrypted?.optString("redacts")?.takeIf { it.isNotBlank() }
+                            }
+                            else -> {
+                                // Non-encrypted redaction: redacts is in content
+                                redactionEvent.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+                            }
+                        }
+                        
+                        if (redactsEventId != null) {
+                            redactionMap[redactsEventId] = redactionEvent.eventId
+                            if (BuildConfig.DEBUG) android.util.Log.d(
+                                "Andromuks",
+                                "buildTimelineFromChain: redaction ${redactionEvent.eventId} (type=${redactionEvent.type}, decryptedType=${redactionEvent.decryptedType}) targets $redactsEventId"
+                            )
+                        } else if (BuildConfig.DEBUG) {
+                            android.util.Log.w(
+                                "Andromuks",
+                                "buildTimelineFromChain: Redaction event ${redactionEvent.eventId} has no redacts field (type=${redactionEvent.type}, decryptedType=${redactionEvent.decryptedType})"
+                            )
+                        }
                     }
                 }
             }
@@ -14284,22 +14325,34 @@ class AppViewModel : ViewModel() {
                     android.util.Log.w("Andromuks", "buildTimelineFromChain: Entry $eventId has null ourBubble - skipping")
                     continue
                 }
-                if (ourBubble.type == "m.room.redaction") {
+                // Skip redaction events (both encrypted and non-encrypted) - they're used to build redactionMap only
+                if (ourBubble.type == "m.room.redaction" ||
+                    (ourBubble.type == "m.room.encrypted" && ourBubble.decryptedType == "m.room.redaction")) {
                     redactionCount++
                     continue
                 }
                 try {
                     // Apply redaction if this event is targeted
-                    val redactedBy = redactionMap[eventId]
-                    val finalEvent = if (redactedBy != null) {
-                        val baseEvent = getFinalEventForBubble(entry)
-                        if (BuildConfig.DEBUG) android.util.Log.d(
-                            "Andromuks",
-                            "buildTimelineFromChain: applying redaction $redactedBy to event $eventId"
-                        )
-                        baseEvent.copy(redactedBy = redactedBy)
+                    // CRITICAL: Check both redactionMap (from redaction events) and the original event's redactedBy
+                    // This handles cases where the backend already set redacted_by in the JSON (e.g., pagination responses)
+                    val baseEvent = getFinalEventForBubble(entry)
+                    val redactedByFromMap = redactionMap[eventId]
+                    val redactedByFromEvent = baseEvent.redactedBy
+                    
+                    // Prefer redactionMap value (from redaction events), but fall back to event's redactedBy if present
+                    val finalRedactedBy = redactedByFromMap ?: redactedByFromEvent
+                    
+                    val finalEvent = if (finalRedactedBy != null) {
+                        if (BuildConfig.DEBUG) {
+                            val source = if (redactedByFromMap != null) "redactionMap" else "event.redactedBy"
+                            android.util.Log.d(
+                                "Andromuks",
+                                "buildTimelineFromChain: applying redaction $finalRedactedBy to event $eventId (from $source)"
+                            )
+                        }
+                        baseEvent.copy(redactedBy = finalRedactedBy)
                     } else {
-                        getFinalEventForBubble(entry)
+                        baseEvent
                     }
                     
                     timelineEvents.add(finalEvent)
@@ -14560,8 +14613,20 @@ class AppViewModel : ViewModel() {
                         eventChainMap[event.eventId] = existingEntry.copy(ourBubble = event)
                     }
 
-                    if (event.type == "m.room.redaction") {
-                        val redactsEventId = event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+                    // Handle redaction events (both encrypted and non-encrypted for E2EE rooms)
+                    val isRedaction = event.type == "m.room.redaction" ||
+                        (event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction")
+                    
+                    if (isRedaction) {
+                        // For encrypted redactions, check decrypted content; for non-encrypted, check content
+                        val redactsEventId = when {
+                            event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction" -> {
+                                event.decrypted?.optString("redacts")?.takeIf { it.isNotBlank() }
+                            }
+                            else -> {
+                                event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+                            }
+                        }
                         if (redactsEventId != null) {
                             // redactionCache is computed from messageVersions, handled by MessageVersionsCache.updateVersion
                             val versioned = messageVersions[redactsEventId]
