@@ -9191,7 +9191,8 @@ class AppViewModel : ViewModel() {
             persistRenderableEvents(roomId, cachedEvents)
             
             // Process events through chain processing (builds timeline structure)
-            processCachedEvents(roomId, cachedEvents, openingFromNotification = false)
+            // Include redaction events so "Removed by X for Y" renders correctly
+            processCachedEvents(roomId, RoomTimelineCache.getCachedEventsForTimeline(roomId), openingFromNotification = false)
             
             // Mark room as accessed in RoomTimelineCache for LRU eviction
             RoomTimelineCache.markRoomAccessed(roomId)
@@ -9319,7 +9320,8 @@ class AppViewModel : ViewModel() {
             val eventsToProcess = cachedEvents ?: RoomTimelineCache.getCachedEvents(roomId)
             if (eventsToProcess != null && eventsToProcess.isNotEmpty()) {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cache has $currentCachedCount events (>= 50) - processing them now")
-                processCachedEvents(roomId, eventsToProcess, false)
+                // Include redaction events for correct "Removed by X for Y" rendering
+                processCachedEvents(roomId, RoomTimelineCache.getCachedEventsForTimeline(roomId), false)
             } else {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cache reported sufficient count ($currentCachedCount) but no events found - setting loading false anyway")
                 isTimelineLoading = false
@@ -9575,8 +9577,8 @@ class AppViewModel : ViewModel() {
                 if (cachedEvents != null) {
                     android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Cache hit - roomId=$roomId, cachedEvents.size=${cachedEvents.size}, building timeline from cache")
                     
-                    // REFACTORED: Use centralized processCachedEvents instead of manual duplication
-                    processCachedEvents(roomId, cachedEvents, openingFromNotification = notificationTimestamp != null)
+                    // REFACTORED: Use centralized processCachedEvents (include redactions for "Removed by X for Y")
+                    processCachedEvents(roomId, RoomTimelineCache.getCachedEventsForTimeline(roomId), openingFromNotification = notificationTimestamp != null)
                     
                     // CRITICAL FIX: Mark as actively cached in singleton cache
                     // This ensures sync_complete updates keep this cache fresh
@@ -9599,7 +9601,7 @@ class AppViewModel : ViewModel() {
                 val partialCachedEvents = RoomTimelineCache.getCachedEvents(roomId)
                 if (partialCachedEvents != null && partialCachedEvents.isNotEmpty()) {
                     // Show whatever we have right now (e.g. 2 events from sync_complete flush)
-                    processCachedEvents(roomId, partialCachedEvents, openingFromNotification = true)
+                    processCachedEvents(roomId, RoomTimelineCache.getCachedEventsForTimeline(roomId), openingFromNotification = true)
                     RoomTimelineCache.markRoomAsCached(roomId)
                     RoomTimelineCache.markRoomAccessed(roomId)
                     roomOpenTimestamps[roomId] = System.currentTimeMillis()
@@ -11433,9 +11435,9 @@ class AppViewModel : ViewModel() {
                             invalidateCachedRoom(roomId)
                             // Rebuild timeline for the currently-open room so new events appear immediately
                             if (currentRoomId == roomId) {
-                                val allCachedEvents = RoomTimelineCache.getCachedEvents(roomId)
-                                if (allCachedEvents != null && allCachedEvents.isNotEmpty()) {
-                                    buildEditChainsFromEvents(allCachedEvents, clearExisting = true)
+                                val eventsForChain = RoomTimelineCache.getCachedEventsForTimeline(roomId)
+                                if (eventsForChain.isNotEmpty()) {
+                                    buildEditChainsFromEvents(eventsForChain, clearExisting = true)
                                     processEditRelationships()
                                     buildTimelineFromChain()
                                 }
@@ -17073,8 +17075,8 @@ class AppViewModel : ViewModel() {
             // seamlessly grows from the few cached events to the full paginate response.
             // This is the "Option B" approach: show cache immediately, merge paginate in
             // background, rebuild once.  No wipe, no flash.
-            val mergedEvents = RoomTimelineCache.getCachedEvents(roomId)
-            if (mergedEvents != null && mergedEvents.isNotEmpty()) {
+            val mergedEvents = RoomTimelineCache.getCachedEventsForTimeline(roomId)
+            if (mergedEvents.isNotEmpty()) {
                 android.util.Log.d("Andromuks", "AppViewModel: Background prefetch for OPEN room $roomId — rebuilding timeline from ${mergedEvents.size} merged events (${timelineList.size} new from paginate)")
                 processCachedEvents(roomId, mergedEvents, openingFromNotification = false)
 
@@ -17133,9 +17135,9 @@ class AppViewModel : ViewModel() {
         // CRITICAL FIX: After adding events to cache, reload ALL events from cache into eventChainMap
         // This ensures the timeline reflects all cached events, not just the newly paginated ones
         // Without this, eventChainMap might be missing events that were in the cache but not in eventChainMap
-        val allCachedEvents = RoomTimelineCache.getCachedEvents(roomId)
-        if (allCachedEvents != null && allCachedEvents.isNotEmpty()) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reloading ${allCachedEvents.size} events from cache into eventChainMap after pagination")
+        val eventsForChain = RoomTimelineCache.getCachedEventsForTimeline(roomId)
+        if (eventsForChain.isNotEmpty()) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reloading ${eventsForChain.size} events from cache into eventChainMap after pagination")
             
             // CRITICAL FIX: Only update global state (eventChainMap, editEventsMap, timelineEvents) if this is the current room
             if (roomId == currentRoomId) {
@@ -17144,7 +17146,7 @@ class AppViewModel : ViewModel() {
                 eventChainMap.clear()
                 editEventsMap.clear()
                 
-                for (event in allCachedEvents) {
+                for (event in eventsForChain) {
                     val isEdit = isEditEvent(event)
                     if (isEdit) {
                         editEventsMap[event.eventId] = event
@@ -17158,8 +17160,8 @@ class AppViewModel : ViewModel() {
                     }
                 }
                 
-                // Process versioned messages and edit relationships
-                processVersionedMessages(allCachedEvents)
+                // Process versioned messages and edit relationships (main events only for version tracking)
+                processVersionedMessages(RoomTimelineCache.getCachedEvents(roomId) ?: emptyList())
                 processEditRelationships()
                 
                 // Rebuild timeline from all cached events

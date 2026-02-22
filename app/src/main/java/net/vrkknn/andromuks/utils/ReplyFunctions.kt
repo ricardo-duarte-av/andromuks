@@ -878,28 +878,34 @@ fun MessageBubbleWithMenu(
         appViewModel?.isMessageEdited(event.eventId) ?: false
     }
     
-    // Calculate power level permissions
-    val myPowerLevel = if (myUserId != null && powerLevels != null) {
-        powerLevels.users[myUserId] ?: powerLevels.usersDefault
+    // Use powerLevels from parameter, with reactive fallback from appViewModel when null
+    // (e.g. in e2ee rooms where room state may load asynchronously)
+    val effectivePowerLevels = powerLevels ?: appViewModel?.currentRoomState?.powerLevels
+    
+    // Calculate power level permissions (works for both e2ee and non-e2ee rooms)
+    // 1. Others' messages: can redact when sender's PL < ours AND we have redact permission (my PL >= room redact PL)
+    // 2. Our messages: can edit/redact when our PL >= room redact PL
+    val myPowerLevel = if (myUserId != null && effectivePowerLevels != null) {
+        effectivePowerLevels.users[myUserId] ?: effectivePowerLevels.usersDefault
     } else {
         0
     }
-    val senderPowerLevel = if (powerLevels != null) {
-        powerLevels.users[event.sender] ?: powerLevels.usersDefault
+    val senderPowerLevel = if (effectivePowerLevels != null) {
+        effectivePowerLevels.users[event.sender] ?: effectivePowerLevels.usersDefault
     } else {
         0
     }
-    val redactPowerLevel = powerLevels?.redact ?: 50
+    val redactPowerLevel = effectivePowerLevels?.redact ?: 50
     val canRedactMessage = myPowerLevel >= redactPowerLevel
     
-    // Determine which buttons to show
-    val canEdit = isMine && canRedactMessage // require redact level to edit our own messages
+    // Determine which buttons to show (same logic for m.room.message and m.room.encrypted)
+    val canEdit = isMine && canRedactMessage // Our messages: require redact level to edit
     val canDelete = if (isMine) {
-        // Require redact permission to delete our own messages
+        // Our messages: require redact permission to delete
         canRedactMessage
     } else {
-        // For others' messages, check if our power level is above theirs AND we have redact permission
-        myPowerLevel > senderPowerLevel && canRedactMessage
+        // Others' messages: sender's PL must be below ours AND we have redact permission
+        senderPowerLevel < myPowerLevel && canRedactMessage
     }
     
     //android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: isMine=$isMine, myPL=$myPowerLevel, senderPL=$senderPowerLevel, redactPL=$redactPowerLevel, canEdit=$canEdit, canDelete=$canDelete")

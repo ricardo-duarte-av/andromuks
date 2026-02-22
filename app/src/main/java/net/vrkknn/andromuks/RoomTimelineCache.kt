@@ -301,19 +301,33 @@ object RoomTimelineCache {
                     cache.events.add(event)
                     addedCount++
                 } else {
-                    // Event already exists - merge aggregatedReactions if present
+                    // Event already exists - merge aggregatedReactions and/or redactedBy if present
                     // This handles sync_complete updates where events come with updated reaction aggregations
+                    // or redaction info (redacted_by) - critical for rendering "Removed by X for Y at Z"
                     val existingEventIndex = cache.events.indexOfFirst { it.eventId == event.eventId }
                     if (existingEventIndex >= 0) {
                         val existingEvent = cache.events[existingEventIndex]
-                        // If incoming event has aggregatedReactions, update the existing event
+                        var updatedEvent = existingEvent
+                        var needsUpdate = false
                         if (event.aggregatedReactions != null) {
-                            // Create updated event with new aggregatedReactions
-                            val updatedEvent = existingEvent.copy(aggregatedReactions = event.aggregatedReactions)
-                            cache.events[existingEventIndex] = updatedEvent
+                            updatedEvent = updatedEvent.copy(aggregatedReactions = event.aggregatedReactions)
+                            needsUpdate = true
                             if (BuildConfig.DEBUG) {
                                 Log.d(TAG, "RoomTimelineCache: Updated aggregatedReactions for existing event ${event.eventId} in room $roomId")
                             }
+                        }
+                        // CRITICAL: Merge redactedBy when sync_complete sends the redacted message
+                        // (backend includes redacted_by on the original event; without this, redactions
+                        // from sync_complete never render in the UI)
+                        if (event.redactedBy != null && existingEvent.redactedBy != event.redactedBy) {
+                            updatedEvent = updatedEvent.copy(redactedBy = event.redactedBy)
+                            needsUpdate = true
+                            if (BuildConfig.DEBUG) {
+                                Log.d(TAG, "RoomTimelineCache: Updated redactedBy for existing event ${event.eventId} in room $roomId (redactedBy=${event.redactedBy})")
+                            }
+                        }
+                        if (needsUpdate) {
+                            cache.events[existingEventIndex] = updatedEvent
                         }
                     }
                 }
@@ -502,6 +516,17 @@ object RoomTimelineCache {
     fun getCachedEventsForNotification(roomId: String): List<TimelineEvent>? {
         // Same behavior as getCachedEvents - no minimum threshold
         return getCachedEvents(roomId)
+    }
+
+    /**
+     * Get all events needed for timeline/chain building, including redaction events.
+     * Redaction events are required so buildTimelineFromChain can apply redactedBy to
+     * targeted messages (renders "Removed by X for Y at Z").
+     */
+    fun getCachedEventsForTimeline(roomId: String): List<TimelineEvent> {
+        val mainEvents = getCachedEvents(roomId).orEmpty()
+        val redactionEvents = getRedactionEvents(roomId)
+        return (mainEvents + redactionEvents).distinctBy { it.eventId }
     }
     
     data class CachedEventMetadata(
