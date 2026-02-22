@@ -1,12 +1,6 @@
 pluginManagement {
     repositories {
-        google {
-            content {
-                includeGroupByRegex("com\\.android.*")
-                includeGroupByRegex("com\\.google.*")
-                includeGroupByRegex("androidx.*")
-            }
-        }
+        google ()
         mavenCentral()
         gradlePluginPortal()
     }
@@ -22,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Andromuks"
 include(":app")
+include(":baselineprofile")

@@ -1,0 +1,82 @@
+# proto-message: google.testing.platform.proto.api.core.TestSuiteResult
+# 2026-02-22T01:07:42.568967248Z:
+test_suite_meta_data {
+  scheduled_test_case_count: 1
+  device {
+    id: "a4a43346"
+    friendly_name: "primary"
+  }
+}
+test_status: FAILED
+test_result {
+  test_case {
+    test_class: "StartupBaselineProfile"
+    test_package: "pt.aguiarvieira.andromuks"
+    test_method: "generate"
+    start_time {
+      seconds: 1771722439
+      nanos: 729000000
+    }
+    end_time {
+      seconds: 1771722461
+      nanos: 395000000
+    }
+    device {
+      id: "a4a43346"
+      friendly_name: "primary"
+    }
+  }
+  test_status: FAILED
+  error {
+    error_message: "java.lang.IllegalStateException: Unable to confirm activity launch completion [] Please report a bug with the output of `adb shell dumpsys gfxinfo pt.aguiarvieira.andromuks framestats`\nat androidx.benchmark.macro.MacrobenchmarkScope.startActivityImpl(MacrobenchmarkScope.kt:231)\nat androidx.benchmark.macro.MacrobenchmarkScope.startActivityAndWait(MacrobenchmarkScope.kt:152)\nat androidx.benchmark.macro.MacrobenchmarkScope.startActivityAndWait(MacrobenchmarkScope.kt:132)\nat androidx.benchmark.macro.MacrobenchmarkScope.startActivityAndWait$default(MacrobenchmarkScope.kt:124)\nat pt.aguiarvieira.andromuks.StartupBaselineProfile.generate$lambda$0(StartupBaselineProfile.kt:22)\nat pt.aguiarvieira.andromuks.StartupBaselineProfile.$r8$lambda$x7PUQrQNwe4JME6GTK9j4ZyEqSE(Unknown Source:0)\nat pt.aguiarvieira.andromuks.StartupBaselineProfile$$ExternalSyntheticLambda0.invoke(D8$$SyntheticClass:0)\nat androidx.benchmark.macro.BaselineProfilesKt$collect$1$1.invoke(BaselineProfiles.kt:77)\nat androidx.benchmark.macro.BaselineProfilesKt$collect$1$1.invoke(BaselineProfiles.kt:71)\nat androidx.benchmark.macro.CompilationMode$Partial.compileImpl$benchmark_macro_release(CompilationMode.kt:318)\nat androidx.benchmark.macro.CompilationMode.resetAndCompile$benchmark_macro_release(CompilationMode.kt:114)\nat androidx.benchmark.macro.BaselineProfilesKt.collect(BaselineProfiles.kt:71)\nat androidx.benchmark.macro.junit4.BaselineProfileRule.collect(BaselineProfileRule.kt:136)\nat androidx.benchmark.macro.junit4.BaselineProfileRule.collect$default(BaselineProfileRule.kt:126)\nat pt.aguiarvieira.andromuks.StartupBaselineProfile.generate(StartupBaselineProfile.kt:18)\n"
+    error_type: "java.lang.IllegalStateException"
+    stack_trace: "java.lang.IllegalStateException: Unable to confirm activity launch completion [] Please report a bug with the output of `adb shell dumpsys gfxinfo pt.aguiarvieira.andromuks framestats`\nat androidx.benchmark.macro.MacrobenchmarkScope.startActivityImpl(MacrobenchmarkScope.kt:231)\nat androidx.benchmark.macro.MacrobenchmarkScope.startActivityAndWait(MacrobenchmarkScope.kt:152)\nat androidx.benchmark.macro.MacrobenchmarkScope.startActivityAndWait(MacrobenchmarkScope.kt:132)\nat androidx.benchmark.macro.MacrobenchmarkScope.startActivityAndWait$default(MacrobenchmarkScope.kt:124)\nat pt.aguiarvieira.andromuks.StartupBaselineProfile.generate$lambda$0(StartupBaselineProfile.kt:22)\nat pt.aguiarvieira.andromuks.StartupBaselineProfile.$r8$lambda$x7PUQrQNwe4JME6GTK9j4ZyEqSE(Unknown Source:0)\nat pt.aguiarvieira.andromuks.StartupBaselineProfile$$ExternalSyntheticLambda0.invoke(D8$$SyntheticClass:0)\nat androidx.benchmark.macro.BaselineProfilesKt$collect$1$1.invoke(BaselineProfiles.kt:77)\nat androidx.benchmark.macro.BaselineProfilesKt$collect$1$1.invoke(BaselineProfiles.kt:71)\nat androidx.benchmark.macro.CompilationMode$Partial.compileImpl$benchmark_macro_release(CompilationMode.kt:318)\nat androidx.benchmark.macro.CompilationMode.resetAndCompile$benchmark_macro_release(CompilationMode.kt:114)\nat androidx.benchmark.macro.BaselineProfilesKt.collect(BaselineProfiles.kt:71)\nat androidx.benchmark.macro.junit4.BaselineProfileRule.collect(BaselineProfileRule.kt:136)\nat androidx.benchmark.macro.junit4.BaselineProfileRule.collect$default(BaselineProfileRule.kt:126)\nat pt.aguiarvieira.andromuks.StartupBaselineProfile.generate(StartupBaselineProfile.kt:18)\n"
+  }
+  output_artifact {
+    label {
+      label: "logcat"
+      namespace: "android"
+    }
+    source_path {
+      path: "/var/home/daedric/Documents/andromuks/baselineprofile/build/outputs/androidTest-results/connected/nonMinifiedRelease/GM1901 - 16/logcat-pt.aguiarvieira.andromuks.StartupBaselineProfile-generate.txt"
+    }
+  }
+  output_artifact {
+    label {
+      label: "device-info"
+      namespace: "android"
+    }
+    source_path {
+      path: "/var/home/daedric/Documents/andromuks/baselineprofile/build/outputs/androidTest-results/connected/nonMinifiedRelease/GM1901 - 16/device-info.pb"
+    }
+  }
+  output_artifact {
+    label {
+      label: "device-info.meminfo"
+      namespace: "android"
+    }
+    source_path {
+      path: "/var/home/daedric/Documents/andromuks/baselineprofile/build/outputs/androidTest-results/connected/nonMinifiedRelease/GM1901 - 16/meminfo"
+    }
+  }
+  output_artifact {
+    label {
+      label: "device-info.cpuinfo"
+      namespace: "android"
+    }
+    source_path {
+      path: "/var/home/daedric/Documents/andromuks/baselineprofile/build/outputs/androidTest-results/connected/nonMinifiedRelease/GM1901 - 16/cpuinfo"
+    }
+  }
+}
+output_artifact {
+  label {
+    label: "test-results.log"
+    namespace: "com.google.testing.platform.runtime.android.driver.AndroidInstrumentationDriver"
+  }
+  source_path {
+    path: "/var/home/daedric/Documents/andromuks/baselineprofile/build/outputs/androidTest-results/connected/nonMinifiedRelease/GM1901 - 16/testlog/test-results.log"
+  }
+  type: TEST_DATA
+  mime_type: "text/plain"
+}

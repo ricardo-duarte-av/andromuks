@@ -1,0 +1,81 @@
+INFO: Constructing runner from config.
+INFO: Configuring Android Instrumentation driver: android_instrumentation_runtime {
+  instrumentation_info {
+    app_package: "pt.aguiarvieira.andromuks"
+    test_package: "pt.aguiarvieira.andromuks.baselineprofile"
+    test_runner_class: "androidx.test.runner.AndroidJUnitRunner"
+  }
+  instrumentation_args {
+    args_map {
+      key: "additionalTestOutputDir"
+      value: "/sdcard/Android/media/pt.aguiarvieira.andromuks.baselineprofile/additional_test_output"
+    }
+    args_map {
+      key: "androidx.benchmark.enabledRules"
+      value: "baselineprofile"
+    }
+    args_map {
+      key: "androidx.benchmark.targetPackageName"
+      value: "pt.aguiarvieira.andromuks"
+    }
+  }
+}
+am_instrument_timeout: 31536000
+
+INFO: Configuring AndroidTestApkInstallerPlugin: apks_to_install {
+  apk_paths: "/var/home/daedric/Documents/andromuks/app/build/outputs/apk/nonMinifiedRelease/app-arm64-v8a-nonMinifiedRelease.apk"
+  install_options {
+  }
+  uninstall_after_test: true
+}
+apks_to_install {
+  apk_paths: "/var/home/daedric/Documents/andromuks/baselineprofile/build/outputs/apk/nonMinifiedRelease/baselineprofile-nonMinifiedRelease.apk"
+  install_options {
+  }
+  uninstall_after_test: true
+}
+instrumentation_target_package_id: "pt.aguiarvieira.andromuks.baselineprofile"
+
+INFO: No installables found in test fixture. Nothing to install.
+INFO: Installing [/var/home/daedric/Documents/andromuks/app/build/outputs/apk/nonMinifiedRelease/app-arm64-v8a-nonMinifiedRelease.apk] on device a4a43346.
+INFO: Installing [/var/home/daedric/Documents/andromuks/baselineprofile/build/outputs/apk/nonMinifiedRelease/baselineprofile-nonMinifiedRelease.apk] on device a4a43346.
+INFO: Start logcat streaming.
+INFO: Running Android Instrumentation driver.
+INFO: Copying files from device to host: /sdcard/Android/media/pt.aguiarvieira.andromuks.baselineprofile/additional_test_output to /var/home/daedric/Documents/andromuks/baselineprofile/build/outputs/connected_android_test_additional_output/nonMinifiedRelease/connected/GM1901 - 16
+INFO: Stop logcat streaming.
+INFO: Uninstalling pt.aguiarvieira.andromuks for device a4a43346.
+INFO: Uninstalling pt.aguiarvieira.andromuks.baselineprofile for device a4a43346.
+SEVERE: Execute pt.aguiarvieira.andromuks.StartupBaselineProfile.generate: FAILED
+java.lang.IllegalStateException: java.lang.IllegalStateException: Unable to confirm activity launch completion [] Please report a bug with the output of `adb shell dumpsys gfxinfo pt.aguiarvieira.andromuks framestats`
+at androidx.benchmark.macro.MacrobenchmarkScope.startActivityImpl(MacrobenchmarkScope.kt:231)
+at androidx.benchmark.macro.MacrobenchmarkScope.startActivityAndWait(MacrobenchmarkScope.kt:152)
+at androidx.benchmark.macro.MacrobenchmarkScope.startActivityAndWait(MacrobenchmarkScope.kt:132)
+at androidx.benchmark.macro.MacrobenchmarkScope.startActivityAndWait$default(MacrobenchmarkScope.kt:124)
+at pt.aguiarvieira.andromuks.StartupBaselineProfile.generate$lambda$0(StartupBaselineProfile.kt:22)
+at pt.aguiarvieira.andromuks.StartupBaselineProfile.$r8$lambda$x7PUQrQNwe4JME6GTK9j4ZyEqSE(Unknown Source:0)
+at pt.aguiarvieira.andromuks.StartupBaselineProfile$$ExternalSyntheticLambda0.invoke(D8$$SyntheticClass:0)
+at androidx.benchmark.macro.BaselineProfilesKt$collect$1$1.invoke(BaselineProfiles.kt:77)
+at androidx.benchmark.macro.BaselineProfilesKt$collect$1$1.invoke(BaselineProfiles.kt:71)
+at androidx.benchmark.macro.CompilationMode$Partial.compileImpl$benchmark_macro_release(CompilationMode.kt:318)
+at androidx.benchmark.macro.CompilationMode.resetAndCompile$benchmark_macro_release(CompilationMode.kt:114)
+at androidx.benchmark.macro.BaselineProfilesKt.collect(BaselineProfiles.kt:71)
+at androidx.benchmark.macro.junit4.BaselineProfileRule.collect(BaselineProfileRule.kt:136)
+at androidx.benchmark.macro.junit4.BaselineProfileRule.collect$default(BaselineProfileRule.kt:126)
+at pt.aguiarvieira.andromuks.StartupBaselineProfile.generate(StartupBaselineProfile.kt:18)
+
+java.lang.IllegalStateException: Unable to confirm activity launch completion [] Please report a bug with the output of `adb shell dumpsys gfxinfo pt.aguiarvieira.andromuks framestats`
+at androidx.benchmark.macro.MacrobenchmarkScope.startActivityImpl(MacrobenchmarkScope.kt:231)
+at androidx.benchmark.macro.MacrobenchmarkScope.startActivityAndWait(MacrobenchmarkScope.kt:152)
+at androidx.benchmark.macro.MacrobenchmarkScope.startActivityAndWait(MacrobenchmarkScope.kt:132)
+at androidx.benchmark.macro.MacrobenchmarkScope.startActivityAndWait$default(MacrobenchmarkScope.kt:124)
+at pt.aguiarvieira.andromuks.StartupBaselineProfile.generate$lambda$0(StartupBaselineProfile.kt:22)
+at pt.aguiarvieira.andromuks.StartupBaselineProfile.$r8$lambda$x7PUQrQNwe4JME6GTK9j4ZyEqSE(Unknown Source:0)
+at pt.aguiarvieira.andromuks.StartupBaselineProfile$$ExternalSyntheticLambda0.invoke(D8$$SyntheticClass:0)
+at androidx.benchmark.macro.BaselineProfilesKt$collect$1$1.invoke(BaselineProfiles.kt:77)
+at androidx.benchmark.macro.BaselineProfilesKt$collect$1$1.invoke(BaselineProfiles.kt:71)
+at androidx.benchmark.macro.CompilationMode$Partial.compileImpl$benchmark_macro_release(CompilationMode.kt:318)
+at androidx.benchmark.macro.CompilationMode.resetAndCompile$benchmark_macro_release(CompilationMode.kt:114)
+at androidx.benchmark.macro.BaselineProfilesKt.collect(BaselineProfiles.kt:71)
+at androidx.benchmark.macro.junit4.BaselineProfileRule.collect(BaselineProfileRule.kt:136)
+at androidx.benchmark.macro.junit4.BaselineProfileRule.collect$default(BaselineProfileRule.kt:126)
+at pt.aguiarvieira.andromuks.StartupBaselineProfile.generate(StartupBaselineProfile.kt:18)

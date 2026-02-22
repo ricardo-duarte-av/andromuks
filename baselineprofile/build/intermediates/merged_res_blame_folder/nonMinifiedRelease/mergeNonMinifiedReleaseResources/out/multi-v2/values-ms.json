@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "pt.aguiarvieira.andromuks.baselineprofile-mergeNonMinifiedReleaseResources-15:/values-ms/values-ms.xml",
+            "map": [
+                {
+                    "source": "/var/home/daedric/.gradle/caches/9.1.0/transforms/ee566afa070db5a025a776a5d6b651e8/transformed/core-1.9.0/res/values-ms/values-ms.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endColumns": "100",
+                        "endOffsets": "151"
+                    }
+                }
+            ]
+        }
+    ]
+}
