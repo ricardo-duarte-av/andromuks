@@ -3,7 +3,6 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("com.google.gms.google-services")
-    id("androidx.baselineprofile")
     alias(libs.plugins.baselineprofile)  // use alias
 }
 
