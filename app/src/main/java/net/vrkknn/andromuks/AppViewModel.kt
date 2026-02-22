@@ -14339,6 +14339,13 @@ class AppViewModel : ViewModel() {
                     val redactedByFromMap = redactionMap[eventId]
                     val redactedByFromEvent = baseEvent.redactedBy
                     
+                    if (BuildConfig.DEBUG && (redactedByFromMap != null || redactedByFromEvent != null)) {
+                        android.util.Log.d(
+                            "Andromuks",
+                            "buildTimelineFromChain: Event $eventId - redactedByFromMap=$redactedByFromMap, redactedByFromEvent=$redactedByFromEvent, baseEvent.type=${baseEvent.type}, baseEvent.decryptedType=${baseEvent.decryptedType}"
+                        )
+                    }
+                    
                     // Prefer redactionMap value (from redaction events), but fall back to event's redactedBy if present
                     val finalRedactedBy = redactedByFromMap ?: redactedByFromEvent
                     
@@ -14823,9 +14830,11 @@ class AppViewModel : ViewModel() {
             }
             
             // Create the merged event with updated content
+            // CRITICAL: Preserve redactedBy field when merging edit content
             val mergedEvent = originalEvent.copy(
                 content = finalContent,
-                decrypted = mergedDecrypted
+                decrypted = mergedDecrypted,
+                redactedBy = originalEvent.redactedBy  // Explicitly preserve redactedBy
             )
             return mergedEvent
         }

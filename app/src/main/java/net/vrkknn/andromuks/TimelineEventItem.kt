@@ -54,6 +54,7 @@ import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.extractSanitizedHtml
 import net.vrkknn.andromuks.utils.MediaMessage
 import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
+import net.vrkknn.andromuks.utils.MessageMenuConfig
 import net.vrkknn.andromuks.utils.ReactionBadges
 import net.vrkknn.andromuks.utils.ReplyPreview
 import net.vrkknn.andromuks.utils.StickerMessage
@@ -541,7 +542,8 @@ private fun MessageTypeContent(
     onRoomLinkClick: (RoomLink) -> Unit,
     onThreadClick: (TimelineEvent) -> Unit,
     onShowEditHistory: (() -> Unit)? = null,
-    onCodeBlockClick: (String) -> Unit = {}
+    onCodeBlockClick: (String) -> Unit = {},
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null
 ) {
     when (event.type) {
         "m.room.redaction" -> {
@@ -577,7 +579,8 @@ private fun MessageTypeContent(
                 onRoomLinkClick = onRoomLinkClick,
                 onThreadClick = onThreadClick,
                 onShowEditHistory = onShowEditHistory,
-                onCodeBlockClick = onCodeBlockClick
+                onCodeBlockClick = onCodeBlockClick,
+                onShowMenu = onShowMenu
             )
         }
         "m.room.encrypted" -> {
@@ -605,7 +608,8 @@ private fun MessageTypeContent(
                 onRoomLinkClick = onRoomLinkClick,
                 onThreadClick = onThreadClick,
                 onShowEditHistory = onShowEditHistory,
-                onCodeBlockClick = onCodeBlockClick
+                onCodeBlockClick = onCodeBlockClick,
+                onShowMenu = onShowMenu
             )
         }
         "m.sticker" -> {
@@ -624,7 +628,8 @@ private fun MessageTypeContent(
                 onDelete = onDelete,
                 myUserId = myUserId,
                 isConsecutive = isConsecutive,
-                onThreadClick = onThreadClick
+                onThreadClick = onThreadClick,
+                onShowMenu = onShowMenu
             )
         }
         "m.reaction" -> {
@@ -668,7 +673,8 @@ private fun RoomMessageContent(
     onRoomLinkClick: (RoomLink) -> Unit,
     onThreadClick: (TimelineEvent) -> Unit,
     onShowEditHistory: (() -> Unit)? = null,
-    onCodeBlockClick: (String) -> Unit = {}
+    onCodeBlockClick: (String) -> Unit = {},
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null
 ) {
     // Check if this is an edit event (m.replace relationship)
     val isEditEvent =
@@ -908,6 +914,7 @@ private fun RoomMessageContent(
                     appViewModel = appViewModel,
                     onBubbleClick = { onThreadClick(event) },
                     onShowEditHistory = null,
+                onShowMenu = onShowMenu,
                     mentionBorder = deletionColors.mentionBorder
                 ) {
                     Text(
@@ -976,7 +983,8 @@ private fun RoomMessageContent(
             onDelete = onDelete,
             onUserClick = onUserClick,
             onThreadClick = onThreadClick,
-            onShowEditHistory = onShowEditHistory
+            onShowEditHistory = onShowEditHistory,
+            onShowMenu = onShowMenu
         )
     } else {
         RoomTextMessageContent(
@@ -1006,7 +1014,8 @@ private fun RoomMessageContent(
             onRoomLinkClick = onRoomLinkClick,
             onThreadClick = onThreadClick,
             onShowEditHistory = onShowEditHistory,
-            onCodeBlockClick = onCodeBlockClick
+            onCodeBlockClick = onCodeBlockClick,
+            onShowMenu = onShowMenu
         )
     }
 }
@@ -1038,7 +1047,8 @@ private fun RoomMediaMessageContent(
     onDelete: (TimelineEvent) -> Unit,
     onUserClick: (String) -> Unit,
     onThreadClick: (TimelineEvent) -> Unit,
-    onShowEditHistory: (() -> Unit)? = null
+    onShowEditHistory: (() -> Unit)? = null,
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null
 ) {
     if (BuildConfig.DEBUG) Log.d(
         "Andromuks",
@@ -1113,6 +1123,7 @@ private fun RoomMediaMessageContent(
                 appViewModel = appViewModel,
                 onBubbleClick = { onThreadClick(event) },
                 onShowEditHistory = null,
+                onShowMenu = onShowMenu,
                 mentionBorder = deletionColors.mentionBorder
             ) {
                 Text(
@@ -1377,7 +1388,8 @@ private fun RoomTextMessageContent(
     onRoomLinkClick: (RoomLink) -> Unit,
     onThreadClick: (TimelineEvent) -> Unit,
     onShowEditHistory: (() -> Unit)? = null,
-    onCodeBlockClick: (String) -> Unit = {}
+    onCodeBlockClick: (String) -> Unit = {},
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null
 ) {
     val bubbleShape =
         if (actualIsMine) {
@@ -1466,7 +1478,8 @@ private fun RoomTextMessageContent(
                     null
                 },
                 onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null,
-                mentionBorder = bubbleColors.mentionBorder
+                mentionBorder = bubbleColors.mentionBorder,
+                onShowMenu = onShowMenu
             ) {
                 Column(
                     modifier = Modifier.padding(8.dp),
@@ -1594,7 +1607,8 @@ private fun RoomTextMessageContent(
                     null
                 },
                 onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null,
-                mentionBorder = bubbleColors.mentionBorder
+                mentionBorder = bubbleColors.mentionBorder,
+                onShowMenu = onShowMenu
             ) {
                 Box(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
@@ -1841,7 +1855,8 @@ private fun EncryptedMessageContent(
     onRoomLinkClick: (RoomLink) -> Unit,
     onThreadClick: (TimelineEvent) -> Unit,
     onShowEditHistory: (() -> Unit)? = null,
-    onCodeBlockClick: (String) -> Unit = {}
+    onCodeBlockClick: (String) -> Unit = {},
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null
 ) {
     // Check if this is an edit event (m.replace relationship) - don't display edit events
     val isEditEvent =
@@ -1916,6 +1931,9 @@ private fun EncryptedMessageContent(
 
         // OPTIMIZED: Check if this message has been redacted using O(1) lookup
         val isRedacted = event.redactedBy != null
+        if (BuildConfig.DEBUG && isRedacted) {
+            Log.d("Andromuks", "EncryptedMessageContent: Event ${event.eventId} is redacted (redactedBy=${event.redactedBy}), msgType=$msgType")
+        }
         val redactionEvent = if (isRedacted && appViewModel != null) {
             appViewModel.getRedactionEvent(event.eventId)  // O(1) lookup!
         } else null
@@ -1994,6 +2012,9 @@ private fun EncryptedMessageContent(
         // Redacted messages should show deletion message, not original content (including media)
         // If redacted, render deletion message using MessageBubbleWithMenu
         if (isRedacted) {
+            if (BuildConfig.DEBUG) {
+                Log.d("Andromuks", "EncryptedMessageContent: Rendering redacted message ${event.eventId}, deletionMessage='$finalBody'")
+            }
             val deletionMessage = finalBody // finalBody already contains the deletion message when isRedacted is true
             
             val bubbleShape =
@@ -2042,6 +2063,7 @@ private fun EncryptedMessageContent(
                     appViewModel = appViewModel,
                     onBubbleClick = { onThreadClick(event) },
                     onShowEditHistory = null,
+                onShowMenu = onShowMenu,
                     mentionBorder = deletionColors.mentionBorder
                 ) {
                     Text(
@@ -2312,7 +2334,8 @@ private fun EncryptedMessageContent(
                         onDelete = { onDelete(event) },
                         appViewModel = appViewModel,
                         onBubbleClick = null,
-                        mentionBorder = fallbackColors.mentionBorder
+                        mentionBorder = fallbackColors.mentionBorder,
+                        onShowMenu = onShowMenu
                     ) {
                         Text(
                             text = body,
@@ -2701,7 +2724,8 @@ private fun StickerMessageContent(
     onDelete: (TimelineEvent) -> Unit,
     myUserId: String?,
     isConsecutive: Boolean,
-    onThreadClick: (TimelineEvent) -> Unit
+    onThreadClick: (TimelineEvent) -> Unit,
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null
 ) {
     if (BuildConfig.DEBUG) Log.d(
         "Andromuks",
@@ -2793,6 +2817,7 @@ private fun StickerMessageContent(
                 appViewModel = appViewModel,
                 onBubbleClick = { onThreadClick(event) },
                 onShowEditHistory = null,
+                onShowMenu = onShowMenu,
                 mentionBorder = deletionColors.mentionBorder
             ) {
                 Text(
@@ -2945,7 +2970,8 @@ fun TimelineEventItem(
     onRoomLinkClick: (RoomLink) -> Unit = {},
     onThreadClick: (TimelineEvent) -> Unit = {},
     onNewBubbleAnimationStart: (() -> Unit)? = null,
-    onCodeBlockClick: (String) -> Unit = {}
+    onCodeBlockClick: (String) -> Unit = {},
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null
 ) {
     val context = LocalContext.current
     
@@ -3374,7 +3400,8 @@ fun TimelineEventItem(
                 onRoomLinkClick = onRoomLinkClick,
                 onThreadClick = onThreadClick,
                 onShowEditHistory = if (appViewModel != null) openEditHistory else null,
-                onCodeBlockClick = onCodeBlockClick
+                onCodeBlockClick = onCodeBlockClick,
+                onShowMenu = onShowMenu
             )
         }
 

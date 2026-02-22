@@ -12,6 +12,12 @@ import androidx.core.content.ContextCompat
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -91,6 +97,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -163,6 +170,9 @@ import net.vrkknn.andromuks.utils.SmartMessageText
 import net.vrkknn.andromuks.utils.StickerMessage
 import net.vrkknn.andromuks.utils.SystemEventNarrator
 import net.vrkknn.andromuks.utils.TypingNotificationArea
+import net.vrkknn.andromuks.utils.MessageMenuBar
+import net.vrkknn.andromuks.utils.MessageMenuConfig
+import net.vrkknn.andromuks.utils.LocalActiveMessageMenuEventId
 import net.vrkknn.andromuks.utils.UploadingDialog
 import net.vrkknn.andromuks.utils.VideoUploadUtils
 import net.vrkknn.andromuks.utils.extractStickerFromEvent
@@ -594,6 +604,9 @@ fun BubbleTimelineScreen(
     // Code viewer state
     var showCodeViewer by remember { mutableStateOf(false) }
     var codeViewerContent by remember { mutableStateOf("") }
+    
+    // Message menu state (for bottom menu bar)
+    var messageMenuConfig by remember { mutableStateOf<MessageMenuConfig?>(null) }
 
     // Media picker state
     var selectedMediaUri by remember { mutableStateOf<Uri?>(null) }
@@ -2225,7 +2238,10 @@ fun BubbleTimelineScreen(
 
     // Handle Android back key
     BackHandler {
-        if (showAttachmentMenu) {
+        if (messageMenuConfig != null) {
+            // Close message menu if open
+            messageMenuConfig = null
+        } else if (showAttachmentMenu) {
             // Close attachment menu if open
             showAttachmentMenu = false
         } else {
@@ -2237,7 +2253,8 @@ fun BubbleTimelineScreen(
         LocalScrollHighlightState provides ScrollHighlightState(
             eventId = highlightedEventId,
             requestId = highlightRequestId
-        )
+        ),
+        LocalActiveMessageMenuEventId provides messageMenuConfig?.event?.eventId
     ) {
         AndromuksTheme {
             Surface {
@@ -2314,10 +2331,11 @@ fun BubbleTimelineScreen(
                     Box(
                         modifier = Modifier.weight(1f).fillMaxWidth()
                             .then(
-                                if (showAttachmentMenu) {
+                                if (showAttachmentMenu || messageMenuConfig != null) {
                                     Modifier.clickable {
-                                        // Close attachment menu when tapping outside
+                                        // Close attachment menu or message menu when tapping outside
                                         showAttachmentMenu = false
+                                        messageMenuConfig = null
                                     }
                                 } else {
                                     Modifier
@@ -2494,6 +2512,11 @@ fun BubbleTimelineScreen(
                                             onCodeBlockClick = { code ->
                                                 codeViewerContent = code
                                                 showCodeViewer = true
+                                            },
+                                            onShowMenu = { menuConfig ->
+                                                // Close attach menu if open
+                                                showAttachmentMenu = false
+                                                messageMenuConfig = menuConfig
                                             }
                                         )
                                     }
@@ -2511,7 +2534,7 @@ fun BubbleTimelineScreen(
                     }
                     }
                     
-                    // 3. Typing notification area (stacks naturally above text box)
+                    // 4. Typing notification area (stacks naturally above text box)
                     TypingNotificationArea(
                         typingUsers = appViewModel.getTypingUsersForRoom(roomId),
                         roomId = roomId,
@@ -2521,7 +2544,7 @@ fun BubbleTimelineScreen(
                         appViewModel = appViewModel
                     )
 
-                    // 4. Text box (always at the bottom, above keyboard/nav bar)
+                    // 5. Text box (always at the bottom, above keyboard/nav bar)
                     Surface(
                         color = MaterialTheme.colorScheme.surface,
                         tonalElevation = 0.dp,
@@ -2544,7 +2567,13 @@ fun BubbleTimelineScreen(
                         ) {
                             IconButton(
                                 enabled = isInputEnabled,
-                                onClick = { if (isInputEnabled) showAttachmentMenu = !showAttachmentMenu },
+                                onClick = { 
+                                    if (isInputEnabled) {
+                                        // Close message menu if open
+                                        messageMenuConfig = null
+                                        showAttachmentMenu = !showAttachmentMenu
+                                    }
+                                },
                                 modifier = Modifier.fillMaxSize()
                             ) {
                                 Icon(
@@ -3351,15 +3380,87 @@ fun BubbleTimelineScreen(
                     }
                 }
                 
-                // Attachment menu overlay - horizontal floating action bar above footer
-                if (showAttachmentMenu) {
+                // Message menu bar (slides from bottom, same position as attach menu)
+                AnimatedVisibility(
+                    visible = messageMenuConfig != null,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth(),
+                    enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = 120)),
+                    exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = 120))
+                ) {
+                    val messageBarSlideOffsetPx = transition.animateFloat(
+                        transitionSpec = { tween(durationMillis = 120) },
+                        label = "messageBarSlideOffset"
+                    ) { state ->
+                        if (state == EnterExitState.Visible) 0f else with(density) { 56.dp.toPx() }
+                    }
+                    val messageButtonsAlpha = transition.animateFloat(
+                        transitionSpec = {
+                            if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
+                                tween(durationMillis = 500, delayMillis = 120)
+                            } else {
+                                tween(durationMillis = 500)
+                            }
+                        },
+                        label = "messageButtonsAlpha"
+                    ) { state ->
+                        if (state == EnterExitState.Visible) 1f else 0f
+                    }
                     Box(
                         modifier = Modifier
-                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .graphicsLayer {
+                                // Position menu right above footer (same as attach menu)
+                                // Footer height = buttonHeight + 24.dp padding
+                                translationY = -with(density) { (buttonHeight + 24.dp).toPx() } + messageBarSlideOffsetPx.value
+                            }
+                            .navigationBarsPadding()
+                            .imePadding()
+                            .zIndex(5f) // Ensure it's above other content
+                    ) {
+                        net.vrkknn.andromuks.utils.MessageMenuBar(
+                            menuConfig = messageMenuConfig,
+                            onDismiss = { messageMenuConfig = null },
+                            buttonsAlpha = messageButtonsAlpha.value,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+                
+                // Attachment menu overlay - horizontal floating action bar above footer
+                AnimatedVisibility(
+                    visible = showAttachmentMenu,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth(),
+                    enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = 120)),
+                    exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = 120))
+                ) {
+                    val attachmentBarSlideOffsetPx = transition.animateFloat(
+                        transitionSpec = { tween(durationMillis = 120) },
+                        label = "attachmentBarSlideOffset"
+                    ) { state ->
+                        if (state == EnterExitState.Visible) 0f else with(density) { 56.dp.toPx() }
+                    }
+                    val attachmentButtonsAlpha = transition.animateFloat(
+                        transitionSpec = {
+                            if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
+                                tween(durationMillis = 500, delayMillis = 120)
+                            } else {
+                                tween(durationMillis = 500)
+                            }
+                        },
+                        label = "attachmentButtonsAlpha"
+                    ) { state ->
+                        if (state == EnterExitState.Visible) 1f else 0f
+                    }
+                    Box(
+                        modifier = Modifier
                             .fillMaxWidth()
                         .graphicsLayer {
                             // Position menu right above footer (footer height = buttonHeight + 24.dp padding)
-                            translationY = -with(density) { (buttonHeight + 24.dp).toPx() }
+                            translationY = -with(density) { (buttonHeight + 24.dp).toPx() } + attachmentBarSlideOffsetPx.value
                         }
                         .navigationBarsPadding()
                         .imePadding()
@@ -3399,7 +3500,8 @@ fun BubbleTimelineScreen(
                                         Icon(
                                             imageVector = Icons.Filled.Folder,
                                             contentDescription = "Files",
-                                            tint = MaterialTheme.colorScheme.primary
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.alpha(attachmentButtonsAlpha.value)
                                         )
                                     }
                                 }
@@ -3433,7 +3535,8 @@ fun BubbleTimelineScreen(
                                         Icon(
                                             imageVector = Icons.Filled.AudioFile,
                                             contentDescription = "Audio",
-                                            tint = MaterialTheme.colorScheme.primary
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.alpha(attachmentButtonsAlpha.value)
                                         )
                                     }
                                 }
@@ -3467,7 +3570,8 @@ fun BubbleTimelineScreen(
                                         Icon(
                                             imageVector = Icons.Filled.Image,
                                             contentDescription = "Images & Videos",
-                                            tint = MaterialTheme.colorScheme.primary
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.alpha(attachmentButtonsAlpha.value)
                                         )
                                     }
                                 }
@@ -3506,7 +3610,8 @@ fun BubbleTimelineScreen(
                                         Icon(
                                             imageVector = Icons.Filled.CameraAlt,
                                             contentDescription = "Photo",
-                                            tint = MaterialTheme.colorScheme.primary
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.alpha(attachmentButtonsAlpha.value)
                                         )
                                     }
                                 }
@@ -3544,7 +3649,8 @@ fun BubbleTimelineScreen(
                                         Icon(
                                             imageVector = Icons.Filled.Videocam,
                                             contentDescription = "Video",
-                                            tint = MaterialTheme.colorScheme.primary
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.alpha(attachmentButtonsAlpha.value)
                                         )
                                     }
                                 }

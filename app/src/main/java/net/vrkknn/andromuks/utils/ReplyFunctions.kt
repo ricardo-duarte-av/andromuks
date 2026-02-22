@@ -60,6 +60,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.toIntRect
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
@@ -94,9 +95,9 @@ import net.vrkknn.andromuks.LocalScrollHighlightState
 import net.vrkknn.andromuks.utils.RedactionUtils
 import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
-import net.vrkknn.andromuks.RoomTimelineCache
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.utils.MessageMenuConfig
+
+val LocalActiveMessageMenuEventId = compositionLocalOf<String?> { null }
 
 
 
@@ -752,6 +753,7 @@ fun DeleteMessageDialog(
  * Message bubble wrapper with popup menu functionality.
  * Provides long press/click to show menu with React, Reply, Edit, Delete options.
  */
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun MessageBubbleWithMenu(
@@ -771,28 +773,14 @@ fun MessageBubbleWithMenu(
     onShowEditHistory: (() -> Unit)? = null,
     externalMenuTrigger: Int = 0, // External trigger to show menu (increment to trigger)
     mentionBorder: androidx.compose.ui.graphics.Color? = null, // Optional accent border for mentions (Google Messages style)
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null, // Callback to show menu at screen level
     content: @Composable RowScope.() -> Unit
 ) {
-    var showMenu by remember { mutableStateOf(false) }
     var showErrorDialog by remember { mutableStateOf(false) }
     var errorDialogText by remember { mutableStateOf<String?>(null) }
-    var showDeletedDialog by remember { mutableStateOf(false) }
-    var deletedDialogText by remember { mutableStateOf<String?>(null) }
-    var deletedReason by remember { mutableStateOf<String?>(null) }
     
     var bubbleBounds by remember { mutableStateOf(Rect.Zero) }
-    var longPressPosition by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
-    var isScrolling by remember { mutableStateOf(false) } // Track if user is scrolling
-    var isPressActive by remember { mutableStateOf(false) } // Track if press is still active
     val hapticFeedback = LocalHapticFeedback.current
-    val coroutineScope = rememberCoroutineScope()
-    var deletedLoading by remember { mutableStateOf(false) }
-    var deletedError by remember { mutableStateOf<String?>(null) }
-    var loadedDeletedEvent by remember { mutableStateOf<TimelineEvent?>(null) }
-    var loadedDeletedContext by remember { mutableStateOf<List<TimelineEvent>>(emptyList()) }
-
-    var showRawJsonDialog by remember { mutableStateOf(false) }
-    var rawJsonToShow by remember { mutableStateOf<String?>(null) }
 
     // Local echoes removed; treat all bubbles as normal
     val isRedacted = event.redactedBy != null
@@ -862,17 +850,6 @@ fun MessageBubbleWithMenu(
 
     val highlightValue = highlightAnim.value
     
-    // Watch external trigger and show menu when it changes
-    LaunchedEffect(externalMenuTrigger) {
-        if (externalMenuTrigger > 0) {
-            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-            showMenu = true
-        }
-    }
-    val density = LocalDensity.current
-    val configuration = LocalConfiguration.current
-    val screenWidth = with(density) { configuration.screenWidthDp.dp.toPx() }
-    
     // Check if message has been edited (O(1) lookup)
     val hasBeenEdited = remember(event.eventId, appViewModel?.updateCounter) {
         appViewModel?.isMessageEdited(event.eventId) ?: false
@@ -908,6 +885,30 @@ fun MessageBubbleWithMenu(
         senderPowerLevel < myPowerLevel && canRedactMessage
     }
     
+    // Watch external trigger and show menu when it changes
+    LaunchedEffect(externalMenuTrigger) {
+        if (externalMenuTrigger > 0) {
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+            // Calculate menu config and trigger callback
+            val historyButtonEnabled = hasBeenEdited && onShowEditHistory != null
+            val viewOriginalButtonEnabled = isRedacted && appViewModel != null
+            val menuConfig = MessageMenuConfig(
+                event = event,
+                canEdit = canEdit,
+                canDelete = canDelete,
+                canViewOriginal = viewOriginalButtonEnabled,
+                canViewEditHistory = historyButtonEnabled,
+                onReply = onReply,
+                onReact = onReact,
+                onEdit = onEdit,
+                onDelete = onDelete,
+                onShowEditHistory = onShowEditHistory,
+                appViewModel = appViewModel
+            )
+            onShowMenu?.invoke(menuConfig)
+        }
+    }
+    
     //android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: isMine=$isMine, myPL=$myPowerLevel, senderPL=$senderPowerLevel, redactPL=$redactPowerLevel, canEdit=$canEdit, canDelete=$canDelete")
     
     // Detect dark mode for custom shadow/glow
@@ -933,7 +934,37 @@ fun MessageBubbleWithMenu(
     }
     
     // Use mention border if present, otherwise use highlight border
-    val combinedBorder = mentionBorderStroke ?: highlightBorder
+    val activeMenuEventId = LocalActiveMessageMenuEventId.current
+    val isMenuActiveForThisBubble = activeMenuEventId == event.eventId
+    val menuPulseAnim = remember(event.eventId) { Animatable(0f) }
+    LaunchedEffect(isMenuActiveForThisBubble) {
+        if (isMenuActiveForThisBubble) {
+            menuPulseAnim.snapTo(0f)
+            while (true) {
+                menuPulseAnim.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing)
+                )
+                menuPulseAnim.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing)
+                )
+            }
+        } else {
+            menuPulseAnim.snapTo(0f)
+        }
+    }
+
+    val menuPulseBorder = if (isMenuActiveForThisBubble) {
+        BorderStroke(
+            width = 2.dp + (1.dp * menuPulseAnim.value),
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f + (0.45f * menuPulseAnim.value))
+        )
+    } else {
+        null
+    }
+
+    val combinedBorder = menuPulseBorder ?: mentionBorderStroke ?: highlightBorder
     
     // Adjust bubble color based on local echo state
     val bubbleColorAdjusted = when {
@@ -960,18 +991,24 @@ fun MessageBubbleWithMenu(
                     onLongClick = {
                         if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Long press detected via combinedClickable")
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        // Use bubble center - we can track coordinates later if needed
-                        if (bubbleBounds.width > 0 && bubbleBounds.height > 0) {
-                            longPressPosition = androidx.compose.ui.geometry.Offset(
-                                bubbleBounds.left + (bubbleBounds.width / 2),
-                                bubbleBounds.top + (bubbleBounds.height / 2)
-                            )
-                        } else {
-                            // Fallback if bounds not available yet
-                            longPressPosition = androidx.compose.ui.geometry.Offset(0f, 0f)
-                        }
-                        showMenu = true
-                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: showMenu set to true, longPressPosition=$longPressPosition")
+                        // Calculate menu config and trigger callback
+                        val historyButtonEnabled = hasBeenEdited && onShowEditHistory != null
+                        val viewOriginalButtonEnabled = isRedacted && appViewModel != null
+                        val menuConfig = MessageMenuConfig(
+                            event = event,
+                            canEdit = canEdit,
+                            canDelete = canDelete,
+                            canViewOriginal = viewOriginalButtonEnabled,
+                            canViewEditHistory = historyButtonEnabled,
+                            onReply = onReply,
+                            onReact = onReact,
+                            onEdit = onEdit,
+                            onDelete = onDelete,
+                            onShowEditHistory = onShowEditHistory,
+                            appViewModel = appViewModel
+                        )
+                        onShowMenu?.invoke(menuConfig)
+                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Menu callback triggered")
                     }
                 ),
             color = bubbleColorAdjusted,
@@ -983,315 +1020,6 @@ fun MessageBubbleWithMenu(
             Row(content = content)
         }
 
-        if (showRawJsonDialog) {
-            CodeViewer(
-                code = rawJsonToShow ?: "",
-                onDismiss = {
-                    showRawJsonDialog = false
-                    rawJsonToShow = null
-                }
-            )
-        }
-        
-        // Horizontal icon-only menu with fullscreen scrim overlay
-        if (showMenu) {
-            // Calculate menu width once (outside offset block for reuse)
-            val historyButtonEnabled = hasBeenEdited && onShowEditHistory != null
-            val viewOriginalButtonEnabled = isRedacted && appViewModel != null
-            
-            // Code button is always shown, React + Reply are always shown
-            val totalButtonCount = 1 + // Code button (always shown)
-                2 + // React + Reply (always shown)
-                (if (canEdit) 1 else 0) +
-                (if (canDelete) 1 else 0) +
-                (if (viewOriginalButtonEnabled) 1 else 0) +
-                (if (historyButtonEnabled) 1 else 0)
-            
-            // Calculate actual menu width:
-            // - Each button is 40.dp
-            // - Spacing between buttons is 4.dp (N-1 spaces for N buttons)
-            // - Horizontal padding is 8.dp on each side = 16.dp total
-            val buttonSize = 40.dp
-            val buttonSpacing = 4.dp
-            val horizontalPadding = 16.dp // 8.dp on each side
-            val calculatedMenuWidth = buttonSize * totalButtonCount + 
-                buttonSpacing * (totalButtonCount - 1) + 
-                horizontalPadding
-            
-            // Calculate effective menu width (clamped to screen bounds)
-            val margin = 8.dp
-            val maxMenuWidth = with(density) { screenWidth.toDp() - (margin * 2) }
-            val effectiveMenuWidth = calculatedMenuWidth.coerceAtMost(maxMenuWidth)
-            
-            // Use Popup to create a fullscreen overlay independent of parent layout
-            Popup(
-                onDismissRequest = {
-                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Popup dismissed")
-                    showMenu = false
-                },
-                properties = PopupProperties(
-                    focusable = true, // Makes it dismissible and captures back button
-                    dismissOnBackPress = true,
-                    dismissOnClickOutside = true
-                )
-            ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    // Fullscreen transparent scrim to capture outside taps
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(androidx.compose.ui.graphics.Color.Transparent)
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onTap = {
-                                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Scrim tapped, dismissing menu")
-                                        showMenu = false
-                                    }
-                                )
-                            }
-                    )
-                    
-                    // Card with menu buttons positioned above bubble
-                    Card(
-                        modifier = Modifier
-                            .width(effectiveMenuWidth) // Use exact calculated width (clamped to screen)
-                            .offset {
-                                with(density) {
-                                    val menuWidthPx = effectiveMenuWidth.toPx()
-                                    val menuHeight = 50.dp.toPx()
-                                    val marginPx = margin.toPx()
-                                    
-                                    // Use long-press position if available, otherwise fall back to bubble center
-                                    val anchorX = longPressPosition?.x 
-                                        ?: (bubbleBounds.left + (bubbleBounds.width / 2))
-                                    val anchorY = longPressPosition?.y 
-                                        ?: bubbleBounds.top
-                                    
-                                    // Position menu above the long-press point (above user's finger)
-                                    // In Android coordinate system: Y=0 at top, increases downward
-                                    // To position above: subtract menu height + spacing from anchor Y
-                                    val spacingAboveFinger = 64.dp.toPx() // Extra space above finger (large spacing to ensure menu is clearly above finger)
-                                    val menuY = anchorY - menuHeight - spacingAboveFinger
-                                    
-                                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Menu Y calculation - anchorY=$anchorY, menuHeight=$menuHeight, spacing=$spacingAboveFinger, finalMenuY=$menuY")
-                                    
-                                    // Try to center menu on long-press point
-                                    var menuX = anchorX - (menuWidthPx / 2)
-                                    
-                                    // Clamp to keep menu on screen (both left AND right edges)
-                                    // First check right edge, then left edge
-                                    if (menuX + menuWidthPx > screenWidth - marginPx) {
-                                        // Menu would overflow on the right, align to right edge
-                                        menuX = screenWidth - menuWidthPx - marginPx
-                                    }
-                                    if (menuX < marginPx) {
-                                        // Menu would overflow on the left, align to left edge
-                                        menuX = marginPx
-                                    }
-                                    
-                                    val clampedY = menuY.coerceAtLeast(marginPx)
-                                    
-                                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Menu position: x=$menuX, y=$clampedY, menuWidth=$menuWidthPx, screenWidth=$screenWidth, totalButtonCount=$totalButtonCount, anchorX=$anchorX, longPressPosition=$longPressPosition")
-                                    
-                                    IntOffset(
-                                        x = menuX.toInt(),
-                                        y = clampedY.toInt()
-                                    )
-                                }
-                            },
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surface
-                        ),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            run {
-                                // View raw JSON
-                                IconButton(
-                                    onClick = {
-                                        showMenu = false
-                                        rawJsonToShow = event.toRawJsonString(2)
-                                        showRawJsonDialog = true
-                                    },
-                                    modifier = Modifier.size(40.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Code,
-                                        contentDescription = "View raw JSON",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-
-                                // React button
-                                IconButton(
-                                    onClick = {
-                                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: React clicked")
-                                        showMenu = false
-                                        onReact()
-                                    },
-                                    modifier = Modifier.size(40.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.TagFaces,
-                                        contentDescription = "React",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                
-                                // Reply button
-                                IconButton(
-                                    onClick = {
-                                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Reply clicked")
-                                        showMenu = false
-                                        onReply()
-                                    },
-                                    modifier = Modifier.size(40.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.Reply,
-                                        contentDescription = "Reply",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                
-                                // Edit button (only show for our own messages)
-                                if (canEdit) {
-                                    IconButton(
-                                        onClick = {
-                                            if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Edit clicked")
-                                            showMenu = false
-                                            onEdit()
-                                        },
-                                        modifier = Modifier.size(40.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Edit,
-                                            contentDescription = "Edit",
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                }
-                                
-                                // Delete button (only show if we have permission)
-                                if (canDelete) {
-                                    IconButton(
-                                        onClick = {
-                                            if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Delete clicked")
-                                            showMenu = false
-                                            onDelete()
-                                        },
-                                        modifier = Modifier.size(40.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = "Delete",
-                                            tint = MaterialTheme.colorScheme.error
-                                        )
-                                    }
-                                }
-                                
-                                // View Original button (only show if message has been deleted/redacted)
-                                if (isRedacted && appViewModel != null) {
-                                    IconButton(
-                                        onClick = {
-                                            if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: View Original clicked for event ${event.eventId}")
-                                            showMenu = false
-                                            deletedDialogText = deletedContentSummary
-                                            deletedReason = redactionReason
-                                            deletedLoading = true
-                                            loadedDeletedEvent = null
-                                            loadedDeletedContext = emptyList()
-                                            deletedError = null
-                                            showDeletedDialog = true
-                                            
-                                            // Load the original event from cache
-                                            // The event itself contains the original content, we just need to clear redactedBy
-                                            coroutineScope.launch {
-                                                try {
-                                                    // Get cached events for the room to find the original event
-                                                    val cachedEvents = withContext(Dispatchers.IO) {
-                                                        RoomTimelineCache.getCachedEvents(event.roomId)
-                                                    }
-                                                    
-                                                    if (cachedEvents == null || cachedEvents.isEmpty()) {
-                                                        if (BuildConfig.DEBUG) android.util.Log.w("ReplyFunctions", "MessageBubbleWithMenu: No cached events found for room ${event.roomId}")
-                                                        deletedError = "No cached events available"
-                                                        deletedLoading = false
-                                                        return@launch
-                                                    }
-                                                    
-                                                    // Find the original event in cache (by event ID)
-                                                    // The event we have is the original event, just with redactedBy set
-                                                    val originalEvent = cachedEvents.find { it.eventId == event.eventId }
-                                                    
-                                                    if (originalEvent == null) {
-                                                        if (BuildConfig.DEBUG) android.util.Log.w("ReplyFunctions", "MessageBubbleWithMenu: Original event ${event.eventId} not found in cache (${cachedEvents.size} events)")
-                                                        deletedError = "Original event not found in cache"
-                                                        deletedLoading = false
-                                                        return@launch
-                                                    }
-                                                    
-                                                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Found original event ${event.eventId} in cache")
-                                                    
-                                                    // Get context events (events around the original event for better rendering)
-                                                    val originalIndex = cachedEvents.indexOf(originalEvent)
-                                                    val contextStart = maxOf(0, originalIndex - 2)
-                                                    val contextEnd = minOf(cachedEvents.size, originalIndex + 3)
-                                                    val contextEvents = cachedEvents.subList(contextStart, contextEnd).toList()
-                                                    
-                                                    // Create a copy of the original event without redactedBy to show original content
-                                                    // The event still contains the original content, redactedBy just marks it as deleted
-                                                    val originalEventWithoutRedaction = originalEvent.copy(redactedBy = null)
-                                                    
-                                                    loadedDeletedEvent = originalEventWithoutRedaction
-                                                    loadedDeletedContext = contextEvents
-                                                    deletedLoading = false
-                                                    
-                                                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Successfully loaded original event with ${contextEvents.size} context events")
-                                                } catch (e: Exception) {
-                                                    android.util.Log.e("ReplyFunctions", "MessageBubbleWithMenu: Error loading original event", e)
-                                                    deletedError = "Error loading original event: ${e.message}"
-                                                    deletedLoading = false
-                                                }
-                                            }
-                                        },
-                                        modifier = Modifier.size(40.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Visibility,
-                                            contentDescription = "View Original Message",
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                }
-                                
-                                // Edit History button (only show if message has been edited)
-                                if (hasBeenEdited && onShowEditHistory != null) {
-                                    IconButton(
-                                        onClick = {
-                                            if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Edit History clicked")
-                                            showMenu = false
-                                            onShowEditHistory()
-                                        },
-                                        modifier = Modifier.size(40.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.History,
-                                            contentDescription = "View Edit History",
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         if (showErrorDialog && errorDialogText != null) {
             androidx.compose.material3.AlertDialog(
@@ -1304,70 +1032,6 @@ fun MessageBubbleWithMenu(
                     }
                 }
             )
-        }
-        if (showDeletedDialog) {
-            when {
-                deletedLoading -> {
-                    androidx.compose.material3.AlertDialog(
-                        onDismissRequest = { showDeletedDialog = false },
-                        title = { Text("Loading original message") },
-                        text = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                ExpressiveLoadingIndicator(modifier = Modifier.size(20.dp))
-                                Text("Fetching from cache…")
-                            }
-                        },
-                        confirmButton = {
-                            TextButton(onClick = { showDeletedDialog = false }) {
-                                Text("Close")
-                            }
-                        }
-                    )
-                }
-                loadedDeletedEvent != null -> {
-                    SingleEventRendererDialog(
-                        event = loadedDeletedEvent,
-                        contextEvents = loadedDeletedContext,
-                        appViewModel = appViewModel,
-                        homeserverUrl = appViewModel?.homeserverUrl ?: "",
-                        authToken = appViewModel?.authToken ?: "",
-                        onDismiss = { showDeletedDialog = false },
-                        error = deletedError
-                    )
-                }
-                else -> {
-                    val fallbackText = deletedError ?: deletedDialogText ?: "Original message not found"
-                    androidx.compose.material3.AlertDialog(
-                        onDismissRequest = { showDeletedDialog = false },
-                        title = { Text("Deleted message") },
-                        text = {
-                            Column {
-                                Text(
-                                    text = fallbackText,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                                deletedReason?.let { reason ->
-                                    Spacer(Modifier.height(8.dp))
-                                    Text(
-                                        text = "Reason: $reason",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontStyle = FontStyle.Italic
-                                    )
-                                }
-                            }
-                        },
-                        confirmButton = {
-                            TextButton(onClick = { showDeletedDialog = false }) {
-                                Text("Close")
-                            }
-                        }
-                    )
-                }
-            }
         }
     }
 }

@@ -3,6 +3,10 @@ package net.vrkknn.andromuks
 import android.content.Context
 import android.util.Log
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,6 +51,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,7 +67,9 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontStyle
@@ -119,6 +126,9 @@ import net.vrkknn.andromuks.utils.navigateToUserInfo
 import net.vrkknn.andromuks.utils.RoomLink
 import net.vrkknn.andromuks.utils.TypingNotificationArea
 import net.vrkknn.andromuks.utils.CodeViewer
+import net.vrkknn.andromuks.utils.MessageMenuBar
+import net.vrkknn.andromuks.utils.MessageMenuConfig
+import net.vrkknn.andromuks.utils.LocalActiveMessageMenuEventId
 import net.vrkknn.andromuks.ui.components.ExpressiveStatusRow
 import net.vrkknn.andromuks.BuildConfig
 import kotlinx.coroutines.Dispatchers
@@ -539,6 +549,9 @@ fun ThreadViewerScreen(
     // Code viewer state
     var showCodeViewer by remember { mutableStateOf(false) }
     var codeViewerContent by remember { mutableStateOf("") }
+    
+    // Message menu state (for bottom menu bar)
+    var messageMenuConfig by remember { mutableStateOf<MessageMenuConfig?>(null) }
     
     // Track websocket connection state
     var websocketConnected by remember { mutableStateOf(appViewModel.isWebSocketConnected()) }
@@ -1068,16 +1081,29 @@ fun ThreadViewerScreen(
     }
 
     // Handle Android back key
-    BackHandler { navController.popBackStack() }
+    BackHandler {
+        if (messageMenuConfig != null) {
+            // Close message menu if open
+            messageMenuConfig = null
+        } else if (showAttachmentMenu) {
+            // Close attachment menu if open
+            showAttachmentMenu = false
+        } else {
+            navController.popBackStack()
+        }
+    }
 
     // IME padding
     val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val bottomInset = if (imeBottom > 0.dp) imeBottom else navBarBottom
 
-    AndromuksTheme {
-        Surface {
-            Box(modifier = modifier.fillMaxSize()) {
+    CompositionLocalProvider(
+        LocalActiveMessageMenuEventId provides messageMenuConfig?.event?.eventId
+    ) {
+        AndromuksTheme {
+            Surface {
+                Box(modifier = modifier.fillMaxSize()) {
                 Column(
                     modifier =
                         Modifier.fillMaxSize()
@@ -1225,6 +1251,11 @@ fun ThreadViewerScreen(
                                         onCodeBlockClick = { code ->
                                             codeViewerContent = code
                                             showCodeViewer = true
+                                        },
+                                        onShowMenu = { menuConfig ->
+                                            // Close attach menu if open
+                                            showAttachmentMenu = false
+                                            messageMenuConfig = menuConfig
                                         }
                                     )
                                 }
@@ -1232,7 +1263,7 @@ fun ThreadViewerScreen(
                         }
                     }
                     
-                    // 3. Typing notification area
+                    // 4. Typing notification area
                     TypingNotificationArea(
                         typingUsers = appViewModel.typingUsers,
                         roomId = roomId,
@@ -1241,7 +1272,7 @@ fun ThreadViewerScreen(
                         userProfileCache = appViewModel.getMemberMap(roomId)
                     )
 
-                    // 4. Text box (always sends thread replies)
+                    // 5. Text box (always sends thread replies)
                     Surface(
                         color = MaterialTheme.colorScheme.surface,
                         tonalElevation = 0.dp,
@@ -1277,7 +1308,13 @@ fun ThreadViewerScreen(
                             ) {
                                 IconButton(
                                     enabled = isInputEnabled,
-                                    onClick = { if (isInputEnabled) showAttachmentMenu = !showAttachmentMenu },
+                                    onClick = { 
+                                        if (isInputEnabled) {
+                                            // Close message menu if open
+                                            messageMenuConfig = null
+                                            showAttachmentMenu = !showAttachmentMenu
+                                        }
+                                    },
                                     modifier = Modifier.fillMaxSize()
                                 ) {
                                     Icon(
@@ -1868,16 +1905,85 @@ fun ThreadViewerScreen(
                     }
 
                 }
-            }
+                
+                // Message menu bar (slides from bottom, same position as attach menu)
+                AnimatedVisibility(
+                    visible = messageMenuConfig != null,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth(),
+                    enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = 120)),
+                    exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = 120))
+                ) {
+                    val messageBarSlideOffsetPx = transition.animateFloat(
+                        transitionSpec = { tween(durationMillis = 120) },
+                        label = "messageBarSlideOffset"
+                    ) { state ->
+                        if (state == EnterExitState.Visible) 0f else with(density) { 56.dp.toPx() }
+                    }
+                    val messageButtonsAlpha = transition.animateFloat(
+                        transitionSpec = {
+                            if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
+                                tween(durationMillis = 500, delayMillis = 120)
+                            } else {
+                                tween(durationMillis = 500)
+                            }
+                        },
+                        label = "messageButtonsAlpha"
+                    ) { state ->
+                        if (state == EnterExitState.Visible) 1f else 0f
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer {
+                                // Position menu right above footer (same as attach menu)
+                                // Footer height = buttonHeight + 24.dp padding
+                                translationY = -with(density) { (buttonHeight + 24.dp).toPx() } + messageBarSlideOffsetPx.value
+                            }
+                            .navigationBarsPadding()
+                            .imePadding()
+                            .zIndex(5f) // Ensure it's above other content
+                    ) {
+                        net.vrkknn.andromuks.utils.MessageMenuBar(
+                            menuConfig = messageMenuConfig,
+                            onDismiss = { messageMenuConfig = null },
+                            buttonsAlpha = messageButtonsAlpha.value,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
 
-            // Attachment menu overlay (floating, does not push composer)
-            if (showAttachmentMenu) {
+                // Attachment menu overlay (floating, does not push composer)
+                AnimatedVisibility(
+                    visible = showAttachmentMenu,
+                    enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = 120)),
+                    exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = 120))
+                ) {
+                val attachmentBarSlideOffsetPx = transition.animateFloat(label = "attachmentBarSlideOffset") { state ->
+                    if (state == EnterExitState.Visible) 0f else with(density) { 56.dp.toPx() }
+                }
+                val attachmentButtonsAlpha = transition.animateFloat(
+                    transitionSpec = {
+                        if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
+                            tween(durationMillis = 500, delayMillis = 120)
+                        } else {
+                            tween(durationMillis = 500)
+                        }
+                    },
+                    label = "attachmentButtonsAlpha"
+                ) { state ->
+                    if (state == EnterExitState.Visible) 1f else 0f
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(bottom = 72.dp)
                         .navigationBarsPadding()
                         .imePadding()
+                        .graphicsLayer {
+                            translationY = attachmentBarSlideOffsetPx.value
+                        }
                         .zIndex(6f),
                     contentAlignment = Alignment.BottomStart
                 ) {
@@ -1906,7 +2012,8 @@ fun ThreadViewerScreen(
                                 Icon(
                                     imageVector = Icons.Filled.Image,
                                     contentDescription = "Image/Video",
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value)
                                 )
                             }
                             IconButton(
@@ -1919,7 +2026,8 @@ fun ThreadViewerScreen(
                                 Icon(
                                     imageVector = Icons.Filled.AudioFile,
                                     contentDescription = "Audio",
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value)
                                 )
                             }
                             IconButton(
@@ -1932,7 +2040,8 @@ fun ThreadViewerScreen(
                                 Icon(
                                     imageVector = Icons.Filled.Folder,
                                     contentDescription = "File",
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value)
                                 )
                             }
                             IconButton(
@@ -1956,7 +2065,8 @@ fun ThreadViewerScreen(
                                 Icon(
                                     imageVector = Icons.Filled.CameraAlt,
                                     contentDescription = "Camera Photo",
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value)
                                 )
                             }
                             IconButton(
@@ -1980,13 +2090,14 @@ fun ThreadViewerScreen(
                                 Icon(
                                     imageVector = Icons.Filled.Videocam,
                                     contentDescription = "Camera Video",
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value)
                                 )
                             }
                         }
                     }
                 }
-           //}
+                }
                 
                 // Emoji shortcode suggestion list
                 if (showEmojiSuggestionList) {
@@ -2504,6 +2615,7 @@ fun ThreadViewerScreen(
                         },
                         customEmojiPacks = appViewModel.customEmojiPacks
                     )
+                }
                 }
             }
         }
