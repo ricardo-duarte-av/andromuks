@@ -2471,7 +2471,8 @@ private fun EncryptedMessageContent(
                             null
                         },
                         onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null,
-                        mentionBorder = bubbleColors.mentionBorder
+                        mentionBorder = bubbleColors.mentionBorder,
+                        onShowMenu = onShowMenu
                     ) {
                         Column(
                             modifier = Modifier.padding(8.dp),
@@ -2571,7 +2572,8 @@ private fun EncryptedMessageContent(
                             null
                         },
                         onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null,
-                        mentionBorder = bubbleColors.mentionBorder
+                        mentionBorder = bubbleColors.mentionBorder,
+                        onShowMenu = onShowMenu
                     ) {
                         Box(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
@@ -3150,12 +3152,16 @@ fun TimelineEventItem(
             authToken = authToken,
             appViewModel = appViewModel,
             roomId = event.roomId,
+            myUserId = myUserId,
+            powerLevels = appViewModel?.currentRoomState?.powerLevels,
             onUserClick = onUserClick,
             onRoomClick = { roomId ->
                 // Convert room ID to RoomLink and call onRoomLinkClick
                 onRoomLinkClick(RoomLink(roomIdOrAlias = roomId))
             },
-            onReply = { event -> onReply(event) }
+            onReply = { event -> onReply(event) },
+            onDelete = { event -> onDelete(event) },
+            onShowMenu = onShowMenu
         )
         return
     }

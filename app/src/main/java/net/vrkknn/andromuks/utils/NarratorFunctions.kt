@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.geometry.Rect
@@ -35,11 +36,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Reply
 import net.vrkknn.andromuks.BuildConfig
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -47,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import net.vrkknn.andromuks.LocalScrollHighlightState
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -59,11 +63,15 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.MemberProfile
+import net.vrkknn.andromuks.PowerLevelsInfo
 import net.vrkknn.andromuks.ReadReceipt
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.TimelineEventItem
 import net.vrkknn.andromuks.ui.components.AvatarImage
+import net.vrkknn.andromuks.utils.LocalActiveMessageMenuEventId
 import org.json.JSONObject
+
+private val LocalNarratorLongPressAction = compositionLocalOf<(() -> Unit)?> { null }
 
 @Composable
 fun SystemEventNarrator(
@@ -74,9 +82,13 @@ fun SystemEventNarrator(
     authToken: String,
     appViewModel: AppViewModel? = null,
     roomId: String,
+    myUserId: String? = null,
+    powerLevels: PowerLevelsInfo? = null,
     onUserClick: (String) -> Unit = {},
     onRoomClick: (String) -> Unit = {},
-    onReply: (TimelineEvent) -> Unit = {}
+    onReply: (TimelineEvent) -> Unit = {},
+    onDelete: (TimelineEvent) -> Unit = {},
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var narratorBounds by remember { mutableStateOf<Rect?>(null) }
@@ -84,6 +96,7 @@ fun SystemEventNarrator(
     val eventType = event.type
     
     val density = LocalDensity.current
+    val hapticFeedback = LocalHapticFeedback.current
     val configuration = LocalConfiguration.current
     val screenWidth = with(density) { configuration.screenWidthDp.dp.toPx() }
     
@@ -109,6 +122,26 @@ fun SystemEventNarrator(
     }
     
     val highlightValue = highlightAnim.value
+    val activeMenuEventId = LocalActiveMessageMenuEventId.current
+    val isMenuActiveForThisNarrator = activeMenuEventId == event.eventId
+    val narratorMenuPulse = remember(event.eventId) { Animatable(0f) }
+    LaunchedEffect(isMenuActiveForThisNarrator) {
+        if (isMenuActiveForThisNarrator) {
+            narratorMenuPulse.snapTo(0f)
+            while (true) {
+                narratorMenuPulse.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing)
+                )
+                narratorMenuPulse.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing)
+                )
+            }
+        } else {
+            narratorMenuPulse.snapTo(0f)
+        }
+    }
     
     // Get read receipts for this event
     // CRITICAL FIX: Filter receipts to ensure they belong to this event
@@ -131,7 +164,51 @@ fun SystemEventNarrator(
     val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
         appViewModel?.getMemberMap(roomId) ?: emptyMap()
     }
+
+    // Permission logic mirrors message bubble behavior:
+    // - own events: delete if my PL >= room redact PL
+    // - others' events: delete if sender PL < my PL and my PL >= room redact PL
+    val effectivePowerLevels = powerLevels ?: appViewModel?.currentRoomState?.powerLevels
+    val myPowerLevel = if (myUserId != null && effectivePowerLevels != null) {
+        effectivePowerLevels.users[myUserId] ?: effectivePowerLevels.usersDefault
+    } else 0
+    val senderPowerLevel = if (effectivePowerLevels != null) {
+        effectivePowerLevels.users[event.sender] ?: effectivePowerLevels.usersDefault
+    } else 0
+    val redactPowerLevel = effectivePowerLevels?.redact ?: 50
+    val canRedactMessage = myPowerLevel >= redactPowerLevel
+    val isMine = myUserId != null && event.sender == myUserId
+    val canDelete = if (isMine) {
+        canRedactMessage
+    } else {
+        senderPowerLevel < myPowerLevel && canRedactMessage
+    }
     
+    val triggerNarratorMenu = {
+        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+        if (onShowMenu != null) {
+            val menuConfig = MessageMenuConfig(
+                event = event,
+                canEdit = false,
+                canDelete = canDelete,
+                canViewOriginal = false,
+                canViewEditHistory = false,
+                onReply = { onReply(event) },
+                onReact = {},
+                onEdit = {},
+                onDelete = { onDelete(event) },
+                onShowEditHistory = null,
+                appViewModel = appViewModel
+            )
+            onShowMenu.invoke(menuConfig)
+        } else {
+            showMenu = true
+        }
+    }
+
+    CompositionLocalProvider(
+        LocalNarratorLongPressAction provides triggerNarratorMenu
+    ) {
     Box {
         Row(
             modifier = Modifier
@@ -143,7 +220,21 @@ fun SystemEventNarrator(
                 }
                 .then(
                     // Add glow effect when highlighted
-                    if (highlightValue > 0.01f) {
+                    if (isMenuActiveForThisNarrator) {
+                        val pulse = narratorMenuPulse.value
+                        val glowColor = MaterialTheme.colorScheme.primary
+                        Modifier
+                            .background(
+                                color = glowColor.copy(alpha = 0.10f + (0.14f * pulse)),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
+                            )
+                            .shadow(
+                                elevation = 10.dp + (14.dp * pulse),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                ambientColor = glowColor.copy(alpha = 0.35f + (0.40f * pulse)),
+                                spotColor = glowColor.copy(alpha = 0.45f + (0.45f * pulse))
+                            )
+                    } else if (highlightValue > 0.01f) {
                         val glowColor = MaterialTheme.colorScheme.tertiary
                         val glowIntensity = highlightValue * 0.6f // Max 60% opacity
                         Modifier.shadow(
@@ -160,7 +251,7 @@ fun SystemEventNarrator(
                     onClick = { /* Regular click does nothing */ },
                     onLongClick = { 
                         if (BuildConfig.DEBUG) android.util.Log.d("NarratorFunctions", "SystemEventNarrator: Long press detected")
-                        showMenu = true 
+                        triggerNarratorMenu()
                     },
                     onLongClickLabel = "Show message options"
                 ),
@@ -479,6 +570,7 @@ fun SystemEventNarrator(
             }
         }
     }
+    }
 }
 
 
@@ -513,6 +605,7 @@ fun ClickableNarratorText(
     onUserClick: (String) -> Unit = {}
 ) {
     var textLayoutResult: TextLayoutResult? by remember { mutableStateOf(null) }
+    val narratorLongPressAction = LocalNarratorLongPressAction.current
     
     Text(
         text = text,
@@ -521,19 +614,24 @@ fun ClickableNarratorText(
             fontStyle = FontStyle.Italic
         ),
         modifier = Modifier.pointerInput(Unit) {
-            detectTapGestures { tapOffset ->
-                textLayoutResult?.let { layoutResult ->
-                    val offset = layoutResult.getOffsetForPosition(tapOffset)
-                    // Find annotation at this offset
-                    text.getStringAnnotations(
-                        tag = "USER_ID",
-                        start = offset,
-                        end = offset
-                    ).firstOrNull()?.let { annotation ->
-                        onUserClick(annotation.item)
+            detectTapGestures(
+                onTap = { tapOffset ->
+                    textLayoutResult?.let { layoutResult ->
+                        val offset = layoutResult.getOffsetForPosition(tapOffset)
+                        // Find annotation at this offset
+                        text.getStringAnnotations(
+                            tag = "USER_ID",
+                            start = offset,
+                            end = offset
+                        ).firstOrNull()?.let { annotation ->
+                            onUserClick(annotation.item)
+                        }
                     }
+                },
+                onLongPress = {
+                    narratorLongPressAction?.invoke()
                 }
-            }
+            )
         },
         onTextLayout = { textLayoutResult = it }
     )
