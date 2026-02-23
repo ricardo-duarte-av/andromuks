@@ -254,6 +254,35 @@ fun RoomListScreen(
         mutableStateOf(appViewModel.getCurrentRoomSection())
     }
     
+    // SAFETY NET: After initial sync completes, ensure stableSection is populated at least once.
+    // In rare race conditions, it's possible for RoomListScreen to compose while stableSection
+    // is still empty even though AppViewModel has room data. If that happens, force a one-time
+    // resync from AppViewModel once initial sync processing is fully complete.
+    LaunchedEffect(
+        uiState.initialSyncComplete,
+        appViewModel.initialSyncProcessingComplete,
+        appViewModel.isStartupComplete
+    ) {
+        if (uiState.initialSyncComplete &&
+            appViewModel.initialSyncProcessingComplete &&
+            appViewModel.isStartupComplete &&
+            stableSection.rooms.isEmpty() &&
+            stableSection.spaces.isEmpty()
+        ) {
+            val latestSection = appViewModel.getCurrentRoomSection()
+            if (latestSection.rooms.isNotEmpty() || latestSection.spaces.isNotEmpty()) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                        "Andromuks",
+                        "RoomListScreen: SAFETY NET - stableSection was empty after initial sync; " +
+                            "reloading from AppViewModel (rooms=${latestSection.rooms.size}, spaces=${latestSection.spaces.size})"
+                    )
+                }
+                stableSection = latestSection
+            }
+        }
+    }
+    
     // DEBUG: Log state changes to identify why "Refreshing rooms..." is stuck
     LaunchedEffect(coldStartRefreshing, shouldBlockForPending, effectiveSpacesLoaded, effectiveInitialSyncComplete, stableSection.rooms.size) {
         android.util.Log.d("Andromuks", "🔴 RoomListScreen: Loading state - coldStartRefreshing=$coldStartRefreshing, shouldBlockForPending=$shouldBlockForPending, effectiveSpacesLoaded=$effectiveSpacesLoaded, effectiveInitialSyncComplete=$effectiveInitialSyncComplete, hasRooms=${stableSection.rooms.isNotEmpty()}, roomCount=${stableSection.rooms.size}")
