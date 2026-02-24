@@ -5992,15 +5992,24 @@ class AppViewModel : ViewModel() {
         // CRITICAL: Wait for batches to flush BEFORE refreshing UI, so UI shows up-to-date data
         val (pendingCount, batchFlushJob) = syncBatchProcessor.onAppVisibilityChanged(true)
 
-        // Show a Toast so the user knows why the app is momentarily unresponsive
         if (pendingCount > 0) {
             appContext?.let { ctx ->
-                viewModelScope.launch(Dispatchers.Main) {
-                    android.widget.Toast.makeText(
-                        ctx,
-                        "Processing $pendingCount buffered messages…",
-                        android.widget.Toast.LENGTH_SHORT
-                    ).show()
+                if (BuildConfig.DEBUG) {
+                    // DEBUG: Show a Toast so the developer knows why the app is momentarily unresponsive
+                    viewModelScope.launch(Dispatchers.Main) {
+                        android.widget.Toast.makeText(
+                            ctx,
+                            "Processing $pendingCount buffered messages…",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                } else {
+                    // RELEASE: Surface the same information via the permanent foreground notification
+                    try {
+                        net.vrkknn.andromuks.WebSocketService.showBatchProcessingStatus(pendingCount)
+                    } catch (_: Exception) {
+                        // Best-effort only; don't crash if service/notification isn't available
+                    }
                 }
             }
         }
