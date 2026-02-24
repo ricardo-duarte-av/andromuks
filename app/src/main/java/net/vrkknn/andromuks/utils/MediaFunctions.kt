@@ -397,6 +397,7 @@ fun MediaMessage(
     appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
     onBubbleClick: (() -> Unit)? = null,
     onShowEditHistory: (() -> Unit)? = null,
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
     bubbleColorOverride: Color? = null,
     hasBeenEditedOverride: Boolean? = null
 ) {
@@ -514,7 +515,8 @@ fun MediaMessage(
                 appViewModel = appViewModel,
                 onBubbleClick = onBubbleClick,
                 onShowEditHistory = onShowEditHistory,
-                externalMenuTrigger = triggerMenuFromImage
+                externalMenuTrigger = triggerMenuFromImage,
+                onShowMenu = onShowMenu
             ) {
                 Column {
                     // Image content inside the caption bubble
@@ -675,7 +677,8 @@ fun MediaMessage(
                 appViewModel = appViewModel,
                 onBubbleClick = onBubbleClick,
                 onShowEditHistory = onShowEditHistory,
-                externalMenuTrigger = triggerMenuFromImage
+                externalMenuTrigger = triggerMenuFromImage,
+                onShowMenu = onShowMenu
             ) {
                 Column {
                     MediaContent(
@@ -868,7 +871,8 @@ private fun MediaContent(
                 homeserverUrl = homeserverUrl,
                 authToken = authToken,
                 isEncrypted = isEncrypted,
-                context = LocalContext.current
+                context = LocalContext.current,
+                onLongPress = onImageLongPress
             )
         } else if (mediaMessage.msgType == "m.file") {
             // File download component - use its own sizing without aspect ratio container
@@ -877,7 +881,8 @@ private fun MediaContent(
                 homeserverUrl = homeserverUrl,
                 authToken = authToken,
                 isEncrypted = isEncrypted,
-                context = LocalContext.current
+                context = LocalContext.current,
+                onLongPress = onImageLongPress
             )
         } else {
             // Media container with aspect ratio for images and videos
@@ -1174,10 +1179,13 @@ private fun MediaContent(
                                     .fillMaxWidth()
                                     .aspectRatio(loadedAspectRatio)
                                     .scale(1.02f)
-                                    .clickable {
-                                        // First tap: reveal thumbnail
-                                        isRevealed = true
-                                    },
+                                    .combinedClickable(
+                                        onClick = {
+                                            // First tap: reveal thumbnail
+                                            isRevealed = true
+                                        },
+                                        onLongClick = { onImageLongPress?.invoke() }
+                                    ),
                                 contentAlignment = Alignment.Center
                             ) {
                                 // Show blurhash or empty box
@@ -1283,6 +1291,7 @@ private fun MediaContent(
                                     // Switch to fullscreen player with current position and playing state
                                     onFullscreenRequest(currentPosition, isPlaying)
                                 },
+                                onLongPress = onImageLongPress,
                                 modifier = Modifier
                             )
                         } else {
@@ -1378,10 +1387,13 @@ private fun MediaContent(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .clickable {
-                                            // First tap: reveal thumbnail
-                                            isRevealed = true
-                                        },
+                                        .combinedClickable(
+                                            onClick = {
+                                                // First tap: reveal thumbnail
+                                                isRevealed = true
+                                            },
+                                            onLongClick = { onImageLongPress?.invoke() }
+                                        ),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     // Show blurhash or empty box
@@ -1536,10 +1548,13 @@ private fun MediaContent(
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
-                                            .clickable {
-                                                // First tap: for videos without thumbnails, open viewer directly
-                                                onImageClick()
-                                            },
+                                            .combinedClickable(
+                                                onClick = {
+                                                    // First tap: for videos without thumbnails, open viewer directly
+                                                    onImageClick()
+                                                },
+                                                onLongClick = { onImageLongPress?.invoke() }
+                                            ),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         // Show blurhash or empty box
@@ -1626,6 +1641,7 @@ private fun InlineVideoPlayer(
     aspectRatio: Float,
     videoId: String,
     onFullscreenClick: (currentPosition: Long, isPlaying: Boolean) -> Unit,
+    onLongPress: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -1741,7 +1757,8 @@ private fun InlineVideoPlayer(
                             showControls = true
                             controlsVisible = true
                         }
-                    }
+                    },
+                    onLongPress = { onLongPress?.invoke() }
                 )
             },
         contentAlignment = Alignment.Center
@@ -1777,7 +1794,8 @@ private fun InlineVideoPlayer(
                                 // Show controls on tap
                                 showControls = true
                                 controlsVisible = true
-                            }
+                            },
+                            onLongPress = { onLongPress?.invoke() }
                         )
                     }
             ) {
@@ -1877,7 +1895,8 @@ private fun AudioPlayer(
     homeserverUrl: String,
     authToken: String,
     isEncrypted: Boolean,
-    context: android.content.Context
+    context: android.content.Context,
+    onLongPress: (() -> Unit)? = null
 ) {
     // Convert MXC URL to HTTP URL
     val audioHttpUrl = remember(mediaMessage.url, isEncrypted) {
@@ -1937,6 +1956,11 @@ private fun AudioPlayer(
             .fillMaxWidth()
             .height(80.dp) // Fixed height for audio player
             .padding(horizontal = 12.dp, vertical = 8.dp)
+            .pointerInput(onLongPress) {
+                detectTapGestures(
+                    onLongPress = { onLongPress?.invoke() }
+                )
+            }
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -2053,7 +2077,8 @@ private fun FileDownload(
     homeserverUrl: String,
     authToken: String,
     isEncrypted: Boolean,
-    context: android.content.Context
+    context: android.content.Context,
+    onLongPress: (() -> Unit)? = null
 ) {
     // Convert MXC URL to HTTP URL
     val fileHttpUrl = remember(mediaMessage.url, isEncrypted) {
@@ -2071,7 +2096,12 @@ private fun FileDownload(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .pointerInput(onLongPress) {
+                detectTapGestures(
+                    onLongPress = { onLongPress?.invoke() }
+                )
+            },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {

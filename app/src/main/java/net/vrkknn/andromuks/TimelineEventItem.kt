@@ -418,6 +418,7 @@ private fun MediaMessageItem(
     powerLevels: PowerLevelsInfo? = null,
     onBubbleClick: (() -> Unit)? = null,
     onShowEditHistory: (() -> Unit)? = null,
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
     precomputedHasBeenEdited: Boolean? = null
 ) {
     // Check if this is a thread message
@@ -486,6 +487,7 @@ private fun MediaMessageItem(
                     appViewModel = appViewModel,
                     onBubbleClick = onBubbleClick,
                     onShowEditHistory = onShowEditHistory,
+                    onShowMenu = onShowMenu,
                     bubbleColorOverride = mediaBubbleColor,
                     hasBeenEditedOverride = mediaHasBeenEdited
                 )
@@ -510,6 +512,7 @@ private fun MediaMessageItem(
                 powerLevels = powerLevels,
                 appViewModel = appViewModel,
                 onBubbleClick = onBubbleClick,
+                onShowMenu = onShowMenu,
                 bubbleColorOverride = mediaBubbleColor,
                 hasBeenEditedOverride = mediaHasBeenEdited
             )
@@ -1273,6 +1276,7 @@ private fun RoomMediaMessageContent(
                 null
             },
             onShowEditHistory = onShowEditHistory,
+            onShowMenu = onShowMenu,
             precomputedHasBeenEdited = mediaHasBeenEdited
         )
 
@@ -2255,6 +2259,7 @@ private fun EncryptedMessageContent(
                         null
                     },
                     onShowEditHistory = onShowEditHistory,
+                    onShowMenu = onShowMenu,
                     precomputedHasBeenEdited = encryptedMediaHasBeenEdited
                 )
 
