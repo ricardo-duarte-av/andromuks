@@ -100,6 +100,9 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import kotlin.math.min
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -570,6 +573,11 @@ fun ThreadViewerScreen(
     var draft by remember { mutableStateOf("") }
     var lastTypingTime by remember { mutableStateOf(0L) }
     var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
+    
+    // Focus requester for text field (to focus when replying)
+    val textFieldFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    
     // Track text field height to size the send button
     var textFieldHeight by remember { mutableStateOf(0) }
     val density = LocalDensity.current
@@ -601,6 +609,16 @@ fun ThreadViewerScreen(
             draft = body
             // Hide mention list when editing
             showMentionList = false
+        }
+    }
+    
+    // Focus text field and show keyboard when replying starts
+    LaunchedEffect(replyingToEvent) {
+        if (replyingToEvent != null) {
+            // Focus text field and show keyboard
+            kotlinx.coroutines.delay(100) // Small delay to ensure UI is ready
+            textFieldFocusRequester.requestFocus()
+            keyboardController?.show()
         }
     }
 
@@ -1739,7 +1757,9 @@ fun ThreadViewerScreen(
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         },
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .focusRequester(textFieldFocusRequester),
                                         minLines = 1,
                                         maxLines = 5,
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
