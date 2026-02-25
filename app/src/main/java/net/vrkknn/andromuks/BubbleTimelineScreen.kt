@@ -4157,19 +4157,6 @@ fun BubbleRoomHeader(
             Column(
                 modifier = Modifier.weight(1f).clickable(onClick = onHeaderClick)
             ) {
-                // Canonical alias or room ID (above room name)
-                val aliasOrId = roomState?.canonicalAlias ?: roomState?.roomId?.let { "!$it" }
-
-                aliasOrId?.let { alias ->
-                    Text(
-                        text = alias,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
                 // Room name (prefer room state name, fallback to fallback name)
                 val displayName = roomState?.name ?: fallbackName
 
@@ -4178,9 +4165,21 @@ fun BubbleRoomHeader(
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    softWrap = false,
-                    modifier = Modifier.padding(top = if (aliasOrId != null) 2.dp else 0.dp)
+                    softWrap = false
                 )
+
+                // Room topic (below display name)
+                val roomTopic = roomState?.topic
+                if (roomTopic != null && roomTopic.isNotBlank()) {
+                    Text(
+                        text = roomTopic,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
             }
             
             Row(
