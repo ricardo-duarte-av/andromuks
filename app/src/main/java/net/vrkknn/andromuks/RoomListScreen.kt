@@ -1118,6 +1118,9 @@ fun RoomListScreen(
                 )
             }
             
+            // Extra spacing between the search bar and the room list/content for better visual separation
+            Spacer(modifier = Modifier.height(8.dp))
+            
             AnimatedVisibility(inlineSyncInProgress) {
                 ExpressiveStatusRow(
                     text = inlineSyncMessage,
