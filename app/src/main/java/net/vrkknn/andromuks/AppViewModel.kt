@@ -549,6 +549,9 @@ class AppViewModel : ViewModel() {
     // Room list bottom bar layout: false = compact (4 tabs), true = full (6 tabs: +Favs, +Bridges)
     var showAllRoomListTabs by mutableStateOf(false)
         private set
+    // Room timeline read receipts layout: false = inline next to bubble, true = moved to opposite screen edge
+    var moveReadReceiptsToEdge by mutableStateOf(false)
+        private set
     var elementCallBaseUrl by mutableStateOf("")
         private set
 
@@ -16204,6 +16207,21 @@ class AppViewModel : ViewModel() {
         }
     }
 
+    fun toggleMoveReadReceiptsToEdge() {
+        moveReadReceiptsToEdge = !moveReadReceiptsToEdge
+
+        appContext?.let { context ->
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("move_read_receipts_to_edge", moveReadReceiptsToEdge)
+                .apply()
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Saved moveReadReceiptsToEdge setting: $moveReadReceiptsToEdge"
+            )
+        }
+    }
+
     fun updateElementCallBaseUrl(url: String) {
         elementCallBaseUrl = url.trim()
         appContext?.let { context ->
@@ -16279,6 +16297,8 @@ class AppViewModel : ViewModel() {
             renderThumbnailsAlways = prefs.getBoolean("render_thumbnails_always", true) // Default to true
             // Room list bottom bar: default to compact 4-tab layout
             showAllRoomListTabs = prefs.getBoolean("show_all_room_list_tabs", false) // Default to false (4 tabs)
+            // Room timeline read receipts: default to inline next to bubble
+            moveReadReceiptsToEdge = prefs.getBoolean("move_read_receipts_to_edge", false) // Default to false
             elementCallBaseUrl = prefs.getString("element_call_base_url", "") ?: ""
 
             // Background purge settings
@@ -16295,6 +16315,7 @@ class AppViewModel : ViewModel() {
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded loadThumbnailsIfAvailable setting: $loadThumbnailsIfAvailable")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded renderThumbnailsAlways setting: $renderThumbnailsAlways")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded showAllRoomListTabs setting: $showAllRoomListTabs")
+                android.util.Log.d("Andromuks", "AppViewModel: Loaded moveReadReceiptsToEdge setting: $moveReadReceiptsToEdge")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded elementCallBaseUrl setting: $elementCallBaseUrl")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded backgroundPurgeIntervalMinutes=$backgroundPurgeIntervalMinutes, backgroundPurgeMessageThreshold=$backgroundPurgeMessageThreshold")
             }

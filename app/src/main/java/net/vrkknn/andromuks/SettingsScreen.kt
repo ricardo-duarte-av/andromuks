@@ -183,6 +183,59 @@ fun SettingsScreen(
                 }
             }
 
+            // ── Room Timeline Section ────────────────────────────────────────
+            Text(
+                text = "Room Timeline",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            // Move read receipts to the edge
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "Move read receipts to the edge",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Show read receipts on the opposite side of the screen from the message bubble (left for your messages, right for others).",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Switch(
+                        checked = appViewModel.moveReadReceiptsToEdge,
+                        onCheckedChange = { appViewModel.toggleMoveReadReceiptsToEdge() }
+                    )
+                }
+            }
+
+            // ── Background Sync Section ──────────────────────────────────────
+            Text(
+                text = "Background Sync",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+
+            BackgroundSyncSettings(appViewModel = appViewModel)
+
             // Compression Setting
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -216,17 +269,6 @@ fun SettingsScreen(
                     )
                 }
             }
-
-            // ── Background Sync Section ──────────────────────────────────────
-            Text(
-                text = "Background Sync",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 16.dp)
-            )
-
-            BackgroundSyncSettings(appViewModel = appViewModel)
 
             // Calls Section
             Text(

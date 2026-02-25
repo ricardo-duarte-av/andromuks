@@ -1444,29 +1444,11 @@ private fun RoomTextMessageContent(
     val bubbleColor = bubbleColors.container
     val textColor = bubbleColors.content
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement =
-            if (actualIsMine) Arrangement.End else Arrangement.Start,
-        verticalAlignment = Alignment.Top
-    ) {
-        // For my messages, show read receipts on the left of the bubble
-        if (actualIsMine && readReceipts.isNotEmpty()) {
-            AnimatedInlineReadReceiptAvatars(
-                receipts = readReceipts,
-                userProfileCache = userProfileCache,
-                homeserverUrl = homeserverUrl,
-                authToken = authToken,
-                appViewModel = appViewModel,
-                messageSender = event.sender,
-                eventId = event.eventId,
-                roomId = event.roomId,
-                onUserClick = onUserClick,
-                isMine = true
-            )
-            Spacer(modifier = Modifier.width(ReadReceiptGap))
-        }
+    val moveReceiptsToEdge = appViewModel?.moveReadReceiptsToEdge == true
+    val hasReceipts = readReceipts.isNotEmpty()
 
+    @Composable
+    fun MessageBubble() {
         // Display reply with nested structure if this is a reply (include thread messages too)
         if (replyInfo != null && originalEvent != null) {
             MessageBubbleWithMenu(
@@ -1524,50 +1506,50 @@ private fun RoomTextMessageContent(
 
                     // Reply message content
                     val messageBody: @Composable () -> Unit = {
-                            // Render text bubble with optional edit icon
-                            val messageBody: @Composable () -> Unit = {
-                                AdaptiveMessageText(
-                                    event = event,
-                                    body = finalBody,
-                                    format = format,
-                                    userProfileCache = userProfileCache,
-                                    homeserverUrl = homeserverUrl,
-                                    authToken = authToken,
-                                    appViewModel = appViewModel,
-                                    roomId = event.roomId,
-                                    textColor = textColor,
-                                    onUserClick = onUserClick,
-                                    onMatrixUserClick = onUserClick,
-                                    onRoomLinkClick = onRoomLinkClick,
-                                    onCodeBlockClick = onCodeBlockClick
-                                )
-                            }
-                            if (hasBeenEdited) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    if (actualIsMine) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Edit,
-                                            contentDescription = "Edited",
-                                            tint = colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        messageBody()
-                                    } else {
-                                        messageBody()
-                                        Icon(
-                                            imageVector = Icons.Outlined.Edit,
-                                            contentDescription = "Edited",
-                                            tint = colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                    }
+                        // Render text bubble with optional edit icon
+                        val messageBody: @Composable () -> Unit = {
+                            AdaptiveMessageText(
+                                event = event,
+                                body = finalBody,
+                                format = format,
+                                userProfileCache = userProfileCache,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                appViewModel = appViewModel,
+                                roomId = event.roomId,
+                                textColor = textColor,
+                                onUserClick = onUserClick,
+                                onMatrixUserClick = onUserClick,
+                                onRoomLinkClick = onRoomLinkClick,
+                                onCodeBlockClick = onCodeBlockClick
+                            )
+                        }
+                        if (hasBeenEdited) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                if (actualIsMine) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Edit,
+                                        contentDescription = "Edited",
+                                        tint = colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    messageBody()
+                                } else {
+                                    messageBody()
+                                    Icon(
+                                        imageVector = Icons.Outlined.Edit,
+                                        contentDescription = "Edited",
+                                        tint = colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(14.dp)
+                                    )
                                 }
-                            } else {
-                                messageBody()
                             }
+                        } else {
+                            messageBody()
+                        }
                     }
                     if (hasBeenEdited) {
                         Row(
@@ -1672,22 +1654,92 @@ private fun RoomTextMessageContent(
                 }
             }
         }
+    }
 
-        // For others' messages, show read receipts on the right of the bubble
-        if (!actualIsMine && readReceipts.isNotEmpty()) {
-            Spacer(modifier = Modifier.width(ReadReceiptGap))
-            AnimatedInlineReadReceiptAvatars(
-                receipts = readReceipts,
-                userProfileCache = userProfileCache,
-                homeserverUrl = homeserverUrl,
-                authToken = authToken,
-                appViewModel = appViewModel,
-                messageSender = event.sender,
-                eventId = event.eventId,
-                roomId = event.roomId,
-                onUserClick = onUserClick,
-                isMine = false
-            )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement =
+            if (moveReceiptsToEdge) Arrangement.SpaceBetween
+            else if (actualIsMine) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Top
+    ) {
+        if (moveReceiptsToEdge) {
+            if (actualIsMine) {
+                // My messages: receipts at far left, bubble at right
+                if (hasReceipts) {
+                    AnimatedInlineReadReceiptAvatars(
+                        receipts = readReceipts,
+                        userProfileCache = userProfileCache,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        appViewModel = appViewModel,
+                        messageSender = event.sender,
+                        eventId = event.eventId,
+                        roomId = event.roomId,
+                        onUserClick = onUserClick,
+                        isMine = true
+                    )
+                } else {
+                    Spacer(modifier = Modifier.width(ReadReceiptGap))
+                }
+                MessageBubble()
+            } else {
+                // Others' messages: bubble at left, receipts at far right
+                MessageBubble()
+                if (hasReceipts) {
+                    AnimatedInlineReadReceiptAvatars(
+                        receipts = readReceipts,
+                        userProfileCache = userProfileCache,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        appViewModel = appViewModel,
+                        messageSender = event.sender,
+                        eventId = event.eventId,
+                        roomId = event.roomId,
+                        onUserClick = onUserClick,
+                        isMine = false
+                    )
+                } else {
+                    Spacer(modifier = Modifier.width(ReadReceiptGap))
+                }
+            }
+        } else {
+            // Original inline layout: receipts adjacent to the bubble
+            // For my messages, show read receipts on the left of the bubble
+            if (actualIsMine && hasReceipts) {
+                AnimatedInlineReadReceiptAvatars(
+                    receipts = readReceipts,
+                    userProfileCache = userProfileCache,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    appViewModel = appViewModel,
+                    messageSender = event.sender,
+                    eventId = event.eventId,
+                    roomId = event.roomId,
+                    onUserClick = onUserClick,
+                    isMine = true
+                )
+                Spacer(modifier = Modifier.width(ReadReceiptGap))
+            }
+
+            MessageBubble()
+
+            // For others' messages, show read receipts on the right of the bubble
+            if (!actualIsMine && hasReceipts) {
+                Spacer(modifier = Modifier.width(ReadReceiptGap))
+                AnimatedInlineReadReceiptAvatars(
+                    receipts = readReceipts,
+                    userProfileCache = userProfileCache,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    appViewModel = appViewModel,
+                    messageSender = event.sender,
+                    eventId = event.eventId,
+                    roomId = event.roomId,
+                    onUserClick = onUserClick,
+                    isMine = false
+                )
+            }
         }
     }
 
