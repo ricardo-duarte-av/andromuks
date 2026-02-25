@@ -9,6 +9,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -39,7 +40,15 @@ fun SettingsScreen(
     ) {
         // Top App Bar
         TopAppBar(
-            title = { Text("Settings") }
+                title = { Text("Settings") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(
+                            imageVector = Icons.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                }
         )
 
         // Settings Content
@@ -60,7 +69,8 @@ fun SettingsScreen(
             Text(
                 text = "Display Settings",
                 style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
             )
 
             // Load thumbnails setting
@@ -135,7 +145,8 @@ fun SettingsScreen(
             Text(
                 text = "Room List",
                 style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
             )
 
             // Room list bottom bar layout (4 vs 6 tabs)
@@ -211,6 +222,7 @@ fun SettingsScreen(
                 text = "Background Sync",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(top = 16.dp)
             )
 
@@ -221,6 +233,7 @@ fun SettingsScreen(
                 text = "Calls",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(top = 16.dp)
             )
 
@@ -262,6 +275,7 @@ fun SettingsScreen(
                 text = "Push Notifications",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(top = 16.dp)
             )
             
@@ -272,6 +286,7 @@ fun SettingsScreen(
                 text = "Cache Statistics",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(top = 16.dp)
             )
             
@@ -282,6 +297,7 @@ fun SettingsScreen(
                 text = "WebSocket Debug",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(top = 16.dp)
             )
             
@@ -320,6 +336,7 @@ fun SettingsScreen(
                 text = "About",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(top = 16.dp)
             )
 
