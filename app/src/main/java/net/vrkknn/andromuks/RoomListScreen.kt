@@ -1902,9 +1902,22 @@ fun RoomListItem(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    // Right side: unread/highlight pill (top) and time (below)
-                    // FIX: Always reserve space for unread badge to prevent height changes
-                    Column(horizontalAlignment = Alignment.End) {
+
+                    // Right side: (optionally) silenced icon and unread/highlight pill
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // Silenced icon placed to the left of the unread badge when room is low priority
+                        if (room.isLowPriority) {
+                            Icon(
+                                imageVector = Icons.Filled.NotificationsOff,
+                                contentDescription = "Low Priority - Notifications Disabled",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
                         // Always show a Box to reserve space, but make it invisible when no unreads
                         Box(
                             modifier = Modifier
@@ -1979,16 +1992,6 @@ fun RoomListItem(
                                 )
                             }
                         }
-
-                        // Use pre-computed timestamp
-                        if (timeAgo.isNotEmpty()) {
-                            Text(
-                                text = timeAgo,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                        }
                     }
                 }
                 
@@ -2001,9 +2004,6 @@ fun RoomListItem(
                         modifier = Modifier.padding(top = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // PERFORMANCE: Removed mini sender avatar to reduce image loading by 50%
-                        // The room avatar is more important, and loading 2 avatars per room is expensive
-                        
                         // Sender name and message
                         Text(
                             text = "$displayNameToUse: ${room.messagePreview}",
@@ -2013,15 +2013,14 @@ fun RoomListItem(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
-                        
-                        // FIX: Show silenced icon to the right of the message preview (not below time)
-                        if (room.isLowPriority) {
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(
-                                imageVector = Icons.Filled.NotificationsOff,
-                                contentDescription = "Low Priority - Notifications Disabled",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
+
+                        // Use pre-computed timestamp on the same line as the summary, to the right
+                        if (timeAgo.isNotEmpty()) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = timeAgo,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -2041,15 +2040,14 @@ fun RoomListItem(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
-                        
-                        // FIX: Show silenced icon to the right of the message preview
-                        if (room.isLowPriority) {
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(
-                                imageVector = Icons.Filled.NotificationsOff,
-                                contentDescription = "Low Priority - Notifications Disabled",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
+
+                        // Use pre-computed timestamp on the same line as the summary, to the right
+                        if (timeAgo.isNotEmpty()) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = timeAgo,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -2069,15 +2067,14 @@ fun RoomListItem(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
-                        
-                        // FIX: Show silenced icon to the right of the message preview
-                        if (room.isLowPriority) {
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(
-                                imageVector = Icons.Filled.NotificationsOff,
-                                contentDescription = "Low Priority - Notifications Disabled",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
+
+                        // Use pre-computed timestamp on the same line as the summary, to the right
+                        if (timeAgo.isNotEmpty()) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = timeAgo,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
