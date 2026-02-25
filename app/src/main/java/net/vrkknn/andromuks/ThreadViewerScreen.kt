@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -1115,15 +1116,57 @@ fun ThreadViewerScreen(
                                 }
                             )
                 ) {
-                    // 1. Thread Header
-                    ThreadHeader(
-                        roomName = roomName,
-                        threadRootEvent = threadRootEvent,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        userProfileCache = appViewModel.getMemberMap(roomId),
-                        onBackClick = { navController.popBackStack() }
-                    )
+                    // 1. Thread Header (simple inline header)
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
+                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Back button
+                            IconButton(onClick = { navController.popBackStack() }) {
+                                Icon(
+                                    imageVector = Icons.Filled.ArrowBack,
+                                    contentDescription = "Back"
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Thread in $roomName",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                // Show thread root preview (sender + first part of body)
+                                if (threadRootEvent != null) {
+                                    val senderProfile = appViewModel.getMemberMap(roomId)[threadRootEvent.sender]
+                                    val senderName = senderProfile?.displayName ?: threadRootEvent.sender
+                                    val body = when {
+                                        threadRootEvent.type == "m.room.message" ->
+                                            threadRootEvent.content?.optString("body", "")
+                                        threadRootEvent.type == "m.room.encrypted" &&
+                                            threadRootEvent.decryptedType == "m.room.message" ->
+                                            threadRootEvent.decrypted?.optString("body", "")
+                                        else -> ""
+                                    } ?: ""
+                                    Text(
+                                        text = "$senderName: ${body.take(50)}${if (body.length > 50) "..." else ""}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
                     
                     // Show upload status when uploads are in progress
                     if (appViewModel.hasUploadInProgress(roomId)) {
@@ -1190,74 +1233,85 @@ fun ThreadViewerScreen(
                                         !hasPerMessageProfile &&
                                             previousEvent?.sender == event.sender
 
-                                    TimelineEventItem(
-                                        event = event,
-                                        timelineEvents = threadMessages,
-                                        homeserverUrl = homeserverUrl,
-                                        authToken = authToken,
-                                        userProfileCache = memberMap,
-                                        isMine = isMine,
-                                        myUserId = myUserId,
-                                        isConsecutive = isConsecutive,
-                                        appViewModel = appViewModel,
-                                        onScrollToMessage = { eventId ->
-                                            val index = timelineItems.indexOfFirst { item ->
-                                                (item as? TimelineItem.Event)?.event?.eventId == eventId
-                                                }
-                                            if (index >= 0) {
-                                                coroutineScope.launch {
-                                                    listState.scrollToItem(index)
-                                                }
-                                            }
-                                        },
-                                        onReply = { event ->
-                                            replyingToEvent = event
-                                            // Scroll near the bottom to keep context like main timeline
-                                            coroutineScope.launch {
-                                                val lastIndex = timelineItems.lastIndex
-                                                if (lastIndex >= 0) {
-                                                    listState.scrollToItem(maxOf(lastIndex - 2, 0))
-                                                }
-                                            }
-                                        },
-                                        onReact = { event ->
-                                            reactingToEvent = event
-                                            showEmojiSelection = true
-                                        },
-                                        onEdit = { event ->
-                                            editingEvent = event
-                                        },
-                                        onDelete = { event ->
-                                            deletingEvent = event
-                                            showDeleteDialog = true
-                                        },
-                                        onUserClick = { userId ->
-                                            navController.navigateToUserInfo(userId, roomId)
-                                        },
-                                        onRoomLinkClick = { roomLink ->
-                                            // Handle room links same as main timeline
-                                            val existingRoom = if (roomLink.roomIdOrAlias.startsWith("!")) {
-                                                appViewModel.getRoomById(roomLink.roomIdOrAlias)
-                                            } else {
-                                                null
-                                            }
-                                            
-                                            if (existingRoom != null) {
-                                                val encodedRoomId = java.net.URLEncoder.encode(roomLink.roomIdOrAlias, "UTF-8")
-                                                navController.navigate("room_timeline/$encodedRoomId")
-                                            }
-                                        },
-                                        onThreadClick = { }, // No nested threads
-                                        onCodeBlockClick = { code ->
-                                            codeViewerContent = code
-                                            showCodeViewer = true
-                                        },
-                                        onShowMenu = { menuConfig ->
-                                            // Close attach menu if open
-                                            showAttachmentMenu = false
-                                            messageMenuConfig = menuConfig
+                                    // Add a little extra spacing before non-consecutive messages
+                                    // (only when there was a previous event).
+                                    val addTopSpacing =
+                                        previousEvent != null && !isConsecutive
+
+                                    Column {
+                                        if (addTopSpacing) {
+                                            Spacer(modifier = Modifier.height(6.dp))
                                         }
-                                    )
+
+                                        TimelineEventItem(
+                                            event = event,
+                                            timelineEvents = threadMessages,
+                                            homeserverUrl = homeserverUrl,
+                                            authToken = authToken,
+                                            userProfileCache = memberMap,
+                                            isMine = isMine,
+                                            myUserId = myUserId,
+                                            isConsecutive = isConsecutive,
+                                            appViewModel = appViewModel,
+                                            onScrollToMessage = { eventId ->
+                                                val index = timelineItems.indexOfFirst { item ->
+                                                    (item as? TimelineItem.Event)?.event?.eventId == eventId
+                                                }
+                                                if (index >= 0) {
+                                                    coroutineScope.launch {
+                                                        listState.scrollToItem(index)
+                                                    }
+                                                }
+                                            },
+                                            onReply = { event ->
+                                                replyingToEvent = event
+                                                // Scroll near the bottom to keep context like main timeline
+                                                coroutineScope.launch {
+                                                    val lastIndex = timelineItems.lastIndex
+                                                    if (lastIndex >= 0) {
+                                                        listState.scrollToItem(maxOf(lastIndex - 2, 0))
+                                                    }
+                                                }
+                                            },
+                                            onReact = { event ->
+                                                reactingToEvent = event
+                                                showEmojiSelection = true
+                                            },
+                                            onEdit = { event ->
+                                                editingEvent = event
+                                            },
+                                            onDelete = { event ->
+                                                deletingEvent = event
+                                                showDeleteDialog = true
+                                            },
+                                            onUserClick = { userId ->
+                                                navController.navigateToUserInfo(userId, roomId)
+                                            },
+                                            onRoomLinkClick = { roomLink ->
+                                                // Handle room links same as main timeline
+                                                val existingRoom = if (roomLink.roomIdOrAlias.startsWith("!")) {
+                                                    appViewModel.getRoomById(roomLink.roomIdOrAlias)
+                                                } else {
+                                                    null
+                                                }
+                                                
+                                                if (existingRoom != null) {
+                                                    val encodedRoomId = java.net.URLEncoder.encode(roomLink.roomIdOrAlias, "UTF-8")
+                                                    navController.navigate("room_timeline/$encodedRoomId")
+                                                }
+                                            },
+                                            onThreadClick = { }, // No nested threads
+                                            onCodeBlockClick = { code ->
+                                                codeViewerContent = code
+                                                showCodeViewer = true
+                                            },
+                                            onShowMenu = { menuConfig ->
+                                                // Close attach menu if open
+                                                showAttachmentMenu = false
+                                                messageMenuConfig = menuConfig
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1909,9 +1963,6 @@ fun ThreadViewerScreen(
                 // Message menu bar (slides from bottom, same position as attach menu)
                 AnimatedVisibility(
                     visible = messageMenuConfig != null,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth(),
                     enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = 120)),
                     exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = 120))
                 ) {
@@ -1935,22 +1986,28 @@ fun ThreadViewerScreen(
                     }
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .graphicsLayer {
-                                // Position menu right above footer (same as attach menu)
-                                // Footer height = buttonHeight + 24.dp padding
-                                translationY = -with(density) { (buttonHeight + 24.dp).toPx() } + messageBarSlideOffsetPx.value
-                            }
+                            .fillMaxSize()
                             .navigationBarsPadding()
                             .imePadding()
-                            .zIndex(5f) // Ensure it's above other content
+                            .zIndex(5f),
+                        contentAlignment = Alignment.BottomStart
                     ) {
-                        net.vrkknn.andromuks.utils.MessageMenuBar(
-                            menuConfig = messageMenuConfig,
-                            onDismiss = { messageMenuConfig = null },
-                            buttonsAlpha = messageButtonsAlpha.value,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer {
+                                    // Position menu right above footer (same as attach menu)
+                                    // Footer height = buttonHeight + 24.dp padding
+                                    translationY = -with(density) { (buttonHeight + 24.dp).toPx() } + messageBarSlideOffsetPx.value
+                                }
+                        ) {
+                            net.vrkknn.andromuks.utils.MessageMenuBar(
+                                menuConfig = messageMenuConfig,
+                                onDismiss = { messageMenuConfig = null },
+                                buttonsAlpha = messageButtonsAlpha.value,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                     }
                 }
 
@@ -2621,61 +2678,3 @@ fun ThreadViewerScreen(
         }
     }
 }
-
-@Composable
-fun ThreadHeader(
-    roomName: String,
-    threadRootEvent: TimelineEvent?,
-    homeserverUrl: String,
-    authToken: String,
-    userProfileCache: Map<String, MemberProfile>,
-    onBackClick: () -> Unit = {}
-) {
-    Surface(
-        modifier =
-            Modifier.fillMaxWidth()
-                .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
-        color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-        ) {
-            // Top row with room name (no back button - use system back gesture/key)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Thread in $roomName",
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    
-                    // Show thread root preview
-                    if (threadRootEvent != null) {
-                        val senderProfile = userProfileCache[threadRootEvent.sender]
-                        val senderName = senderProfile?.displayName ?: threadRootEvent.sender
-                        val body = when {
-                            threadRootEvent.type == "m.room.message" -> 
-                                threadRootEvent.content?.optString("body", "")
-                            threadRootEvent.type == "m.room.encrypted" && threadRootEvent.decryptedType == "m.room.message" -> 
-                                threadRootEvent.decrypted?.optString("body", "")
-                            else -> ""
-                        } ?: ""
-                        
-                        Text(
-                            text = "$senderName: ${body.take(50)}${if (body.length > 50) "..." else ""}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-

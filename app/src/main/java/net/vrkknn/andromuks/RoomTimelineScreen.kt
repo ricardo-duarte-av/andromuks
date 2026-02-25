@@ -57,6 +57,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Image
@@ -2631,6 +2632,19 @@ fun RoomTimelineScreen(
                             // Navigate to room info screen
                             navController.navigate("room_info/$roomId")
                         },
+                        onBackClick = {
+                            // Match main back-handling behavior: prefer popping to room_list
+                            val popped = navController.popBackStack("room_list", inclusive = false)
+                            if (!popped) {
+                                navController.navigate("room_list") {
+                                    popUpTo(navController.graph.startDestinationId) {
+                                        inclusive = false
+                                        saveState = false
+                                    }
+                                    restoreState = false
+                                }
+                            }
+                        },
                         onCallClick = {
                             navController.navigate("element_call/$roomId")
                         },
@@ -2751,10 +2765,10 @@ fun RoomTimelineScreen(
                             }
 
                             // PERFORMANCE: Use stable keys and pre-computed consecutive flags
-                            items(
+                            itemsIndexed(
                                 items = timelineItems,
-                                key = { item -> item.stableKey }
-                            ) { item ->
+                                key = { _, item -> item.stableKey }
+                            ) { index, item ->
                                 when (item) {
                                     is TimelineItem.DateDivider -> {
                                         DateDivider(item.date)
@@ -2767,6 +2781,12 @@ fun RoomTimelineScreen(
 
                                         // PERFORMANCE: Use pre-computed consecutive flag instead of index-based lookup
                                         val isConsecutive = item.isConsecutive
+
+                                        // Add a little extra spacing before non-consecutive messages
+                                        // (only when the previous timeline item is also an event).
+                                        val previousItem = if (index > 0) timelineItems[index - 1] else null
+                                        val addTopSpacing =
+                                            previousItem is TimelineItem.Event && !isConsecutive
 
                                         val threadInfo = event.getThreadInfo()
                                         if (threadInfo != null) {
@@ -2799,19 +2819,24 @@ fun RoomTimelineScreen(
                                             )
                                         }
 
-                                        TimelineEventItem(
-                                            event = event,
-                                            timelineEvents = timelineEvents,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken,
-                                            userProfileCache = memberMapWithFallback,
-                                            isMine = isMine,
-                                            myUserId = myUserId,
-                                            isConsecutive = isConsecutive,
-                                            appViewModel = appViewModel,
-                                            sharedTransitionScope = sharedTransitionScope,  // ← ADD THIS
-                                            animatedVisibilityScope = animatedVisibilityScope,  // ← ADD THIS
-                                            onScrollToMessage = { eventId ->
+                                        Column {
+                                            if (addTopSpacing) {
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                            }
+
+                                            TimelineEventItem(
+                                                event = event,
+                                                timelineEvents = timelineEvents,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken,
+                                                userProfileCache = memberMapWithFallback,
+                                                isMine = isMine,
+                                                myUserId = myUserId,
+                                                isConsecutive = isConsecutive,
+                                                appViewModel = appViewModel,
+                                                sharedTransitionScope = sharedTransitionScope,  // ← ADD THIS
+                                                animatedVisibilityScope = animatedVisibilityScope,  // ← ADD THIS
+                                                onScrollToMessage = { eventId ->
                                                 // PERFORMANCE: Find the index in timelineItems instead of sortedEvents
                                                 val index = timelineItems.indexOfFirst { item ->
                                                     when (item) {
@@ -2834,21 +2859,21 @@ fun RoomTimelineScreen(
                                                         )
                                                         .show()
                                                 }
-                                            },
-                                            onReply = { event -> replyingToEvent = event },
-                                            onReact = { event ->
+                                                },
+                                                onReply = { event -> replyingToEvent = event },
+                                                onReact = { event ->
                                                 reactingToEvent = event
                                                 showEmojiSelection = true
-                                            },
-                                            onEdit = { event -> editingEvent = event },
-                                            onDelete = { event ->
+                                                },
+                                                onEdit = { event -> editingEvent = event },
+                                                onDelete = { event ->
                                                 deletingEvent = event
                                                 showDeleteDialog = true
-                                            },
-                                            onUserClick = { userId ->
+                                                },
+                                                onUserClick = { userId ->
                                                 navController.navigateToUserInfo(userId, roomId)
-                                            },
-                                            onRoomLinkClick = { roomLink ->
+                                                },
+                                                onRoomLinkClick = { roomLink ->
                                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room link clicked: ${roomLink.roomIdOrAlias}")
                                                 
                                                 // If it's a room ID, check if we're already joined
@@ -2877,8 +2902,8 @@ fun RoomTimelineScreen(
                                                     roomLinkToJoin = roomLink
                                                     showRoomJoiner = true
                                                 }
-                                            },
-                                            onThreadClick = { threadEvent ->
+                                                },
+                                                onThreadClick = { threadEvent ->
                                                 // Navigate to thread viewer
                                                 val threadInfo = threadEvent.getThreadInfo()
                                                 if (threadInfo != null) {
@@ -2887,17 +2912,18 @@ fun RoomTimelineScreen(
                                                     val encodedThreadRoot = java.net.URLEncoder.encode(threadInfo.threadRootEventId, "UTF-8")
                                                     navController.navigate("thread_viewer/$encodedRoomId/$encodedThreadRoot")
                                                 }
-                                            },
-                                            onCodeBlockClick = { code ->
+                                                },
+                                                onCodeBlockClick = { code ->
                                                 codeViewerContent = code
                                                 showCodeViewer = true
-                                            },
-                                            onShowMenu = { menuConfig ->
+                                                },
+                                                onShowMenu = { menuConfig ->
                                                 // Close attach menu if open
                                                 showAttachmentMenu = false
                                                 messageMenuConfig = menuConfig
-                                            }
-                                        )
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -4466,6 +4492,7 @@ fun RoomHeader(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
     onHeaderClick: () -> Unit = {},
+    onBackClick: () -> Unit = {},
     onCallClick: () -> Unit = {},
     onRefreshClick: () -> Unit = {}
 ) {
@@ -4481,9 +4508,20 @@ fun RoomHeader(
         color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Back button
+            IconButton(onClick = onBackClick) {
+                Icon(
+                    imageVector = Icons.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
             // Room avatar (clickable for room info)
             Box(
                 modifier = Modifier.clickable(onClick = onHeaderClick)

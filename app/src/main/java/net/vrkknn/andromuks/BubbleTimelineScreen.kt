@@ -2399,10 +2399,10 @@ fun BubbleTimelineScreen(
                             }
 
                             // PERFORMANCE: Use stable keys and pre-computed consecutive flags
-                            items(
+                            itemsIndexed(
                                 items = timelineItems,
-                                key = { item -> item.stableKey }
-                            ) { item ->
+                                key = { _, item -> item.stableKey }
+                            ) { index, item ->
                                 when (item) {
                                     is BubbleTimelineItem.DateDivider -> {
                                         BubbleDateDivider(item.date)
@@ -2415,17 +2415,28 @@ fun BubbleTimelineScreen(
                                         // PERFORMANCE: Use pre-computed consecutive flag instead of index-based lookup
                                         val isConsecutive = item.isConsecutive
 
-                                        TimelineEventItem(
-                                            event = event,
-                                            timelineEvents = timelineEvents,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken,
-                                            userProfileCache = memberMap,
-                                            isMine = isMine,
-                                            myUserId = myUserId,
-                                            isConsecutive = isConsecutive,
-                                            appViewModel = appViewModel,
-                                            onScrollToMessage = { eventId ->
+                                        // Add a little extra spacing before non-consecutive messages
+                                        // (only when the previous timeline item is also an event).
+                                        val previousItem = if (index > 0) timelineItems[index - 1] else null
+                                        val addTopSpacing =
+                                            previousItem is BubbleTimelineItem.Event && !isConsecutive
+
+                                        Column {
+                                            if (addTopSpacing) {
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                            }
+
+                                            TimelineEventItem(
+                                                event = event,
+                                                timelineEvents = timelineEvents,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken,
+                                                userProfileCache = memberMap,
+                                                isMine = isMine,
+                                                myUserId = myUserId,
+                                                isConsecutive = isConsecutive,
+                                                appViewModel = appViewModel,
+                                                onScrollToMessage = { eventId ->
                                                 // PERFORMANCE: Find the index in timelineItems instead of sortedEvents
                                                 val index = timelineItems.indexOfFirst { item ->
                                                     when (item) {
@@ -2518,7 +2529,8 @@ fun BubbleTimelineScreen(
                                                 showAttachmentMenu = false
                                                 messageMenuConfig = menuConfig
                                             }
-                                        )
+                                            )
+                                        }
                                     }
                                 }
                             }
