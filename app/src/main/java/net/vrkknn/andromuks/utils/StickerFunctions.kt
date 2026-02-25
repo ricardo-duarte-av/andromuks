@@ -145,37 +145,6 @@ fun extractStickerFromEvent(event: TimelineEvent): StickerMessage? {
 }
 
 /**
- * Format timestamp for sticker messages
- */
-private fun formatStickerTimestamp(timestamp: Long): String {
-    val date = java.util.Date(timestamp)
-    val formatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-    return formatter.format(date)
-}
-
-/**
- * Displays timestamp inside sticker bubble (for consecutive messages)
- */
-@Composable
-private fun StickerBubbleTimestamp(
-    timestamp: Long,
-    isMine: Boolean,
-    isConsecutive: Boolean
-) {
-    if (isConsecutive) {
-        Text(
-            text = formatStickerTimestamp(timestamp),
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-            fontStyle = FontStyle.Italic,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-            modifier = Modifier
-                .wrapContentWidth(if (isMine) Alignment.End else Alignment.Start)
-                .padding(top = 2.dp) // Minimal top padding, no horizontal padding (already in Column)
-        )
-    }
-}
-
-/**
  * Displays a sticker message in a Material3 bubble with proper aspect ratio and styling.
  * 
  * This function renders sticker content with proper aspect ratio constraints based on the
@@ -311,14 +280,8 @@ fun StickerMessage(
                     }
                 )
                 
-                // Timestamp (for consecutive messages) - matches MediaBubbleTimestamp pattern
-                if (timestamp != null) {
-                    StickerBubbleTimestamp(
-                        timestamp = timestamp,
-                        isMine = isMine,
-                        isConsecutive = isConsecutive
-                    )
-                }
+                // Timestamp is rendered outside the bubble (in the avatar column) for both consecutive and non-consecutive messages
+                // No need to show it inside the bubble
             }
         }
     }
