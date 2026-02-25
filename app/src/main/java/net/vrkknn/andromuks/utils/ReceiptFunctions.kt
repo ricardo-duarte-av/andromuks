@@ -874,29 +874,36 @@ fun ReadReceiptDetailsDialog(
             dismissOnClickOutside = true
         )
     ) {
-        AnimatedVisibility(
-            visible = isVisible,
-            enter = fadeIn(animationSpec = tween(durationMillis = enterDuration, easing = FastOutSlowInEasing)) +
-                scaleIn(
-                    initialScale = 0.85f,
-                    animationSpec = tween(durationMillis = enterDuration, easing = FastOutSlowInEasing),
-                    transformOrigin = TransformOrigin.Center
-                ),
-            exit = fadeOut(animationSpec = tween(durationMillis = exitDuration, easing = FastOutSlowInEasing)) +
-                scaleOut(
-                    targetScale = 0.85f,
-                    animationSpec = tween(durationMillis = exitDuration, easing = FastOutSlowInEasing),
-                    transformOrigin = TransformOrigin.Center
-                )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(enabled = true) { dismissWithAnimation() },
+            contentAlignment = Alignment.Center
         ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 8.dp  // Use tonalElevation for dark mode visibility
+            AnimatedVisibility(
+                visible = isVisible,
+                enter = fadeIn(animationSpec = tween(durationMillis = enterDuration, easing = FastOutSlowInEasing)) +
+                    scaleIn(
+                        initialScale = 0.85f,
+                        animationSpec = tween(durationMillis = enterDuration, easing = FastOutSlowInEasing),
+                        transformOrigin = TransformOrigin.Center
+                    ),
+                exit = fadeOut(animationSpec = tween(durationMillis = exitDuration, easing = FastOutSlowInEasing)) +
+                    scaleOut(
+                        targetScale = 0.85f,
+                        animationSpec = tween(durationMillis = exitDuration, easing = FastOutSlowInEasing),
+                        transformOrigin = TransformOrigin.Center
+                    )
             ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                        .clickable { }, // Consume clicks on content to prevent dismissal
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 8.dp  // Use tonalElevation for dark mode visibility
+                ) {
                 Column(
                     modifier = Modifier.padding(16.dp)
                 ) {
@@ -935,6 +942,7 @@ fun ReadReceiptDetailsDialog(
                     }
                 }
             }
+        }
         }
     }
 }
