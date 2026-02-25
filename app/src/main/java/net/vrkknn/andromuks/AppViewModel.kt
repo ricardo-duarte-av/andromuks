@@ -546,6 +546,9 @@ class AppViewModel : ViewModel() {
         private set
     var renderThumbnailsAlways by mutableStateOf(true)
         private set
+    // Room list bottom bar layout: false = compact (4 tabs), true = full (6 tabs: +Favs, +Bridges)
+    var showAllRoomListTabs by mutableStateOf(false)
+        private set
     var elementCallBaseUrl by mutableStateOf("")
         private set
 
@@ -16186,6 +16189,21 @@ class AppViewModel : ViewModel() {
         }
     }
 
+    fun toggleShowAllRoomListTabs() {
+        showAllRoomListTabs = !showAllRoomListTabs
+
+        appContext?.let { context ->
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("show_all_room_list_tabs", showAllRoomListTabs)
+                .apply()
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Saved showAllRoomListTabs setting: $showAllRoomListTabs"
+            )
+        }
+    }
+
     fun updateElementCallBaseUrl(url: String) {
         elementCallBaseUrl = url.trim()
         appContext?.let { context ->
@@ -16259,6 +16277,8 @@ class AppViewModel : ViewModel() {
             enterKeySendsMessage = prefs.getBoolean("enter_key_sends_message", true) // Default to true (Enter sends, Shift+Enter newline)
             loadThumbnailsIfAvailable = prefs.getBoolean("load_thumbnails_if_available", true) // Default to true
             renderThumbnailsAlways = prefs.getBoolean("render_thumbnails_always", true) // Default to true
+            // Room list bottom bar: default to compact 4-tab layout
+            showAllRoomListTabs = prefs.getBoolean("show_all_room_list_tabs", false) // Default to false (4 tabs)
             elementCallBaseUrl = prefs.getString("element_call_base_url", "") ?: ""
 
             // Background purge settings
@@ -16274,6 +16294,7 @@ class AppViewModel : ViewModel() {
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded enterKeySendsMessage setting: $enterKeySendsMessage")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded loadThumbnailsIfAvailable setting: $loadThumbnailsIfAvailable")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded renderThumbnailsAlways setting: $renderThumbnailsAlways")
+                android.util.Log.d("Andromuks", "AppViewModel: Loaded showAllRoomListTabs setting: $showAllRoomListTabs")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded elementCallBaseUrl setting: $elementCallBaseUrl")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded backgroundPurgeIntervalMinutes=$backgroundPurgeIntervalMinutes, backgroundPurgeMessageThreshold=$backgroundPurgeMessageThreshold")
             }

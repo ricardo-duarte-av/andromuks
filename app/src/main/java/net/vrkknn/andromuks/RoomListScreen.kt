@@ -2269,6 +2269,8 @@ fun TabBar(
     appViewModel: AppViewModel,
     isProcessingBatch: Boolean = false
 ) {
+    val showAllRoomListTabs = appViewModel.showAllRoomListTabs
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
@@ -2324,28 +2326,30 @@ fun TabBar(
                 badgeCount = appViewModel.getUnreadCount(),
                 enabled = !isProcessingBatch
             )
-            
-            TabButton(
-                icon = Icons.Filled.Favorite,
-                label = "Favs",
-                isSelected = currentSection.type == RoomSectionType.FAVOURITES,
-                onClick = {
-                    onSectionSelected(RoomSectionType.FAVOURITES)
-                },
-                badgeCount = appViewModel.getFavouritesUnreadCount(),
-                hasHighlights = appViewModel.hasFavouritesHighlights(),
-                enabled = !isProcessingBatch
-            )
-            
-            TabButton(
-                icon = Icons.Filled.Link,
-                label = "Bridges",
-                isSelected = currentSection.type == RoomSectionType.BRIDGES,
-                onClick = {
-                    onSectionSelected(RoomSectionType.BRIDGES)
-                },
-                enabled = !isProcessingBatch
-            )
+
+            if (showAllRoomListTabs) {
+                TabButton(
+                    icon = Icons.Filled.Favorite,
+                    label = "Favs",
+                    isSelected = currentSection.type == RoomSectionType.FAVOURITES,
+                    onClick = {
+                        onSectionSelected(RoomSectionType.FAVOURITES)
+                    },
+                    badgeCount = appViewModel.getFavouritesUnreadCount(),
+                    hasHighlights = appViewModel.hasFavouritesHighlights(),
+                    enabled = !isProcessingBatch
+                )
+
+                TabButton(
+                    icon = Icons.Filled.Link,
+                    label = "Bridges",
+                    isSelected = currentSection.type == RoomSectionType.BRIDGES,
+                    onClick = {
+                        onSectionSelected(RoomSectionType.BRIDGES)
+                    },
+                    enabled = !isProcessingBatch
+                )
+            }
             
         }
     }

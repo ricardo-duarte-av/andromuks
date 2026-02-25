@@ -130,7 +130,48 @@ fun SettingsScreen(
                     )
                 }
             }
-            
+
+            // ── Room List Section ─────────────────────────────────────────────
+            Text(
+                text = "Room List",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+
+            // Room list bottom bar layout (4 vs 6 tabs)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "Show all room list tabs",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Enable the full 6-button bottom bar (adds Favourites and Bridges tabs). When disabled, a compact 4-button bar is used.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Switch(
+                        checked = appViewModel.showAllRoomListTabs,
+                        onCheckedChange = { appViewModel.toggleShowAllRoomListTabs() }
+                    )
+                }
+            }
+
             // Compression Setting
             Card(
                 modifier = Modifier.fillMaxWidth(),
