@@ -22,7 +22,9 @@ data class BubbleColors(
     val accent: Color,
     val stripe: Color,
     // NEW: Optional accent border color for mentions (Google Messages style)
-    val mentionBorder: Color? = null
+    val mentionBorder: Color? = null,
+    // NEW: Optional accent border color for thread messages (subtle indicator)
+    val threadBorder: Color? = null
 )
 
 object BubblePalette {
@@ -46,34 +48,56 @@ object BubblePalette {
         hasSpoiler: Boolean = false,
         isRedacted: Boolean = false
     ): BubbleColors {
-        // Redacted messages: Use error colors directly
+        // Redacted messages: Use normal colors (not error colors - deletion is not an error)
+        // The deletion message text itself indicates the message was removed
         if (isRedacted) {
-            val accent = colorScheme.error
+            // Use normal bubble colors (same as non-redacted messages)
+            val myContainer = colorScheme.primaryContainer
+            val myContent = colorScheme.onPrimaryContainer
+            val othersBaseContainer = colorScheme.surfaceContainerHighest
+            val othersContainer = lerp(othersBaseContainer, colorScheme.secondaryContainer, 0.25f)
+            val othersContent = colorScheme.onSurface
+            
+            val container = if (isMine) myContainer else othersContainer
+            val content = if (isMine) myContent else othersContent
+            val accent = if (isMine) colorScheme.primary else colorScheme.secondary
+            val stripe = accent.copy(alpha = 0.85f)
+            
             return BubbleColors(
-                container = colorScheme.errorContainer,
-                content = colorScheme.onErrorContainer,
+                container = container,
+                content = content,
                 accent = accent,
-                stripe = accent,
-                mentionBorder = null
+                stripe = stripe,
+                mentionBorder = null,
+                threadBorder = null
             )
         }
 
-        // Thread messages: Use tertiary with refined blending
+        // Thread messages: Use normal colors with subtle border indicator
+        // This is less prominent than changing the entire bubble color
         if (isThreadMessage) {
-            val accent = colorScheme.tertiary
-            // For others' thread messages, use a subtle blend for better contrast
-            val container = if (isMine) {
-                colorScheme.tertiaryContainer
-            } else {
-                // Very subtle blend: 15% toward surface (reduced from 25%)
-                lerp(colorScheme.tertiaryContainer, colorScheme.surfaceContainerHigh, 0.15f)
-            }
+            // Use normal bubble colors (same as non-thread messages)
+            val myContainer = colorScheme.primaryContainer
+            val myContent = colorScheme.onPrimaryContainer
+            val othersBaseContainer = colorScheme.surfaceContainerHighest
+            val othersContainer = lerp(othersBaseContainer, colorScheme.secondaryContainer, 0.25f)
+            val othersContent = colorScheme.onSurface
+            
+            val container = if (isMine) myContainer else othersContainer
+            val content = if (isMine) myContent else othersContent
+            val accent = if (isMine) colorScheme.primary else colorScheme.secondary
+            val stripe = accent.copy(alpha = 0.85f)
+            
+            // Add subtle thread border using outlineVariant (neutral, won't conflict with mention colors)
+            val threadBorder = colorScheme.outlineVariant.copy(alpha = 0.6f) // Subtle neutral border
+            
             return BubbleColors(
                 container = container,
-                content = colorScheme.onTertiaryContainer,
+                content = content,
                 accent = accent,
-                stripe = accent.copy(alpha = 0.9f),
-                mentionBorder = null
+                stripe = stripe,
+                mentionBorder = null,
+                threadBorder = threadBorder
             )
         }
 
@@ -92,7 +116,8 @@ object BubblePalette {
                 content = colorScheme.onSurface,
                 accent = accent,
                 stripe = accent,
-                mentionBorder = null
+                mentionBorder = null,
+                threadBorder = null
             )
         }
 
@@ -144,7 +169,8 @@ object BubblePalette {
             content = content,
             accent = accent,
             stripe = stripe,
-            mentionBorder = mentionBorder
+            mentionBorder = mentionBorder,
+            threadBorder = null
         )
     }
 

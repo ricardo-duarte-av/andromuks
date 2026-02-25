@@ -48,6 +48,7 @@ import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.MediaMessage
 import net.vrkknn.andromuks.MediaInfo
+import net.vrkknn.andromuks.utils.BubblePalette
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.ImageViewerDialog
 import java.io.File
@@ -256,11 +257,14 @@ fun StickerMessage(
     // Check if this is a thread message to apply thread colors
     val isThreadMessage = event?.isThreadMessage() ?: false
     val colorScheme = MaterialTheme.colorScheme
-    val stickerBubbleColor = stickerBubbleColorFor(
-        colorScheme = colorScheme,
-        isMine = isMine,
-        isThreadMessage = isThreadMessage
-    )
+    val stickerBubbleColors = remember(colorScheme, isMine, isThreadMessage) {
+        BubblePalette.colors(
+            colorScheme = colorScheme,
+            isMine = isMine,
+            isThreadMessage = isThreadMessage
+        )
+    }
+    val stickerBubbleColor = stickerBubbleColors.container
     
     // Stickers are displayed without a caption bubble, just the image
     // Match image rendering pattern exactly
@@ -289,7 +293,9 @@ fun StickerMessage(
             onDelete = onDelete,
             appViewModel = appViewModel,
             onBubbleClick = onBubbleClick,
-            externalMenuTrigger = triggerMenuFromSticker
+            externalMenuTrigger = triggerMenuFromSticker,
+            mentionBorder = stickerBubbleColors.mentionBorder,
+            threadBorder = stickerBubbleColors.threadBorder
         ) {
             Column {
                 // Sticker content (similar to MediaContent for images)

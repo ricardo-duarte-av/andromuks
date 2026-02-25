@@ -773,6 +773,7 @@ fun MessageBubbleWithMenu(
     onShowEditHistory: (() -> Unit)? = null,
     externalMenuTrigger: Int = 0, // External trigger to show menu (increment to trigger)
     mentionBorder: androidx.compose.ui.graphics.Color? = null, // Optional accent border for mentions (Google Messages style)
+    threadBorder: androidx.compose.ui.graphics.Color? = null, // Optional accent border for thread messages
     onShowMenu: ((MessageMenuConfig) -> Unit)? = null, // Callback to show menu at screen level
     content: @Composable RowScope.() -> Unit
 ) {
@@ -925,7 +926,7 @@ fun MessageBubbleWithMenu(
         }
     
     // Google Messages style: Mention border (accent border for mentions)
-    // Mention border takes precedence over highlight border
+    // Mention border takes precedence over thread border and highlight border
     val mentionBorderStroke = mentionBorder?.let {
         BorderStroke(
             width = 2.dp,
@@ -933,7 +934,16 @@ fun MessageBubbleWithMenu(
         )
     }
     
-    // Use mention border if present, otherwise use highlight border
+    // Thread border: Subtle border indicator for thread messages
+    // Thread border takes precedence over highlight border but not mention border
+    val threadBorderStroke = threadBorder?.let {
+        BorderStroke(
+            width = 2.dp,
+            color = it
+        )
+    }
+    
+    // Use mention border if present, otherwise thread border, otherwise highlight border
     val activeMenuEventId = LocalActiveMessageMenuEventId.current
     val isMenuActiveForThisBubble = activeMenuEventId == event.eventId
     val menuPulseAnim = remember(event.eventId) { Animatable(0f) }
@@ -964,7 +974,7 @@ fun MessageBubbleWithMenu(
         null
     }
 
-    val combinedBorder = menuPulseBorder ?: mentionBorderStroke ?: highlightBorder
+    val combinedBorder = menuPulseBorder ?: mentionBorderStroke ?: threadBorderStroke ?: highlightBorder
     
     // Adjust bubble color based on local echo state
     val bubbleColorAdjusted = when {

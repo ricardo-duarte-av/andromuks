@@ -465,12 +465,15 @@ fun MediaMessage(
         event?.let { appViewModel?.isMessageEdited(it.eventId) ?: false } ?: false
     }
     val colorScheme = MaterialTheme.colorScheme
-    val mediaBubbleColor = bubbleColorOverride ?: mediaBubbleColorFor(
-        colorScheme = colorScheme,
-        isMine = isMine,
-        isThreadMessage = isThreadMessage,
-        hasBeenEdited = hasBeenEdited
-    )
+    val mediaBubbleColors = remember(colorScheme, isMine, isThreadMessage, hasBeenEdited) {
+        BubblePalette.colors(
+            colorScheme = colorScheme,
+            isMine = isMine,
+            isEdited = hasBeenEdited,
+            isThreadMessage = isThreadMessage
+        )
+    }
+    val mediaBubbleColor = bubbleColorOverride ?: mediaBubbleColors.container
     
     // Calculate maximum width based on actual image/thumbnail dimensions
     // This prevents images from being stretched beyond their natural size
@@ -516,6 +519,8 @@ fun MediaMessage(
                 onBubbleClick = onBubbleClick,
                 onShowEditHistory = onShowEditHistory,
                 externalMenuTrigger = triggerMenuFromImage,
+                mentionBorder = mediaBubbleColors.mentionBorder,
+                threadBorder = mediaBubbleColors.threadBorder,
                 onShowMenu = onShowMenu
             ) {
                 Column {
@@ -678,6 +683,8 @@ fun MediaMessage(
                 onBubbleClick = onBubbleClick,
                 onShowEditHistory = onShowEditHistory,
                 externalMenuTrigger = triggerMenuFromImage,
+                mentionBorder = mediaBubbleColors.mentionBorder,
+                threadBorder = mediaBubbleColors.threadBorder,
                 onShowMenu = onShowMenu
             ) {
                 Column {

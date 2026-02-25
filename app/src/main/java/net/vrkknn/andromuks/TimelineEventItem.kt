@@ -918,7 +918,8 @@ private fun RoomMessageContent(
                     onBubbleClick = { onThreadClick(event) },
                     onShowEditHistory = null,
                 onShowMenu = onShowMenu,
-                    mentionBorder = deletionColors.mentionBorder
+                    mentionBorder = deletionColors.mentionBorder,
+                threadBorder = deletionColors.threadBorder
                 ) {
                     Text(
                         text = deletionMessage,
@@ -1127,7 +1128,8 @@ private fun RoomMediaMessageContent(
                 onBubbleClick = { onThreadClick(event) },
                 onShowEditHistory = null,
                 onShowMenu = onShowMenu,
-                mentionBorder = deletionColors.mentionBorder
+                mentionBorder = deletionColors.mentionBorder,
+                threadBorder = deletionColors.threadBorder
             ) {
                 Text(
                     text = deletionMessage,
@@ -1415,6 +1417,8 @@ private fun RoomTextMessageContent(
     // Check if this is a thread message
     val isThreadMessage = event.isThreadMessage()
     
+    // Check if message is redacted
+    val isRedacted = event.redactedBy != null
     
     val containsSpoiler = event.containsSpoilerContent()
     val colorScheme = MaterialTheme.colorScheme
@@ -1424,7 +1428,8 @@ private fun RoomTextMessageContent(
         hasBeenEdited,
         mentionsMe,
         isThreadMessage,
-        containsSpoiler
+        containsSpoiler,
+        isRedacted
     ) {
         BubblePalette.colors(
             colorScheme = colorScheme,
@@ -1432,7 +1437,8 @@ private fun RoomTextMessageContent(
             isEdited = hasBeenEdited,
             mentionsMe = mentionsMe,
             isThreadMessage = isThreadMessage,
-            hasSpoiler = containsSpoiler
+            hasSpoiler = containsSpoiler,
+            isRedacted = isRedacted
         )
     }
     val bubbleColor = bubbleColors.container
@@ -1483,6 +1489,7 @@ private fun RoomTextMessageContent(
                 },
                 onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null,
                 mentionBorder = bubbleColors.mentionBorder,
+                threadBorder = bubbleColors.threadBorder,
                 onShowMenu = onShowMenu
             ) {
                 Column(
@@ -1612,6 +1619,7 @@ private fun RoomTextMessageContent(
                 },
                 onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null,
                 mentionBorder = bubbleColors.mentionBorder,
+                threadBorder = bubbleColors.threadBorder,
                 onShowMenu = onShowMenu
             ) {
                 Box(
@@ -2068,7 +2076,8 @@ private fun EncryptedMessageContent(
                     onBubbleClick = { onThreadClick(event) },
                     onShowEditHistory = null,
                 onShowMenu = onShowMenu,
-                    mentionBorder = deletionColors.mentionBorder
+                    mentionBorder = deletionColors.mentionBorder,
+                threadBorder = deletionColors.threadBorder
                 ) {
                     Text(
                         text = deletionMessage,
@@ -2340,6 +2349,7 @@ private fun EncryptedMessageContent(
                         appViewModel = appViewModel,
                         onBubbleClick = null,
                         mentionBorder = fallbackColors.mentionBorder,
+                        threadBorder = fallbackColors.threadBorder,
                         onShowMenu = onShowMenu
                     ) {
                         Text(
@@ -2825,7 +2835,8 @@ private fun StickerMessageContent(
                 onBubbleClick = { onThreadClick(event) },
                 onShowEditHistory = null,
                 onShowMenu = onShowMenu,
-                mentionBorder = deletionColors.mentionBorder
+                mentionBorder = deletionColors.mentionBorder,
+                threadBorder = deletionColors.threadBorder
             ) {
                 Text(
                     text = deletionMessage,
