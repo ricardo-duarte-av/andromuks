@@ -3216,6 +3216,9 @@ fun BubbleTimelineScreen(
                 // Floating action button to scroll to bottom (only shown when detached)
                 // Keep this in the Box so it can overlay the content
                 if (!isAttachedToBottom) {
+                    // Push FAB up when attach menu or message menu is open
+                    val menuOpen = showAttachmentMenu || messageMenuConfig != null
+                    val fabBottomPadding = if (menuOpen) 170.dp else 60.dp // Higher when menu is open to avoid clipping
                     FloatingActionButton(
                         onClick = {
                             coroutineScope.launch {
@@ -3232,7 +3235,7 @@ fun BubbleTimelineScreen(
                             Modifier.align(Alignment.BottomEnd)
                                 .padding(
                                     end = 16.dp,
-                                    bottom = 60.dp // Closer to text input
+                                    bottom = fabBottomPadding
                                 )
                                 .navigationBarsPadding(),
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
