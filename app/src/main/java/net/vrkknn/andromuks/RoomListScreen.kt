@@ -162,6 +162,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.FlowPreview
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
+import net.vrkknn.andromuks.utils.ImageLoaderSingleton
+import coil.request.ImageRequest
+import coil.request.CachePolicy
 
 private const val ROOM_LIST_VERBOSE_LOGGING = false
 private fun usernameFromMatrixId(userId: String): String =
@@ -448,6 +451,67 @@ fun RoomListScreen(
             //    }
             //}
         }
+    }
+    
+    // PERFORMANCE: Preemptively load the first 100 room avatars into memory cache
+    // This makes scrolling faster since avatars are already loaded when they come into view
+    var avatarsPreloaded by remember { mutableStateOf(false) }
+    LaunchedEffect(initialLoadComplete, displayedSection.rooms.size, displayedSection.type) {
+        // Only preload once per section when room list is ready and has rooms
+        if (!initialLoadComplete || avatarsPreloaded || displayedSection.rooms.isEmpty()) return@LaunchedEffect
+        
+        // Preload avatars in background to avoid blocking UI
+        withContext(Dispatchers.IO) {
+            val imageLoader = ImageLoaderSingleton.get(context)
+            val roomsToPreload = displayedSection.rooms.take(100)
+            
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "RoomListScreen: Preloading ${roomsToPreload.size} avatars for faster scrolling")
+            }
+            
+            // Preload avatars for the first 100 rooms
+            roomsToPreload.forEach { room ->
+                if (room.avatarUrl != null) {
+                    try {
+                        // Get avatar URL (same logic as AvatarImage component)
+                        val avatarHttpUrl = AvatarUtils.mxcToHttpUrl(
+                            room.avatarUrl,
+                            appViewModel.homeserverUrl
+                        )
+                        
+                        if (avatarHttpUrl != null) {
+                            // Create ImageRequest and enqueue it to preload into memory cache
+                            val request = ImageRequest.Builder(context)
+                                .data(avatarHttpUrl)
+                                .size(256) // Same size as used in AvatarImage for room list
+                                .addHeader("Cookie", "gomuks_auth=$authToken")
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .build()
+                            
+                            // Enqueue the request to preload into memory cache
+                            // This doesn't block and loads images into Coil's memory cache
+                            imageLoader.enqueue(request)
+                        }
+                    } catch (e: Exception) {
+                        // Silently ignore errors - preloading is best-effort
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d("Andromuks", "RoomListScreen: Failed to preload avatar for room ${room.id}: ${e.message}")
+                        }
+                    }
+                }
+            }
+            
+            avatarsPreloaded = true
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "RoomListScreen: Finished preloading ${roomsToPreload.size} avatars")
+            }
+        }
+    }
+    
+    // Reset preload flag when section type changes (switching tabs)
+    LaunchedEffect(displayedSection.type) {
+        avatarsPreloaded = false
     }
 
     // ──────────────────────────────────────────────────────────────────────────
