@@ -11,6 +11,7 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.BitmapDrawable
 import android.util.Log
+import android.os.Build
 import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
@@ -113,12 +114,12 @@ object CircleAvatarCache {
     
     /**
      * Create a square thumbnail from a bitmap (center-cropped and scaled).
-     * 
+     *
      * OPTIMIZED: Crop to square first, then scale down to target size.
      * This processes fewer pixels than scaling first then cropping.
-     * We save as JPEG (no transparency) which is smaller and faster than PNG.
+     * We save as WebP with alpha support (smaller than PNG, preserves transparency).
      * The UI will use GPU clipping (CircleShape) which is much cheaper.
-     * 
+     *
      * @param source Original bitmap
      * @param size Target size for the square thumbnail
      * @return Square bitmap
@@ -155,10 +156,10 @@ object CircleAvatarCache {
     
     /**
      * Cache a square avatar thumbnail from a source image URL.
-     * 
-     * Saves as JPEG (no transparency) which is smaller and faster than PNG.
+     *
+     * Saves as WebP (supports transparency, smaller than PNG).
      * The UI uses GPU clipping (CircleShape) which is much cheaper than CPU processing.
-     * 
+     *
      * @param context Android context
      * @param mxcUrl MXC URL for the avatar
      * @param sourceImageUrl Source image URL (HTTP URL or file path)
@@ -212,11 +213,16 @@ object CircleAvatarCache {
                     // Create square thumbnail (center-cropped and scaled)
                     // Note: Since we requested TARGET_SIZE in Coil, sourceBitmap might already be close to size
                     val squareBitmap = createSquareThumbnail(sourceBitmap, TARGET_SIZE)
-                    
-                    // Save to cache as JPEG (smaller, faster than PNG with transparency)
-                    // UI uses GPU clipping (CircleShape) so we don't need transparency
+
+                    // Save to cache as WebP with alpha support (smaller than PNG, preserves transparency)
                     FileOutputStream(cacheFile).use { out ->
-                        squareBitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
+                        // Prefer lossless WebP when available, fall back to standard WebP otherwise
+                        val format = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            Bitmap.CompressFormat.WEBP_LOSSLESS
+                        } else {
+                            Bitmap.CompressFormat.WEBP
+                        }
+                        squareBitmap.compress(format, 90, out)
                     }
                     
                     // Clean up square bitmap if we created a new one
