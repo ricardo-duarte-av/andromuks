@@ -1734,7 +1734,7 @@ fun ThreadViewerScreen(
                                                 } else {
                                                     "Waiting for connection..."
                                                 },
-                                                style = MaterialTheme.typography.labelSmall,
+                                                style = MaterialTheme.typography.bodySmall,
                                                 fontStyle = FontStyle.Italic,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -1742,7 +1742,7 @@ fun ThreadViewerScreen(
                                         modifier = Modifier.fillMaxWidth(),
                                         minLines = 1,
                                         maxLines = 5,
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
                                         onHeightChanged = { height ->
                                             val lineCount = draft.lines().size.coerceAtLeast(1)
                                             if (lineCount == 1 && (textFieldHeight == 0 || height < textFieldHeight)) {
@@ -1751,13 +1751,13 @@ fun ThreadViewerScreen(
                                         },
                                         trailingIcon = {
                                             Row(
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 IconButton(
                                                     enabled = isInputEnabled,
                                                     onClick = { if (isInputEnabled) showStickerPickerForText = true },
-                                                    modifier = Modifier.size(24.dp)
+                                                    modifier = Modifier.size(32.dp)
                                                 ) {
                                                     @Suppress("DEPRECATION")
                                                     Icon(
@@ -1769,7 +1769,7 @@ fun ThreadViewerScreen(
                                                 IconButton(
                                                     enabled = isInputEnabled,
                                                     onClick = { if (isInputEnabled) showEmojiPickerForText = true },
-                                                    modifier = Modifier.size(24.dp)
+                                                    modifier = Modifier.size(32.dp)
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Filled.Mood,
