@@ -1121,7 +1121,8 @@ fun ThreadViewerScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
-                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
+                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(10.dp),
+                        shadowElevation = 12.dp
                     ) {
                         Row(
                             modifier = Modifier
