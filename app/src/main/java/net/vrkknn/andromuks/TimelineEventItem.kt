@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
@@ -42,6 +43,19 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -1395,7 +1409,9 @@ private fun RoomTextMessageContent(
     onThreadClick: (TimelineEvent) -> Unit,
     onShowEditHistory: (() -> Unit)? = null,
     onCodeBlockClick: (String) -> Unit = {},
-    onShowMenu: ((MessageMenuConfig) -> Unit)? = null
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
+    dragOffset: Float = 0f,
+    replyIconOpacity: Float = 0f
 ) {
     val bubbleShape =
         if (actualIsMine) {
@@ -1472,7 +1488,9 @@ private fun RoomTextMessageContent(
                 onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null,
                 mentionBorder = bubbleColors.mentionBorder,
                 threadBorder = bubbleColors.threadBorder,
-                onShowMenu = onShowMenu
+                onShowMenu = onShowMenu,
+                dragOffset = dragOffset,
+                replyIconOpacity = replyIconOpacity
             ) {
                 Column(
                     modifier = Modifier.padding(8.dp),
@@ -1602,7 +1620,9 @@ private fun RoomTextMessageContent(
                 onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null,
                 mentionBorder = bubbleColors.mentionBorder,
                 threadBorder = bubbleColors.threadBorder,
-                onShowMenu = onShowMenu
+                onShowMenu = onShowMenu,
+                dragOffset = dragOffset,
+                replyIconOpacity = replyIconOpacity
             ) {
                 Box(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
@@ -3292,12 +3312,95 @@ fun TimelineEventItem(
         }
     }
     
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.Top
-    ) {
+    // Swipe gesture state for entire message row
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val hapticFeedback = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
+    val swipeThreshold = with(density) { 100.dp.toPx() } // 100dp threshold for full reply icon
+    var dragOffsetPx by remember { mutableStateOf(0f) } // Use mutable state for immediate updates during drag
+    val dragOffsetAnimatable = remember { Animatable(0f) } // Use Animatable only for return animation
+    var shouldTriggerReply by remember { mutableStateOf(false) }
+    var isDragging by remember { mutableStateOf(false) }
+    
+    // Use dragOffsetPx during drag, dragOffsetAnimatable.value when animating back
+    val currentDragOffset = if (isDragging) dragOffsetPx else dragOffsetAnimatable.value
+    
+    // Calculate reply icon opacity (0f to 1f) based on drag distance
+    val replyIconOpacity = remember(currentDragOffset, swipeThreshold) {
+        val absDrag = kotlin.math.abs(currentDragOffset)
+        (absDrag / swipeThreshold).coerceIn(0f, 1f)
+    }
+    
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 2.dp)
+                .offset { IntOffset(x = currentDragOffset.toInt(), y = 0) }
+                .pointerInput(event.eventId) {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            shouldTriggerReply = false
+                            dragOffsetPx = 0f
+                            isDragging = true
+                            coroutineScope.launch {
+                                dragOffsetAnimatable.snapTo(0f)
+                            }
+                        },
+                        onDrag = { change, dragAmount ->
+                            // Accumulate drag amount for smooth following - update state directly for immediate response
+                            dragOffsetPx += dragAmount.x
+                            
+                            // Check if swipe threshold is reached for reply icon to be at 100%
+                            if (kotlin.math.abs(dragOffsetPx) >= swipeThreshold) {
+                                if (!shouldTriggerReply) {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    shouldTriggerReply = true
+                                }
+                            }
+                        },
+                        onDragEnd = {
+                            // Check if threshold was reached using dragOffsetPx directly (before isDragging is set to false)
+                            val reachedThreshold = kotlin.math.abs(dragOffsetPx) >= swipeThreshold
+                            
+                            isDragging = false
+                            
+                            // Only trigger reply if threshold was reached
+                            if (reachedThreshold) {
+                                onReply(event)
+                                if (BuildConfig.DEBUG) android.util.Log.d("TimelineEventItem", "Swipe gesture completed, triggering reply")
+                            }
+                            
+                            // Animate back to original position using Animatable
+                            coroutineScope.launch {
+                                dragOffsetAnimatable.snapTo(dragOffsetPx)
+                                dragOffsetAnimatable.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                                )
+                            }
+                            // Reset state for next gesture
+                            shouldTriggerReply = false
+                            dragOffsetPx = 0f
+                        },
+                        onDragCancel = {
+                            isDragging = false
+                            
+                            // Animate back to original position on cancel
+                            coroutineScope.launch {
+                                dragOffsetAnimatable.snapTo(dragOffsetPx)
+                                dragOffsetAnimatable.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                                )
+                            }
+                            shouldTriggerReply = false
+                            dragOffsetPx = 0f
+                        }
+                    )
+                },
+            verticalAlignment = Alignment.Top
+        ) {
         // Show avatar only for non-consecutive messages (and not for emotes, they have their own)
         if (!actualIsMine && !isConsecutive && !isEmoteMessage) {
             // For first messages, show avatar with timestamp below it
@@ -3542,6 +3645,26 @@ fun TimelineEventItem(
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = timestampModifier
+                )
+            }
+        }
+    }
+        
+        // Reply icon overlay that fades in during drag (appears on the side opposite to drag direction)
+        if (replyIconOpacity > 0f) {
+            // Icon appears on the left if dragging right, on the right if dragging left
+            val iconSide = if (currentDragOffset > 0f) Alignment.CenterStart else Alignment.CenterEnd
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                contentAlignment = iconSide
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Reply,
+                    contentDescription = "Reply",
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = replyIconOpacity),
+                    modifier = Modifier.size(32.dp)
                 )
             }
         }
