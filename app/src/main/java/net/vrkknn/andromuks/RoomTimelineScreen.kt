@@ -148,7 +148,6 @@ import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.runtime.key
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
-import net.vrkknn.andromuks.ui.components.BridgeBackgroundLayer
 import net.vrkknn.andromuks.ui.components.BridgeNetworkBadge
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
@@ -2703,13 +2702,6 @@ fun RoomTimelineScreen(
                                 }
                             )
                     ) {
-                        BridgeBackgroundLayer(
-                            bridgeInfo = currentRoomState?.bridgeInfo,
-                            homeserverUrl = homeserverUrl,
-                            authToken = authToken,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        
                         // CRITICAL FIX: Show "Room loading..." while room is being loaded/processed
                         // This ensures the UI doesn't show incomplete state when navigating to a room
                         // Show loading when: isLoading is true OR timeline is empty and we're waiting for initial load

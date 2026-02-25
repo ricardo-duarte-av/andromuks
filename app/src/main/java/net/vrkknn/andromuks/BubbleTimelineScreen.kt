@@ -138,7 +138,6 @@ import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.LocalScrollHighlightState
 import net.vrkknn.andromuks.ScrollHighlightState
 import net.vrkknn.andromuks.ui.components.AvatarImage
-import net.vrkknn.andromuks.ui.components.BridgeBackgroundLayer
 import net.vrkknn.andromuks.ui.components.BridgeNetworkBadge
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
@@ -2342,13 +2341,6 @@ fun BubbleTimelineScreen(
                                 }
                             )
                     ) {
-                        BridgeBackgroundLayer(
-                            bridgeInfo = appViewModel.currentRoomState?.bridgeInfo,
-                            homeserverUrl = homeserverUrl,
-                            authToken = authToken,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        
                         if (!readinessCheckComplete || isLoading) {
                             Box(
                                 modifier = Modifier.fillMaxSize(),
