@@ -556,6 +556,12 @@ fun ThreadViewerScreen(
     
     // Message menu state (for bottom menu bar)
     var messageMenuConfig by remember { mutableStateOf<MessageMenuConfig?>(null) }
+    var retainedMessageMenuConfig by remember { mutableStateOf<MessageMenuConfig?>(null) }
+    LaunchedEffect(messageMenuConfig) {
+        if (messageMenuConfig != null) {
+            retainedMessageMenuConfig = messageMenuConfig
+        }
+    }
     
     // Track websocket connection state
     var websocketConnected by remember { mutableStateOf(appViewModel.isWebSocketConnected()) }
@@ -1988,7 +1994,15 @@ fun ThreadViewerScreen(
                     exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = 120))
                 ) {
                     val messageBarSlideOffsetPx = transition.animateFloat(
-                        transitionSpec = { tween(durationMillis = 120) },
+                        transitionSpec = {
+                            if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
+                                // ENTER: slide in first
+                                tween(durationMillis = 120)
+                            } else {
+                                // EXIT: wait for buttons to fade out, then slide down
+                                tween(durationMillis = 120, delayMillis = 500)
+                            }
+                        },
                         label = "messageBarSlideOffset"
                     ) { state ->
                         if (state == EnterExitState.Visible) 0f else with(density) { 56.dp.toPx() }
@@ -1996,8 +2010,10 @@ fun ThreadViewerScreen(
                     val messageButtonsAlpha = transition.animateFloat(
                         transitionSpec = {
                             if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
+                                // ENTER: buttons fade in after bar has slid in
                                 tween(durationMillis = 500, delayMillis = 120)
                             } else {
+                                // EXIT: buttons fade out immediately
                                 tween(durationMillis = 500)
                             }
                         },
@@ -2023,7 +2039,7 @@ fun ThreadViewerScreen(
                                 }
                         ) {
                             net.vrkknn.andromuks.utils.MessageMenuBar(
-                                menuConfig = messageMenuConfig,
+                                menuConfig = messageMenuConfig ?: retainedMessageMenuConfig,
                                 onDismiss = { messageMenuConfig = null },
                                 buttonsAlpha = messageButtonsAlpha.value,
                                 modifier = Modifier.fillMaxWidth()
@@ -2038,14 +2054,27 @@ fun ThreadViewerScreen(
                     enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = 120)),
                     exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = 120))
                 ) {
-                val attachmentBarSlideOffsetPx = transition.animateFloat(label = "attachmentBarSlideOffset") { state ->
+                val attachmentBarSlideOffsetPx = transition.animateFloat(
+                    transitionSpec = {
+                        if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
+                            // ENTER: slide in first
+                            tween(durationMillis = 120)
+                        } else {
+                            // EXIT: wait for buttons to fade out, then slide down
+                            tween(durationMillis = 120, delayMillis = 500)
+                        }
+                    },
+                    label = "attachmentBarSlideOffset"
+                ) { state ->
                     if (state == EnterExitState.Visible) 0f else with(density) { 56.dp.toPx() }
                 }
                 val attachmentButtonsAlpha = transition.animateFloat(
                     transitionSpec = {
                         if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
+                            // ENTER: buttons fade in after bar has slid in
                             tween(durationMillis = 500, delayMillis = 120)
                         } else {
+                            // EXIT: buttons fade out immediately
                             tween(durationMillis = 500)
                         }
                     },
