@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -3336,69 +3337,7 @@ fun TimelineEventItem(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 2.dp)
-                .offset { IntOffset(x = currentDragOffset.toInt(), y = 0) }
-                .pointerInput(event.eventId) {
-                    detectDragGestures(
-                        onDragStart = { offset ->
-                            shouldTriggerReply = false
-                            dragOffsetPx = 0f
-                            isDragging = true
-                            coroutineScope.launch {
-                                dragOffsetAnimatable.snapTo(0f)
-                            }
-                        },
-                        onDrag = { change, dragAmount ->
-                            // Accumulate drag amount for smooth following - update state directly for immediate response
-                            dragOffsetPx += dragAmount.x
-                            
-                            // Check if swipe threshold is reached for reply icon to be at 100%
-                            if (kotlin.math.abs(dragOffsetPx) >= swipeThreshold) {
-                                if (!shouldTriggerReply) {
-                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    shouldTriggerReply = true
-                                }
-                            }
-                        },
-                        onDragEnd = {
-                            // Check if threshold was reached using dragOffsetPx directly (before isDragging is set to false)
-                            val reachedThreshold = kotlin.math.abs(dragOffsetPx) >= swipeThreshold
-                            
-                            isDragging = false
-                            
-                            // Only trigger reply if threshold was reached
-                            if (reachedThreshold) {
-                                onReply(event)
-                                if (BuildConfig.DEBUG) android.util.Log.d("TimelineEventItem", "Swipe gesture completed, triggering reply")
-                            }
-                            
-                            // Animate back to original position using Animatable
-                            coroutineScope.launch {
-                                dragOffsetAnimatable.snapTo(dragOffsetPx)
-                                dragOffsetAnimatable.animateTo(
-                                    targetValue = 0f,
-                                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
-                                )
-                            }
-                            // Reset state for next gesture
-                            shouldTriggerReply = false
-                            dragOffsetPx = 0f
-                        },
-                        onDragCancel = {
-                            isDragging = false
-                            
-                            // Animate back to original position on cancel
-                            coroutineScope.launch {
-                                dragOffsetAnimatable.snapTo(dragOffsetPx)
-                                dragOffsetAnimatable.animateTo(
-                                    targetValue = 0f,
-                                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
-                                )
-                            }
-                            shouldTriggerReply = false
-                            dragOffsetPx = 0f
-                        }
-                    )
-                },
+                .offset { IntOffset(x = currentDragOffset.toInt(), y = 0) },
             verticalAlignment = Alignment.Top
         ) {
         // Show avatar only for non-consecutive messages (and not for emotes, they have their own)
@@ -3466,9 +3405,58 @@ fun TimelineEventItem(
             Spacer(modifier = Modifier.width(AvatarGap))
         }
 
-        // Event content
+        // Event content - swipe gesture is horizontal-only to preserve vertical scrolling
         Column(
-            modifier = Modifier.weight(1f)
+            modifier = Modifier
+                .weight(1f)
+                .pointerInput(event.eventId) {
+                    detectHorizontalDragGestures(
+                        onDragStart = {
+                            shouldTriggerReply = false
+                            dragOffsetPx = 0f
+                            isDragging = true
+                            coroutineScope.launch {
+                                dragOffsetAnimatable.snapTo(0f)
+                            }
+                        },
+                        onHorizontalDrag = { _, dragAmount ->
+                            // Accumulate drag amount for smooth following - update state directly for immediate response
+                            dragOffsetPx += dragAmount
+
+                            // Check if swipe threshold is reached for reply icon to be at 100%
+                            if (kotlin.math.abs(dragOffsetPx) >= swipeThreshold) {
+                                if (!shouldTriggerReply) {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    shouldTriggerReply = true
+                                }
+                            }
+                        },
+                        onDragEnd = {
+                            // Check if threshold was reached using dragOffsetPx directly (before isDragging is set to false)
+                            val reachedThreshold = kotlin.math.abs(dragOffsetPx) >= swipeThreshold
+
+                            isDragging = false
+
+                            // Only trigger reply if threshold was reached
+                            if (reachedThreshold) {
+                                onReply(event)
+                                if (BuildConfig.DEBUG) android.util.Log.d("TimelineEventItem", "Swipe gesture completed, triggering reply")
+                            }
+
+                            // Animate back to original position using Animatable
+                            coroutineScope.launch {
+                                dragOffsetAnimatable.snapTo(dragOffsetPx)
+                                dragOffsetAnimatable.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                                )
+                            }
+                            // Reset state for next gesture
+                            shouldTriggerReply = false
+                            dragOffsetPx = 0f
+                        }
+                    )
+                }
         ) {
             // Show name and timestamp header only for non-consecutive messages (and not for emotes)
             if (!isConsecutive && !isEmoteMessage) {
