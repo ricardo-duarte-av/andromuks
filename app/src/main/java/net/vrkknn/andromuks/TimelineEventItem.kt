@@ -3434,18 +3434,23 @@ fun TimelineEventItem(
                         onDragEnd = {
                             // Check if threshold was reached using dragOffsetPx directly (before isDragging is set to false)
                             val reachedThreshold = kotlin.math.abs(dragOffsetPx) >= swipeThreshold
+                            val releasedOffset = dragOffsetPx
 
                             isDragging = false
 
                             // Only trigger reply if threshold was reached
                             if (reachedThreshold) {
+                                // Quick flicks may only satisfy threshold at release; ensure haptic feedback still happens.
+                                if (!shouldTriggerReply) {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
                                 onReply(event)
                                 if (BuildConfig.DEBUG) android.util.Log.d("TimelineEventItem", "Swipe gesture completed, triggering reply")
                             }
 
                             // Animate back to original position using Animatable
                             coroutineScope.launch {
-                                dragOffsetAnimatable.snapTo(dragOffsetPx)
+                                dragOffsetAnimatable.snapTo(releasedOffset)
                                 dragOffsetAnimatable.animateTo(
                                     targetValue = 0f,
                                     animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
