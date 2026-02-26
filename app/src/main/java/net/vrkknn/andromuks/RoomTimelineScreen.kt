@@ -142,6 +142,9 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import coil.request.ImageRequest
+import coil.request.CachePolicy
+import coil.memory.MemoryCache
 import net.vrkknn.andromuks.ScrollHighlightState
 import net.vrkknn.andromuks.LocalScrollHighlightState
 import net.vrkknn.andromuks.ui.components.AvatarImage
@@ -192,6 +195,8 @@ import net.vrkknn.andromuks.utils.EmojiShortcodes
 import net.vrkknn.andromuks.utils.EmojiSuggestionList
 import net.vrkknn.andromuks.utils.CommandSuggestionList
 import net.vrkknn.andromuks.utils.CommandDefinition
+import net.vrkknn.andromuks.utils.AvatarUtils
+import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import net.vrkknn.andromuks.BuildConfig
 
 
@@ -1714,6 +1719,104 @@ fun RoomTimelineScreen(
 
     // List state and auto-scroll to bottom when data loads/changes
     val listState = rememberLazyListState()
+
+    // Prefetch guardband assets around the viewport (+50 above, +50 below).
+    // Coil handles eviction naturally; we remove these keyed entries when leaving the room.
+    val timelinePrefetchLoader = remember(context) { ImageLoaderSingleton.get(context) }
+    val prefetchedTimelineMemoryKeys = remember(roomId) { mutableSetOf<String>() }
+    val prefetchGuardband = 50
+
+    fun enqueueTimelinePrefetch(
+        mxcUrl: String?,
+        keyPrefix: String,
+        requestSize: Int
+    ) {
+        if (mxcUrl.isNullOrBlank()) return
+        val httpUrl = AvatarUtils.mxcToHttpUrl(mxcUrl, homeserverUrl) ?: return
+        val memoryKey = "timeline_prefetch:$roomId:$keyPrefix:${mxcUrl.hashCode()}"
+        if (!prefetchedTimelineMemoryKeys.add(memoryKey)) return
+
+        val request = ImageRequest.Builder(context)
+            .data(httpUrl)
+            .size(requestSize)
+            .apply {
+                if (httpUrl.startsWith("http")) {
+                    addHeader("Cookie", "gomuks_auth=$authToken")
+                }
+            }
+            .memoryCacheKey(memoryKey)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .build()
+        timelinePrefetchLoader.enqueue(request)
+    }
+
+    LaunchedEffect(listState, timelineItems, memberMapWithFallback, homeserverUrl, authToken, roomId) {
+        snapshotFlow {
+            val visibleIndices = listState.layoutInfo.visibleItemsInfo.map { it.index }
+            if (visibleIndices.isEmpty()) {
+                null
+            } else {
+                (visibleIndices.minOrNull() ?: 0) to (visibleIndices.maxOrNull() ?: 0)
+            }
+        }
+            .filterNotNull()
+            .distinctUntilChanged()
+            .collect { (visibleStart, visibleEnd) ->
+                if (timelineItems.isEmpty()) return@collect
+                val start = (visibleStart - prefetchGuardband).coerceAtLeast(0)
+                val end = (visibleEnd + prefetchGuardband).coerceAtMost(timelineItems.lastIndex)
+
+                for (index in start..end) {
+                    val item = timelineItems[index] as? TimelineItem.Event ?: continue
+                    val event = item.event
+
+                    // Prefetch sender avatar
+                    val avatarMxc = memberMapWithFallback[event.sender]?.avatarUrl
+                    enqueueTimelinePrefetch(
+                        mxcUrl = avatarMxc,
+                        keyPrefix = "avatar:${event.sender}",
+                        requestSize = 256
+                    )
+
+                    // Prefetch media thumbnail (or media URL fallback) for image/video/sticker events
+                    val content = when {
+                        event.type == "m.room.message" -> event.content
+                        event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted
+                        event.type == "m.sticker" -> event.content ?: event.decrypted
+                        else -> null
+                    }
+                    val msgType = when {
+                        event.type == "m.sticker" -> "m.sticker"
+                        else -> content?.optString("msgtype", "")
+                    }
+                    if (msgType == "m.image" || msgType == "m.video" || msgType == "m.sticker") {
+                        val info = content?.optJSONObject("info")
+                        val thumbnailMxc =
+                            info?.optJSONObject("thumbnail_file")
+                                ?.optString("url")
+                                ?.takeIf { it.isNotBlank() }
+                                ?: info?.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
+                        val mediaMxc = content?.optString("url", "")?.takeIf { it.isNotBlank() }
+                        enqueueTimelinePrefetch(
+                            mxcUrl = thumbnailMxc ?: mediaMxc,
+                            keyPrefix = "media:${event.eventId}",
+                            requestSize = 512
+                        )
+                    }
+                }
+            }
+    }
+
+    DisposableEffect(roomId) {
+        onDispose {
+            val cache = timelinePrefetchLoader.memoryCache
+            prefetchedTimelineMemoryKeys.forEach { key ->
+                cache?.remove(MemoryCache.Key(key))
+            }
+            prefetchedTimelineMemoryKeys.clear()
+        }
+    }
     
     // Track scroll position using event ID anchor (more robust than index)
     var anchorEventIdForRestore by remember { mutableStateOf<String?>(null) }
