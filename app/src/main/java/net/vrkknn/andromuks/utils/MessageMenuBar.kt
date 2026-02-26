@@ -173,7 +173,7 @@ fun MessageMenuBar(
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Code",
+                        text = "Source",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
