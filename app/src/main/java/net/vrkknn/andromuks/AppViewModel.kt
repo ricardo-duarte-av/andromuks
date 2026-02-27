@@ -3104,6 +3104,9 @@ class AppViewModel : ViewModel() {
                     if (globalProfile != null) {
                         ProfileCache.updateGlobalProfileAccess(sender)
                         memberMap[sender] = globalProfile
+                        // Persist room membership in the index so future getMemberMap() calls
+                        // resolve this user via the indexed path instead of re-adding fallback.
+                        ProfileCache.addToRoomIndex(roomId, sender)
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added global profile fallback for $sender in room $roomId via getMemberMap()")
                     }
                 }
@@ -7054,6 +7057,7 @@ class AppViewModel : ViewModel() {
     private val roomStateWithMembersRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit>() // requestId -> callback
     private val userEncryptionInfoRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
     private val mutualRoomsRequests = mutableMapOf<Int, (List<String>?, String?) -> Unit>() // requestId -> callback
+    private val basicProfileCallbacks = mutableMapOf<Int, (MemberProfile?) -> Unit>() // requestId -> callback for direct get_profile consumers
     private val trackDevicesRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
     private val resolveAliasRequests = mutableMapOf<Int, (Pair<String, List<String>>?) -> Unit>() // requestId -> callback
     private val getRoomSummaryRequests = mutableMapOf<Int, (Pair<net.vrkknn.andromuks.utils.RoomSummary?, String?>?) -> Unit>() // requestId -> callback
@@ -8422,13 +8426,13 @@ class AppViewModel : ViewModel() {
     }
 
     fun requestUserProfile(userId: String, roomId: String? = null) {
-        // UNIFIED PENDING CHECK: Check both global and room-specifc pending requests
-        val requestKey = if (roomId != null) "$roomId:$userId" else userId
+        // Global get_profile requests should only be deduped against other global requests.
+        // Do not block a global fallback just because a room-specific request is pending.
         val globalRequestKey = userId
         
-        // PERFORMANCE: Prevent duplicate profile requests for the same user
-        if (pendingProfileRequests.contains(globalRequestKey) || (roomId != null && pendingProfileRequests.contains(requestKey))) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile request already pending for $userId (global or room-specific), skipping duplicate")
+        // PERFORMANCE: Prevent duplicate global profile requests for the same user.
+        if (pendingProfileRequests.contains(globalRequestKey)) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Global profile request already pending for $userId, skipping duplicate")
             return
         }
         
@@ -8462,6 +8466,29 @@ class AppViewModel : ViewModel() {
         
         // REFACTORING: Use WebSocketService.sendCommand() instead of direct ws.send()
         // This will queue the command if WebSocket is not ready
+        sendWebSocketCommand("get_profile", reqId, mapOf("user_id" to userId))
+    }
+
+    /**
+     * Request a basic global profile and invoke callback as soon as get_profile returns.
+     * This is useful for surfaces (like pinned events) that need deterministic profile fetch.
+     */
+    fun requestBasicUserProfile(userId: String, callback: (MemberProfile?) -> Unit) {
+        val cached = ProfileCache.getGlobalProfileProfile(userId)
+        if (cached != null && (!cached.displayName.isNullOrBlank() || !cached.avatarUrl.isNullOrBlank())) {
+            callback(cached)
+            return
+        }
+
+        if (!isWebSocketConnected()) {
+            callback(null)
+            return
+        }
+
+        val reqId = requestIdCounter++
+        pendingProfileRequests.add(userId)
+        profileRequests[reqId] = userId
+        basicProfileCallbacks[reqId] = callback
         sendWebSocketCommand("get_profile", reqId, mapOf("user_id" to userId))
     }
     
@@ -11401,10 +11428,15 @@ class AppViewModel : ViewModel() {
             return
         }
         val requestingRoomId = profileRequestRooms.remove(requestId)
+        val basicProfileCallback = basicProfileCallbacks.remove(requestId)
         
         // PERFORMANCE: Remove from pending requests set
         pendingProfileRequests.remove(userId)
-        val obj = data as? JSONObject ?: return
+        val obj = data as? JSONObject
+        if (obj == null) {
+            basicProfileCallback?.invoke(null)
+            return
+        }
         val avatar = obj.optString("avatar_url")?.takeIf { it.isNotBlank() }
         val display = obj.optString("displayname")?.takeIf { it.isNotBlank() }
         
@@ -11437,6 +11469,7 @@ class AppViewModel : ViewModel() {
         // Save profile to disk cache for persistence
         // Use batch save queue to avoid blocking and improve performance
         queueProfileForBatchSave(userId, memberProfile)
+        basicProfileCallback?.invoke(memberProfile)
         
         // Check if this is part of a full user info request
         val fullUserInfoCallback = fullUserInfoCallbacks.remove(requestId)

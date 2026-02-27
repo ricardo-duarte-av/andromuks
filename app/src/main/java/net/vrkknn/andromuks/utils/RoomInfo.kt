@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -148,6 +149,9 @@ fun RoomInfoScreen(
             )
         }
     }
+    var pinnedDirectProfiles by remember(roomId) { mutableStateOf<Map<String, MemberProfile>>(emptyMap()) }
+    var requestedPinnedSenders by remember(roomId) { mutableStateOf<Set<String>>(emptySet()) }
+    val mergedPinnedMemberMap = remember(memberMap, pinnedDirectProfiles) { memberMap + pinnedDirectProfiles }
     
     // Force recomposition when member map updates (for opportunistic profile loading)
     val memberUpdateCounter = appViewModel.memberUpdateCounter
@@ -156,6 +160,14 @@ fun RoomInfoScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Room Info") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(
+                            imageVector = Icons.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                },
                 actions = {
                     IconButton(
                         onClick = { showLeaveRoomDialog = true }
@@ -555,11 +567,27 @@ fun RoomInfoScreen(
                 val senders = pinnedEvents
                     .mapNotNull { it.timelineEvent?.sender }
                     .distinct()
-                    .filter { it != appViewModel.currentUserId }
+                    .filter { it.isNotBlank() && it != appViewModel.currentUserId }
                 
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomInfoScreen: Triggering opportunistic profile loading for ${senders.size} pinned event senders")
                 senders.forEach { sender ->
-                    appViewModel.requestUserProfileOnDemand(sender, roomId)
+                    if (!requestedPinnedSenders.contains(sender)) {
+                        requestedPinnedSenders = requestedPinnedSenders + sender
+                        // 1) Room-specific state (best source for room profile).
+                        appViewModel.requestUserProfileOnDemand(sender, roomId)
+                        // 2) Deterministic global fallback with direct callback.
+                        appViewModel.requestBasicUserProfile(sender) { profile ->
+                            if (profile != null) {
+                                val displayName = profile.displayName?.takeIf { it.isNotBlank() } ?: usernameFromMatrixId(sender)
+                                pinnedDirectProfiles = pinnedDirectProfiles + (
+                                    sender to MemberProfile(
+                                        displayName = displayName,
+                                        avatarUrl = profile.avatarUrl
+                                    )
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -570,13 +598,17 @@ fun RoomInfoScreen(
             pinnedEvents = pinnedEvents,
             homeserverUrl = appViewModel.homeserverUrl,
             authToken = appViewModel.authToken,
-            memberMap = memberMap,
+            memberMap = mergedPinnedMemberMap,
             myUserId = appViewModel.currentUserId,
+            appViewModel = appViewModel,
+            navController = navController,
             onDismiss = {
                 pinnedEvents = emptyList()
                 pinnedError = null
                 isPinnedLoading = false
                 showPinnedDialog = false
+                pinnedDirectProfiles = emptyMap()
+                requestedPinnedSenders = emptySet()
             }
         )
     }
@@ -666,6 +698,8 @@ private fun PinnedEventsDialog(
     authToken: String,
     memberMap: Map<String, MemberProfile>,
     myUserId: String?,
+    appViewModel: AppViewModel,
+    navController: NavController,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -705,7 +739,9 @@ private fun PinnedEventsDialog(
                                 homeserverUrl = homeserverUrl,
                                 authToken = authToken,
                                 memberMap = memberMap,
-                                myUserId = myUserId
+                                myUserId = myUserId,
+                                appViewModel = appViewModel,
+                                navController = navController
                             )
                         }
                     }
@@ -726,7 +762,9 @@ private fun PinnedEventItemView(
     homeserverUrl: String,
     authToken: String,
     memberMap: Map<String, MemberProfile>,
-    myUserId: String?
+    myUserId: String?,
+    appViewModel: AppViewModel,
+    navController: NavController
 ) {
     val event = pinnedItem.timelineEvent
 
@@ -764,7 +802,11 @@ private fun PinnedEventItemView(
                     authToken = authToken,
                     userProfileCache = memberMap,
                     isMine = myUserId != null && event.sender == myUserId,
-                    myUserId = myUserId
+                    myUserId = myUserId,
+                    appViewModel = appViewModel,
+                    onUserClick = { userId ->
+                        navController.navigateToUserInfo(userId, event.roomId)
+                    }
                 )
             }
         }
