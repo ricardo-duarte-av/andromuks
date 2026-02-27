@@ -924,10 +924,10 @@ private fun MediaContent(
             // Check if there's a caption
             val hasCaption = !mediaMessage.caption.isNullOrBlank()
             
-            // Image frame padding: 2dp on left, top, and right (between thumbnail frame and message bubble)
+            // Image frame padding: 2dp on all sides (between thumbnail frame and message bubble)
             val imageFramePadding = 2.dp
-            // Bottom padding is separate - used for spacing between image frame and caption/filename
-            val bottomPadding = 0.dp
+            // Bottom padding: use same as other sides when no caption; caption provides its own spacing when present
+            val bottomPadding = if (hasCaption) 0.dp else imageFramePadding
 
             // Calculate actual image size in dp if dimensions are available
             // If using thumbnails: try thumbnail dimensions first, fallback to full image dimensions if thumbnail dimensions not available
@@ -963,13 +963,13 @@ private fun MediaContent(
                 } else null
             }
 
-            // Image frame with border and padding (2dp on left, top, right)
-            // Use same rounded corners as message bubble (top corners only)
+            // Image frame with border and padding (2dp on all sides)
+            // Use same rounded corners as message bubble (all corners)
             val imageFrameShape = RoundedCornerShape(
                 topStart = if (isMine) 12.dp else 4.dp,
                 topEnd = if (isMine) 4.dp else 12.dp,
-                bottomStart = 0.dp,
-                bottomEnd = 0.dp
+                bottomStart = 12.dp,
+                bottomEnd = 12.dp
             )
             
             // Frame constrained to image size to prevent stretching
@@ -987,8 +987,8 @@ private fun MediaContent(
                     .padding(
                         start = imageFramePadding,
                         end = imageFramePadding,
-                        top = imageFramePadding
-                        // No bottom padding - caption/filename will provide spacing
+                        top = imageFramePadding,
+                        bottom = bottomPadding
                     ),
                 shape = imageFrameShape,
                 color = Color.Transparent,
@@ -1426,12 +1426,32 @@ private fun MediaContent(
                                         )
                                     }
                                     
-                                    // "Tap to show" text overlay
+                                    // Play icon overlay (centered, only shown when video is not playing)
+                                    // Note: Parent Box handles clicks, so this is just visual
+                                    if (!isVideoPlayingInline) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = Color.Black.copy(alpha = 0.6f),
+                                            modifier = Modifier.size(64.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.PlayArrow,
+                                                contentDescription = "Play video",
+                                                tint = Color.White,
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .padding(start = 4.dp) // Slight offset to visually center the play icon
+                                            )
+                                        }
+                                    }
+                                    
+                                    // "Tap to show" text overlay (below play icon)
                                     Text(
                                         text = "Tap to show",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier
+                                            .padding(top = 80.dp) // Position below play icon
                                             .background(
                                                 MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
                                                 RoundedCornerShape(8.dp)
@@ -1531,6 +1551,34 @@ private fun MediaContent(
                                     onError = { }
                                 )
 
+                                // Play icon overlay (centered, only shown when video is not playing)
+                                if (!isVideoPlayingInline) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .combinedClickable(
+                                                onClick = { onImageClick() },
+                                                onLongClick = { onImageLongPress?.invoke() }
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = Color.Black.copy(alpha = 0.6f),
+                                            modifier = Modifier.size(64.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.PlayArrow,
+                                                contentDescription = "Play video",
+                                                tint = Color.White,
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .padding(start = 4.dp) // Slight offset to visually center the play icon
+                                            )
+                                        }
+                                    }
+                                }
+
                                 // Duration badge in bottom-right corner
                                 mediaMessage.info.duration?.let { durationMs ->
                                     Box(
@@ -1587,12 +1635,32 @@ private fun MediaContent(
                                             )
                                         }
                                         
-                                        // "Tap to show" text overlay
+                                        // Play icon overlay (centered, only shown when video is not playing)
+                                        // Note: Parent Box handles clicks, so this is just visual
+                                        if (!isVideoPlayingInline) {
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = Color.Black.copy(alpha = 0.6f),
+                                                modifier = Modifier.size(64.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.PlayArrow,
+                                                    contentDescription = "Play video",
+                                                    tint = Color.White,
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .padding(start = 4.dp) // Slight offset to visually center the play icon
+                                                )
+                                            }
+                                        }
+                                        
+                                        // "Tap to show" text overlay (below play icon)
                                         Text(
                                             text = "Tap to show",
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier
+                                                .padding(top = 80.dp) // Position below play icon
                                                 .background(
                                                     MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
                                                     RoundedCornerShape(8.dp)
@@ -1602,29 +1670,56 @@ private fun MediaContent(
                                     }
                                 } else {
                                     // No thumbnail available, show placeholder
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(aspectRatio)
-                                        .combinedClickable(
-                                            onClick = { onImageClick() },
-                                            onLongClick = { onImageLongPress?.invoke() }
-                                        )
-                                ) {
-                                    Text(
-                                        text = "🎥",
-                                        style = MaterialTheme.typography.headlineMedium
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = mediaMessage.filename,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(aspectRatio)
+                                            .combinedClickable(
+                                                onClick = { onImageClick() },
+                                                onLongClick = { onImageLongPress?.invoke() }
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            Text(
+                                                text = "🎥",
+                                                style = MaterialTheme.typography.headlineMedium
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = mediaMessage.filename,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        
+                                        // Play icon overlay (centered, only shown when video is not playing)
+                                        if (!isVideoPlayingInline) {
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = Color.Black.copy(alpha = 0.6f),
+                                                modifier = Modifier
+                                                    .size(64.dp)
+                                                    .combinedClickable(
+                                                        onClick = { onImageClick() },
+                                                        onLongClick = { onImageLongPress?.invoke() }
+                                                    )
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.PlayArrow,
+                                                    contentDescription = "Play video",
+                                                    tint = Color.White,
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .padding(start = 4.dp) // Slight offset to visually center the play icon
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                                 }
@@ -1668,10 +1763,10 @@ private fun InlineVideoPlayer(
     var showControls by remember { mutableStateOf(true) }
     var controlsVisible by remember { mutableStateOf(true) }
     
-    // Auto-hide controls after 3 seconds
+    // Auto-hide controls after 1 second (faster for better UX)
     LaunchedEffect(isPlaying, showControls) {
         if (isPlaying && showControls) {
-            kotlinx.coroutines.delay(3000)
+            kotlinx.coroutines.delay(1000) // Reduced from 3000ms to 1000ms
             if (isPlaying) {
                 controlsVisible = false
             }
@@ -1795,8 +1890,8 @@ private fun InlineVideoPlayer(
         // Controls overlay
         AnimatedVisibility(
             visible = controlsVisible,
-            enter = fadeIn(),
-            exit = fadeOut()
+            enter = fadeIn(animationSpec = tween(durationMillis = 200)),
+            exit = fadeOut(animationSpec = tween(durationMillis = 200)) // Faster fade-out
         ) {
             Box(
                 modifier = Modifier
