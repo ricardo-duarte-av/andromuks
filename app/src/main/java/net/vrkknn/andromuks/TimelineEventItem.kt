@@ -490,7 +490,9 @@ private fun MediaMessageItem(
                     isEncrypted = hasEncryptedFile,
                     event = event,
                     timestamp = event.timestamp,
-                    isConsecutive = isConsecutive,
+                    // Timeline rows already render timestamp outside the bubble.
+                    // Keep media bubbles free of inline timestamps to avoid duplicates.
+                    isConsecutive = false,
                     editedBy = editedBy,
                     onReply = onReply,
                     onReact = onReact,
@@ -516,7 +518,9 @@ private fun MediaMessageItem(
                 isEncrypted = hasEncryptedFile,
                 event = event,
                 timestamp = event.timestamp,
-                isConsecutive = isConsecutive,
+                // Timeline rows already render timestamp outside the bubble.
+                // Keep media bubbles free of inline timestamps to avoid duplicates.
+                isConsecutive = false,
                 editedBy = editedBy,
                 onReply = onReply,
                 onReact = onReact,

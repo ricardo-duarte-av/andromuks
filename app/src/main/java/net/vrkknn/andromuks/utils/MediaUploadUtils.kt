@@ -305,10 +305,10 @@ object MediaUploadUtils {
             
             if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Final bitmap dimensions after orientation: ${finalBitmapWidth}x${finalBitmapHeight}")
             
-            // Create a thumbnail (max dimension 400px, keep aspect ratio)
-            // Only create thumbnail if image is larger than 400px in any dimension
+            // Create a thumbnail (max dimension 800px, keep aspect ratio)
+            // Only create thumbnail if image is larger than 800px in any dimension
             // Use finalBitmap dimensions (already oriented correctly)
-            val maxThumbnailDimension = 400
+            val maxThumbnailDimension = 800
             val needsThumbnail = finalBitmapWidth > maxThumbnailDimension || finalBitmapHeight > maxThumbnailDimension
             
             val thumbnail: Bitmap?
@@ -321,7 +321,7 @@ object MediaUploadUtils {
             if (needsThumbnail) {
                 // Find the greater dimension (width or height) - use finalBitmap dimensions
                 val greaterDimension = maxOf(finalBitmapWidth, finalBitmapHeight)
-                // Calculate scale so that the greater dimension becomes 400px
+                // Calculate scale so that the greater dimension becomes 800px
                 val scale = maxThumbnailDimension.toFloat() / greaterDimension
                 // Calculate thumbnail dimensions maintaining aspect ratio
                 // IMPORTANT: Use finalBitmap dimensions (already correctly oriented)

@@ -86,8 +86,8 @@ object VideoUploadUtils {
             val displayWidth = thumbnailFrame.width
             val displayHeight = thumbnailFrame.height
             
-            // Thumbnail the frame to max 400px (same as images) while maintaining aspect ratio
-            val maxThumbnailDimension = 400
+            // Thumbnail the frame to max 800px (same as images) while maintaining aspect ratio
+            val maxThumbnailDimension = 800
             val thumbnailBitmap = if (displayWidth > maxThumbnailDimension || displayHeight > maxThumbnailDimension) {
                 // Calculate scale based on the greater dimension
                 val scale = if (displayWidth > displayHeight) {
