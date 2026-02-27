@@ -3318,6 +3318,7 @@ fun TimelineEventItem(
     val hapticFeedback = androidx.compose.ui.platform.LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
     val swipeThreshold = with(density) { 100.dp.toPx() } // 100dp threshold for full reply icon
+    val profileTapUserId = event.sender.ifBlank { myUserId.orEmpty() }
     var dragOffsetPx by remember { mutableStateOf(0f) } // Use mutable state for immediate updates during drag
     val dragOffsetAnimatable = remember { Animatable(0f) } // Use Animatable only for return animation
     var shouldTriggerReply by remember { mutableStateOf(false) }
@@ -3347,7 +3348,7 @@ fun TimelineEventItem(
                 modifier = Modifier.width(AvatarColumnWidth), // Avatar width (wider to fit timestamp)
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Box(modifier = Modifier.clickable { onUserClick(event.sender) }) {
+                Box(modifier = Modifier.clickable { onUserClick(profileTapUserId) }) {
                     // Don't use shared element for timeline message avatars
                     AvatarImage(
                         mxcUrl = avatarUrl,
@@ -3533,14 +3534,14 @@ fun TimelineEventItem(
                         Text(
                             text = headerAnnotatedString,
                             style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.clickable { onUserClick(event.sender) }
+                            modifier = Modifier.clickable { onUserClick(profileTapUserId) }
                         )
                     } else {
                         Text(
                             text = headerText,
                             style = MaterialTheme.typography.labelMedium,
                             color = net.vrkknn.andromuks.utils.UserColorUtils.getUserColor(event.sender),
-                            modifier = Modifier.clickable { onUserClick(event.sender) }
+                            modifier = Modifier.clickable { onUserClick(profileTapUserId) }
                         )
                     }
                 }
@@ -3584,7 +3585,7 @@ fun TimelineEventItem(
                 modifier = Modifier.width(AvatarColumnWidth),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Box(modifier = Modifier.clickable { onUserClick(event.sender) }) {
+                Box(modifier = Modifier.clickable { onUserClick(profileTapUserId) }) {
                     // Don't use shared element for timeline message avatars
                     AvatarImage(
                         mxcUrl = avatarUrl,
