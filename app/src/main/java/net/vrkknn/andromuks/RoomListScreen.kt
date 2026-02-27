@@ -153,6 +153,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import net.vrkknn.andromuks.utils.RoomJoinerScreen
 import net.vrkknn.andromuks.utils.RoomLink
+import net.vrkknn.andromuks.utils.navigateToUserInfo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -1031,89 +1032,100 @@ fun RoomListScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                net.vrkknn.andromuks.ui.components.AvatarImage(
-                    mxcUrl = me?.avatarUrl,
-                    homeserverUrl = appViewModel.homeserverUrl,
-                    authToken = authToken,
-                    fallbackText = me?.displayName ?: appViewModel.currentUserId,
-                    size = 40.dp,
-                    userId = appViewModel.currentUserId,
-                    displayName = me?.displayName
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = me?.displayName ?: appViewModel.currentUserId.ifBlank { "Profile" },
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        // PHASE 1: Pulsing processing indicator - show when sync is processing OR when room list is updating
-                        // CRASH FIX: Show warning color when batch processing (rushing) to indicate tab switching is disabled
-                        // Reuse isProcessingBatch from top level (line 183) - no need to collect twice
-                        var showSyncIndicator by remember { mutableStateOf(false) }
-                        LaunchedEffect(uiState.roomListUpdateCounter) {
-                            if (uiState.roomListUpdateCounter > 0) {
-                                showSyncIndicator = true
-                                //if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Showing sync indicator (counter=${uiState.roomListUpdateCounter})")
-                                kotlinx.coroutines.delay(500) // Show for 0.5 seconds to be more visible
-                                showSyncIndicator = false
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(enabled = appViewModel.currentUserId.isNotBlank()) {
+                            navController.navigateToUserInfo(appViewModel.currentUserId)
+                        }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    net.vrkknn.andromuks.ui.components.AvatarImage(
+                        mxcUrl = me?.avatarUrl,
+                        homeserverUrl = appViewModel.homeserverUrl,
+                        authToken = authToken,
+                        fallbackText = me?.displayName ?: appViewModel.currentUserId,
+                        size = 40.dp,
+                        userId = appViewModel.currentUserId,
+                        displayName = me?.displayName
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = me?.displayName ?: appViewModel.currentUserId.ifBlank { "Profile" },
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            // PHASE 1: Pulsing processing indicator - show when sync is processing OR when room list is updating
+                            // CRASH FIX: Show warning color when batch processing (rushing) to indicate tab switching is disabled
+                            // Reuse isProcessingBatch from top level (line 183) - no need to collect twice
+                            var showSyncIndicator by remember { mutableStateOf(false) }
+                            LaunchedEffect(uiState.roomListUpdateCounter) {
+                                if (uiState.roomListUpdateCounter > 0) {
+                                    showSyncIndicator = true
+                                    //if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Showing sync indicator (counter=${uiState.roomListUpdateCounter})")
+                                    kotlinx.coroutines.delay(500) // Show for 0.5 seconds to be more visible
+                                    showSyncIndicator = false
+                                }
+                            }
+                            // DEBUG: Log batch processing state changes
+                            LaunchedEffect(isProcessingBatch) {
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: isProcessingBatch changed to $isProcessingBatch")
+                            }
+                            // Normal sync indicator (blue, pulsing)
+                            AnimatedVisibility(
+                                visible = uiState.isProcessingPendingItems || showSyncIndicator || isProcessingBatch,
+                                enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.5f, animationSpec = tween(200)),
+                                exit = fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.5f, animationSpec = tween(200))
+                            ) {
+                                val infiniteTransition = rememberInfiniteTransition(label = "sync_pulse")
+                                val alpha by infiniteTransition.animateFloat(
+                                    initialValue = 0.3f,
+                                    targetValue = 1f,
+                                    animationSpec = infiniteRepeatable(
+                                        animation = tween(1000, easing = FastOutSlowInEasing),
+                                        repeatMode = RepeatMode.Reverse
+                                    ),
+                                    label = "sync_pulse_alpha"
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .background(
+                                            MaterialTheme.colorScheme.primary.copy(alpha = alpha),
+                                            CircleShape
+                                        )
+                                )
+                            }
+                            // "RUSH" text indicator for batch processing (error color, next to sync pill)
+                            // No animation - appears instantly since batch processing is brief
+                            if (isProcessingBatch) {
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: RUSH indicator visible - isProcessingBatch=true")
+                                Text(
+                                    text = "RUSH",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(start = 6.dp)
+                                )
                             }
                         }
-                        // DEBUG: Log batch processing state changes
-                        LaunchedEffect(isProcessingBatch) {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: isProcessingBatch changed to $isProcessingBatch")
-                        }
-                        // Normal sync indicator (blue, pulsing)
-                        AnimatedVisibility(
-                            visible = uiState.isProcessingPendingItems || showSyncIndicator || isProcessingBatch,
-                            enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.5f, animationSpec = tween(200)),
-                            exit = fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.5f, animationSpec = tween(200))
-                        ) {
-                            val infiniteTransition = rememberInfiniteTransition(label = "sync_pulse")
-                            val alpha by infiniteTransition.animateFloat(
-                                initialValue = 0.3f,
-                                targetValue = 1f,
-                                animationSpec = infiniteRepeatable(
-                                    animation = tween(1000, easing = FastOutSlowInEasing),
-                                    repeatMode = RepeatMode.Reverse
-                                ),
-                                label = "sync_pulse_alpha"
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .background(
-                                        MaterialTheme.colorScheme.primary.copy(alpha = alpha),
-                                        CircleShape
-                                    )
-                            )
-                        }
-                        // "RUSH" text indicator for batch processing (error color, next to sync pill)
-                        // No animation - appears instantly since batch processing is brief
-                        if (isProcessingBatch) {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: RUSH indicator visible - isProcessingBatch=true")
+                        if (!me?.displayName.isNullOrBlank() && appViewModel.currentUserId.isNotBlank()) {
                             Text(
-                                text = "RUSH",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(start = 6.dp)
+                                text = appViewModel.currentUserId,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
-                    }
-                    if (!me?.displayName.isNullOrBlank() && appViewModel.currentUserId.isNotBlank()) {
-                        Text(
-                            text = appViewModel.currentUserId,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
                     }
                 }
                 

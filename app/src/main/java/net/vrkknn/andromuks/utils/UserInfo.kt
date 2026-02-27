@@ -45,6 +45,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.RotateLeft
 import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.ui.layout.ContentScale
@@ -61,6 +63,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.text.BreakIterator
+import java.util.TimeZone
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import net.vrkknn.andromuks.utils.getUserAgent
@@ -173,6 +177,73 @@ data class UserPronouns(
     val language: String,
     val summary: String
 )
+
+private data class ProfileStatus(
+    val text: String,
+    val emoji: String,
+    val sourceKey: String
+)
+
+private data class ProfileCall(
+    val callJoinedTs: Long?,
+    val sourceKey: String
+)
+
+private fun valueToJsonObject(value: Any?): JSONObject? {
+    return when (value) {
+        is JSONObject -> value
+        is Map<*, *> -> {
+            val obj = JSONObject()
+            value.entries.forEach { (key, v) ->
+                if (key is String) {
+                    obj.put(key, v)
+                }
+            }
+            obj
+        }
+        else -> null
+    }
+}
+
+private fun extractProfileStatus(arbitraryFields: Map<String, Any>): ProfileStatus? {
+    val keys = listOf("m.status", "org.msc.4426.status", "org.msc4426.status")
+    keys.forEach { key ->
+        val obj = valueToJsonObject(arbitraryFields[key]) ?: return@forEach
+        val text = obj.optString("text", "")
+        val emoji = obj.optString("emoji", "")
+        if (text.isNotBlank() && emoji.isNotBlank()) {
+            return ProfileStatus(text = text, emoji = emoji, sourceKey = key)
+        }
+    }
+    return null
+}
+
+private fun extractProfileCall(arbitraryFields: Map<String, Any>): ProfileCall? {
+    val keys = listOf("m.call", "org.msc.4426.call", "org.msc4426.call")
+    keys.forEach { key ->
+        val obj = valueToJsonObject(arbitraryFields[key]) ?: return@forEach
+        val ts = if (obj.has("call_joined_ts")) obj.optLong("call_joined_ts") else null
+        return ProfileCall(callJoinedTs = ts, sourceKey = key)
+    }
+    return null
+}
+
+private fun isSingleGrapheme(input: String): Boolean {
+    if (input.isBlank()) return false
+    val trimmed = input.trim()
+    val iterator = BreakIterator.getCharacterInstance()
+    iterator.setText(trimmed)
+    var graphemeCount = 0
+    var boundary = iterator.first()
+    while (boundary != BreakIterator.DONE) {
+        val next = iterator.next()
+        if (next == BreakIterator.DONE) break
+        graphemeCount++
+        if (graphemeCount > 1) return false
+        boundary = next
+    }
+    return graphemeCount == 1
+}
 
 /**
  * Data class for complete user profile info
@@ -347,6 +418,19 @@ fun UserInfoScreen(
     // Ignore dialog state
     var showIgnoreDialog by remember { mutableStateOf(false) }
     var isUserIgnored by remember { mutableStateOf(false) }
+    var showStatusEditDialog by remember { mutableStateOf(false) }
+    var showStatusEmojiPicker by remember { mutableStateOf(false) }
+    var statusEmojiInput by remember { mutableStateOf("") }
+    var statusTextInput by remember { mutableStateOf("") }
+    var statusEditError by remember { mutableStateOf<String?>(null) }
+    var showPronounsEditDialog by remember { mutableStateOf(false) }
+    var pronounsLanguageInput by remember { mutableStateOf("") }
+    var pronounsSummaryInput by remember { mutableStateOf("") }
+    var pronounsEditError by remember { mutableStateOf<String?>(null) }
+    var showTimezoneEditDialog by remember { mutableStateOf(false) }
+    var timezoneInput by remember { mutableStateOf("") }
+    val allTimezones = remember { TimeZone.getAvailableIDs().toList().sorted() }
+    var showAddProfileInfoDialog by remember { mutableStateOf(false) }
     
     // Current time state for user's timezone
     var currentTimeInUserTz by remember { mutableStateOf("") }
@@ -358,6 +442,7 @@ fun UserInfoScreen(
     }
     val effectiveRoomId = roomId ?: roomIdFromState
     val myUserId = appViewModel.currentUserId
+    val isOwnProfile = myUserId.isNotBlank() && userId == myUserId
     
     // Debug logging for moderation buttons visibility
     LaunchedEffect(effectiveRoomId, myUserId, userId, roomPowerLevels) {
@@ -524,6 +609,16 @@ fun UserInfoScreen(
                             contentDescription = "Back"
                         )
                     }
+                },
+                actions = {
+                    if (isOwnProfile) {
+                        IconButton(onClick = { showAddProfileInfoDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Filled.Add,
+                                contentDescription = "Add profile info"
+                            )
+                        }
+                    }
                 }
             )
         }
@@ -558,7 +653,7 @@ fun UserInfoScreen(
                     .verticalScroll(scrollState)
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // User Avatar - made larger (use room avatar if different from global, otherwise global)
                 val roomAvatarUrl = userProfileInfo!!.roomAvatarUrl?.takeIf { !it.isNullOrBlank() }
@@ -568,7 +663,7 @@ fun UserInfoScreen(
                 
                 Box(
                     modifier = Modifier
-                        .size(220.dp)
+                        .size(128.dp)
                         .clickable(enabled = avatarUrlToUse != null) {
                             if (!avatarUrlToUse.isNullOrBlank()) {
                                 val fullUrl = AvatarUtils.getFullImageUrl(
@@ -615,7 +710,7 @@ fun UserInfoScreen(
                                 homeserverUrl = appViewModel.homeserverUrl,
                                 authToken = appViewModel.authToken,
                                 fallbackText = displayNameForAvatar,
-                                size = 220.dp,
+                                size = 120.dp,
                                 userId = userId,
                                 displayName = displayNameForAvatar,
                                 modifier = Modifier.sharedElement(
@@ -637,7 +732,7 @@ fun UserInfoScreen(
                             homeserverUrl = appViewModel.homeserverUrl,
                             authToken = appViewModel.authToken,
                             fallbackText = displayNameForAvatar,
-                            size = 220.dp,
+                            size = 120.dp,
                             userId = userId,
                             displayName = displayNameForAvatar
                         )
@@ -648,7 +743,7 @@ fun UserInfoScreen(
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .size(80.dp) // Badge size
+                                .size(56.dp) // Badge size
                                 .padding(4.dp)
                                 .clickable(enabled = true) {
                                     // Open global avatar in viewer
@@ -687,7 +782,7 @@ fun UserInfoScreen(
                                     homeserverUrl = appViewModel.homeserverUrl,
                                     authToken = appViewModel.authToken,
                                     fallbackText = globalDisplayName ?: usernameFromMatrixId(userId),
-                                    size = 80.dp,
+                                    size = 56.dp,
                                     userId = userId,
                                     displayName = globalDisplayName
                                 )
@@ -748,6 +843,88 @@ fun UserInfoScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
                     )
+
+                    val profileStatus = extractProfileStatus(userProfileInfo!!.arbitraryFields)
+                    if (profileStatus != null) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "${profileStatus.emoji} ${profileStatus.text}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                if (isOwnProfile) {
+                                    IconButton(
+                                        onClick = {
+                                            statusEmojiInput = profileStatus.emoji
+                                            statusTextInput = profileStatus.text
+                                            statusEditError = null
+                                            showStatusEditDialog = true
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Edit,
+                                            contentDescription = "Edit status"
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else if (isOwnProfile) {
+                        TextButton(
+                            onClick = {
+                                statusEmojiInput = ""
+                                statusTextInput = ""
+                                statusEditError = null
+                                showStatusEditDialog = true
+                            }
+                        ) {
+                            Text("Set status")
+                        }
+                    }
+
+                    val profileCall = extractProfileCall(userProfileInfo!!.arbitraryFields)
+                    if (profileCall != null) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "In call",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                if (profileCall.callJoinedTs != null && profileCall.callJoinedTs > 0L) {
+                                    Text(
+                                        text = "Joined: ${profileCall.callJoinedTs}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
                 
                 // Pronouns and Timezone on the same line
@@ -777,11 +954,34 @@ fun UserInfoScreen(
                                     horizontalAlignment = Alignment.Start,
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Text(
-                                        text = "Pronouns",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Pronouns",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                        if (isOwnProfile) {
+                                            IconButton(
+                                                onClick = {
+                                                    pronounsLanguageInput = pronounsList.firstOrNull()?.language ?: "en"
+                                                    pronounsSummaryInput = pronounsList.firstOrNull()?.summary ?: ""
+                                                    pronounsEditError = null
+                                                    showPronounsEditDialog = true
+                                                },
+                                                modifier = Modifier.size(20.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Edit,
+                                                    contentDescription = "Edit pronouns",
+                                                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                                )
+                                            }
+                                        }
+                                    }
                                     if (languages.isNotEmpty()) {
                                         Text(
                                             text = "Language: ${languages.joinToString(", ")}",
@@ -813,11 +1013,32 @@ fun UserInfoScreen(
                                     horizontalAlignment = Alignment.Start,
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Text(
-                                        text = "Timezone",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Timezone",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                        if (isOwnProfile) {
+                                            IconButton(
+                                                onClick = {
+                                                    timezoneInput = userProfileInfo!!.timezone ?: ""
+                                                    showTimezoneEditDialog = true
+                                                },
+                                                modifier = Modifier.size(20.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Edit,
+                                                    contentDescription = "Edit timezone",
+                                                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                                )
+                                            }
+                                        }
+                                    }
                                     Text(
                                         text = userProfileInfo!!.timezone!!,
                                         style = MaterialTheme.typography.bodySmall,
@@ -980,8 +1201,22 @@ fun UserInfoScreen(
                     }
                 }
                 
-                // Arbitrary profile fields
+                // Arbitrary profile fields (exclude known/handled keys)
+                val hiddenKnownProfileKeys = setOf(
+                    "m.status",
+                    "m.call",
+                    "org.msc.4426.status",
+                    "org.msc.4426.call",
+                    "org.msc4426.status",
+                    "org.msc4426.call",
+                    "org.msc4266.status",
+                    "org.msc4266.call",
+                    "m.tz",
+                    "us.cloke.msc4175.tz",
+                    "io.fsky.nyx.pronouns"
+                )
                 val arbitraryFields = userProfileInfo!!.arbitraryFields
+                    .filterKeys { it !in hiddenKnownProfileKeys }
                 if (arbitraryFields.isNotEmpty()) {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     
@@ -1035,6 +1270,316 @@ fun UserInfoScreen(
             onDismiss = { 
                 showFullAvatarDialog = false
                 viewingGlobalAvatar = false
+            }
+        )
+    }
+
+    if (showStatusEditDialog) {
+        AlertDialog(
+            onDismissRequest = { showStatusEditDialog = false },
+            title = { Text("Set Status") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            tonalElevation = 1.dp,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clickable {
+                                    statusEditError = null
+                                    showStatusEmojiPicker = true
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = statusEmojiInput.ifBlank { "🙂" },
+                                    style = MaterialTheme.typography.headlineSmall
+                                )
+                            }
+                        }
+                        OutlinedTextField(
+                            value = statusTextInput,
+                            onValueChange = { statusTextInput = it },
+                            label = { Text("Status text") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    if (statusEditError != null) {
+                        Text(
+                            text = statusEditError!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val emoji = statusEmojiInput.trim()
+                        val text = statusTextInput
+                        when {
+                            !isSingleGrapheme(emoji) -> statusEditError = "Please enter exactly one emoji."
+                            text.isBlank() -> statusEditError = "Status text cannot be empty."
+                            text.toByteArray(Charsets.UTF_8).size > 256 -> statusEditError = "Status text is too long (max 256 bytes)."
+                            emoji.toByteArray(Charsets.UTF_8).size > 32 -> statusEditError = "Emoji is too long (max 32 bytes)."
+                            else -> {
+                                statusEditError = null
+                                val payload = mapOf(
+                                    "text" to text,
+                                    "emoji" to emoji
+                                )
+                                appViewModel.setCustomProfileField("m.status", payload)
+                                appViewModel.setCustomProfileField("org.msc.4426.status", payload)
+                                val updatedFields = userProfileInfo?.arbitraryFields?.toMutableMap() ?: mutableMapOf()
+                                val statusJson = JSONObject().apply {
+                                    put("text", text)
+                                    put("emoji", emoji)
+                                }
+                                updatedFields["m.status"] = statusJson
+                                updatedFields["org.msc.4426.status"] = statusJson
+                                userProfileInfo = userProfileInfo?.copy(arbitraryFields = updatedFields)
+                                showStatusEditDialog = false
+                            }
+                        }
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showStatusEditDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showStatusEmojiPicker) {
+        EmojiSelectionDialog(
+            recentEmojis = appViewModel.recentEmojis,
+            homeserverUrl = appViewModel.homeserverUrl,
+            authToken = appViewModel.authToken,
+            onEmojiSelected = { selected ->
+                if (selected.startsWith("mxc://") || selected.startsWith("![:")) {
+                    statusEditError = "Please choose a Unicode emoji."
+                } else {
+                    statusEmojiInput = selected
+                    statusEditError = null
+                }
+            },
+            onDismiss = { showStatusEmojiPicker = false },
+            customEmojiPacks = emptyList(),
+            allowCustomReactions = false
+        )
+    }
+
+    if (showAddProfileInfoDialog) {
+        val profile = userProfileInfo
+        val existingStatus = profile?.let { extractProfileStatus(it.arbitraryFields) }
+        val existingPronouns = profile?.pronouns
+        val existingTimezone = profile?.timezone
+        val missingStatus = existingStatus == null
+        val missingPronouns = existingPronouns.isNullOrEmpty()
+        val missingTimezone = existingTimezone.isNullOrBlank()
+        AlertDialog(
+            onDismissRequest = { showAddProfileInfoDialog = false },
+            title = { Text("Add Profile Info") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!missingStatus && !missingPronouns && !missingTimezone) {
+                        Text("All supported profile fields are already set.")
+                    }
+                    if (missingStatus) {
+                        TextButton(
+                            onClick = {
+                                statusEmojiInput = ""
+                                statusTextInput = ""
+                                statusEditError = null
+                                showAddProfileInfoDialog = false
+                                showStatusEditDialog = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Status (m.status, org.msc4266.status)")
+                        }
+                    }
+                    if (missingTimezone) {
+                        TextButton(
+                            onClick = {
+                                timezoneInput = TimeZone.getDefault().id
+                                showAddProfileInfoDialog = false
+                                showTimezoneEditDialog = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Timezone")
+                        }
+                    }
+                    if (missingPronouns) {
+                        TextButton(
+                            onClick = {
+                                pronounsLanguageInput = "en"
+                                pronounsSummaryInput = ""
+                                pronounsEditError = null
+                                showAddProfileInfoDialog = false
+                                showPronounsEditDialog = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Pronouns")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAddProfileInfoDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
+    if (showPronounsEditDialog) {
+        AlertDialog(
+            onDismissRequest = { showPronounsEditDialog = false },
+            title = { Text("Edit Pronouns") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = pronounsLanguageInput,
+                        onValueChange = { pronounsLanguageInput = it },
+                        label = { Text("Language") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = pronounsSummaryInput,
+                        onValueChange = { pronounsSummaryInput = it },
+                        label = { Text("Pronouns") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (pronounsEditError != null) {
+                        Text(
+                            text = pronounsEditError!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val language = pronounsLanguageInput.trim().ifBlank { "en" }
+                        val summary = pronounsSummaryInput.trim()
+                        if (summary.isBlank()) {
+                            pronounsEditError = "Pronouns cannot be empty."
+                            return@TextButton
+                        }
+                        val pronounsPayload = listOf(
+                            mapOf(
+                                "language" to language,
+                                "summary" to summary
+                            )
+                        )
+                        appViewModel.setCustomProfileField("io.fsky.nyx.pronouns", pronounsPayload)
+                        val updatedFields = userProfileInfo?.arbitraryFields?.toMutableMap() ?: mutableMapOf()
+                        val pronounsArray = JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("language", language)
+                                put("summary", summary)
+                            })
+                        }
+                        updatedFields["io.fsky.nyx.pronouns"] = pronounsArray
+                        userProfileInfo = userProfileInfo?.copy(
+                            pronouns = listOf(UserPronouns(language = language, summary = summary)),
+                            arbitraryFields = updatedFields
+                        )
+                        pronounsEditError = null
+                        showPronounsEditDialog = false
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPronounsEditDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showTimezoneEditDialog) {
+        var timezoneDropdownExpanded by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { showTimezoneEditDialog = false },
+            title = { Text("Edit Timezone") },
+            text = {
+                ExposedDropdownMenuBox(
+                    expanded = timezoneDropdownExpanded,
+                    onExpandedChange = { timezoneDropdownExpanded = !timezoneDropdownExpanded }
+                ) {
+                    OutlinedTextField(
+                        value = timezoneInput,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Timezone") },
+                        trailingIcon = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = timezoneDropdownExpanded)
+                        },
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = timezoneDropdownExpanded,
+                        onDismissRequest = { timezoneDropdownExpanded = false }
+                    ) {
+                        allTimezones.forEach { tz ->
+                            DropdownMenuItem(
+                                text = { Text(tz) },
+                                onClick = {
+                                    timezoneInput = tz
+                                    timezoneDropdownExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (timezoneInput.isBlank()) return@TextButton
+                        appViewModel.setCustomProfileField("m.tz", timezoneInput)
+                        appViewModel.setCustomProfileField("us.cloke.msc4175.tz", timezoneInput)
+                        val updatedFields = userProfileInfo?.arbitraryFields?.toMutableMap() ?: mutableMapOf()
+                        updatedFields["m.tz"] = timezoneInput
+                        updatedFields["us.cloke.msc4175.tz"] = timezoneInput
+                        userProfileInfo = userProfileInfo?.copy(
+                            timezone = timezoneInput,
+                            arbitraryFields = updatedFields
+                        )
+                        showTimezoneEditDialog = false
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimezoneEditDialog = false }) {
+                    Text("Cancel")
+                }
             }
         )
     }

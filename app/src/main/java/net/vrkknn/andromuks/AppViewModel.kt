@@ -15544,6 +15544,23 @@ class AppViewModel : ViewModel() {
         ))
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting global avatar: $mxcUrl")
     }
+
+    /**
+     * Set an arbitrary custom profile field via Gomuks WebSocket API.
+     * This is used for MSC profile fields such as m.status.
+     */
+    fun setCustomProfileField(field: String, value: Any) {
+        val requestId = requestIdCounter++
+        sendWebSocketCommand(
+            "set_profile_field",
+            requestId,
+            mapOf(
+                "field" to field,
+                "value" to value
+            )
+        )
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting custom profile field '$field'")
+    }
     /**
      * Send WebSocket command to the backend
      * Commands are sent individually with sequential request IDs
