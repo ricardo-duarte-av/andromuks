@@ -6049,15 +6049,36 @@ class AppViewModel : ViewModel() {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Batch flush completed, refreshing UI")
                     // Refresh UI with up-to-date state after batches are processed
                     refreshUIState()
+                    if (pendingCount > 0) {
+                        try {
+                            net.vrkknn.andromuks.WebSocketService.clearBatchProcessingStatus()
+                        } catch (_: Exception) {
+                            // Best-effort only; don't crash if service/notification isn't available
+                        }
+                    }
                 } catch (e: Exception) {
                     android.util.Log.e("Andromuks", "AppViewModel: Error waiting for batch flush: ${e.message}", e)
                     // Still refresh UI even if batch flush failed
                     refreshUIState()
+                    if (pendingCount > 0) {
+                        try {
+                            net.vrkknn.andromuks.WebSocketService.clearBatchProcessingStatus()
+                        } catch (_: Exception) {
+                            // Best-effort only; don't crash if service/notification isn't available
+                        }
+                    }
                 }
             }
         } else {
             // No batches to flush, refresh UI immediately
             refreshUIState()
+            if (pendingCount > 0) {
+                try {
+                    net.vrkknn.andromuks.WebSocketService.clearBatchProcessingStatus()
+                } catch (_: Exception) {
+                    // Best-effort only; don't crash if service/notification isn't available
+                }
+            }
         }
         
         // CRITICAL FIX: Ensure current user profile is loaded when app becomes visible

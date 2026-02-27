@@ -757,6 +757,15 @@ class WebSocketService : Service() {
                 serviceInstance.showBatchProcessingStatus(pendingCount)
             }
         }
+
+        /**
+         * Clear any temporary batch-processing notification text and restore
+         * the normal connection-status foreground notification in release builds.
+         */
+        fun clearBatchProcessingStatus() {
+            if (BuildConfig.DEBUG) return
+            instance?.clearBatchProcessingStatus()
+        }
         
         /**
          * Update notification with connection status
@@ -4237,6 +4246,22 @@ class WebSocketService : Service() {
         
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(NOTIFICATION_ID, notification)
+    }
+
+    /**
+     * Restore normal connection status after temporary "Processing X buffered messages…"
+     * text was shown in release foreground notification.
+     */
+    private fun clearBatchProcessingStatus() {
+        if (BuildConfig.DEBUG) return
+        // Force next status render even when connection state didn't change.
+        lastConnectionStateForNotification = null
+        lastNotificationText = null
+        updateConnectionStatus(
+            isConnected = connectionState == ConnectionState.CONNECTED,
+            lagMs = lastKnownLagMs,
+            lastSyncTimestamp = lastSyncTimestamp
+        )
     }
     
     /**
