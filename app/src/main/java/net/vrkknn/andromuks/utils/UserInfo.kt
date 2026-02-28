@@ -1078,6 +1078,15 @@ fun UserInfoScreen(
                     
                     val isDmAvailable = joinedDmRoomId != null
                     
+                    // Device List availability check
+                    val encInfo = userProfileInfo!!.encryptionInfo
+                    val deviceCount = encInfo?.devices?.size ?: 0
+                    val isDeviceListAvailable = encInfo != null && encInfo.devicesTracked && deviceCount > 0
+                    
+                    // Shared Rooms availability check
+                    val sharedRoomsCount = userProfileInfo!!.mutualRooms.size
+                    val isSharedRoomsAvailable = sharedRoomsCount > 0
+                    
                     Button(
                         onClick = {
                             if (isDmAvailable) {
@@ -1086,14 +1095,18 @@ fun UserInfoScreen(
                             }
                         },
                         enabled = isDmAvailable,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
                     ) {
-                        Text("Go to DM")
+                        Text(
+                            text = "Go to\nDM",
+                            textAlign = TextAlign.Center
+                        )
                     }
 
                     Button(
                         onClick = {
-                            val encInfo = userProfileInfo!!.encryptionInfo
                             if (encInfo != null && !encInfo.devicesTracked) {
                                 // Track devices first
                                 isLoading = true
@@ -1109,23 +1122,34 @@ fun UserInfoScreen(
                                 showDeviceListDialog = true
                             }
                         },
-                        modifier = Modifier.weight(1f)
+                        enabled = isDeviceListAvailable || (encInfo != null && !encInfo.devicesTracked),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
                     ) {
-                        val encInfo = userProfileInfo!!.encryptionInfo
                         val buttonText = when {
-                            encInfo == null -> "No Encryption Info"
-                            !encInfo.devicesTracked -> "Track Device List"
-                            else -> "Device List (${encInfo.devices?.size ?: 0})"
+                            encInfo == null -> "Device List"
+                            !encInfo.devicesTracked -> "Track Device\nList"
+                            else -> "Device List"
                         }
-                        Text(buttonText)
+                        Text(
+                            text = buttonText,
+                            textAlign = TextAlign.Center
+                        )
                     }
                     
                     // Shared Rooms Button
                     Button(
                         onClick = { showSharedRoomsDialog = true },
-                        modifier = Modifier.weight(1f)
+                        enabled = isSharedRoomsAvailable,
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
                     ) {
-                        Text("Shared Rooms (${userProfileInfo!!.mutualRooms.size})")
+                        Text(
+                            text = "Shared Rooms",
+                            textAlign = TextAlign.Center
+                        )
                     }
                 }
                 
