@@ -71,6 +71,7 @@ import net.vrkknn.andromuks.utils.getUserAgent
 import android.content.ContentValues
 import android.provider.MediaStore
 import android.os.Environment
+import android.os.SystemClock
 import android.net.Uri
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.background
@@ -82,8 +83,26 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Matrix
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LoadingIndicatorDefaults
+import androidx.graphics.shapes.Morph
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
 
 
 import org.json.JSONObject
@@ -135,14 +154,25 @@ private fun parsePowerLevelsFromContent(content: JSONObject): net.vrkknn.andromu
 }
 
 /**
- * Helper function to navigate to user info screen with optional roomId
+ * Helper function to navigate to user info screen with optional roomId and eventId
  */
-fun NavController.navigateToUserInfo(userId: String, roomId: String? = null) {
+fun NavController.navigateToUserInfo(userId: String, roomId: String? = null, eventId: String? = null) {
     val encodedUserId = java.net.URLEncoder.encode(userId, "UTF-8")
-    navigate("user_info/$encodedUserId") {
-        launchSingleTop = true
+    val encodedEventId = eventId?.let { java.net.URLEncoder.encode(it, "UTF-8") }
+    
+    // Build route - use route with eventId if available, otherwise use simple route
+    val route = if (encodedEventId != null) {
+        "user_info/$encodedUserId/$encodedEventId"
+    } else {
+        "user_info/$encodedUserId"
     }
-    // Set roomId in savedStateHandle after navigation
+    
+    if (BuildConfig.DEBUG) {
+        android.util.Log.d("Andromuks", "navigateToUserInfo: Navigating to $route (userId=$userId, eventId=$eventId)")
+    }
+    
+    navigate(route)
+    // Set roomId in savedStateHandle
     currentBackStackEntry?.savedStateHandle?.set("roomId", roomId ?: "")
 }
 
@@ -226,6 +256,77 @@ private fun extractProfileCall(arbitraryFields: Map<String, Any>): ProfileCall? 
         return ProfileCall(callJoinedTs = ts, sourceKey = key)
     }
     return null
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+private fun rememberMorphingExpressiveAvatarMaskModifier(): Modifier {
+    val shapes = LoadingIndicatorDefaults.IndeterminateIndicatorPolygons
+    if (shapes.size < 2) return Modifier
+
+    val infiniteTransition = rememberInfiniteTransition(label = "avatar_morph_transition")
+    val morphCycle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 6800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "avatar_morph_cycle"
+    )
+    val shapeRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 11000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "avatar_mask_rotation"
+    )
+
+    val segmentCount = shapes.size
+    val scaled = morphCycle * segmentCount
+    val fromIndex = kotlin.math.floor(scaled).toInt().mod(segmentCount)
+    val toIndex = (fromIndex + 1).mod(segmentCount)
+    val localProgress = scaled - kotlin.math.floor(scaled).toFloat()
+    val morph = remember(fromIndex, toIndex) { Morph(shapes[fromIndex], shapes[toIndex]) }
+    val rawPath = remember(morph, localProgress) {
+        morph.toPath(progress = localProgress)
+    }
+
+    return Modifier.drawWithContent {
+            val bounds = rawPath.getBounds()
+            if (bounds.width <= 0f || bounds.height <= 0f) {
+                drawContent()
+                return@drawWithContent
+            }
+            val scale = kotlin.math.min(size.width / bounds.width, size.height / bounds.height)
+            val dx = (size.width - bounds.width * scale) / 2f - bounds.left * scale
+            val dy = (size.height - bounds.height * scale) / 2f - bounds.top * scale
+
+            val transformedPath = Path().apply {
+                addPath(rawPath)
+                transform(
+                    Matrix().apply {
+                        translate(dx, dy)
+                        scale(scale, scale)
+                    }
+                )
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                transform(
+                    Matrix().apply {
+                        translate(cx, cy)
+                        rotateZ(shapeRotation)
+                        translate(-cx, -cy)
+                    }
+                )
+            }
+
+            clipPath(transformedPath) {
+                this@drawWithContent.drawContent()
+            }
+        }
 }
 
 private fun isSingleGrapheme(input: String): Boolean {
@@ -384,6 +485,7 @@ fun UserInfoScreen(
     navController: NavController,
     appViewModel: AppViewModel,
     roomId: String? = null,
+    eventId: String? = null,  // Add eventId parameter for shared transitions
     modifier: Modifier = Modifier,
     sharedTransitionScope: SharedTransitionScope? = null,  // ← ADD THIS
     animatedVisibilityScope: AnimatedVisibilityScope? = null  
@@ -441,6 +543,47 @@ fun UserInfoScreen(
             ?: navController.currentBackStackEntry?.savedStateHandle?.get<String>("user_info_roomId")?.takeIf { it.isNotBlank() }
     }
     val effectiveRoomId = roomId ?: roomIdFromState
+    
+    // Get eventId from route arguments or parameter for shared transition key
+    // Prefer parameter (passed from MainActivity), fallback to route arguments
+    val eventIdFromRoute = eventId ?: remember {
+        navController.currentBackStackEntry?.arguments?.getString("eventId")?.takeIf { it.isNotBlank() }
+    }
+    val sharedAvatarKey = remember(userId, eventIdFromRoute) {
+        if (eventIdFromRoute != null) {
+            "user-avatar-$eventIdFromRoute-$userId"
+        } else {
+            "user-avatar-$userId"
+        }
+    }
+    LaunchedEffect(sharedAvatarKey, eventIdFromRoute, userId) {
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "Andromuks",
+                "UserInfo: Using shared key: $sharedAvatarKey (eventIdFromRoute=$eventIdFromRoute, userId=$userId, sharedScope=${sharedTransitionScope != null}, animatedScope=${animatedVisibilityScope != null}, isLoading=$isLoading)"
+            )
+        }
+    }
+    var lastLoggedAvatarBounds by remember(sharedAvatarKey) { mutableStateOf<String?>(null) }
+    val sharedAvatarTransitionDurationMs = 380L
+    val minimumMorphVisibleMs = 180L
+    val minimumLoadingDurationMs = sharedAvatarTransitionDurationMs + minimumMorphVisibleMs
+    var loadingStartedAtMs by remember(sharedAvatarKey) { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    LaunchedEffect(sharedAvatarKey) {
+        loadingStartedAtMs = SystemClock.elapsedRealtime()
+    }
+    // Show morph overlay only after the shared transition has had time to settle.
+    // This preserves a clean avatar flight from timeline -> final slot.
+    var showMorphOverlay by remember(isLoading, sharedAvatarKey) { mutableStateOf(false) }
+    LaunchedEffect(isLoading, sharedAvatarKey) {
+        if (isLoading) {
+            showMorphOverlay = false
+            delay(sharedAvatarTransitionDurationMs)
+            showMorphOverlay = true
+        } else {
+            showMorphOverlay = false
+        }
+    }
     val myUserId = appViewModel.currentUserId
     val isOwnProfile = myUserId.isNotBlank() && userId == myUserId
     
@@ -556,7 +699,12 @@ fun UserInfoScreen(
         // Request full user info to get complete data (timezone, pronouns, encryption, mutual rooms)
         // This always makes a fresh get_profile request to the backend
         appViewModel.requestFullUserInfo(userId, forceRefresh = true) { profileInfo, error ->
-            isLoading = false
+            coroutineScope.launch {
+                val elapsed = SystemClock.elapsedRealtime() - loadingStartedAtMs
+                val remaining = (minimumLoadingDurationMs - elapsed).coerceAtLeast(0L)
+                if (remaining > 0L) delay(remaining)
+                isLoading = false
+            }
             if (error != null) {
                 errorMessage = error
                 android.util.Log.e("Andromuks", "UserInfoScreen: Error loading user info: $error")
@@ -624,13 +772,92 @@ fun UserInfoScreen(
         }
     ) { paddingValues ->
         if (isLoading) {
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = Alignment.Center
+                    .padding(paddingValues)
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                ExpressiveLoadingIndicator()
+                // Keep the shared avatar target in composition during loading so the
+                // transition can match immediately from the tapped timeline avatar.
+                val cachedProfile = appViewModel.getUserProfile(userId, effectiveRoomId ?: "")
+                val loadingDisplayName =
+                    cachedProfile?.displayName?.takeIf { it.isNotBlank() } ?: usernameFromMatrixId(userId)
+                val loadingAvatarUrl = cachedProfile?.avatarUrl
+                val morphingMaskModifier = rememberMorphingExpressiveAvatarMaskModifier()
+                Box(
+                modifier = Modifier.size(128.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                        with(sharedTransitionScope) {
+                            AvatarImage(
+                                mxcUrl = loadingAvatarUrl,
+                                homeserverUrl = appViewModel.homeserverUrl,
+                                authToken = appViewModel.authToken,
+                                fallbackText = loadingDisplayName,
+                                size = 120.dp,
+                                userId = userId,
+                                displayName = loadingDisplayName,
+                                modifier = Modifier.sharedElement(
+                                    rememberSharedContentState(key = sharedAvatarKey),
+                                    animatedVisibilityScope = animatedVisibilityScope,
+                                    boundsTransform = { _, _ ->
+                                        tween(durationMillis = 380, easing = LinearEasing)
+                                    },
+                                    renderInOverlayDuringTransition = true,
+                                    zIndexInOverlay = 1f
+                                )
+                                    .graphicsLayer {
+                                        // Once morph overlay is visible, hide the base shared avatar
+                                        // so the clipping effect remains visible.
+                                        alpha = if (showMorphOverlay) 0f else 1f
+                                    }
+                                    .onGloballyPositioned { coords ->
+                                        if (BuildConfig.DEBUG) {
+                                            val b = coords.boundsInWindow()
+                                            val token = "${b.left.toInt()},${b.top.toInt()},${b.width.toInt()},${b.height.toInt()},loading=true"
+                                            if (token != lastLoggedAvatarBounds) {
+                                                lastLoggedAvatarBounds = token
+                                                android.util.Log.d(
+                                                    "Andromuks",
+                                                    "UserInfo: shared avatar bounds (loading) key=$sharedAvatarKey bounds=(${b.left.toInt()},${b.top.toInt()}) ${b.width.toInt()}x${b.height.toInt()}"
+                                                )
+                                            }
+                                        }
+                                    }
+                            )
+                        }
+                    } else {
+                        AvatarImage(
+                            mxcUrl = loadingAvatarUrl,
+                            homeserverUrl = appViewModel.homeserverUrl,
+                            authToken = appViewModel.authToken,
+                            fallbackText = loadingDisplayName,
+                            size = 120.dp,
+                            userId = userId,
+                            displayName = loadingDisplayName,
+                            modifier = Modifier
+                        )
+                    }
+                    // Morph overlay appears after shared transition settles.
+                    // It is rendered in the exact final slot and removed when loading ends.
+                    if (showMorphOverlay) {
+                        AvatarImage(
+                            mxcUrl = loadingAvatarUrl,
+                            homeserverUrl = appViewModel.homeserverUrl,
+                            authToken = appViewModel.authToken,
+                            fallbackText = loadingDisplayName,
+                            size = 120.dp,
+                            userId = userId,
+                            displayName = loadingDisplayName,
+                            modifier = Modifier.then(morphingMaskModifier)
+                        )
+                    }
+                }
             }
         } else if (errorMessage != null) {
             Box(
@@ -702,7 +929,8 @@ fun UserInfoScreen(
                     val hasRoomSpecificDisplayName = roomDisplayName != null && roomDisplayName != globalDisplayName
                     val displayNameForAvatar = if (hasRoomSpecificDisplayName) roomDisplayName else (globalDisplayName ?: usernameFromMatrixId(userId))
                     
-                    // Main avatar (room-specific if available, otherwise global)
+                    // Keep sharedElement in loaded state too so destination node remains stable
+                    // across fast loading transitions. Morph overlay is loading-only.
                     if (sharedTransitionScope != null && animatedVisibilityScope != null) {
                         with(sharedTransitionScope) {
                             AvatarImage(
@@ -714,19 +942,30 @@ fun UserInfoScreen(
                                 userId = userId,
                                 displayName = displayNameForAvatar,
                                 modifier = Modifier.sharedElement(
-                                    rememberSharedContentState(key = "user-avatar-$userId"),
+                                    rememberSharedContentState(key = sharedAvatarKey),
                                     animatedVisibilityScope = animatedVisibilityScope,
                                     boundsTransform = { _, _ ->
-                                        spring(
-                                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                                            stiffness = Spring.StiffnessMedium
-                                        )
-                                    }
+                                        tween(durationMillis = 380, easing = LinearEasing)
+                                    },
+                                    renderInOverlayDuringTransition = true,
+                                    zIndexInOverlay = 1f
                                 )
+                                    .onGloballyPositioned { coords ->
+                                        if (BuildConfig.DEBUG) {
+                                            val b = coords.boundsInWindow()
+                                            val token = "${b.left.toInt()},${b.top.toInt()},${b.width.toInt()},${b.height.toInt()},loading=false"
+                                            if (token != lastLoggedAvatarBounds) {
+                                                lastLoggedAvatarBounds = token
+                                                android.util.Log.d(
+                                                    "Andromuks",
+                                                    "UserInfo: shared avatar bounds (loaded) key=$sharedAvatarKey bounds=(${b.left.toInt()},${b.top.toInt()}) ${b.width.toInt()}x${b.height.toInt()}"
+                                                )
+                                            }
+                                        }
+                                    }
                             )
                         }
                     } else {
-                        // Fallback without shared element
                         AvatarImage(
                             mxcUrl = avatarUrlToUse,
                             homeserverUrl = appViewModel.homeserverUrl,

@@ -1020,10 +1020,48 @@ fun AppNavigation(
                 navArgument("roomId") { type = NavType.StringType }
             ),
             // Fades only = Smooth Shared Element flight
-            enterTransition = { fadeIn(tween(500)) },
-            exitTransition = { fadeOut(tween(500)) },
-            popEnterTransition = { fadeIn(tween(500)) },
-            popExitTransition = { fadeOut(tween(500)) }
+            // IMPORTANT: When transitioning to/from user_info, disable route fades so
+            // shared-element avatar motion remains the only animation.
+            enterTransition = {
+                val fromUserInfo = initialState.destination.route?.startsWith("user_info") == true
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "Andromuks",
+                        "MainActivity room_timeline enterTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, fromUserInfo=$fromUserInfo"
+                    )
+                }
+                if (fromUserInfo) null else fadeIn(tween(500))
+            },
+            exitTransition = {
+                val toUserInfo = targetState.destination.route?.startsWith("user_info") == true
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "Andromuks",
+                        "MainActivity room_timeline exitTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, toUserInfo=$toUserInfo"
+                    )
+                }
+                if (toUserInfo) null else fadeOut(tween(500))
+            },
+            popEnterTransition = {
+                val fromUserInfo = initialState.destination.route?.startsWith("user_info") == true
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "Andromuks",
+                        "MainActivity room_timeline popEnterTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, fromUserInfo=$fromUserInfo"
+                    )
+                }
+                if (fromUserInfo) null else fadeIn(tween(500))
+            },
+            popExitTransition = {
+                val toUserInfo = targetState.destination.route?.startsWith("user_info") == true
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "Andromuks",
+                        "MainActivity room_timeline popExitTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, toUserInfo=$toUserInfo"
+                    )
+                }
+                if (toUserInfo) null else fadeOut(tween(500))
+            }
         ) { backStackEntry ->
             val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
             val roomName = appViewModel.getRoomById(roomId)?.name ?: ""
@@ -1176,6 +1214,36 @@ fun AppNavigation(
                 modifier = modifier
             )
         }
+        // Route with eventId (for shared transitions)
+        composable(
+            route = "user_info/{userId}/{eventId}",
+            arguments = listOf(
+                navArgument("userId") { type = NavType.StringType },
+                navArgument("eventId") { type = NavType.StringType }
+            ),
+            enterTransition = null,  // Let shared element handle it
+            exitTransition = null,
+            popEnterTransition = null,
+            popExitTransition = null
+        ) { backStackEntry: NavBackStackEntry ->
+            val userId = backStackEntry.arguments?.getString("userId") ?: ""
+            val eventId = backStackEntry.arguments?.getString("eventId")?.takeIf { it.isNotBlank() }
+            // Extract roomId from savedStateHandle (set during navigation)
+            val roomId = backStackEntry.savedStateHandle.get<String>("roomId")?.takeIf { it.isNotBlank() }
+                ?: backStackEntry.savedStateHandle.get<String>("user_info_roomId")?.takeIf { it.isNotBlank() }
+
+            net.vrkknn.andromuks.utils.UserInfoScreen(
+                userId = userId,
+                navController = navController,
+                appViewModel = appViewModel,
+                roomId = roomId,
+                eventId = eventId,  // Pass eventId from route
+                modifier = modifier,
+                sharedTransitionScope = this@SharedTransitionLayout,
+                animatedVisibilityScope = this@composable
+            )
+        }
+        // Route without eventId (fallback for other navigation paths)
         composable(
             route = "user_info/{userId}",
             arguments = listOf(
@@ -1196,6 +1264,7 @@ fun AppNavigation(
                 navController = navController,
                 appViewModel = appViewModel,
                 roomId = roomId,
+                eventId = null,  // No eventId for this route
                 modifier = modifier,
                 sharedTransitionScope = this@SharedTransitionLayout,
                 animatedVisibilityScope = this@composable

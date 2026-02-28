@@ -51,6 +51,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalDensity
@@ -62,6 +63,9 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.geometry.Rect
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.utils.AnimatedInlineReadReceiptAvatars
 import net.vrkknn.andromuks.utils.EmoteEventNarrator
@@ -1073,10 +1077,6 @@ private fun RoomMediaMessageContent(
     onShowEditHistory: (() -> Unit)? = null,
     onShowMenu: ((MessageMenuConfig) -> Unit)? = null
 ) {
-    if (BuildConfig.DEBUG) Log.d(
-        "Andromuks",
-        "TimelineEventItem: Found media message - msgType=$msgType, body=$body"
-    )
 
     val colorScheme = MaterialTheme.colorScheme
     val mediaHasBeenEdited = remember(event.eventId, appViewModel?.timelineUpdateCounter) {
@@ -1172,10 +1172,6 @@ private fun RoomMediaMessageContent(
     val filename = content?.optString("filename", "") ?: ""
     val info = content?.optJSONObject("info")
 
-    if (BuildConfig.DEBUG) Log.d(
-        "Andromuks",
-        "TimelineEventItem: Media data - url=$url, filename=$filename, info=${info != null}, hasEncryptedFile=$hasEncryptedFile"
-    )
 
     if (url.isNotBlank() && info != null) {
         // Media parsing and display logic would go here
@@ -3062,6 +3058,7 @@ fun TimelineEventItem(
     onEdit: (TimelineEvent) -> Unit = {},
     onDelete: (TimelineEvent) -> Unit = {},
     onUserClick: (String) -> Unit = {},
+    onUserAvatarClick: (String, String) -> Unit = { userId, _ -> onUserClick(userId) },
     onRoomLinkClick: (RoomLink) -> Unit = {},
     onThreadClick: (TimelineEvent) -> Unit = {},
     onNewBubbleAnimationStart: (() -> Unit)? = null,
@@ -3352,18 +3349,61 @@ fun TimelineEventItem(
                 modifier = Modifier.width(AvatarColumnWidth), // Avatar width (wider to fit timestamp)
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Box(modifier = Modifier.clickable { onUserClick(profileTapUserId) }) {
-                    // Don't use shared element for timeline message avatars
-                    AvatarImage(
-                        mxcUrl = avatarUrl,
-                        homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
-                        authToken = authToken,
-                        fallbackText = (displayName ?: event.sender).take(1),
-                        size = 24.dp,
-                        userId = event.sender,
-                        displayName = displayName,
-                        isVisible = true
-                    )
+                var leftAvatarBounds by remember(event.eventId) { mutableStateOf<Rect?>(null) }
+                Box(modifier = Modifier
+                    .onGloballyPositioned { coords ->
+                        leftAvatarBounds = coords.boundsInWindow()
+                    }
+                    .clickable {
+                    if (BuildConfig.DEBUG) {
+                        val tapSharedKey = "user-avatar-${event.eventId}-${event.sender}"
+                        val b = leftAvatarBounds
+                        Log.d(
+                            "Andromuks",
+                            "TimelineEventItem: Avatar tap (left) -> key=$tapSharedKey, " +
+                                "sharedScope=${sharedTransitionScope != null}, animatedScope=${animatedVisibilityScope != null}, " +
+                                "bounds=${b?.let { "(${it.left.toInt()},${it.top.toInt()}) ${it.width.toInt()}x${it.height.toInt()}" } ?: "null"}"
+                        )
+                    }
+                    onUserAvatarClick(profileTapUserId, event.eventId)
+                }) {
+                    // Use shared element for timeline message avatars with eventId-based key
+                    if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                        val sharedKey = "user-avatar-${event.eventId}-${event.sender}"
+                        with(sharedTransitionScope) {
+                            AvatarImage(
+                                mxcUrl = avatarUrl,
+                                homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                                authToken = authToken,
+                                fallbackText = (displayName ?: event.sender).take(1),
+                                size = 24.dp,
+                                userId = event.sender,
+                                displayName = displayName,
+                                isVisible = true,
+                                modifier = Modifier.sharedElement(
+                                    rememberSharedContentState(key = sharedKey),
+                                    animatedVisibilityScope = animatedVisibilityScope,
+                                    boundsTransform = { _, _ ->
+                                        tween(durationMillis = 380, easing = LinearEasing)
+                                    },
+                                    renderInOverlayDuringTransition = true,
+                                    zIndexInOverlay = 1f
+                                )
+                            )
+                        }
+                    } else {
+                        // Fallback without shared element
+                        AvatarImage(
+                            mxcUrl = avatarUrl,
+                            homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                            authToken = authToken,
+                            fallbackText = (displayName ?: event.sender).take(1),
+                            size = 24.dp,
+                            userId = event.sender,
+                            displayName = displayName,
+                            isVisible = true
+                        )
+                    }
                 }
                 // Timestamp below avatar (smaller font)
                 val timestampText = if (editedBy != null) {
@@ -3589,18 +3629,61 @@ fun TimelineEventItem(
                 modifier = Modifier.width(AvatarColumnWidth),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Box(modifier = Modifier.clickable { onUserClick(profileTapUserId) }) {
-                    // Don't use shared element for timeline message avatars
-                    AvatarImage(
-                        mxcUrl = avatarUrl,
-                        homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
-                        authToken = authToken,
-                        fallbackText = (displayName ?: event.sender).take(1),
-                        size = 24.dp,
-                        userId = event.sender,
-                        displayName = displayName,
-                        isVisible = true
-                    )
+                var rightAvatarBounds by remember(event.eventId) { mutableStateOf<Rect?>(null) }
+                Box(modifier = Modifier
+                    .onGloballyPositioned { coords ->
+                        rightAvatarBounds = coords.boundsInWindow()
+                    }
+                    .clickable {
+                    if (BuildConfig.DEBUG) {
+                        val tapSharedKey = "user-avatar-${event.eventId}-${event.sender}"
+                        val b = rightAvatarBounds
+                        Log.d(
+                            "Andromuks",
+                            "TimelineEventItem: Avatar tap (right) -> key=$tapSharedKey, " +
+                                "sharedScope=${sharedTransitionScope != null}, animatedScope=${animatedVisibilityScope != null}, " +
+                                "bounds=${b?.let { "(${it.left.toInt()},${it.top.toInt()}) ${it.width.toInt()}x${it.height.toInt()}" } ?: "null"}"
+                        )
+                    }
+                    onUserAvatarClick(profileTapUserId, event.eventId)
+                }) {
+                    // Use shared element for timeline message avatars with eventId-based key
+                    if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                        val sharedKey = "user-avatar-${event.eventId}-${event.sender}"
+                        with(sharedTransitionScope) {
+                            AvatarImage(
+                                mxcUrl = avatarUrl,
+                                homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                                authToken = authToken,
+                                fallbackText = (displayName ?: event.sender).take(1),
+                                size = 24.dp,
+                                userId = event.sender,
+                                displayName = displayName,
+                                isVisible = true,
+                                modifier = Modifier.sharedElement(
+                                    rememberSharedContentState(key = sharedKey),
+                                    animatedVisibilityScope = animatedVisibilityScope,
+                                    boundsTransform = { _, _ ->
+                                        tween(durationMillis = 380, easing = LinearEasing)
+                                    },
+                                    renderInOverlayDuringTransition = true,
+                                    zIndexInOverlay = 1f
+                                )
+                            )
+                        }
+                    } else {
+                        // Fallback without shared element
+                        AvatarImage(
+                            mxcUrl = avatarUrl,
+                            homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                            authToken = authToken,
+                            fallbackText = (displayName ?: event.sender).take(1),
+                            size = 24.dp,
+                            userId = event.sender,
+                            displayName = displayName,
+                            isVisible = true
+                        )
+                    }
                 }
                 val timestampText = if (editedBy != null) {
                     "${formatTimestamp(event.timestamp)} (edited at ${formatTimestamp(editedBy.timestamp)})"

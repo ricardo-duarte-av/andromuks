@@ -110,6 +110,7 @@ dependencies {
     implementation("androidx.compose.animation:animation:1.8.0-alpha05")
     implementation("androidx.compose.foundation:foundation:1.7.8")
     implementation("androidx.compose.ui:ui:1.7.8")
+    implementation("androidx.graphics:graphics-shapes:1.0.1")
 
 
 

@@ -2248,11 +2248,14 @@ fun RoomTimelineScreen(
     }
 
     LaunchedEffect(roomId) {
-        readinessCheckComplete = false
-        pendingInitialScroll = true
-        lastInitialScrollSize = 0
-        highlightedEventId = null
-        highlightRequestId = 0
+        val isWarmTimelineReturn = appViewModel.currentRoomId == roomId && appViewModel.timelineEvents.isNotEmpty()
+        readinessCheckComplete = isWarmTimelineReturn
+        pendingInitialScroll = !isWarmTimelineReturn
+        if (!isWarmTimelineReturn) {
+            lastInitialScrollSize = 0
+            highlightedEventId = null
+            highlightRequestId = 0
+        }
         appViewModel.promoteToPrimaryIfNeeded("room_timeline_$roomId")
         
         // PERFORMANCE FIX: Only call navigateToRoomWithCache if room isn't already loaded
@@ -2265,11 +2268,15 @@ fun RoomTimelineScreen(
             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room $roomId already loaded (${appViewModel.timelineEvents.size} events), skipping navigateToRoomWithCache")
         }
         
-        val requireInitComplete = !appViewModel.isWebSocketConnected()
-        val readinessResult = appViewModel.awaitRoomDataReadiness(requireInitComplete = requireInitComplete, roomId = roomId)
-        readinessCheckComplete = true
-        if (!readinessResult && BuildConfig.DEBUG) {
-            Log.w("Andromuks", "RoomTimelineScreen: Readiness timeout while opening $roomId - continuing with partial data")
+        if (!isWarmTimelineReturn) {
+            val requireInitComplete = !appViewModel.isWebSocketConnected()
+            val readinessResult = appViewModel.awaitRoomDataReadiness(requireInitComplete = requireInitComplete, roomId = roomId)
+            readinessCheckComplete = true
+            if (!readinessResult && BuildConfig.DEBUG) {
+                Log.w("Andromuks", "RoomTimelineScreen: Readiness timeout while opening $roomId - continuing with partial data")
+            }
+        } else if (BuildConfig.DEBUG) {
+            Log.d("Andromuks", "RoomTimelineScreen: Warm return for $roomId - skipping readiness wait")
         }
         if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Loading timeline for room: $roomId")
         // CRITICAL FIX: Set currentRoomId immediately when screen opens (for all navigation paths)
@@ -2295,10 +2302,12 @@ fun RoomTimelineScreen(
             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Setting loading state for room: $roomId")
         }
         
-        // Request room state
-        // NOTE: navigateToRoomWithCache() already calls requestRoomTimeline() if cache is empty,
-        // so we don't need to call it again here to avoid duplicate paginate requests
-        appViewModel.requestRoomState(roomId)
+        // Request room state on cold open only to avoid jank on warm pop-back from UserInfo.
+        if (!isWarmTimelineReturn) {
+            // NOTE: navigateToRoomWithCache() already calls requestRoomTimeline() if cache is empty,
+            // so we don't need to call it again here to avoid duplicate paginate requests
+            appViewModel.requestRoomState(roomId)
+        }
     }
     
     // CRITICAL FIX: Clear currentRoomId when leaving the room (back navigation or room change)
@@ -2311,11 +2320,17 @@ fun RoomTimelineScreen(
         RoomTimelineCache.addOpenedRoom(roomId)
         
         onDispose {
-            // CRITICAL: Remove room from opened rooms when screen closes
-            RoomTimelineCache.removeOpenedRoom(roomId)
+            val destinationRoute = navController.currentBackStackEntry?.destination?.route.orEmpty()
+            val keepWarmForUserInfo = destinationRoute.startsWith("user_info")
+            // Keep timeline warm when navigating to UserInfo so pop-back remains fluid.
+            if (!keepWarmForUserInfo) {
+                RoomTimelineCache.removeOpenedRoom(roomId)
+            } else if (BuildConfig.DEBUG) {
+                Log.d("Andromuks", "RoomTimelineScreen: Keeping room $roomId warm while in UserInfo")
+            }
             // Only clear if this room is still the current room (user navigated away)
             // If user switched to a different room, the new room's LaunchedEffect will have already set currentRoomId
-            if (appViewModel.currentRoomId == roomId) {
+            if (!keepWarmForUserInfo && appViewModel.currentRoomId == roomId) {
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Disposing - clearing currentRoomId for room: $roomId")
                 appViewModel.clearCurrentRoomId()
             } else {
@@ -2982,8 +2997,14 @@ fun RoomTimelineScreen(
                                                 deletingEvent = event
                                                 showDeleteDialog = true
                                                 },
+                                                onUserAvatarClick = { userId, tappedEventId ->
+                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: onUserAvatarClick -> userId=$userId, tappedEventId=$tappedEventId")
+                                                navController.navigateToUserInfo(userId, roomId, tappedEventId)
+                                                },
                                                 onUserClick = { userId ->
-                                                navController.navigateToUserInfo(userId, roomId)
+                                                // Pass eventId for shared transition animation
+                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Navigating to user info - userId=$userId, eventId=${event.eventId}")
+                                                navController.navigateToUserInfo(userId, roomId, event.eventId)
                                                 },
                                                 onRoomLinkClick = { roomLink ->
                                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room link clicked: ${roomLink.roomIdOrAlias}")
