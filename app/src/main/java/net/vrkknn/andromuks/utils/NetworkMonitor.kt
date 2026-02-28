@@ -5,6 +5,8 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.wifi.WifiInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.util.Log
 import net.vrkknn.andromuks.BuildConfig
@@ -25,14 +27,18 @@ class NetworkMonitor(
     private val context: Context,
     private val onNetworkAvailable: (NetworkType) -> Unit,  // Network became available (or changed type)
     private val onNetworkLost: () -> Unit,                   // Network lost (offline)
-    private val onNetworkTypeChanged: (NetworkType, NetworkType) -> Unit  // Network type changed (e.g., WiFi → Mobile)
+    private val onNetworkTypeChanged: (NetworkType, NetworkType) -> Unit,  // Network type changed (e.g., WiFi → Mobile)
+    private val onNetworkIdentityChanged: (NetworkType, String?, NetworkType, String?) -> Unit  // Network identity changed (e.g., WiFi AP Alpha → WiFi AP Beta, includes SSID for WiFi)
 ) {
     private val connectivityManager: ConnectivityManager = 
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    private val wifiManager: WifiManager? = 
+        context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
     
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var lastNetworkType: NetworkType? = null
     private var lastNetwork: Network? = null
+    private var lastNetworkIdentity: String? = null  // SSID for WiFi, null for other types
     // Track all available networks to detect when WiFi is still connected but lost validation
     private val availableNetworks = mutableMapOf<Network, NetworkType>()
     
@@ -59,18 +65,31 @@ class NetworkMonitor(
             override fun onAvailable(network: Network) {
                 val networkType = getNetworkType(network)
                 val previousType = lastNetworkType
+                val previousIdentity = lastNetworkIdentity
+                
+                // Get network identity (SSID for WiFi)
+                val networkIdentity = getNetworkIdentity(networkType, network)
                 
                 // Track this network as available
                 availableNetworks[network] = networkType
                 
                 if (BuildConfig.DEBUG) {
-                    Log.d("NetworkMonitor", "Network available: $networkType (previous: $previousType, total available: ${availableNetworks.size})")
+                    Log.d("NetworkMonitor", "Network available: $networkType (identity: $networkIdentity, previous: $previousType/$previousIdentity, total available: ${availableNetworks.size})")
                 }
                 
                 // CRITICAL FIX: Prefer Cellular (5G/4G) over WiFi, but only report network type change
                 // if the previous network actually disconnected (not just lost validation)
                 // This prevents false "network type change" notifications when WiFi is still connected
                 val preferredNetworkType = getPreferredNetworkType()
+                
+                // Check if network identity changed (e.g., WiFi AP Alpha → WiFi AP Beta)
+                val identityChanged = if (networkType == NetworkType.WIFI && previousType == NetworkType.WIFI) {
+                    // Both are WiFi - check if SSID changed
+                    networkIdentity != previousIdentity
+                } else {
+                    // Network type changed or not WiFi
+                    false
+                }
                 
                 // Only report network type change if:
                 // 1. Previous network type was different AND
@@ -91,17 +110,23 @@ class NetworkMonitor(
                             // Update to preferred network type but don't trigger callbacks
                             lastNetworkType = preferredNetworkType
                             lastNetwork = network
+                            lastNetworkIdentity = getNetworkIdentity(preferredNetworkType, network)
                             return // Don't report network type change
                         } else {
                             // Previous network type is not available anymore - this is a real change
                             Log.i("NetworkMonitor", "Network type changed: $previousType → $preferredNetworkType")
                             onNetworkTypeChanged(previousType, preferredNetworkType)
                         }
+                    } else if (identityChanged) {
+                        // Same network type (WiFi) but identity changed (different AP)
+                        Log.i("NetworkMonitor", "Network identity changed: $previousType ($previousIdentity) → $preferredNetworkType ($networkIdentity)")
+                        onNetworkIdentityChanged(previousType, previousIdentity, preferredNetworkType, networkIdentity)
                     }
                 }
                 
                 lastNetworkType = preferredNetworkType
                 lastNetwork = network
+                lastNetworkIdentity = networkIdentity
                 
                 // Network is available - trigger reconnection if needed
                 onNetworkAvailable(preferredNetworkType)
@@ -110,12 +135,13 @@ class NetworkMonitor(
             override fun onLost(network: Network) {
                 // Get network type before removing (for logging and type change notification)
                 val lostNetworkType = availableNetworks[network]
+                val lostIdentity = if (network == lastNetwork) lastNetworkIdentity else null
                 
                 // Remove from available networks
                 availableNetworks.remove(network)
                 
                 if (BuildConfig.DEBUG) {
-                    Log.w("NetworkMonitor", "Network lost: $network (type: $lostNetworkType, was: $lastNetworkType, remaining: ${availableNetworks.size})")
+                    Log.w("NetworkMonitor", "Network lost: $network (type: $lostNetworkType, identity: $lostIdentity, was: $lastNetworkType/$lastNetworkIdentity, remaining: ${availableNetworks.size})")
                 }
                 
                 // Check if this was the active network
@@ -129,14 +155,19 @@ class NetworkMonitor(
                             Log.d("NetworkMonitor", "Active network lost, switching to: $preferredNetworkType")
                         }
                         val previousType = lostNetworkType ?: lastNetworkType ?: NetworkType.NONE
+                        val newNetwork = availableNetworks.entries.firstOrNull { it.value == preferredNetworkType }?.key
+                        val newIdentity = getNetworkIdentity(preferredNetworkType, newNetwork)
+                        
                         lastNetworkType = preferredNetworkType
-                        lastNetwork = availableNetworks.entries.firstOrNull { it.value == preferredNetworkType }?.key
+                        lastNetwork = newNetwork
+                        lastNetworkIdentity = newIdentity
                         onNetworkTypeChanged(previousType, preferredNetworkType)
                         onNetworkAvailable(preferredNetworkType)
                     } else {
                         // No networks available - we're offline
                         lastNetworkType = NetworkType.NONE
                         lastNetwork = null
+                        lastNetworkIdentity = null
                         onNetworkLost()
                     }
                 }
@@ -199,6 +230,7 @@ class NetworkMonitor(
                     
                     lastNetworkType = preferredNetworkType
                     lastNetwork = network
+                    lastNetworkIdentity = getNetworkIdentity(preferredNetworkType, network)
                 } else if (!hasInternet || !isValidated) {
                     // Network lost internet access or validation
                     // Remove from available networks if it lost validation
@@ -237,16 +269,21 @@ class NetworkMonitor(
                                 if (BuildConfig.DEBUG) {
                                     Log.d("NetworkMonitor", "Network ($networkType) lost validation but still connected - switching to preferred network ($newPreferredType) silently")
                                 }
+                                val newNetwork = availableNetworks.entries.firstOrNull { it.value == newPreferredType }?.key
                                 lastNetworkType = newPreferredType
-                                lastNetwork = availableNetworks.entries.firstOrNull { it.value == newPreferredType }?.key
+                                lastNetwork = newNetwork
+                                lastNetworkIdentity = getNetworkIdentity(newPreferredType, newNetwork)
                                 // Don't trigger callbacks - this is a silent switch
                             } else {
                                 // Current network actually disconnected - this is a real change
                                 if (BuildConfig.DEBUG) {
                                     Log.d("NetworkMonitor", "Network lost validation and disconnected, switching to: $newPreferredType")
                                 }
+                                val newNetwork = availableNetworks.entries.firstOrNull { it.value == newPreferredType }?.key
+                                val newIdentity = getNetworkIdentity(newPreferredType, newNetwork)
                                 lastNetworkType = newPreferredType
-                                lastNetwork = availableNetworks.entries.firstOrNull { it.value == newPreferredType }?.key
+                                lastNetwork = newNetwork
+                                lastNetworkIdentity = newIdentity
                                 onNetworkTypeChanged(networkType, newPreferredType)
                                 onNetworkAvailable(newPreferredType)
                             }
@@ -263,6 +300,7 @@ class NetworkMonitor(
                 }
                 lastNetworkType = NetworkType.NONE
                 lastNetwork = null
+                lastNetworkIdentity = null
                 onNetworkLost()
             }
         }
@@ -291,6 +329,7 @@ class NetworkMonitor(
         }
         lastNetworkType = null
         lastNetwork = null
+        lastNetworkIdentity = null
     }
     
     /**
@@ -320,6 +359,56 @@ class NetworkMonitor(
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> NetworkType.ETHERNET
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> NetworkType.VPN
             else -> NetworkType.OTHER
+        }
+    }
+    
+    /**
+     * Get WiFi SSID from the active network
+     * Returns null if not on WiFi or SSID cannot be determined
+     */
+    private fun getWifiSSID(network: Network? = null): String? {
+        if (wifiManager == null) return null
+        
+        return try {
+            val wifiInfo: WifiInfo? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // Android 10+ (API 29+): Use WifiManager.getConnectionInfo() which works with Network objects
+                // The Network object is used by ConnectivityManager to route traffic, but WifiManager
+                // still provides the SSID through connectionInfo
+                wifiManager.connectionInfo
+            } else {
+                // Android 9 and below: Direct access
+                wifiManager.connectionInfo
+            }
+            
+            val ssid = wifiInfo?.ssid
+            // SSID is returned with quotes on some devices, remove them
+            // Also check for "<unknown ssid>" which indicates SSID is not available
+            if (ssid != null && ssid != "<unknown ssid>" && ssid.isNotBlank()) {
+                ssid.removeSurrounding("\"")
+            } else {
+                null
+            }
+        } catch (e: SecurityException) {
+            // Permission denied (shouldn't happen if permissions are set correctly)
+            if (BuildConfig.DEBUG) {
+                Log.w("NetworkMonitor", "Permission denied getting WiFi SSID: ${e.message}")
+            }
+            null
+        } catch (e: Exception) {
+            if (BuildConfig.DEBUG) {
+                Log.w("NetworkMonitor", "Failed to get WiFi SSID: ${e.message}")
+            }
+            null
+        }
+    }
+    
+    /**
+     * Get network identity string (SSID for WiFi, null for other types)
+     */
+    private fun getNetworkIdentity(networkType: NetworkType, network: Network? = null): String? {
+        return when (networkType) {
+            NetworkType.WIFI -> getWifiSSID(network)
+            else -> null  // Other network types don't have identity we track
         }
     }
     
