@@ -76,6 +76,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -410,6 +412,7 @@ fun MediaMessage(
     val useThumbnails = appViewModel?.loadThumbnailsIfAvailable ?: true
     val renderThumbnailsAlways = appViewModel?.renderThumbnailsAlways ?: true
     var showImageViewer by remember { mutableStateOf(false) }
+    var imageViewerSourceBounds by remember { mutableStateOf<Rect?>(null) }
     var showVideoPlayer by remember { mutableStateOf(false) }
     // State for inline video player
     var isVideoPlayingInline by remember { mutableStateOf(false) }
@@ -426,7 +429,11 @@ fun MediaMessage(
             homeserverUrl = homeserverUrl,
             authToken = authToken,
             isEncrypted = isEncrypted,
-            onDismiss = { showImageViewer = false }
+            sourceBounds = imageViewerSourceBounds,
+            onDismiss = {
+                showImageViewer = false
+                imageViewerSourceBounds = null
+            }
         )
     }
     
@@ -539,11 +546,12 @@ fun MediaMessage(
                         loadThumbnailsIfAvailable = useThumbnails,
                         renderThumbnailsAlways = renderThumbnailsAlways,
                         isMine = isMine,
-                        onImageClick = { 
+                        onImageClick = { sourceBounds ->
                             if (mediaMessage.msgType == "m.video") {
                                 // Toggle inline player instead of opening fullscreen
                                 isVideoPlayingInline = !isVideoPlayingInline
                             } else {
+                                imageViewerSourceBounds = sourceBounds
                                 showImageViewer = true
                             }
                         },
@@ -620,11 +628,12 @@ fun MediaMessage(
                         loadThumbnailsIfAvailable = useThumbnails,
                         renderThumbnailsAlways = renderThumbnailsAlways,
                         isMine = isMine,
-                        onImageClick = { 
+                        onImageClick = { sourceBounds ->
                             if (mediaMessage.msgType == "m.video") {
                                 // Toggle inline player instead of opening fullscreen
                                 isVideoPlayingInline = !isVideoPlayingInline
                             } else {
+                                imageViewerSourceBounds = sourceBounds
                                 showImageViewer = true
                             }
                         },
@@ -702,11 +711,12 @@ fun MediaMessage(
                         loadThumbnailsIfAvailable = useThumbnails,
                         renderThumbnailsAlways = renderThumbnailsAlways,
                         isMine = isMine,
-                        onImageClick = { 
+                        onImageClick = { sourceBounds ->
                             if (mediaMessage.msgType == "m.video") {
                                 // Toggle inline player instead of opening fullscreen
                                 isVideoPlayingInline = !isVideoPlayingInline
                             } else {
+                                imageViewerSourceBounds = sourceBounds
                                 showImageViewer = true
                             }
                         },
@@ -772,11 +782,12 @@ fun MediaMessage(
                         loadThumbnailsIfAvailable = useThumbnails,
                         renderThumbnailsAlways = renderThumbnailsAlways,
                         isMine = isMine,
-                        onImageClick = { 
+                        onImageClick = { sourceBounds ->
                             if (mediaMessage.msgType == "m.video") {
                                 // Toggle inline player instead of opening fullscreen
                                 isVideoPlayingInline = !isVideoPlayingInline
                             } else {
+                                imageViewerSourceBounds = sourceBounds
                                 showImageViewer = true
                             }
                         },
@@ -846,7 +857,7 @@ private fun MediaContent(
     loadThumbnailsIfAvailable: Boolean,
     renderThumbnailsAlways: Boolean = true,
     isMine: Boolean = false, // For determining bubble shape
-    onImageClick: () -> Unit = {},
+    onImageClick: (Rect?) -> Unit = {},
     onImageLongPress: (() -> Unit)? = null,
     isVideoPlayingInline: Boolean = false, // For inline video player
     onFullscreenRequest: (currentPosition: Long, isPlaying: Boolean) -> Unit = { _, _ -> } // Callback for fullscreen request from inline player
@@ -963,6 +974,10 @@ private fun MediaContent(
                 } else null
             }
 
+            var previewBounds by remember(mediaMessage.url, mediaMessage.info.thumbnailUrl, useThumbnail) {
+                mutableStateOf<Rect?>(null)
+            }
+
             // Image frame with border and padding (2dp on all sides)
             // Use same rounded corners as message bubble (all corners)
             val imageFrameShape = RoundedCornerShape(
@@ -1002,7 +1017,10 @@ private fun MediaContent(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(imageFrameShape),
+                        .clip(imageFrameShape)
+                        .onGloballyPositioned { coords ->
+                            previewBounds = coords.boundsInWindow()
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     val context = LocalContext.current
@@ -1253,7 +1271,7 @@ private fun MediaContent(
                                 .aspectRatio(loadedAspectRatio)
                                 .scale(1.02f) // Make image slightly larger than frame so it gets clipped
                                 .combinedClickable(
-                                    onClick = { onImageClick() },
+                                    onClick = { onImageClick(previewBounds) },
                                     onLongClick = { onImageLongPress?.invoke() }
                                 ),
                             placeholder = blurHashPainter,
@@ -1516,7 +1534,7 @@ private fun MediaContent(
                                         Modifier
                                             .fillMaxSize()
                                             .combinedClickable(
-                                                onClick = { onImageClick() },
+                                                onClick = { onImageClick(previewBounds) },
                                                 onLongClick = { onImageLongPress?.invoke() }
                                             ),
                                     placeholder = thumbnailBlurHashPainter,
@@ -1557,7 +1575,7 @@ private fun MediaContent(
                                         modifier = Modifier
                                             .fillMaxSize()
                                             .combinedClickable(
-                                                onClick = { onImageClick() },
+                                                onClick = { onImageClick(previewBounds) },
                                                 onLongClick = { onImageLongPress?.invoke() }
                                             ),
                                         contentAlignment = Alignment.Center
@@ -1612,7 +1630,7 @@ private fun MediaContent(
                                             .combinedClickable(
                                                 onClick = {
                                                     // First tap: for videos without thumbnails, open viewer directly
-                                                    onImageClick()
+                                                    onImageClick(previewBounds)
                                                 },
                                                 onLongClick = { onImageLongPress?.invoke() }
                                             ),
@@ -1675,7 +1693,7 @@ private fun MediaContent(
                                             .fillMaxWidth()
                                             .aspectRatio(aspectRatio)
                                             .combinedClickable(
-                                                onClick = { onImageClick() },
+                                                onClick = { onImageClick(previewBounds) },
                                                 onLongClick = { onImageLongPress?.invoke() }
                                             ),
                                         contentAlignment = Alignment.Center
@@ -1706,7 +1724,7 @@ private fun MediaContent(
                                                 modifier = Modifier
                                                     .size(64.dp)
                                                     .combinedClickable(
-                                                        onClick = { onImageClick() },
+                                                        onClick = { onImageClick(previewBounds) },
                                                         onLongClick = { onImageLongPress?.invoke() }
                                                     )
                                             ) {
@@ -2568,6 +2586,7 @@ internal fun ImageViewerDialog(
     homeserverUrl: String,
     authToken: String,
     isEncrypted: Boolean,
+    sourceBounds: Rect? = null,
     onDismiss: () -> Unit
 ) {
     var scale by remember { mutableFloatStateOf(1f) }
@@ -2596,11 +2615,60 @@ internal fun ImageViewerDialog(
     }
     
     val coroutineScope = rememberCoroutineScope()
-    
-            Dialog(
-                onDismissRequest = onDismiss,
+    val context = LocalContext.current
+    var cachedFile by remember { mutableStateOf<File?>(null) }
+    LaunchedEffect(mediaMessage.url) {
+        cachedFile = IntelligentMediaCache.getCachedFile(context, mediaMessage.url)
+    }
+    val imageUrl = remember(mediaMessage.url, isEncrypted, cachedFile) {
+        val file = cachedFile
+        if (file != null) {
+            file.absolutePath
+        } else {
+            val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+            if (isEncrypted) "$httpUrl?encrypted=true" else httpUrl ?: ""
+        }
+    }
+
+    var isOpening by remember(sourceBounds) { mutableStateOf(sourceBounds != null) }
+    var isClosingManually by remember { mutableStateOf(false) }
+    val openProgress by animateFloatAsState(
+        targetValue = when {
+            isClosingManually -> 0f
+            isOpening -> 0f
+            else -> 1f
+        },
+        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+        finishedListener = { value ->
+            if (isClosingManually && value == 0f) onDismiss()
+        },
+        label = "image_viewer_open_progress"
+    )
+
+    fun requestClose() {
+        if (!isClosingManually) {
+            isClosingManually = true
+        }
+    }
+
+    BackHandler(enabled = true) {
+        requestClose()
+    }
+
+    LaunchedEffect(sourceBounds) {
+        if (sourceBounds != null) {
+            isOpening = true
+            kotlinx.coroutines.delay(16)
+            isOpening = false
+        } else {
+            isOpening = false
+        }
+    }
+
+    Dialog(
+                onDismissRequest = { requestClose() },
                 properties = DialogProperties(
-                    dismissOnBackPress = true,
+                    dismissOnBackPress = false,
                     dismissOnClickOutside = false, // We handle this manually
                     usePlatformDefaultWidth = false
                 )
@@ -2609,37 +2677,91 @@ internal fun ImageViewerDialog(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black)
-                        .clickable(onClick = onDismiss) // Tap background to dismiss
+                        .background(Color.Black.copy(alpha = 0.72f * openProgress))
+                        .clickable(onClick = { requestClose() }) // Tap background to dismiss
                 ) {
-            // Image with zoom and pan
-            val context = LocalContext.current
-            
-            // Use shared ImageLoader singleton with custom User-Agent
-            val imageLoader = remember { ImageLoaderSingleton.get(context) }
-            
-            // Check if we have a cached version first
-            var cachedFile by remember { mutableStateOf<File?>(null) }
-            LaunchedEffect(mediaMessage.url) {
-                cachedFile = IntelligentMediaCache.getCachedFile(context, mediaMessage.url)
-            }
-            
-            val imageUrl = remember(mediaMessage.url, isEncrypted, cachedFile) {
-                val file = cachedFile
-                if (file != null) {
-                    // Use cached file
-                    file.absolutePath
-                } else {
-                    // Use HTTP URL
-                    val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
-                    if (isEncrypted) {
-                        "$httpUrl?encrypted=true"
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                // Image with zoom and pan
+                val density = LocalDensity.current
+
+                // Use shared ImageLoader singleton with custom User-Agent
+                val imageLoader = remember { ImageLoaderSingleton.get(context) }
+
+                val maxWidthPx = with(density) { maxWidth.toPx() }
+                val maxHeightPx = with(density) { maxHeight.toPx() }
+                val imageAspect = remember(mediaMessage.info.width, mediaMessage.info.height) {
+                    if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
+                        mediaMessage.info.width.toFloat() / mediaMessage.info.height.toFloat()
                     } else {
-                        httpUrl ?: ""
+                        1f
                     }
                 }
-            }
-            
+                val targetWidthPx: Float
+                val targetHeightPx: Float
+                if (maxWidthPx / maxHeightPx > imageAspect) {
+                    targetHeightPx = maxHeightPx
+                    targetWidthPx = targetHeightPx * imageAspect
+                } else {
+                    targetWidthPx = maxWidthPx
+                    targetHeightPx = targetWidthPx / imageAspect
+                }
+                val targetCenterX = maxWidthPx / 2f
+                val targetCenterY = maxHeightPx / 2f
+
+                val startLeft = sourceBounds?.left ?: (targetCenterX - targetWidthPx / 2f)
+                val startTop = sourceBounds?.top ?: (targetCenterY - targetHeightPx / 2f)
+                val startWidth = sourceBounds?.width ?: targetWidthPx
+                val startHeight = sourceBounds?.height ?: targetHeightPx
+                val startCenterX = startLeft + startWidth / 2f
+                val startCenterY = startTop + startHeight / 2f
+
+                val currentWidth = androidx.compose.ui.util.lerp(startWidth, targetWidthPx, openProgress)
+                val currentHeight = androidx.compose.ui.util.lerp(startHeight, targetHeightPx, openProgress)
+                val currentCenterX = androidx.compose.ui.util.lerp(startCenterX, targetCenterX, openProgress)
+                val currentCenterY = androidx.compose.ui.util.lerp(startCenterY, targetCenterY, openProgress)
+
+                val containerScaleX = if (targetWidthPx > 0f) currentWidth / targetWidthPx else 1f
+                val containerScaleY = if (targetHeightPx > 0f) currentHeight / targetHeightPx else 1f
+                val containerTx = currentCenterX - targetCenterX
+                val containerTy = currentCenterY - targetCenterY
+
+                val thumbnailUrl = remember(mediaMessage.info.thumbnailUrl, mediaMessage.url, homeserverUrl, mediaMessage.info.thumbnailIsEncrypted, isEncrypted) {
+                    val thumbMxc = mediaMessage.info.thumbnailUrl
+                    if (!thumbMxc.isNullOrBlank()) {
+                        val thumbHttp = MediaUtils.mxcToThumbnailUrl(thumbMxc, homeserverUrl)
+                            ?: MediaUtils.mxcToHttpUrl(thumbMxc, homeserverUrl)
+                        if (mediaMessage.info.thumbnailIsEncrypted && thumbHttp != null) {
+                            val separator = if (thumbHttp.contains("?")) "&" else "?"
+                            "$thumbHttp${separator}encrypted=true"
+                        } else {
+                            thumbHttp ?: imageUrl
+                        }
+                    } else {
+                        imageUrl
+                    }
+                }
+                var fullImageLoaded by remember(imageUrl) { mutableStateOf(false) }
+                val fullImageAlpha by animateFloatAsState(
+                    targetValue = if (fullImageLoaded) 1f else 0f,
+                    animationSpec = tween(durationMillis = 220),
+                    label = "full_image_overlay_alpha"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .size(
+                            width = with(density) { targetWidthPx.toDp() },
+                            height = with(density) { targetHeightPx.toDp() }
+                        )
+                        .align(Alignment.Center)
+                        .graphicsLayer(
+                            scaleX = containerScaleX,
+                            scaleY = containerScaleY,
+                            translationX = containerTx,
+                            translationY = containerTy
+                        )
+                        .clip(RoundedCornerShape(8.dp))
+                ) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -2648,7 +2770,7 @@ internal fun ImageViewerDialog(
                                 scaleY = scale,
                                 translationX = offsetX,
                                 translationY = offsetY,
-                                rotationZ = normalizedRotation // Use normalized animated rotation for smooth transitions
+                                rotationZ = normalizedRotation
                             )
                             .transformable(state = transformableState)
                             .pointerInput(Unit) {
@@ -2662,38 +2784,58 @@ internal fun ImageViewerDialog(
                                 )
                             }
                     ) {
-            AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(imageUrl)
-                    .apply {
-                        if (cachedFile == null) {
-                            addHeader("Cookie", "gomuks_auth=$authToken")
-                        }
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(thumbnailUrl)
+                                .apply {
+                                    if (cachedFile == null && thumbnailUrl.startsWith("http")) {
+                                        addHeader("Cookie", "gomuks_auth=$authToken")
+                                    }
+                                }
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .build(),
+                            imageLoader = imageLoader,
+                            contentDescription = mediaMessage.filename,
+                            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize()
+                        )
+
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(imageUrl)
+                                .apply {
+                                    if (cachedFile == null && imageUrl.startsWith("http")) {
+                                        addHeader("Cookie", "gomuks_auth=$authToken")
+                                    }
+                                }
+                                .size(Size.ORIGINAL)
+                                .precision(Precision.EXACT)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .build(),
+                            imageLoader = imageLoader,
+                            contentDescription = mediaMessage.filename,
+                            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer(alpha = fullImageAlpha),
+                            onSuccess = {
+                                fullImageLoaded = true
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ ImageViewer: Full image loaded: $imageUrl")
+                            },
+                            onError = { }
+                        )
                     }
-                    // Load at full resolution to avoid any downscaling artifacts in the viewer
-                    .size(Size.ORIGINAL)
-                    .precision(Precision.EXACT)
-                    .memoryCachePolicy(CachePolicy.ENABLED)
-                    .diskCachePolicy(CachePolicy.ENABLED)
-                    .build(),
-                imageLoader = imageLoader,
-                contentDescription = mediaMessage.filename,
-                            contentScale = androidx.compose.ui.layout.ContentScale.Fit, // Maintain aspect ratio, may have letterbox bars
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(8.dp)),
-                onSuccess = { 
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ ImageViewer: Image loaded successfully: $imageUrl")
-                },
-                onError = { }
-            )
-        }
+                }
+            }
                     
                     // Top toolbar with action buttons
                     Row(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .fillMaxWidth()
+                            .graphicsLayer(alpha = openProgress)
                             .windowInsetsPadding(WindowInsets.statusBars)
                             .padding(horizontal = 8.dp)
                             .padding(top = 8.dp),
@@ -2767,7 +2909,7 @@ internal fun ImageViewerDialog(
                         
                         // Close button
                         IconButton(
-                            onClick = onDismiss,
+                            onClick = { requestClose() },
                             colors = IconButtonDefaults.iconButtonColors(
                                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer

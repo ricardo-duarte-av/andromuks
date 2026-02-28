@@ -33,7 +33,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -187,6 +190,7 @@ fun StickerMessage(
     onBubbleClick: (() -> Unit)? = null
 ) {
     var showImageViewer by remember { mutableStateOf(false) }
+    var imageViewerSourceBounds by remember { mutableStateOf<Rect?>(null) }
     
     // Convert StickerMessage to MediaMessage format for ImageViewerDialog
     val mediaMessage = remember(stickerMessage) {
@@ -219,7 +223,11 @@ fun StickerMessage(
             homeserverUrl = homeserverUrl,
             authToken = authToken,
             isEncrypted = isEncrypted,
-            onDismiss = { showImageViewer = false }
+            sourceBounds = imageViewerSourceBounds,
+            onDismiss = {
+                showImageViewer = false
+                imageViewerSourceBounds = null
+            }
         )
     }
     
@@ -273,7 +281,10 @@ fun StickerMessage(
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
                     isEncrypted = isEncrypted,
-                    onStickerClick = { showImageViewer = true },
+                    onStickerClick = { sourceBounds ->
+                        imageViewerSourceBounds = sourceBounds
+                        showImageViewer = true
+                    },
                     onStickerLongPress = {
                         // Trigger menu from sticker long press
                         triggerMenuFromSticker++
@@ -316,7 +327,7 @@ private fun StickerContent(
     homeserverUrl: String,
     authToken: String,
     isEncrypted: Boolean,
-    onStickerClick: () -> Unit = {},
+    onStickerClick: (Rect?) -> Unit = {},
     onStickerLongPress: (() -> Unit)? = null
 ) {
     // Use actual pixel dimensions from the sticker metadata
@@ -355,6 +366,9 @@ private fun StickerContent(
                 .width(stickerWidth)
                 .height(stickerHeight)
         ) {
+            var stickerBounds by remember(stickerMessage.url, stickerWidth, stickerHeight) {
+                mutableStateOf<Rect?>(null)
+            }
             val context = LocalContext.current
             val coroutineScope = rememberCoroutineScope()
             
@@ -427,10 +441,13 @@ private fun StickerContent(
                 contentDescription = stickerMessage.body,
                 modifier = Modifier
                     .fillMaxSize()
+                    .onGloballyPositioned { coords ->
+                        stickerBounds = coords.boundsInWindow()
+                    }
                     .combinedClickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = { onStickerClick() },
+                        onClick = { onStickerClick(stickerBounds) },
                         onLongClick = { onStickerLongPress?.invoke() }
                     ),
                 placeholder = placeholderPainter,
