@@ -55,6 +55,7 @@ object SpaceRoomParser {
             val events = roomObj.optJSONArray("events")
             var messagePreview: String? = null
             var messageSender: String? = null
+            var latestEventId: String? = null
             if (events != null && events.length() > 0) {
                 // Look through all events to find the last actual message
                 // Skip non-message events like typing, member changes, state events, etc.
@@ -70,6 +71,8 @@ object SpaceRoomParser {
                                     messagePreview = body
                                     // Extract sender user ID (use full Matrix ID for profile lookup)
                                     val sender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                    // Extract event_id for mark_read
+                                    latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
                                     //android.util.Log.d("Andromuks", "SpaceRoomParser: Message event sender: '$sender' for room $roomId")
                                     messageSender = sender
                                     break // Found the last message, stop looking
@@ -85,6 +88,8 @@ object SpaceRoomParser {
                                         messagePreview = body
                                         // Extract sender user ID (use full Matrix ID for profile lookup)
                                         val sender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                        // Extract event_id for mark_read
+                                        latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
                                         //android.util.Log.d("Andromuks", "SpaceRoomParser: Encrypted message event sender: '$sender' for room $roomId")
                                         messageSender = sender
                                         break // Found the last message, stop looking
@@ -139,7 +144,8 @@ object SpaceRoomParser {
                     avatarUrl = avatar,
                     isFavourite = isFavourite,
                     isLowPriority = isLowPriority,
-                    canonicalAlias = canonicalAlias
+                    canonicalAlias = canonicalAlias,
+                    latestEventId = latestEventId
                 )
             )
         }
@@ -324,6 +330,7 @@ object SpaceRoomParser {
             // Always parse to keep summaries up-to-date (no local persistence, so only JSON parsing cost)
             var messagePreview: String? = null
             var messageSender: String? = null
+            var latestEventId: String? = null
             
             val events = roomObj.optJSONArray("events")
             if (events != null && events.length() > 0) {
@@ -353,6 +360,8 @@ object SpaceRoomParser {
                                 if (body != null) {
                                     messagePreview = body
                                     messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                    // Extract event_id for mark_read
+                                    latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
                                     break // Found the last message, stop looking
                                 }
                                 
@@ -369,6 +378,8 @@ object SpaceRoomParser {
                                     }
                                     if (messagePreview != null) {
                                         messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                        // Extract event_id for mark_read
+                                        latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
                                         break
                                     }
                                 }
@@ -395,6 +406,8 @@ object SpaceRoomParser {
                                     if (body != null) {
                                         messagePreview = body
                                         messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                        // Extract event_id for mark_read
+                                        latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
                                         break // Found the last message, stop looking
                                     }
                                 }
@@ -448,7 +461,8 @@ object SpaceRoomParser {
                 isDirectMessage = isDirectMessage,
                 isFavourite = isFavourite,
                 isLowPriority = isLowPriority,
-                canonicalAlias = canonicalAlias
+                canonicalAlias = canonicalAlias,
+                latestEventId = latestEventId
             )
         } catch (e: Exception) {
             Log.e("Andromuks", "SpaceRoomParser: Error parsing room $roomId", e)
@@ -608,7 +622,8 @@ object SpaceRoomParser {
                                                     messagePreview = null,
                                                     messageSender = null,
                                                     isDirectMessage = false,
-                                                    canonicalAlias = childCanonicalAlias
+                                                    canonicalAlias = childCanonicalAlias,
+                                                    latestEventId = null
                                                 )
                                                 childRooms.add(childRoom)
                                                 //Log.d("Andromuks", "SpaceRoomParser: Added child room: $childName (unread: $unreadCount)")
@@ -700,7 +715,8 @@ object SpaceRoomParser {
                                 messagePreview = null,
                                 messageSender = null,
                                 isDirectMessage = false,
-                                canonicalAlias = childCanonicalAlias
+                                canonicalAlias = childCanonicalAlias,
+                                latestEventId = null
                             )
                             childRooms.add(childRoom)
                             //android.util.Log.d("Andromuks", "SpaceRoomParser: Added child room: $childName (unread: $unreadCount)")

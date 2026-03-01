@@ -122,12 +122,14 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Notifications
@@ -138,6 +140,8 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.Done
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
@@ -1829,6 +1833,7 @@ fun RoomListItem(
 ) {
     val context = LocalContext.current
     var showContextMenu by remember { mutableStateOf(false) }
+    var showLeaveDialog by remember { mutableStateOf(false) }
     
     // PERFORMANCE: Remember computed timestamp to avoid recalculation unless it actually changes
     // The timestampUpdateTrigger now updates at smart intervals (1s for recent, 1m for older, etc.)
@@ -2392,11 +2397,94 @@ fun RoomListItem(
                                         )
                                     }
                                 }
+                                
+                                // Mark Read button
+                                Surface(
+                                    onClick = {
+                                        dismissMenu {
+                                            val latestEventId = room.latestEventId
+                                            if (latestEventId != null) {
+                                                appViewModel.markRoomAsRead(room.id, latestEventId)
+                                            } else {
+                                                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "RoomListScreen: Cannot mark room as read - no latest event_id for room ${room.id}")
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainerHighest
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Done,
+                                            contentDescription = "Mark Read",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(16.dp))
+                                        Text(
+                                            text = "Mark Read",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                                
+                                // Leave button
+                                Surface(
+                                    onClick = {
+                                        dismissMenu {
+                                            showLeaveDialog = true
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainerHighest
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.ExitToApp,
+                                            contentDescription = "Leave",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(16.dp))
+                                        Text(
+                                            text = "Leave",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
+        }
+        
+        // Leave Room confirmation dialog
+        if (showLeaveDialog) {
+            LeaveRoomDialog(
+                roomName = room.name,
+                onDismiss = { showLeaveDialog = false },
+                onConfirm = { reason ->
+                    showLeaveDialog = false
+                    appViewModel.leaveRoom(room.id, reason)
+                }
+            )
         }
     }
 }
@@ -3090,4 +3178,69 @@ fun InviteListItem(
             }
         }
     }
+}
+
+/**
+ * Leave room confirmation dialog with reason input
+ */
+@Composable
+fun LeaveRoomDialog(
+    roomName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var reason by remember { mutableStateOf("") }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Leave room",
+                style = MaterialTheme.typography.titleMedium
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "Are you sure you want to leave \"$roomName\"?",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                Text(
+                    text = "Reason (optional):",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = { reason = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp),
+                    placeholder = { Text("Enter reason for leaving...") },
+                    maxLines = 4,
+                    shape = RoundedCornerShape(8.dp)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onConfirm(reason)
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Text("Leave")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

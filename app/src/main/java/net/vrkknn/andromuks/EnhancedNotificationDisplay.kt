@@ -523,7 +523,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 highlightCount = 0,
                 avatarUrl = notificationData.roomAvatarUrl,
                 sortingTimestamp = notificationData.timestamp ?: System.currentTimeMillis(),
-                canonicalAlias = null // Not available in notification data
+                canonicalAlias = null, // Not available in notification data
+                latestEventId = notificationData.eventId // Use event_id from notification if available
             )
             // CRITICAL: Use synchronous update to ensure shortcut exists before notification is posted
             conversationsApi?.updateShortcutForNotificationSync(roomItem)

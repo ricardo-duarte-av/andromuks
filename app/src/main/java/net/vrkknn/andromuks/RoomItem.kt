@@ -26,7 +26,8 @@ data class RoomItem(
     val isFavourite: Boolean = false,
     val isLowPriority: Boolean = false,
     val bridgeProtocolAvatarUrl: String? = null,
-    val canonicalAlias: String? = null
+    val canonicalAlias: String? = null,
+    val latestEventId: String? = null
 )
 
 @Immutable

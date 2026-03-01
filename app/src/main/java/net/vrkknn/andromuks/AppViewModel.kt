@@ -15148,14 +15148,20 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    fun leaveRoom(roomId: String) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Leaving room: $roomId")
+    fun leaveRoom(roomId: String, reason: String? = null) {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Leaving room: $roomId${if (reason != null) " with reason: $reason" else ""}")
         
         val leaveRequestId = requestIdCounter++
         leaveRoomRequests[leaveRequestId] = roomId
-        sendWebSocketCommand("leave_room", leaveRequestId, mapOf(
+        
+        val commandData = mutableMapOf<String, Any>(
             "room_id" to roomId
-        ))
+        )
+        if (reason != null && reason.isNotBlank()) {
+            commandData["reason"] = reason
+        }
+        
+        sendWebSocketCommand("leave_room", leaveRequestId, commandData)
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent leave_room command for $roomId with requestId=$leaveRequestId")
     }
