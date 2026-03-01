@@ -21,7 +21,6 @@ import okio.IOException
 import org.json.JSONObject
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.WebSocketService
-import net.vrkknn.andromuks.WebSocketService.ConnectionState
 
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -584,7 +583,8 @@ fun connectToWebsocket(
                         // The first sync_complete acts as init_complete - mark connection as CONNECTED
                         val isReconnectingWithLastReceivedEvent = WebSocketService.isReconnectingWithLastReceivedEvent()
                         val connectionState = WebSocketService.getConnectionState()
-                        if (isReconnectingWithLastReceivedEvent && connectionState == ConnectionState.CONNECTING) {
+                        val isConnecting = connectionState != null && (connectionState is WebSocketService.WebSocketState.Connecting)
+                        if (isReconnectingWithLastReceivedEvent && isConnecting) {
                             if (BuildConfig.DEBUG) {
                                 Log.i("NetworkUtils", "Reconnection with last_received_event: First sync_complete received - treating as init_complete")
                             }
@@ -794,7 +794,8 @@ fun connectToWebsocket(
                                     // The first sync_complete acts as init_complete - mark connection as CONNECTED
                                     val isReconnectingWithLastReceivedEvent = WebSocketService.isReconnectingWithLastReceivedEvent()
                                     val connectionState = WebSocketService.getConnectionState()
-                                    if (isReconnectingWithLastReceivedEvent && connectionState == ConnectionState.CONNECTING) {
+                                    val isConnecting = connectionState != null && (connectionState is WebSocketService.WebSocketState.Connecting)
+                                    if (isReconnectingWithLastReceivedEvent && isConnecting) {
                                         if (BuildConfig.DEBUG) {
                                             Log.i("NetworkUtils", "Reconnection with last_received_event (compressed): First sync_complete received - treating as init_complete")
                                         }

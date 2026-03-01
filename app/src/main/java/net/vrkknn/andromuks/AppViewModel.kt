@@ -2124,6 +2124,22 @@ class AppViewModel : ViewModel() {
                             markRoomAsReadInternal(roomId, eventId)
                         }
                     }
+                    operation.type.startsWith("offline_") -> {
+                        // PHASE 5.2: Retry offline commands (created when network was unavailable)
+                        val command = operation.data["command"] as? String
+                        val requestId = operation.data["requestId"] as? Int
+                        @Suppress("UNCHECKED_CAST")
+                        val data = operation.data["data"] as? Map<String, Any>
+                        
+                        if (command != null && requestId != null && data != null) {
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Retrying offline command: $command (attempt ${operation.retryCount + 1})")
+                            // Generate new request_id for retry (can't reuse old one)
+                            val newRequestId = requestIdCounter++
+                            sendWebSocketCommand(command, newRequestId, data)
+                        } else {
+                            android.util.Log.w("Andromuks", "AppViewModel: Invalid offline operation data - command: $command, requestId: $requestId, data: ${data != null}")
+                        }
+                    }
                     operation.type.startsWith("command_") -> {
                         // PHASE 5.2: Retry generic commands
                         val command = operation.type.removePrefix("command_")
@@ -15761,10 +15777,21 @@ class AppViewModel : ViewModel() {
         // REFACTORING: Use WebSocketService.sendCommand() API instead of direct WebSocket access
         // Check connection state first
         if (!WebSocketService.isWebSocketConnected()) {
-            // CRITICAL FIX: Queue command for retry when WebSocket is disconnected
-            // This prevents commands from being lost when WebSocket temporarily disconnects
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket is not connected, queuing command: $command (requestId: $requestId)")
-            queueCommandForOfflineRetry(command, requestId, data)
+            // CRITICAL FIX: Only queue user-initiated commands for offline retry
+            // Automatic commands (get_room_state, register_push, etc.) will be re-requested when online
+            val isUserInitiated = when (command) {
+                "send_message", "mark_read" -> true
+                else -> false
+            }
+            
+            if (isUserInitiated) {
+                android.util.Log.w("Andromuks", "AppViewModel: WebSocket is not connected, queuing user-initiated command: $command (requestId: $requestId)")
+                queueCommandForOfflineRetry(command, requestId, data)
+            } else {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: WebSocket is not connected, skipping automatic command: $command (will be re-requested when online)")
+                }
+            }
             return WebSocketResult.NOT_CONNECTED
         }
         
@@ -16029,8 +16056,26 @@ class AppViewModel : ViewModel() {
     
     /**
      * NETWORK OPTIMIZATION: Queue command for retry when connection is restored
+     * 
+     * IMPORTANT: Only stores user-initiated commands (from notifications).
+     * Automatic commands (get_room_state, register_push, etc.) are NOT stored
+     * because they will be automatically re-requested when connection is restored.
      */
     private fun queueCommandForOfflineRetry(command: String, requestId: Int, data: Map<String, Any>) {
+        // Only store user-initiated commands from notifications
+        // Automatic commands will be re-requested when connection is restored
+        val isUserInitiated = when (command) {
+            "send_message" -> true // User messages from notifications
+            "mark_read" -> true    // Mark read from notifications
+            else -> false          // All other commands are automatic (get_room_state, register_push, etc.)
+        }
+        
+        if (!isUserInitiated) {
+            // Don't store automatic commands - they'll be re-requested when online
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping offline storage for automatic command: $command (will be re-requested when online)")
+            return
+        }
+        
         // PHASE 5.1: Add to pending operations for retry when connection is restored
         // Queue size limit is now enforced in addPendingOperation()
         // CRITICAL FIX: Save to storage when WebSocket is disconnected (need persistence)
@@ -16046,7 +16091,7 @@ class AppViewModel : ViewModel() {
             ),
             saveToStorage = true // Save to storage when disconnected
         )
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Queued offline command: $command")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Queued offline command: $command (user-initiated)")
     }
     
     /**
