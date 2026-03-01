@@ -15535,6 +15535,69 @@ class AppViewModel : ViewModel() {
     }
     
     /**
+     * Set room tag (favourite or low priority)
+     * @param roomId The room ID
+     * @param tagType Either "m.favourite" or "m.lowpriority"
+     * @param enabled Whether the tag should be enabled (true) or removed (false)
+     */
+    fun setRoomTag(roomId: String, tagType: String, enabled: Boolean) {
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AppViewModel: Setting room tag - roomId: $roomId, tagType: $tagType, enabled: $enabled")
+        }
+        
+        val requestId = requestIdCounter++
+        
+        // Build tags object - include all existing tags plus the new one, or exclude it if disabling
+        val existingRoom = roomMap[roomId]
+        val existingTags = mutableMapOf<String, Map<String, Any>>()
+        
+        // Preserve existing tags
+        if (existingRoom != null) {
+            if (existingRoom.isFavourite && tagType != "m.favourite") {
+                existingTags["m.favourite"] = emptyMap()
+            }
+            if (existingRoom.isLowPriority && tagType != "m.lowpriority") {
+                existingTags["m.lowpriority"] = emptyMap()
+            }
+        }
+        
+        // Add or remove the target tag
+        if (enabled) {
+            existingTags[tagType] = emptyMap()
+        }
+        
+        val commandData = mapOf(
+            "type" to "m.tag",
+            "room_id" to roomId,
+            "content" to mapOf(
+                "tags" to existingTags
+            )
+        )
+        
+        // Optimistically update local state
+        val updatedRoom = existingRoom?.let { room ->
+            when (tagType) {
+                "m.favourite" -> room.copy(isFavourite = enabled)
+                "m.lowpriority" -> room.copy(isLowPriority = enabled)
+                else -> room
+            }
+        }
+        
+        if (updatedRoom != null) {
+            roomMap[roomId] = updatedRoom
+            RoomListCache.updateRoom(updatedRoom)
+            // Trigger UI update
+            forceRoomListSort()
+        }
+        
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AppViewModel: Sending set_account_data for room tag - commandData: $commandData")
+        }
+        
+        sendWebSocketCommand("set_account_data", requestId, commandData)
+    }
+    
+    /**
      * Set room avatar (roomavatar command)
      * Called after image is uploaded
      */
