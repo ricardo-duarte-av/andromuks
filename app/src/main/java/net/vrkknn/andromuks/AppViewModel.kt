@@ -6148,6 +6148,7 @@ class AppViewModel : ViewModel() {
                     displayName = cachedProfile.displayName,
                     avatarUrl = cachedProfile.avatarUrl
                 )
+                persistCurrentUserAvatarMxcIfChanged(cachedProfile.avatarUrl)
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d("Andromuks", "🟣 ensureCurrentUserProfileLoaded: Populated from cache - userId: $currentUserId, displayName: ${cachedProfile.displayName}")
                 }
@@ -11463,6 +11464,7 @@ class AppViewModel : ViewModel() {
         
         if (userId == currentUserId) {
             currentUserProfile = UserProfile(userId = userId, displayName = display, avatarUrl = avatar)
+            persistCurrentUserAvatarMxcIfChanged(avatar)
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated currentUserProfile - userId: $userId, displayName: $display, avatarUrl: $avatar")
         }
         
@@ -11483,6 +11485,20 @@ class AppViewModel : ViewModel() {
         // SYNC OPTIMIZATION: Schedule member update instead of immediate counter increment
         needsMemberUpdate = true
         scheduleUIUpdate("member")
+    }
+
+    private fun persistCurrentUserAvatarMxcIfChanged(avatarMxc: String?) {
+        val context = appContext ?: return
+        val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+        val current = prefs.getString("current_user_avatar_mxc", null)
+        if (current == avatarMxc) return
+        val editor = prefs.edit()
+        if (avatarMxc.isNullOrBlank()) {
+            editor.remove("current_user_avatar_mxc")
+        } else {
+            editor.putString("current_user_avatar_mxc", avatarMxc)
+        }
+        editor.apply()
     }
     
     // Profile management - in-memory only, loaded opportunistically when rendering events
@@ -13619,6 +13635,7 @@ class AppViewModel : ViewModel() {
                                     displayName = displayName,
                                     avatarUrl = avatarUrl
                                 )
+                                persistCurrentUserAvatarMxcIfChanged(avatarUrl)
                                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Set currentUserProfile from member event - displayName: '$displayName', avatarUrl: '$avatarUrl'")
                             }
                             

@@ -16,8 +16,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -34,6 +38,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LoadingIndicatorDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,7 +52,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Matrix
+import androidx.compose.ui.graphics.asComposePath
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavType
@@ -60,7 +78,80 @@ import net.vrkknn.andromuks.BuildConfig
 
 import androidx.lifecycle.Lifecycle
 import net.vrkknn.andromuks.SharedMediaItem
+import androidx.graphics.shapes.Morph
+import androidx.graphics.shapes.toPath
 import java.net.URLDecoder
+
+@Composable
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+private fun rememberMorphingStartupAvatarMaskModifier(): Modifier {
+    val shapes = LoadingIndicatorDefaults.IndeterminateIndicatorPolygons
+    if (shapes.size < 2) return Modifier
+
+    val infiniteTransition = rememberInfiniteTransition(label = "main_startup_avatar_morph_transition")
+    val morphCycle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 6800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "main_startup_avatar_morph_cycle"
+    )
+    val shapeRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 11000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "main_startup_avatar_mask_rotation"
+    )
+
+    val segmentCount = shapes.size
+    val scaled = morphCycle * segmentCount
+    val fromIndex = kotlin.math.floor(scaled).toInt().mod(segmentCount)
+    val toIndex = (fromIndex + 1).mod(segmentCount)
+    val localProgress = scaled - kotlin.math.floor(scaled).toFloat()
+    val morph = remember(fromIndex, toIndex) { Morph(shapes[fromIndex], shapes[toIndex]) }
+    val rawPath = remember(morph, localProgress) {
+        morph.toPath(progress = localProgress).asComposePath()
+    }
+
+    return Modifier.drawWithContent {
+        val bounds = rawPath.getBounds()
+        if (bounds.width <= 0f || bounds.height <= 0f) {
+            drawContent()
+            return@drawWithContent
+        }
+        val scale = kotlin.math.min(size.width / bounds.width, size.height / bounds.height)
+        val dx = (size.width - bounds.width * scale) / 2f - bounds.left * scale
+        val dy = (size.height - bounds.height * scale) / 2f - bounds.top * scale
+
+        val transformedPath = Path().apply {
+            addPath(rawPath)
+            transform(
+                Matrix().apply {
+                    translate(dx, dy)
+                    scale(scale, scale)
+                }
+            )
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            transform(
+                Matrix().apply {
+                    translate(cx, cy)
+                    rotateZ(shapeRotation)
+                    translate(-cx, -cy)
+                }
+            )
+        }
+
+        clipPath(transformedPath) {
+            this@drawWithContent.drawContent()
+        }
+    }
+}
 
 class MainActivity : ComponentActivity() {
     private lateinit var appViewModel: AppViewModel
@@ -855,7 +946,23 @@ fun AppNavigation(
             .background(androidx.compose.material3.MaterialTheme.colorScheme.background)
     ) {
         composable("login") { LoginScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
-        composable("auth_check") { AuthCheckScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
+        composable(
+            "auth_check",
+            // Explicit fade-out so auth_check stays in composition long enough
+            // for SharedTransitionLayout to fly the avatar to room_list.
+            // Without these, the composable may disappear instantly (zero-duration default),
+            // causing the shared element flight to never start.
+            exitTransition = { fadeOut(tween(600)) },
+            popExitTransition = { fadeOut(tween(600)) }
+        ) {
+            AuthCheckScreen(
+                navController = navController,
+                modifier = modifier,
+                appViewModel = appViewModel,
+                sharedTransitionScope = this@SharedTransitionLayout,
+                animatedVisibilityScope = this@composable
+            )
+        }
         composable("permissions") {
             PermissionsScreen(
                 onPermissionsGranted = {
@@ -871,9 +978,11 @@ fun AppNavigation(
         composable(
             route = "room_list",
             enterTransition = {
-                // CRITICAL FIX: Fade in from auth_check to prevent white flash
+                // Explicit fade-in so room_list enters over the same 600ms window that auth_check
+                // is fading out. Both composables are in composition for the full 600ms, giving
+                // SharedTransitionLayout enough time to fly the shared avatar.
                 if (initialState.destination.route == "auth_check") {
-                    fadeIn(tween(1000))
+                    fadeIn(tween(600))
                 } else {
                     null
                 }
@@ -908,6 +1017,34 @@ fun AppNavigation(
                 val initialSyncProcessingComplete = appViewModel.initialSyncProcessingComplete
                 val currentUserProfile = appViewModel.currentUserProfile
                 val currentUserId = appViewModel.currentUserId
+                val context = androidx.compose.ui.platform.LocalContext.current
+                val sharedPrefs = remember(context) {
+                    context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+                }
+                val startupAvatarMxc = remember(currentUserProfile?.avatarUrl, currentUserId) {
+                    currentUserProfile?.avatarUrl?.takeIf { it.isNotBlank() }
+                        ?: currentUserId
+                            .takeIf { it.isNotBlank() }
+                            ?.let { appViewModel.getUserProfile(it, null)?.avatarUrl?.takeIf { avatar -> avatar.isNotBlank() } }
+                        ?: sharedPrefs.getString("current_user_avatar_mxc", null)?.takeIf { it.isNotBlank() }
+                }
+                val startupDisplayName = currentUserProfile?.displayName ?: currentUserId
+                val startupHomeserverUrl =
+                    appViewModel.homeserverUrl.takeIf { it.isNotBlank() }
+                        ?: sharedPrefs.getString("homeserver_url", "").orEmpty()
+                val startupAuthToken =
+                    appViewModel.authToken.takeIf { it.isNotBlank() }
+                        ?: sharedPrefs.getString("gomuks_auth_token", "").orEmpty()
+                var showStartupMorphOverlay by remember(startupAvatarMxc) { mutableStateOf(false) }
+                LaunchedEffect(startupAvatarMxc) {
+                    if (startupAvatarMxc != null) {
+                        showStartupMorphOverlay = false
+                        delay(220)
+                        showStartupMorphOverlay = true
+                    } else {
+                        showStartupMorphOverlay = false
+                    }
+                }
                 
                 androidx.compose.runtime.LaunchedEffect(
                     initialSyncComplete, 
@@ -977,32 +1114,88 @@ fun AppNavigation(
                     }
                 }
                 
-                // CRITICAL FIX: Always show StartupLoadingScreen until explicitly ready to show room list
-                // This prevents any flash during navigation or initial render
-                // Add fade out animation for smooth transition
+                // ─── StartupLoadingScreen (visible while loading, fades out when done) ───
+                // During cold start: its avatar carries the shared element tag so the
+                // auth_check→room_list nav transition matches center→center (invisible
+                // flight — same position / size).
+                // During pull-to-refresh: startup completes quickly so this is already
+                // hidden; the shared element tag lives on RoomListScreen's header instead.
+                // Because AnimatedVisibility makes the two mutually exclusive, only ONE
+                // instance of the key exists at any moment → no ambiguity.
                 AnimatedVisibility(
                     visible = !isStartupComplete || !showRoomList,
                     exit = fadeOut(animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing))
                 ) {
-                    // Show loading screen with progress messages
                     net.vrkknn.andromuks.ui.components.StartupLoadingScreen(
                         progressMessages = progressMessages,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        topContent = {
+                            if (startupAvatarMxc != null) {
+                                val morphMaskModifier = rememberMorphingStartupAvatarMaskModifier()
+                                Box {
+                                    with(this@SharedTransitionLayout) {
+                                        net.vrkknn.andromuks.ui.components.AvatarImage(
+                                            mxcUrl = startupAvatarMxc,
+                                            homeserverUrl = startupHomeserverUrl,
+                                            authToken = startupAuthToken,
+                                            fallbackText = startupDisplayName,
+                                            size = 72.dp,
+                                            userId = currentUserId,
+                                            displayName = startupDisplayName,
+                                            modifier = Modifier
+                                                .sharedElement(
+                                                    rememberSharedContentState(key = "startup-current-user-avatar"),
+                                                    animatedVisibilityScope = navigationScope,
+                                                    boundsTransform = { _, _ ->
+                                                        tween(
+                                                            durationMillis = 380,
+                                                            easing = LinearEasing
+                                                        )
+                                                    },
+                                                    renderInOverlayDuringTransition = true,
+                                                    zIndexInOverlay = 1f
+                                                )
+                                                .graphicsLayer {
+                                                    alpha = if (showStartupMorphOverlay) 0f else 1f
+                                                }
+                                        )
+                                    }
+                                    if (showStartupMorphOverlay) {
+                                        net.vrkknn.andromuks.ui.components.AvatarImage(
+                                            mxcUrl = startupAvatarMxc,
+                                            homeserverUrl = startupHomeserverUrl,
+                                            authToken = startupAuthToken,
+                                            fallbackText = startupDisplayName,
+                                            size = 72.dp,
+                                            userId = currentUserId,
+                                            displayName = startupDisplayName,
+                                            modifier = Modifier.then(morphMaskModifier)
+                                        )
+                                    }
+                                }
+                            } else {
+                                net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator(
+                                    modifier = Modifier.size(72.dp)
+                                )
+                            }
+                        }
                     )
                 }
-                
+
+                // ─── RoomListScreen (visible after startup) ──────────────────────
+                // Its header avatar carries the shared element tag so that
+                // pull-to-refresh (room_list → auth_check → room_list) gives a
+                // visible header↔center flight animation.
                 AnimatedVisibility(
                     visible = isStartupComplete && showRoomList,
                     enter = fadeIn(animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing))
                 ) {
-                    // Show room list when startup is complete and delay has passed (first time) or immediately (navigation back)
-                    // Pass sharedTransitionScope and animatedVisibilityScope for shared element transitions
                     RoomListScreen(
-                        navController = navController, 
-                        modifier = Modifier.fillMaxSize(), 
+                        navController = navController,
+                        modifier = Modifier.fillMaxSize(),
                         appViewModel = appViewModel,
                         sharedTransitionScope = this@SharedTransitionLayout,
-                        animatedVisibilityScope = navigationScope  // Changed this line
+                        animatedVisibilityScope = navigationScope
                     )
                 }
             }

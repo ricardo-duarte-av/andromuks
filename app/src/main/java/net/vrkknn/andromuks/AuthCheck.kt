@@ -5,6 +5,8 @@ import android.os.Build
 import android.os.PowerManager
 import android.util.Log
 import net.vrkknn.andromuks.ui.components.StartupLoadingScreen
+import net.vrkknn.andromuks.ui.components.AvatarImage
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -19,20 +21,176 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
+import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.connectToWebsocket
 import net.vrkknn.andromuks.utils.waitForBackendHealth
 import net.vrkknn.andromuks.BuildConfig
 
 import okhttp3.OkHttpClient
 import androidx.compose.ui.Modifier
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Matrix
+import androidx.compose.ui.graphics.asComposePath
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.graphics.shapes.Morph
+import androidx.graphics.shapes.toPath
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LoadingIndicatorDefaults
+
+private const val STARTUP_SHARED_AVATAR_KEY = "startup-current-user-avatar"
 
 @Composable
-fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewModel: AppViewModel) {
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+private fun rememberMorphingStartupAvatarMaskModifier(): Modifier {
+    val shapes = LoadingIndicatorDefaults.IndeterminateIndicatorPolygons
+    if (shapes.size < 2) return Modifier
+
+    val infiniteTransition = rememberInfiniteTransition(label = "startup_avatar_morph_transition")
+    val morphCycle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 6800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "startup_avatar_morph_cycle"
+    )
+    val shapeRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 11000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "startup_avatar_mask_rotation"
+    )
+
+    val segmentCount = shapes.size
+    val scaled = morphCycle * segmentCount
+    val fromIndex = kotlin.math.floor(scaled).toInt().mod(segmentCount)
+    val toIndex = (fromIndex + 1).mod(segmentCount)
+    val localProgress = scaled - kotlin.math.floor(scaled).toFloat()
+    val morph = remember(fromIndex, toIndex) { Morph(shapes[fromIndex], shapes[toIndex]) }
+    val rawPath = remember(morph, localProgress) {
+        morph.toPath(progress = localProgress).asComposePath()
+    }
+
+    return Modifier.drawWithContent {
+        val bounds = rawPath.getBounds()
+        if (bounds.width <= 0f || bounds.height <= 0f) {
+            drawContent()
+            return@drawWithContent
+        }
+        val scale = kotlin.math.min(size.width / bounds.width, size.height / bounds.height)
+        val dx = (size.width - bounds.width * scale) / 2f - bounds.left * scale
+        val dy = (size.height - bounds.height * scale) / 2f - bounds.top * scale
+
+        val transformedPath = Path().apply {
+            addPath(rawPath)
+            transform(
+                Matrix().apply {
+                    translate(dx, dy)
+                    scale(scale, scale)
+                }
+            )
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            transform(
+                Matrix().apply {
+                    translate(cx, cy)
+                    rotateZ(shapeRotation)
+                    translate(-cx, -cy)
+                }
+            )
+        }
+
+        clipPath(transformedPath) {
+            this@drawWithContent.drawContent()
+        }
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+fun AuthCheckScreen(
+    navController: NavController,
+    modifier: Modifier,
+    appViewModel: AppViewModel,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null
+) {
     val context = LocalContext.current
     val sharedPreferences = remember { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
     val client = remember { OkHttpClient.Builder().build() }
     val scope = rememberCoroutineScope()
+    val storedAuthToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
+    val storedHomeserverUrl = remember(sharedPreferences) { sharedPreferences.getString("homeserver_url", "") ?: "" }
+    val candidateStartupAvatarMxc = remember(
+        appViewModel.currentUserId,
+        appViewModel.currentUserProfile?.avatarUrl
+    ) {
+        val fromCurrentProfile = appViewModel.currentUserProfile?.avatarUrl?.takeIf { it.isNotBlank() }
+        val fromGlobalCache = appViewModel.currentUserId
+            .takeIf { it.isNotBlank() }
+            ?.let { appViewModel.getUserProfile(it, null)?.avatarUrl }
+            ?.takeIf { it.isNotBlank() }
+        val fromPrefs = sharedPreferences.getString("current_user_avatar_mxc", null)?.takeIf { it.isNotBlank() }
+        fromCurrentProfile ?: fromGlobalCache ?: fromPrefs
+    }
+    var startupAvatarMxc by remember {
+        mutableStateOf(
+            sharedPreferences.getString("current_user_avatar_mxc", null)?.takeIf { it.isNotBlank() }
+        )
+    }
+    LaunchedEffect(candidateStartupAvatarMxc) {
+        // Keep avatar source sticky while AuthCheck is visible to prevent fallback
+        // spinner flicker when profile/prefs transiently report null.
+        if (!candidateStartupAvatarMxc.isNullOrBlank()) {
+            startupAvatarMxc = candidateStartupAvatarMxc
+        }
+    }
+    var hasDiskCachedAvatar by remember { mutableStateOf(false) }
+    LaunchedEffect(startupAvatarMxc) {
+        hasDiskCachedAvatar = startupAvatarMxc?.let {
+            IntelligentMediaCache.getCachedFile(context, it)?.exists() == true
+        } ?: false
+    }
+    LaunchedEffect(startupAvatarMxc) {
+        val prefsAvatar = sharedPreferences.getString("current_user_avatar_mxc", null)?.takeIf { it.isNotBlank() }
+        if (startupAvatarMxc != null && startupAvatarMxc != prefsAvatar) {
+            sharedPreferences.edit().putString("current_user_avatar_mxc", startupAvatarMxc).apply()
+        }
+    }
     
+    // SHARED ELEMENT: showStartupMorphOverlay is at composable level so navigation
+    // functions (inside LaunchedEffect) can reset it to false before navigating.
+    // When it's true, the base shared-element avatar has alpha=0 and the morph overlay
+    // covers it. Resetting to false right before navigation makes the shared element
+    // visible (alpha=1) so the flight animation is actually seen by the user.
+    var showStartupMorphOverlay by remember(startupAvatarMxc) { mutableStateOf(false) }
+    LaunchedEffect(startupAvatarMxc) {
+        if (startupAvatarMxc != null) {
+            showStartupMorphOverlay = false
+            kotlinx.coroutines.delay(220)
+            showStartupMorphOverlay = true
+        } else {
+            showStartupMorphOverlay = false
+        }
+    }
+
     // CRITICAL FIX: Track navigation state to prevent duplicate navigation
     var navigationHandled by remember { mutableStateOf(false) }
 
@@ -119,6 +277,7 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                     if (shouldForceNavigation && (currentRoute.startsWith("room_timeline/") || currentRoute.startsWith("chat_bubble/"))) {
                         if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Force navigating to room_list ($reason) - clearing previous navigation stack (currentRoute: $currentRoute)")
                         appViewModel.isLoading = false
+                        showStartupMorphOverlay = false
                         navController.navigate("room_list") {
                             // Clear entire back stack and start fresh at room_list
                             popUpTo(0) { inclusive = true }
@@ -139,10 +298,16 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                 
                 if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Navigating to room_list (reason: $reason, currentRoute: $currentRoute)")
                 appViewModel.isLoading = false
-                navController.navigate("room_list") {
-                    // Pop auth_check from back stack when navigating to room_list
-                    popUpTo("auth_check") { inclusive = true }
-                }
+                // Reset morph overlay so the shared element (base avatar) is visible (alpha=1)
+                // during the flight. Without this, if showStartupMorphOverlay==true the base
+                // avatar is at alpha=0 and the flight is invisible to the user.
+                // Add a small delay to ensure Compose recomposes with the new state before navigation.
+                showStartupMorphOverlay = false
+                // Do NOT use popUpTo here — popping auth_check from the back stack before the
+                // shared element flight completes prevents SharedTransitionLayout from keeping
+                // both composables in composition simultaneously. The RoomListScreen BackHandler
+                // already prevents the user from navigating back to auth_check.
+                navController.navigate("room_list")
             }
             
             // Set up navigation callback BEFORE connecting websocket
@@ -266,6 +431,7 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                         android.util.Log.e("Andromuks", "AuthCheckScreen: Error navigating to room_list", e)
                         // Fallback: try direct navigation
                         try {
+                            showStartupMorphOverlay = false
                             navController.navigate("room_list") {
                                 popUpTo(0) { inclusive = true }
                             }
@@ -338,6 +504,7 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
             if (currentRoute != null && currentRoute != "simple_room_list" && 
                 !currentRoute.startsWith("room_timeline/") && 
                 !currentRoute.startsWith("chat_bubble/")) {
+                showStartupMorphOverlay = false
                 navController.navigate("room_list")
             }
             navigationHandled = true
@@ -361,6 +528,8 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                 if (currentRoute != null && currentRoute != "simple_room_list" && 
                     !currentRoute.startsWith("room_timeline/") && 
                     !currentRoute.startsWith("chat_bubble/")) {
+                    showStartupMorphOverlay = false
+                    kotlinx.coroutines.delay(16) // One frame to ensure state update is visible
                     navController.navigate("room_list")
                 }
                 navigationHandled = true
@@ -369,17 +538,87 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
     }
 
     AndromuksTheme {
-        // CRITICAL FIX: Always show StartupLoadingScreen until we're definitely on room_list
-        // This prevents flash during navigation transition
-        val currentRoute = navController.currentBackStackEntry?.destination?.route
-        val isOnRoomList = currentRoute == "room_list"
-        val shouldShowLoading = !isOnRoomList || appViewModel.isLoading || !appViewModel.isStartupComplete
-        
-        if (shouldShowLoading) {
-            StartupLoadingScreen(
+        // auth_check is always a loading screen — unconditionally render it.
+        // The nav transition's exit animation handles fading it out.
+        // CRITICAL: Do NOT conditionally remove this based on the current nav route.
+        // If we remove the shared element from composition the instant navController.navigate("room_list")
+        // fires (which makes currentBackStackEntry report "room_list" immediately), the shared element
+        // disappears before the flight animation can start, resulting in no transition.
+        // NOTE: showStartupMorphOverlay is declared at composable scope (above) so navigation
+        // functions can reset it to false before navigating, making the flight visible.
+        StartupLoadingScreen(
                 progressMessages = appViewModel.startupProgressMessages,
-                modifier = modifier
+                modifier = modifier,
+                topContent = {
+                    val displayName = appViewModel.currentUserProfile?.displayName ?: appViewModel.currentUserId
+                    val effectiveHomeserverUrl = appViewModel.homeserverUrl.takeIf { it.isNotBlank() } ?: storedHomeserverUrl
+                    val effectiveAuthToken = appViewModel.authToken.takeIf { it.isNotBlank() } ?: storedAuthToken
+                    val canShowAvatar = startupAvatarMxc != null
+                    if (canShowAvatar) {
+                        val morphMaskModifier = rememberMorphingStartupAvatarMaskModifier()
+                        Box {
+                            if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                                with(sharedTransitionScope) {
+                                    AvatarImage(
+                                        mxcUrl = startupAvatarMxc,
+                                        homeserverUrl = effectiveHomeserverUrl,
+                                        authToken = effectiveAuthToken,
+                                        fallbackText = displayName,
+                                        size = 72.dp,
+                                        userId = appViewModel.currentUserId,
+                                        displayName = displayName,
+                                        modifier = Modifier.sharedElement(
+                                            rememberSharedContentState(key = STARTUP_SHARED_AVATAR_KEY),
+                                            animatedVisibilityScope = animatedVisibilityScope,
+                                            boundsTransform = { _, _ ->
+                                                tween(durationMillis = 380, easing = LinearEasing)
+                                            },
+                                            renderInOverlayDuringTransition = true,
+                                            zIndexInOverlay = 1f
+                                        ).graphicsLayer {
+                                            alpha = if (showStartupMorphOverlay) 0f else 1f
+                                        }
+                                    )
+                                }
+                            } else {
+                                AvatarImage(
+                                    mxcUrl = startupAvatarMxc,
+                                    homeserverUrl = effectiveHomeserverUrl,
+                                    authToken = effectiveAuthToken,
+                                    fallbackText = displayName,
+                                    size = 72.dp,
+                                    userId = appViewModel.currentUserId,
+                                    displayName = displayName,
+                                    modifier = Modifier.graphicsLayer {
+                                        alpha = if (showStartupMorphOverlay) 0f else 1f
+                                    }
+                                )
+                            }
+                            if (showStartupMorphOverlay) {
+                                AvatarImage(
+                                    mxcUrl = startupAvatarMxc,
+                                    homeserverUrl = effectiveHomeserverUrl,
+                                    authToken = effectiveAuthToken,
+                                    fallbackText = displayName,
+                                    size = 72.dp,
+                                    userId = appViewModel.currentUserId,
+                                    displayName = displayName,
+                                    modifier = Modifier.then(morphMaskModifier)
+                                )
+                            }
+                        }
+                    } else {
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                                "AuthCheckScreen",
+                                "Startup avatar unavailable, falling back to spinner (mxc=$startupAvatarMxc, cached=$hasDiskCachedAvatar, hs=${effectiveHomeserverUrl.isNotBlank()}, token=${effectiveAuthToken.isNotBlank()})"
+                            )
+                        }
+                        ExpressiveLoadingIndicator(
+                            modifier = Modifier.size(72.dp)
+                        )
+                    }
+                }
             )
-        }
     }
 }

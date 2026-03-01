@@ -168,6 +168,7 @@ import coil.request.ImageRequest
 import coil.request.CachePolicy
 
 private const val ROOM_LIST_VERBOSE_LOGGING = false
+private const val STARTUP_SHARED_AVATAR_KEY = "startup-current-user-avatar"
 private fun usernameFromMatrixId(userId: String): String =
     userId.removePrefix("@").substringBefore(":")
 
@@ -1042,15 +1043,38 @@ fun RoomListScreen(
                         .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    net.vrkknn.andromuks.ui.components.AvatarImage(
-                        mxcUrl = me?.avatarUrl,
-                        homeserverUrl = appViewModel.homeserverUrl,
-                        authToken = authToken,
-                        fallbackText = me?.displayName ?: appViewModel.currentUserId,
-                        size = 40.dp,
-                        userId = appViewModel.currentUserId,
-                        displayName = me?.displayName
-                    )
+                    if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                        with(sharedTransitionScope) {
+                            net.vrkknn.andromuks.ui.components.AvatarImage(
+                                mxcUrl = me?.avatarUrl,
+                                homeserverUrl = appViewModel.homeserverUrl,
+                                authToken = authToken,
+                                fallbackText = me?.displayName ?: appViewModel.currentUserId,
+                                size = 40.dp,
+                                userId = appViewModel.currentUserId,
+                                displayName = me?.displayName,
+                                modifier = Modifier.sharedElement(
+                                    rememberSharedContentState(key = STARTUP_SHARED_AVATAR_KEY),
+                                    animatedVisibilityScope = animatedVisibilityScope,
+                                    boundsTransform = { _, _ ->
+                                        tween(durationMillis = 380, easing = androidx.compose.animation.core.LinearEasing)
+                                    },
+                                    renderInOverlayDuringTransition = true,
+                                    zIndexInOverlay = 1f
+                                )
+                            )
+                        }
+                    } else {
+                        net.vrkknn.andromuks.ui.components.AvatarImage(
+                            mxcUrl = me?.avatarUrl,
+                            homeserverUrl = appViewModel.homeserverUrl,
+                            authToken = authToken,
+                            fallbackText = me?.displayName ?: appViewModel.currentUserId,
+                            size = 40.dp,
+                            userId = appViewModel.currentUserId,
+                            displayName = me?.displayName
+                        )
+                    }
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Row(
