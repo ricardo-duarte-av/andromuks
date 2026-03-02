@@ -4669,7 +4669,6 @@ class WebSocketService : Service() {
         
         // IDEMPOTENT: Only update notification if the text actually changed
         if (lastNotificationText == notificationText) {
-            if (BuildConfig.DEBUG) Log.d("WebSocketService", "Skipping notification update - text unchanged: $notificationText")
             return
         }
         

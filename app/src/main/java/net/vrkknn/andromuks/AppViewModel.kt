@@ -2456,7 +2456,6 @@ class AppViewModel : ViewModel() {
         val isRoomInCache = RoomTimelineCache.isRoomOpened(roomId) || RoomTimelineCache.isRoomActivelyCached(roomId)
         
         if (!isRoomInCache) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Ignoring typing update for room $roomId (not in cache)")
             return
         }
         
@@ -4495,10 +4494,6 @@ class AppViewModel : ViewModel() {
     // including background-batched flushes (not just initial sync after init_complete).
     private fun processInitialSyncComplete(syncJson: JSONObject, onComplete: (suspend () -> Unit)? = null): Job? {
         return try {
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "🟣 processSyncCompleteMessage: START - request_id=${syncJson.optInt("request_id", 0)}")
-            }
-            
             handleSyncToDeviceEvents(syncJson)
             
             // CRITICAL FIX: handleClearStateReset must be called BEFORE parsing for queued messages
@@ -4644,9 +4639,6 @@ class AppViewModel : ViewModel() {
             // CRITICAL FIX: Capture this job so we can wait for account data processing to complete
             val accountDataProcessingJob = viewModelScope.launch(Dispatchers.Default) {
                 try {
-                    if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "🟣 processSyncCompleteMessage: Starting background parsing (roomMap.size=${roomMap.size})")
-                    }
                     // Parse sync data on background thread (200-500ms for large accounts)
                     // IMPORTANT: use snapshot to avoid ConcurrentModification when roomMap is cleared/reset concurrently.
                     val existingRoomsSnapshot = synchronized(roomMap) { HashMap(roomMap) }
@@ -4659,19 +4651,12 @@ class AppViewModel : ViewModel() {
                         isClearState = isClearState
                     )
                     
-                    if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "🟣 processSyncCompleteMessage: Parsed sync - newRooms=${syncResult.newRooms.size}, updatedRooms=${syncResult.updatedRooms.size}, removedRooms=${syncResult.removedRoomIds.size}")
-                    }
-                    
                     // SpaceRoomParser parses all room data including message previews and metadata
                     
                     // Switch back to main thread for UI updates only
                     withContext(Dispatchers.Main) {
                         try {
                             processParsedSyncResult(syncResult, syncJson)
-                            if (BuildConfig.DEBUG) {
-                                android.util.Log.d("Andromuks", "🟣 processSyncCompleteMessage: processParsedSyncResult completed successfully")
-                            }
                             // CRITICAL FIX: Invoke completion callback AFTER account data processing completes
                             // This ensures startup doesn't complete before account data is processed
                             onComplete?.invoke()
@@ -4693,9 +4678,6 @@ class AppViewModel : ViewModel() {
             // CRITICAL FIX: Return the account data processing job instead of summary update job
             // This ensures we wait for account data processing to complete before marking startup as complete
             // The summary update job runs in parallel but doesn't block startup completion
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "🟣 processInitialSyncComplete: END - returning accountDataProcessingJob (will wait for account data processing)")
-            }
             accountDataProcessingJob
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "🟣 processInitialSyncComplete: CRASH at start - ${e.message}", e)
@@ -5067,7 +5049,6 @@ class AppViewModel : ViewModel() {
             newlyJoinedRoomIds.add(room.id)
             } else {
                 // Initial sync - just add the room without marking as newly joined
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added room during initial sync: ${room.name} (not marking as newly joined)")
             }
             
             

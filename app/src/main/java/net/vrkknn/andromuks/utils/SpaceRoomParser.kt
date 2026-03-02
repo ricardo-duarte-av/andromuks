@@ -205,8 +205,6 @@ object SpaceRoomParser {
                 if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "SpaceRoomParser: ⚠️ Received empty spaces array (clear_state=$isClearState, current spaces: $currentSpacesSize) - preserving existing spaces")
             }
             discoveredSpaceIds.addAll(spaces.map { it.id })
-        } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceRoomParser: No top_level_spaces in this sync_complete (clear_state=$isClearState)")
         } // else: top_level_spaces is null - don't update, preserve existing spaces
         
         // CRITICAL FIX: Store space_edges even if top_level_spaces is null
