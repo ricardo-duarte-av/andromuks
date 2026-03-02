@@ -2877,7 +2877,10 @@ class WebSocketService : Service() {
         unifiedMonitoringJob = serviceScope.launch {
             var stateCorruptionCheckCounter = 0
             while (isActive) {
-                delay(30_000) // Check every 30 seconds
+                // RUN FREQUENCY:
+                // Use a 1-second tick so we can enforce strict upper bounds on transient states
+                // like CONNECTING without waiting 30s for the next health check.
+                delay(1_000) // Check every 1 second
                 
                 try {
                     // 1. Callback health check (every 30s)
@@ -2885,10 +2888,10 @@ class WebSocketService : Service() {
                     // Ensures reconnection callbacks are available for reconnection attempts
                     validateCallbacks()
                     
-                    // 2. State corruption check (every 60s - every other iteration)
+                    // 2. State corruption check (~every 30s - every 30 iterations)
                     // Detects and recovers from state inconsistencies (WebSocket vs state mismatch, stuck states)
                     stateCorruptionCheckCounter++
-                    if (stateCorruptionCheckCounter >= 2) {
+                    if (stateCorruptionCheckCounter >= 30) {
                         if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Unified monitoring: Running state corruption check")
                         WebSocketService.detectAndRecoverStateCorruption()
                         stateCorruptionCheckCounter = 0
@@ -2928,16 +2931,19 @@ class WebSocketService : Service() {
                         }
                     }
                     
-                    // 4. Connection health check (every 30s)
+                    // 4. Connection health check (every 1s)
                     // Detects if connection is stuck in CONNECTING or RECONNECTING state and forces recovery
                     val currentState = connectionState
                     val currentTime = System.currentTimeMillis()
                     
-                    // FIX #3: Add a simple timeout check for stuck Connecting state
-                    // This catches cases where connectToWebsocket() fails silently or state gets stuck
+                    // FIX #3: Add a strict timeout check for stuck CONNECTING state.
+                    // In a healthy backend, time from WebSocket open → run_id is in milliseconds.
+                    // We never want to present "Connecting..." for more than a few seconds.
                     val isStuckConnectingSimple = if (currentState.isConnecting()) {
                         val timeSinceConnect = if (connectionStartTime > 0) currentTime - connectionStartTime else 0
-                        timeSinceConnect > 30_000 // Stuck for >30s
+                        // HARD LIMIT: If we've been in CONNECTING for >3s since onOpen, something is wrong.
+                        // Either run_id/init_complete never arrived or our timeouts failed.
+                        timeSinceConnect > 3_000 // Stuck for >3 seconds
                     } else {
                         false
                     }
