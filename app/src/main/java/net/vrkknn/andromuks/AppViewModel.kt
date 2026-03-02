@@ -4408,28 +4408,17 @@ class AppViewModel : ViewModel() {
      * Prefetch essential room data for rooms visible or near visible in the room list
      */
     fun prefetchRoomData(visibleRoomIds: List<String>, scrollPosition: Int = 0) {
-        // NAVIGATION PERFORMANCE: Update scroll position for prefetch tracking
+        // DISABLED: prefetchRoomData() is no longer needed because:
+        // 1. loadAllRoomStatesAfterInitComplete() already loads bridge info for all rooms
+        // 2. Bridge info is cached in SharedPreferences and loaded from cache for new rooms
+        // 3. Bridge badges are optional and non-essential for room list rendering
+        // 4. This reduces unnecessary get_room_state requests during scrolling
+        
+        // Keep scroll position tracking for potential future use
         lastRoomListScrollPosition = scrollPosition
         
-        // Only prefetch if we haven't done it recently (avoid excessive requests)
-        // CRITICAL FIX: Room state (including bridge info) doesn't change frequently, so use 30 minutes
-        // This prevents unnecessary re-requests while still allowing updates if room state actually changes
-        val currentTime = System.currentTimeMillis()
-        val prefetchThreshold = 30 * 60 * 1000L // 30 minutes (room state is relatively stable)
-        
-        visibleRoomIds.forEach { roomId ->
-            val navigationState = navigationCache[roomId]
-            val shouldPrefetch = when {
-                navigationState == null -> true // Never prefetched
-                currentTime - navigationState.lastPrefetchTime > prefetchThreshold -> true // Stale data
-                !navigationState.essentialDataLoaded -> true // Essential data missing
-                else -> false
-            }
-            
-            if (shouldPrefetch && !prefetchedRooms.contains(roomId)) {
-                prefetchEssentialRoomData(roomId)
-            }
-        }
+        // No-op: Room state is already loaded by loadAllRoomStatesAfterInitComplete()
+        // and bridge info is loaded from cache when rooms are added
     }
     
     /**

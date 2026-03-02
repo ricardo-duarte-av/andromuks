@@ -2844,11 +2844,13 @@ fun RoomListContent(
             
             if (initiallyVisibleRoomIds.isNotEmpty()) {
                 prefetchedIds.addAll(initiallyVisibleRoomIds)
-                appViewModel.prefetchRoomData(initiallyVisibleRoomIds, firstVisibleIndex)
+                // DISABLED: prefetchRoomData() is no longer needed - bridge info is already loaded
+                // by loadAllRoomStatesAfterInitComplete() and cached in SharedPreferences
+                // appViewModel.prefetchRoomData(initiallyVisibleRoomIds, firstVisibleIndex)
                 if (ROOM_LIST_VERBOSE_LOGGING && BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
-                        "RoomListScreen: NAVIGATION OPTIMIZATION - Initial prefetch ${initiallyVisibleRoomIds.size} visible rooms (window ±10)"
+                        "RoomListScreen: NAVIGATION OPTIMIZATION - Initial prefetch disabled (bridge info already loaded)"
                     )
                 }
             }
@@ -2873,11 +2875,13 @@ fun RoomListContent(
                 
                 if (nearbyRoomIds.isNotEmpty()) {
                     prefetchedIds.addAll(nearbyRoomIds)
-                    appViewModel.prefetchRoomData(nearbyRoomIds, firstVisibleIndex)
+                    // DISABLED: prefetchRoomData() is no longer needed - bridge info is already loaded
+                    // by loadAllRoomStatesAfterInitComplete() and cached in SharedPreferences
+                    // appViewModel.prefetchRoomData(nearbyRoomIds, firstVisibleIndex)
                     if (ROOM_LIST_VERBOSE_LOGGING && BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
-                            "RoomListScreen: NAVIGATION OPTIMIZATION - Prefetch ${nearbyRoomIds.size} rooms on scroll (window ±10, deduped)"
+                            "RoomListScreen: NAVIGATION OPTIMIZATION - Scroll prefetch disabled (bridge info already loaded)"
                         )
                     }
                 }
