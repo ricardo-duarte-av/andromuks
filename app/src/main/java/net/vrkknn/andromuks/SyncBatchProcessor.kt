@@ -5,6 +5,7 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,6 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
 /**
@@ -54,6 +56,11 @@ class SyncBatchProcessor(
         // Defaults – also used as fallbacks in SharedPreferences
         const val DEFAULT_BATCH_INTERVAL_MS = 5L * 60_000L   // 5 minutes
         const val DEFAULT_MAX_BATCH_SIZE = 500
+        
+        // CRASH FIX: Maximum time allowed for batch processing (5 seconds)
+        // Prevents getting stuck in RUSH state if processing hangs
+        // Normal processing of 1000 messages takes <5s, so this is sufficient
+        private const val BATCH_PROCESSING_TIMEOUT_MS = 5_000L
     }
     
     
@@ -131,12 +138,32 @@ class SyncBatchProcessor(
             val batch = batchQueue.toList()
             batchQueue.clear()
             
-            batch.forEach { msg ->
-                processSyncImmediately(msg.syncJson, msg.requestId, msg.runId)
-            }
+            // CRASH FIX: Add timeout to prevent getting stuck in RUSH state
+            // If processing hangs or takes too long, timeout and reset state
+            var processedCount = 0
+            val timeoutOccurred = withTimeoutOrNull(BATCH_PROCESSING_TIMEOUT_MS) {
+                batch.forEach { msg ->
+                    try {
+                        processSyncImmediately(msg.syncJson, msg.requestId, msg.runId)
+                        processedCount++
+                    } catch (e: Exception) {
+                        // CRASH FIX: Handle exceptions per message to prevent entire batch from failing
+                        Log.e(TAG, "Error processing sync message (requestId=${msg.requestId}): ${e.message}", e)
+                        // Continue processing remaining messages even if one fails
+                        processedCount++ // Count failed messages too
+                    }
+                }
+            } == null
             
             val elapsed = System.currentTimeMillis() - startTime
-            Log.i(TAG, "Batch processed: $batchSize messages in ${elapsed}ms (${if (batchSize > 0) elapsed / batchSize else 0}ms/msg)")
+            
+            if (timeoutOccurred) {
+                // Timeout occurred - batch processing took too long
+                Log.w(TAG, "Batch processing TIMEOUT after ${elapsed}ms - processed $processedCount/$batchSize messages before timeout")
+                Log.w(TAG, "This may indicate a performance issue or deadlock in processSyncImmediately")
+            } else {
+                Log.i(TAG, "Batch processed: $processedCount/$batchSize messages in ${elapsed}ms (${if (processedCount > 0) elapsed / processedCount else 0}ms/msg)")
+            }
             
             // CRASH FIX: Ensure minimum visible duration so UI can observe state change
             if (isAppVisible) {
@@ -146,7 +173,14 @@ class SyncBatchProcessor(
                     delay(remainingTime)
                 }
             }
+        } catch (e: TimeoutCancellationException) {
+            // This shouldn't happen since we use withTimeoutOrNull, but handle it just in case
+            Log.e(TAG, "Batch processing timeout exception: ${e.message}", e)
+        } catch (e: Exception) {
+            // CRASH FIX: Catch any unexpected exceptions to ensure state is reset
+            Log.e(TAG, "Unexpected error during batch processing: ${e.message}", e)
         } finally {
+            // CRASH FIX: Always reset processing state, even if processing failed or timed out
             if (isAppVisible) {
                 withContext(Dispatchers.Main) {
                     _isProcessingBatch.value = false
@@ -187,12 +221,23 @@ class SyncBatchProcessor(
 
         if (pendingCount > 0) {
             job = scope.launch {
-                // Small delay to allow UI animations to settle
-                delay(500)
-                batchLock.withLock {
-                    if (batchQueue.isNotEmpty()) {
-                        Log.i(TAG, "App foregrounded - processing ${batchQueue.size} batched messages")
-                        flushBatchLocked()
+                try {
+                    // Small delay to allow UI animations to settle
+                    delay(500)
+                    batchLock.withLock {
+                        if (batchQueue.isNotEmpty()) {
+                            Log.i(TAG, "App foregrounded - processing ${batchQueue.size} batched messages")
+                            flushBatchLocked()
+                        }
+                    }
+                } catch (e: Exception) {
+                    // CRASH FIX: If job is cancelled or fails, ensure state is reset
+                    Log.e(TAG, "Error in batch flush job: ${e.message}", e)
+                    if (isAppVisible) {
+                        withContext(Dispatchers.Main) {
+                            _isProcessingBatch.value = false
+                            Log.w(TAG, "Batch processing state RESET due to job cancellation/failure")
+                        }
                     }
                 }
             }
