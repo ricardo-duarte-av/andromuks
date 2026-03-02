@@ -575,6 +575,20 @@ class SyncIngestor(private val context: Context) {
         val existingTimelineRowCache = mutableMapOf<String, Long?>()
         var hasPersistedEvents = false
         
+        // CRITICAL FIX: Check reset flag - if true, clear existing timeline cache before processing events
+        // According to Webmucks docs: "If true, the frontend should discard the existing timeline cache for this room"
+        // and "Timeline events replace (not append) the existing list when reset is set"
+        val reset = roomObj.optBoolean("reset", false)
+        if (reset && isRoomCached) {
+            if (BuildConfig.DEBUG) {
+                Log.w(TAG, "SyncIngestor: ⚠️ reset=true for room $roomId - clearing existing timeline cache before processing new events")
+            }
+            // Clear the room's timeline cache (will be replaced with new events from this sync_complete)
+            net.vrkknn.andromuks.RoomTimelineCache.clearRoomCache(roomId)
+            // Also clear processed timeline state
+            net.vrkknn.andromuks.RoomTimelineCache.clearProcessedTimelineState(roomId)
+        }
+        
         // LRU CACHE: Track events for cache notification
         val eventsForCacheUpdate = mutableListOf<TimelineEvent>()
         var hasEditRedactionReaction = false
@@ -587,6 +601,41 @@ class SyncIngestor(private val context: Context) {
 
             // Room metadata is handled by SpaceRoomParser.parseSyncUpdate() which builds in-memory RoomItem objects
             // No DB persistence needed - all data is in-memory only
+        }
+        
+        // CRITICAL FIX: Build timeline_rowid mapping from 'timeline' array BEFORE processing events
+        // The 'timeline' array maps event_rowid -> timeline_rowid (events in 'events' array may have timeline_rowid=0)
+        // Format: [{"timeline_rowid": 1542930, "event_rowid": 2261550}, ...]
+        val timelineRowidMapping = mutableMapOf<Long, Long>()
+        val timeline = roomObj.optJSONArray("timeline")
+        if (timeline != null) {
+            for (i in 0 until timeline.length()) {
+                val timelineEntry = timeline.optJSONObject(i) ?: continue
+                // Check if this is a mapping entry (has event_rowid) or old format (has event object)
+                if (timelineEntry.has("event_rowid")) {
+                    // New format: mapping entry
+                    val eventRowid = timelineEntry.optLong("event_rowid", -1)
+                    val timelineRowid = timelineEntry.optLong("timeline_rowid", -1)
+                    if (eventRowid != -1L && timelineRowid != -1L) {
+                        timelineRowidMapping[eventRowid] = timelineRowid
+                        if (BuildConfig.DEBUG) {
+                            Log.d(TAG, "SyncIngestor: Built timeline mapping: event_rowid=$eventRowid -> timeline_rowid=$timelineRowid")
+                        }
+                    }
+                } else if (timelineEntry.has("event")) {
+                    // Old format: event object with timeline_rowid (legacy support)
+                    val timelineRowid = timelineEntry.optLong("timeline_rowid", -1)
+                    val eventJson = timelineEntry.optJSONObject("event") ?: continue
+                    val eventId = eventJson.optString("event_id") ?: continue
+                    // Store mapping by event_id for lookup (fallback if rowid not available)
+                    if (timelineRowid != -1L) {
+                        existingTimelineRowCache[eventId] = timelineRowid
+                    }
+                }
+            }
+            if (BuildConfig.DEBUG && timelineRowidMapping.isNotEmpty()) {
+                Log.d(TAG, "SyncIngestor: Built ${timelineRowidMapping.size} timeline_rowid mappings from timeline array for room $roomId")
+            }
         }
         
         // CRITICAL: Process related_events FIRST before processing main events
@@ -641,66 +690,63 @@ class SyncIngestor(private val context: Context) {
             }
         }
         
-        // 2. Process timeline events - only update cache if room is cached, no DB persistence
-        val timeline = roomObj.optJSONArray("timeline")
+        // 2. Process timeline events (old format with event objects) - only update cache if room is cached
+        // NOTE: This handles the legacy format where timeline array contains event objects
+        // The new format uses timeline array as a mapping (handled above) and events are in 'events' array
         if (timeline != null) {
             // Use passed cached status (already checked in ingestSyncComplete)
             // This avoids double-checking and ensures consistency
             if (isRoomCached) {
-                if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "SyncIngestor: Processing ${timeline.length()} timeline events for cached room $roomId")
-                }
-                for (i in 0 until timeline.length()) {
-                    val timelineEntry = timeline.optJSONObject(i) ?: continue
-                    val timelineRowid = timelineEntry.optLong("timeline_rowid", -1)
-                    val eventJson = timelineEntry.optJSONObject("event") ?: continue
-                    
-                    // No longer collecting reactions for persistence - they're in cache only
-                    
-                    val sourceLabel = "timeline[$i]"
-                    val eventId = eventJson.optString("event_id") ?: "<missing>"
-                    val eventType = eventJson.optString("type")
-                    
-                    val timelineEvent = try {
-                        parseEventFromJson(
-                            roomId = roomId,
-                            eventJson = eventJson,
-                            timelineRowid = timelineRowid,
-                            source = sourceLabel,
-                            existingTimelineRowCache = existingTimelineRowCache
-                        )
-                    } catch (e: Exception) {
-                        logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_exception", e)
-                        null
-                    }
-
-                    if (timelineEvent != null) {
-                        // LRU CACHE: Collect for cache update and detect edit/redaction/reaction
-                        if (timelineEvent.type == "m.room.redaction" || timelineEvent.type == "m.reaction") {
-                            hasEditRedactionReaction = true
-                        }
-                        if (timelineEvent.relationType == "m.replace") {
-                            hasEditRedactionReaction = true
-                        }
-                        // Add to cache
-                        eventsForCacheUpdate.add(timelineEvent)
-                    }
-                }
+                // Check if timeline array contains event objects (old format) or just mappings (new format)
+                val hasEventObjects = timeline.length() > 0 && timeline.optJSONObject(0)?.has("event") == true
                 
-                if (eventsForCacheUpdate.isNotEmpty()) {
-                    hasPersistedEvents = true
-                }
-            } else {
-                // Room not in cache - still collect reactions but discard events
-                for (i in 0 until timeline.length()) {
-                    val timelineEntry = timeline.optJSONObject(i) ?: continue
-                    val eventJson = timelineEntry.optJSONObject("event") ?: continue
-                    // No longer collecting reactions for persistence - they're in cache only
+                if (hasEventObjects) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "SyncIngestor: Processing ${timeline.length()} timeline events (old format with event objects) for cached room $roomId")
+                    }
+                    for (i in 0 until timeline.length()) {
+                        val timelineEntry = timeline.optJSONObject(i) ?: continue
+                        val timelineRowid = timelineEntry.optLong("timeline_rowid", -1)
+                        val eventJson = timelineEntry.optJSONObject("event") ?: continue
+                        
+                        val sourceLabel = "timeline[$i]"
+                        val eventId = eventJson.optString("event_id") ?: "<missing>"
+                        
+                        val timelineEvent = try {
+                            parseEventFromJson(
+                                roomId = roomId,
+                                eventJson = eventJson,
+                                timelineRowid = timelineRowid,
+                                source = sourceLabel,
+                                existingTimelineRowCache = existingTimelineRowCache
+                            )
+                        } catch (e: Exception) {
+                            logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_exception", e)
+                            null
+                        }
+
+                        if (timelineEvent != null) {
+                            // LRU CACHE: Collect for cache update and detect edit/redaction/reaction
+                            if (timelineEvent.type == "m.room.redaction" || timelineEvent.type == "m.reaction") {
+                                hasEditRedactionReaction = true
+                            }
+                            if (timelineEvent.relationType == "m.replace") {
+                                hasEditRedactionReaction = true
+                            }
+                            // Add to cache
+                            eventsForCacheUpdate.add(timelineEvent)
+                        }
+                    }
+                    
+                    if (eventsForCacheUpdate.isNotEmpty()) {
+                        hasPersistedEvents = true
+                    }
                 }
             }
         }
         
         // 3. Process events array (preview/additional events) - only update cache if room is cached
+        // CRITICAL FIX: Use timeline_rowid mapping from 'timeline' array if event has timeline_rowid=0
         val eventsArray = roomObj.optJSONArray("events")
         if (eventsArray != null) {
             // Use passed cached status (already checked in ingestSyncComplete)
@@ -709,14 +755,26 @@ class SyncIngestor(private val context: Context) {
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "SyncIngestor: Processing ${eventsArray.length()} events from 'events' array for cached room $roomId")
                 }
-                if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Processing ${eventsArray.length()} events from 'events' array for room $roomId (cached)")
                 for (i in 0 until eventsArray.length()) {
                     val eventJson = eventsArray.optJSONObject(i) ?: continue
                     
-                    // No longer collecting reactions for persistence - they're in cache only
+                    // CRITICAL FIX: Get timeline_rowid from event, but resolve from mapping if it's 0
+                    var timelineRowid = eventJson.optLong("timeline_rowid", -1)
+                    val eventRowid = eventJson.optLong("rowid", -1)
                     
-                    // Try to get timeline_rowid from event if available, otherwise use -1
-                    val timelineRowid = eventJson.optLong("timeline_rowid", -1)
+                    // If timeline_rowid is 0 or missing, look it up in the mapping using event_rowid
+                    if ((timelineRowid == 0L || timelineRowid == -1L) && eventRowid != -1L) {
+                        val mappedTimelineRowid = timelineRowidMapping[eventRowid]
+                        if (mappedTimelineRowid != null && mappedTimelineRowid > 0) {
+                            timelineRowid = mappedTimelineRowid
+                            if (BuildConfig.DEBUG) {
+                                Log.d(TAG, "SyncIngestor: Resolved timeline_rowid=$timelineRowid for event rowid=$eventRowid (was ${eventJson.optLong("timeline_rowid", -1)})")
+                            }
+                        } else if (timelineRowid == 0L) {
+                            // Event has timeline_rowid=0 but no mapping found - this is a bug!
+                            Log.w(TAG, "SyncIngestor: ⚠️ Event rowid=$eventRowid has timeline_rowid=0 but no mapping found in timeline array! Event will be cached with timeline_rowid=0 (may cause pagination issues)")
+                        }
+                    }
                     
                     val sourceLabel = "events[$i]"
                     val eventId = eventJson.optString("event_id") ?: "<missing>"
@@ -735,6 +793,11 @@ class SyncIngestor(private val context: Context) {
                     }
 
                     if (timelineEvent != null) {
+                        // CRITICAL VALIDATION: Ensure we never cache events with timeline_rowid=0 (except as fallback)
+                        if (timelineEvent.timelineRowid == 0L) {
+                            Log.w(TAG, "SyncIngestor: ⚠️ Event ${timelineEvent.eventId} will be cached with timeline_rowid=0! This may cause pagination issues. event_rowid=$eventRowid, mapping=${timelineRowidMapping[eventRowid]}")
+                        }
+                        
                         // LRU CACHE: Collect for cache update and detect edit/redaction/reaction
                         if (timelineEvent.type == "m.room.redaction" || timelineEvent.type == "m.reaction") {
                             hasEditRedactionReaction = true
@@ -777,16 +840,18 @@ class SyncIngestor(private val context: Context) {
             val isStillCached = listener?.getCachedRoomIds()?.contains(roomId) == true
             if (listener != null && isStillCached) {
                 if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "SyncIngestor: ✓ Notifying cache listener for room $roomId (${eventsForCacheUpdate.size} events, requiresRerender=$hasEditRedactionReaction)")
+                    Log.d(TAG, "SyncIngestor: ✓ Notifying cache listener for room $roomId (${eventsForCacheUpdate.size} events, requiresRerender=$hasEditRedactionReaction, reset=$reset)")
                 }
-                listener.onEventsForCachedRoom(roomId, eventsForCacheUpdate, hasEditRedactionReaction)
+                // CRITICAL: When reset=true, we've already cleared the cache above, so events will replace (not append)
+                // Pass reset flag as part of requiresFullRerender to ensure cache is properly replaced and UI is rebuilt
+                listener.onEventsForCachedRoom(roomId, eventsForCacheUpdate, hasEditRedactionReaction || reset)
             } else if (BuildConfig.DEBUG && eventsForCacheUpdate.isNotEmpty()) {
                 Log.w(TAG, "SyncIngestor: ⚠️ Room $roomId has ${eventsForCacheUpdate.size} events but is NOT in cached set - events will NOT be cached! (listener=${listener != null}, isStillCached=$isStillCached)")
             }
         } else if (BuildConfig.DEBUG && !hasPersistedEvents && eventsForCacheUpdate.isEmpty()) {
             // Log when no events were found for a cached room
             if (isRoomCached) {
-                Log.d(TAG, "SyncIngestor: Room $roomId is cached but sync_complete had no events to cache")
+                Log.d(TAG, "SyncIngestor: Room $roomId is cached but sync_complete had no events to cache (reset=$reset)")
             }
         }
         

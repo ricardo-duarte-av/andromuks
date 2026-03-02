@@ -7104,9 +7104,11 @@ class AppViewModel : ViewModel() {
     
     // Pagination state
     private var smallestRowId: Long = -1L // Smallest rowId from initial paginate
-    // Track the oldest timelineRowId from each pagination response per room
-    // The oldest event will have the lowest (smallest) timelineRowId (always positive)
+    // Track the oldest POSITIVE timelineRowId from each pagination response per room
+    // The oldest timeline event will have the lowest (smallest) POSITIVE timelineRowId
+    // CRITICAL: Only positive timelineRowid values are stored (negative values are for state events and cannot be used for pagination)
     // This is used for the next pull-to-refresh to know where to start paginating from
+    // Matches Webmucks backend behavior: pagination uses positive timeline_rowid values only
     private val oldestRowIdPerRoom = mutableMapOf<String, Long>()
     var isPaginating by mutableStateOf(false)
         private set
@@ -12167,22 +12169,25 @@ class AppViewModel : ViewModel() {
                     return handleBackgroundPrefetch(roomId, timelineList)
                 }
 
-                // Track oldest timelineRowId for initial paginate (when opening room)
+                // Track oldest POSITIVE timelineRowId for initial paginate (when opening room)
                 // This will be used for the first pull-to-refresh
-                // The oldest event has the lowest (smallest) timelineRowId (always positive)
+                // CRITICAL: Only use positive timelineRowid values for pagination (negative values are for state events)
                 if (!paginateRequests.containsKey(requestId)) {
-                    val oldestInResponse = timelineList.minOfOrNull { it.timelineRowid }
+                    // Filter to only positive timelineRowids (pagination events only, exclude state events)
+                    val positiveEvents = timelineList.filter { it.timelineRowid > 0 }
+                    val oldestInResponse = positiveEvents.minOfOrNull { it.timelineRowid }
+                    
                     if (oldestInResponse != null) {
-                        // All timelineRowIds should be positive - 0 is a bug
+                        // timelineRowId of 0 is a bug (should never happen)
                         if (oldestInResponse == 0L) {
                             android.util.Log.e("Andromuks", "AppViewModel: ⚠️ BUG: Initial paginate contains timelineRowId=0 for room $roomId. Every event should have a timelineRowId!")
-                        } else if (oldestInResponse < 0) {
-                            android.util.Log.e("Andromuks", "AppViewModel: ⚠️ BUG: Initial paginate contains negative timelineRowId=$oldestInResponse for room $roomId. TimelineRowId should always be positive!")
                         } else {
                             // Positive value is correct - store it for pull-to-refresh
                             oldestRowIdPerRoom[roomId] = oldestInResponse
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Tracked oldest timelineRowId=$oldestInResponse for room $roomId from initial paginate (${timelineList.size} events)")
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Tracked oldest positive timelineRowId=$oldestInResponse for room $roomId from initial paginate (${timelineList.size} events, ${positiveEvents.size} positive)")
                         }
+                    } else if (positiveEvents.isEmpty()) {
+                        android.util.Log.w("Andromuks", "AppViewModel: ⚠️ Initial paginate for room $roomId contains no events with positive timelineRowid (all ${timelineList.size} events have non-positive rowIds)")
                     }
                 } else {
                     // For pagination requests, log the row ID range of returned events
@@ -14605,25 +14610,23 @@ class AppViewModel : ViewModel() {
         isPaginating = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // CRITICAL FIX: Prefer tracked value (from previous pagination response) over cache value
-                // This ensures we use the actual oldest event from the last response, not the cache's
-                // oldest event which might be stale if duplicates were filtered out
-                // According to Webmucks backend: pass timeline_rowid as-is (positive or negative)
+                // CRITICAL FIX: Use ONLY positive timeline_rowid values for pagination
+                // According to Webmucks backend documentation and implementation:
+                // - Negative timeline_rowid values are for state events and cannot be used for pagination
+                // - Pagination requires positive timeline_rowid values only
                 // - Positive N means "return events with timeline.rowid < N" (older than N)
-                // - Negative -N means "return events with timeline.rowid < -N" (even older, more-negative IDs)
                 // - 0 means "no upper bound / fetch recent" (ONLY use when cache is empty)
                 val cacheEventCount = RoomTimelineCache.getCachedEventCount(roomId)
-                val oldestCachedRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
-                val oldestTrackedRowId = oldestRowIdPerRoom[roomId]
+                val oldestCachedRowId = RoomTimelineCache.getOldestPositiveCachedEventRowId(roomId) // CRITICAL: Only positive values!
+                val oldestTrackedRowId = oldestRowIdPerRoom[roomId] // This should already be positive (tracked from responses)
                 
                 // CRITICAL FIX: Prefer tracked value over cached value to avoid getting stuck on same max_timeline_id
                 // The tracked value is updated from the pagination response and represents the actual oldest
-                // event we received, while the cache value might be stale if duplicates were filtered out
-                // Pass the value as-is (positive or negative) - backend handles both correctly
+                // positive timelineRowid we received, while the cache value might be stale if duplicates were filtered out
                 // Only use 0 when cache is actually empty (no events at all)
                 val oldestRowId = when {
-                    oldestTrackedRowId != null && oldestTrackedRowId != -1L -> oldestTrackedRowId
-                    oldestCachedRowId != -1L -> oldestCachedRowId
+                    oldestTrackedRowId != null && oldestTrackedRowId != -1L && oldestTrackedRowId > 0 -> oldestTrackedRowId
+                    oldestCachedRowId != -1L && oldestCachedRowId > 0 -> oldestCachedRowId
                     cacheEventCount == 0 -> {
                         // Cache is empty - use 0 to request most recent events
                         if (BuildConfig.DEBUG) {
@@ -14632,9 +14635,9 @@ class AppViewModel : ViewModel() {
                         0L
                     }
                     else -> {
-                        // Cache has events but we couldn't get oldest row ID - this shouldn't happen
+                        // Cache has events but we couldn't get oldest positive row ID - this shouldn't happen
                         // Log warning and use 0 as fallback
-                        android.util.Log.w("Andromuks", "AppViewModel: ⚠️ Cache has $cacheEventCount events for room $roomId but couldn't get oldest timelineRowId (cached=$oldestCachedRowId, tracked=$oldestTrackedRowId). Using max_timeline_id=0 as fallback.")
+                        android.util.Log.w("Andromuks", "AppViewModel: ⚠️ Cache has $cacheEventCount events for room $roomId but couldn't get oldest positive timelineRowId (cached=$oldestCachedRowId, tracked=$oldestTrackedRowId). Using max_timeline_id=0 as fallback.")
                         0L
                     }
                 }
@@ -17396,8 +17399,10 @@ class AppViewModel : ViewModel() {
                 android.util.Log.d("Andromuks", "AppViewModel: Background prefetch for OPEN room $roomId — rebuilding timeline from ${mergedEvents.size} merged events (${timelineList.size} new from paginate)")
                 processCachedEvents(roomId, mergedEvents, openingFromNotification = false)
 
-                // Track oldest rowId from the paginate response for pull-to-refresh
-                val oldestInResponse = timelineList.minOfOrNull { it.timelineRowid }
+                // Track oldest POSITIVE rowId from the paginate response for pull-to-refresh
+                // CRITICAL: Only use positive timelineRowid values for pagination (negative values are for state events)
+                val positiveEvents = timelineList.filter { it.timelineRowid > 0 }
+                val oldestInResponse = positiveEvents.minOfOrNull { it.timelineRowid }
                 if (oldestInResponse != null && oldestInResponse != 0L) {
                     oldestRowIdPerRoom[roomId] = oldestInResponse
                 }
@@ -17446,7 +17451,30 @@ class AppViewModel : ViewModel() {
         val cacheBefore = RoomTimelineCache.getCachedEventCount(roomId)
         val oldestRowIdBefore = RoomTimelineCache.getOldestCachedEventRowId(roomId)
         
-        val eventsAdded = RoomTimelineCache.mergePaginatedEvents(roomId, timelineList)
+        // CRITICAL FIX: Validate pagination response before merging
+        // Backend should only return events with timeline_rowid < max_timeline_id
+        val maxTimelineIdUsed = paginateRequestMaxTimelineIds[requestId]
+        val eventsToMerge = if (maxTimelineIdUsed != null && maxTimelineIdUsed != 0L && timelineList.isNotEmpty()) {
+            val invalidEvents = timelineList.filter { it.timelineRowid >= maxTimelineIdUsed }
+            if (invalidEvents.isNotEmpty()) {
+                android.util.Log.e("Andromuks", "⚠️ PAGINATION BUG: Backend returned ${invalidEvents.size} events with rowId >= max_timeline_id ($maxTimelineIdUsed)! Filtering them out.")
+                invalidEvents.take(5).forEach { event ->
+                    android.util.Log.e("Andromuks", "  - Invalid event ${event.eventId}: rowId=${event.timelineRowid}, timestamp=${event.timestamp}")
+                }
+                // Filter out invalid events before merging
+                val validEvents = timelineList.filter { it.timelineRowid < maxTimelineIdUsed }
+                if (validEvents.size != timelineList.size) {
+                    android.util.Log.w("Andromuks", "Filtered ${timelineList.size - validEvents.size} invalid events from pagination response")
+                }
+                validEvents
+            } else {
+                timelineList
+            }
+        } else {
+            timelineList
+        }
+        
+        val eventsAdded = RoomTimelineCache.mergePaginatedEvents(roomId, eventsToMerge)
         
         // CRITICAL FIX: After adding events to cache, reload ALL events from cache into eventChainMap
         // This ensures the timeline reflects all cached events, not just the newly paginated ones
@@ -17496,23 +17524,39 @@ class AppViewModel : ViewModel() {
         val oldestRowIdAfter = RoomTimelineCache.getOldestCachedEventRowId(roomId)
         
         // CRITICAL FIX: Detect when pagination makes no progress by comparing request's max_timeline_id to response
-        val maxTimelineIdUsed = paginateRequestMaxTimelineIds[requestId]
+        //val maxTimelineIdUsed = paginateRequestMaxTimelineIds[requestId]
         paginateRequestMaxTimelineIds.remove(requestId) // Clean up tracking
         
         // Log paginate response with earliest and oldest timeline_rowid
         if (timelineList.isNotEmpty()) {
             val earliestTimelineRowId = timelineList.minOfOrNull { it.timelineRowid } ?: -1L
             val oldestTimelineRowId = timelineList.maxOfOrNull { it.timelineRowid } ?: -1L
+            val earliestTimestamp = timelineList.minOfOrNull { it.timestamp } ?: -1L
+            val oldestTimestamp = timelineList.maxOfOrNull { it.timestamp } ?: -1L
             android.util.Log.d("Andromuks", "paginate response: Room - $roomId, Earliest timeline_rowid - $earliestTimelineRowId, Oldest timeline_rowid - $oldestTimelineRowId, Events - ${timelineList.size}")
+            android.util.Log.d("Andromuks", "paginate response: Room - $roomId, Earliest timestamp - $earliestTimestamp, Oldest timestamp - $oldestTimestamp, max_timeline_id used - $maxTimelineIdUsed")
+            
+            // CRITICAL DEBUG: Check if response contains events NEWER than max_timeline_id (shouldn't happen!)
+            val eventsNewerThanMax = timelineList.filter { it.timelineRowid >= (maxTimelineIdUsed ?: Long.MAX_VALUE) }
+            if (eventsNewerThanMax.isNotEmpty()) {
+                android.util.Log.e("Andromuks", "⚠️ PAGINATION BUG: Response contains ${eventsNewerThanMax.size} events with rowId >= max_timeline_id ($maxTimelineIdUsed)! These should not be returned!")
+                eventsNewerThanMax.take(5).forEach { event ->
+                    android.util.Log.e("Andromuks", "  - Event ${event.eventId}: rowId=${event.timelineRowid}, timestamp=${event.timestamp}")
+                }
+            }
         } else {
             android.util.Log.d("Andromuks", "paginate response: Room - $roomId, No events returned")
         }
         
-        // Track the oldest timelineRowId from this pagination response
-        // The oldest event will have the lowest (smallest) timelineRowId in the response
-        // Note: timelineRowId can be positive or negative - both are valid according to Webmucks backend
+        // Track the oldest POSITIVE timelineRowId from this pagination response
+        // The oldest event will have the lowest (smallest) POSITIVE timelineRowId in the response
+        // CRITICAL: Only use positive timelineRowid values for pagination (negative values are for state events)
+        // This matches Webmucks backend behavior: pagination uses positive timeline_rowid values only
         if (timelineList.isNotEmpty()) {
-            val oldestInResponse = timelineList.minOfOrNull { it.timelineRowid }
+            // Filter to only positive timelineRowids (pagination events only, exclude state events)
+            val positiveEvents = timelineList.filter { it.timelineRowid > 0 }
+            val oldestInResponse = positiveEvents.minOfOrNull { it.timelineRowid }
+            
             if (oldestInResponse != null) {
                 // timelineRowId of 0 is a bug (should never happen)
                 if (oldestInResponse == 0L) {
@@ -17520,7 +17564,6 @@ class AppViewModel : ViewModel() {
                 } else {
                     // CRITICAL FIX: Detect when we're making no progress (response's oldest event >= max_timeline_id we used)
                     // This means we got the same or newer events, not older ones - we're stuck!
-                    // Note: For negative values, ">=" comparison still works correctly (e.g., -256 >= -158 is false, meaning progress)
                     if (maxTimelineIdUsed != null && oldestInResponse >= maxTimelineIdUsed) {
                         android.util.Log.w("Andromuks", "AppViewModel: ⚠️ PAGINATION STUCK: Response's oldest event ($oldestInResponse) >= max_timeline_id used ($maxTimelineIdUsed). No progress made!")
                         // If we got duplicates and made no progress, stop pagination to prevent infinite loop
@@ -17532,11 +17575,15 @@ class AppViewModel : ViewModel() {
                             }
                         }
                     } else {
-                        // Store it for next pull-to-refresh (can be positive or negative)
+                        // Store it for next pull-to-refresh (only positive values)
                         oldestRowIdPerRoom[roomId] = oldestInResponse
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Tracked oldest timelineRowId=$oldestInResponse for room $roomId (from ${timelineList.size} events, max_timeline_id used was $maxTimelineIdUsed)")
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Tracked oldest positive timelineRowId=$oldestInResponse for room $roomId (from ${timelineList.size} events, ${positiveEvents.size} positive, max_timeline_id used was $maxTimelineIdUsed)")
                     }
                 }
+            } else if (positiveEvents.isEmpty()) {
+                // No positive timelineRowids in response - this is unusual but not necessarily an error
+                // (could be all state events, though pagination should return timeline events)
+                android.util.Log.w("Andromuks", "AppViewModel: ⚠️ Pagination response for room $roomId contains no events with positive timelineRowid (all ${timelineList.size} events have non-positive rowIds)")
             }
         }
         
@@ -17594,20 +17641,26 @@ class AppViewModel : ViewModel() {
                 }
             }
         }
-        // Track the oldest timelineRowId from initial pagination response
-        // This is the lowest (smallest) timelineRowId, which represents the oldest event
-        // Note: timelineRowId can be positive or negative - both are valid according to Webmucks backend
+        // Track the oldest POSITIVE timelineRowId from initial pagination response
+        // This is the lowest (smallest) POSITIVE timelineRowId, which represents the oldest timeline event
+        // CRITICAL: Only use positive timelineRowid values for pagination (negative values are for state events)
+        // This matches Webmucks backend behavior: pagination uses positive timeline_rowid values only
         if (timelineList.isNotEmpty()) {
-            val oldestInResponse = timelineList.minOfOrNull { it.timelineRowid }
+            // Filter to only positive timelineRowids (pagination events only, exclude state events)
+            val positiveEvents = timelineList.filter { it.timelineRowid > 0 }
+            val oldestInResponse = positiveEvents.minOfOrNull { it.timelineRowid }
+            
             if (oldestInResponse != null) {
                 // timelineRowId of 0 is a bug (should never happen)
                 if (oldestInResponse == 0L) {
                     android.util.Log.e("Andromuks", "AppViewModel: ⚠️ BUG: Initial paginate contains timelineRowId=0 for room $roomId. Every event should have a timelineRowId!")
                 } else {
-                    // Store it for pull-to-refresh (can be positive or negative)
+                    // Store it for pull-to-refresh (only positive values)
                     oldestRowIdPerRoom[roomId] = oldestInResponse
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Tracked oldest timelineRowId=$oldestInResponse for room $roomId from initial paginate in handleInitialTimelineBuild (${timelineList.size} events)")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Tracked oldest positive timelineRowId=$oldestInResponse for room $roomId from initial paginate in handleInitialTimelineBuild (${timelineList.size} events, ${positiveEvents.size} positive)")
                 }
+            } else if (positiveEvents.isEmpty()) {
+                android.util.Log.w("Andromuks", "AppViewModel: ⚠️ Initial paginate in handleInitialTimelineBuild for room $roomId contains no events with positive timelineRowid (all ${timelineList.size} events have non-positive rowIds)")
             }
         }
         

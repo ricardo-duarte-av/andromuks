@@ -622,6 +622,8 @@ object RoomTimelineCache {
      * Get the oldest cached event's timeline_rowid for pagination
      * Returns the actual oldest event's timelineRowid (can be negative - that's valid!)
      * Returns -1 if no cached events
+     * 
+     * CRITICAL: Excludes events with timeline_rowid=0 (these are invalid and would break pagination)
      */
     fun getOldestCachedEventRowId(roomId: String): Long {
         synchronized(cacheLock) {
@@ -650,9 +652,9 @@ object RoomTimelineCache {
                 }
             }
             
-            // Cache is sorted by timelineRowid ASC, so first event is the oldest
-            // Note: timelineRowid can be negative (for state events or certain syncs)
-            val oldestEvent = cache.events.firstOrNull()
+            // CRITICAL FIX: Exclude events with timeline_rowid=0 (invalid, would break pagination)
+            // Find the oldest event with a valid timelineRowid (not 0)
+            val oldestEvent = cache.events.firstOrNull { it.timelineRowid != 0L }
             val result = oldestEvent?.timelineRowid ?: -1L
             
             // Debug: Show range of timelineRowid values in cache
@@ -661,8 +663,12 @@ object RoomTimelineCache {
                 val maxRowId = cache.events.maxOfOrNull { it.timelineRowid } ?: -1L
                 val negativeCount = cache.events.count { it.timelineRowid < 0 }
                 val positiveCount = cache.events.count { it.timelineRowid > 0 }
+                val zeroCount = cache.events.count { it.timelineRowid == 0L }
                 val firstFew = cache.events.take(5).map { "${it.eventId.take(20)}... (rowId=${it.timelineRowid})" }.joinToString(", ")
-                Log.d(TAG, "getOldestCachedEventRowId for $roomId: result=$result, cache has ${cache.events.size} events, rowId range: $minRowId to $maxRowId (negative=$negativeCount, positive=$positiveCount)")
+                Log.d(TAG, "getOldestCachedEventRowId for $roomId: result=$result, cache has ${cache.events.size} events, rowId range: $minRowId to $maxRowId (negative=$negativeCount, positive=$positiveCount, zero=$zeroCount)")
+                if (zeroCount > 0) {
+                    Log.w(TAG, "getOldestCachedEventRowId: ⚠️ Cache has $zeroCount events with timeline_rowid=0 (excluded from pagination calculation)")
+                }
                 Log.d(TAG, "getOldestCachedEventRowId: First 5 events: $firstFew")
             }
             return result
@@ -672,44 +678,52 @@ object RoomTimelineCache {
     /**
      * Get the oldest cached event's timeline_rowid that is positive (> 0) for pagination
      * Negative timeline_rowid values cannot be used for pagination (backend requires positive values)
+     * CRITICAL: Excludes events with timeline_rowid=0 (these are invalid and would break pagination)
      * Returns -1 if no cached events or no positive timeline_rowid found
      */
     fun getOldestPositiveCachedEventRowId(roomId: String): Long {
-        val cache = roomEventsCache[roomId] ?: run {
-            if (BuildConfig.DEBUG) Log.d(TAG, "getOldestPositiveCachedEventRowId: No cache for room $roomId")
-            return -1L
-        }
-        
-        if (cache.events.isEmpty()) {
-            if (BuildConfig.DEBUG) Log.d(TAG, "getOldestPositiveCachedEventRowId: Cache is empty for room $roomId")
-            return -1L
-        }
-        
-        // Ensure cache is sorted correctly before retrieving oldest event
-        cache.events.sortWith { a, b ->
-            if (a == null || b == null) {
-                return@sortWith if (a == null && b == null) 0 else if (a == null) 1 else -1
+        synchronized(cacheLock) {
+            val cache = roomEventsCache[roomId] ?: run {
+                if (BuildConfig.DEBUG) Log.d(TAG, "getOldestPositiveCachedEventRowId: No cache for room $roomId")
+                return -1L
             }
-            val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
-            if (rowIdCompare != 0) {
-                rowIdCompare
-            } else {
-                val tsCompare = a.timestamp.compareTo(b.timestamp)
-                if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+            
+            if (cache.events.isEmpty()) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "getOldestPositiveCachedEventRowId: Cache is empty for room $roomId")
+                return -1L
             }
+            
+            // Ensure cache is sorted correctly before retrieving oldest event
+            cache.events.sortWith { a, b ->
+                if (a == null || b == null) {
+                    return@sortWith if (a == null && b == null) 0 else if (a == null) 1 else -1
+                }
+                val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
+                if (rowIdCompare != 0) {
+                    rowIdCompare
+                } else {
+                    val tsCompare = a.timestamp.compareTo(b.timestamp)
+                    if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+                }
+            }
+            
+            // CRITICAL FIX: Find the oldest event with a positive timeline_rowid (> 0, not 0!)
+            // Negative values cannot be used for pagination (backend requires positive max_timeline_id)
+            // timeline_rowid=0 is invalid and would break pagination (means "no upper bound")
+            val oldestPositiveEvent = cache.events.firstOrNull { it.timelineRowid > 0 }
+            val result = oldestPositiveEvent?.timelineRowid ?: -1L
+            
+            if (BuildConfig.DEBUG) {
+                val positiveCount = cache.events.count { it.timelineRowid > 0 }
+                val negativeCount = cache.events.count { it.timelineRowid < 0 }
+                val zeroCount = cache.events.count { it.timelineRowid == 0L }
+                Log.d(TAG, "getOldestPositiveCachedEventRowId for $roomId: result=$result, positive events=$positiveCount, negative events=$negativeCount, zero events=$zeroCount")
+                if (zeroCount > 0) {
+                    Log.w(TAG, "getOldestPositiveCachedEventRowId: ⚠️ Cache has $zeroCount events with timeline_rowid=0 (excluded from pagination calculation)")
+                }
+            }
+            return result
         }
-        
-        // Find the oldest event with a positive timeline_rowid
-        // Negative values cannot be used for pagination (backend requires positive max_timeline_id)
-        val oldestPositiveEvent = cache.events.firstOrNull { it.timelineRowid > 0 }
-        val result = oldestPositiveEvent?.timelineRowid ?: -1L
-        
-        if (BuildConfig.DEBUG) {
-            val positiveCount = cache.events.count { it.timelineRowid > 0 }
-            val negativeCount = cache.events.count { it.timelineRowid < 0 }
-            Log.d(TAG, "getOldestPositiveCachedEventRowId for $roomId: result=$result, positive events=$positiveCount, negative events=$negativeCount")
-        }
-        return result
     }
     
     /**
