@@ -5567,6 +5567,10 @@ class AppViewModel : ViewModel() {
                         }
                         // This ensures bridge badges are loaded before other commands can be sent
                         
+                        // CRITICAL FIX: Mark initialization as complete - from now on, all sync_complete messages are real-time updates
+                        // Set this on Main thread to ensure proper visibility
+                        initializationComplete = true
+                        
                         // CRITICAL FIX: Call checkStartupComplete() AFTER all state is set on Main thread
                         // This ensures proper visibility and prevents race conditions
                         checkStartupComplete()
@@ -5581,13 +5585,10 @@ class AppViewModel : ViewModel() {
                 // This ensures bridge badges are loaded
                 loadAllRoomStatesAfterInitComplete()
         
-        // Mark initialization as complete - from now on, all sync_complete messages are real-time updates
-        initializationComplete = true
-        
         // CRITICAL FIX: Don't allow commands yet - wait for all room states to load first
         // canSendCommandsToBackend will be set after all room states are loaded in loadAllRoomStatesAfterInitComplete()
         
-        checkStartupComplete() // Check if startup is complete
+        // Note: initializationComplete is now set in the finally block on Main thread
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Initialization complete - future sync_complete messages will trigger UI updates")
         
         // Reset reconnection state now that init_complete has arrived
