@@ -3048,20 +3048,12 @@ class WebSocketService : Service() {
             )
             // Headless recovery: recreate a primary ViewModel when callbacks are missing.
             ensureHeadlessPrimary(applicationContext, "Callback missing during health check")
-        } else if (BuildConfig.DEBUG && !isConnected) {
-            android.util.Log.d("WebSocketService", "Callback health check: reconnection callback is available (connection not CONNECTED)")
-        } else if (BuildConfig.DEBUG && isConnected) {
-            android.util.Log.d("WebSocketService", "Callback health check: connection is CONNECTED (callback check skipped)")
         }
         
         // Check all primary callbacks for completeness (for diagnostics)
         val hasPrimaryReconnection = primaryReconnectionCallback != null
         val hasPrimaryOfflineMode = primaryOfflineModeCallback != null
         val hasPrimaryActivityLog = primaryActivityLogCallback != null
-        
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d("WebSocketService", "Callback health check: reconnection=$hasPrimaryReconnection, offlineMode=$hasPrimaryOfflineMode, activityLog=$hasPrimaryActivityLog")
-        }
         
         // Log warning if primary instance is registered but callbacks are missing
         if (primaryViewModelId != null) {
