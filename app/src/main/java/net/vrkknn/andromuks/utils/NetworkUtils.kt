@@ -666,7 +666,8 @@ fun connectToWebsocket(
                         
                         // PHASE 4: Distribute to all registered ViewModels
                         // PHASE 5.3: handleResponse() will acknowledge by request_id
-                        WebSocketService.getServiceScope().launch(Dispatchers.IO) {
+                        // PERFORMANCE: Use Dispatchers.Default for CPU-bound JSON parsing (not I/O-bound)
+                        WebSocketService.getServiceScope().launch(Dispatchers.Default) {
                             for (viewModel in WebSocketService.getRegisteredViewModels()) {
                                 viewModel.handleResponse(requestId, data ?: Any())
                             }

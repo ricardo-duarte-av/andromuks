@@ -67,7 +67,8 @@ class WebSocketService : Service() {
         private const val CONSECUTIVE_FAILURES_TO_DROP = 3 // Drop WebSocket after 3 consecutive ping failures
         private const val INIT_COMPLETE_TIMEOUT_MS = 15_000L // 15 seconds to wait for init_complete (fallback)
         private const val RUN_ID_TIMEOUT_MS = 500L // 500ms to wait for run_id after connection
-        private const val INIT_COMPLETE_AFTER_RUN_ID_TIMEOUT_MS = 2_000L // 2 seconds to wait for init_complete after run_id (increased from 1s to handle slower networks)
+        private const val INIT_COMPLETE_AFTER_RUN_ID_TIMEOUT_MS = 3_000L // 3 seconds to wait for init_complete after run_id (increased to handle network latency)
+        private const val INIT_COMPLETE_GRACE_PERIOD_MS = 500L // Grace period after timeout before actually clearing connection
         private const val INIT_COMPLETE_RETRY_BASE_MS = 2_000L // 2 seconds initial retry delay
         private const val INIT_COMPLETE_RETRY_MAX_MS = 8_000L // 64 seconds max retry delay
         private const val MAX_RECONNECTION_ATTEMPTS = 99
@@ -2242,8 +2243,8 @@ class WebSocketService : Service() {
                 updateConnectionState(WebSocketState.Connected)
                 android.util.Log.i("WebSocketService", "Run ID received - state transition: CONNECTING → CONNECTED")
                 
-                // Start 1-second timeout for init_complete
-                android.util.Log.i("WebSocketService", "Run ID received - starting 1-second timeout for init_complete")
+                // Start timeout for init_complete (3 seconds + 500ms grace period)
+                android.util.Log.i("WebSocketService", "Run ID received - starting ${INIT_COMPLETE_AFTER_RUN_ID_TIMEOUT_MS}ms timeout for init_complete")
                 serviceInstance.startInitCompleteTimeout()
             } else if (currentState.isInitializing()) {
                 // Race condition: init_complete arrived before run_id
@@ -4004,10 +4005,20 @@ class WebSocketService : Service() {
                 return@launch
             }
             
+            // GRACE PERIOD: Wait a bit longer before clearing to handle network latency
+            // If init_complete arrives during grace period, it will be accepted
+            delay(INIT_COMPLETE_GRACE_PERIOD_MS)
+            
+            // Check again if init_complete arrived during grace period
+            if (!waitingForInitComplete) {
+                android.util.Log.i("WebSocketService", "Init complete received during grace period - connection saved")
+                return@launch
+            }
+            
             val reason = if (runIdReceived) {
-                "Init complete timeout expired after ${timeoutMs}ms (run_id received ${System.currentTimeMillis() - runIdReceivedTime}ms ago) - connection broken"
+                "Init complete timeout expired after ${timeoutMs + INIT_COMPLETE_GRACE_PERIOD_MS}ms (run_id received ${System.currentTimeMillis() - runIdReceivedTime}ms ago) - connection broken"
             } else {
-                "Init complete timeout expired after ${timeoutMs}ms - connection failed"
+                "Init complete timeout expired after ${timeoutMs + INIT_COMPLETE_GRACE_PERIOD_MS}ms - connection failed"
             }
             
             android.util.Log.w("WebSocketService", reason)
