@@ -4,7 +4,9 @@ import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
 import net.vrkknn.andromuks.RoomItem
 import net.vrkknn.andromuks.SyncUpdateResult
-
+import kotlinx.coroutines.async
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 
 import org.json.JSONObject
 
@@ -163,7 +165,7 @@ object SpaceRoomParser {
      * @param appViewModel AppViewModel instance (for accessing existing rooms)
      * @param existingRooms Map of existing room IDs to RoomItems (for change detection)
      */
-    fun parseSyncUpdate(
+    suspend fun parseSyncUpdate(
         syncJson: JSONObject, 
         memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null, 
         appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
@@ -235,25 +237,42 @@ object SpaceRoomParser {
         // Process updated/new rooms
         val roomsJson = data.optJSONObject("rooms")
         if (roomsJson != null) {
-            // Always parse all rooms in sync_complete to keep data up-to-date
-            // Since we're not persisting locally, the only cost is JSON parsing (relatively cheap)
-            val roomsToParse = roomsJson.keys().asSequence().toList()
+            // PERFORMANCE: Extract all room data upfront to avoid repeated JSON operations
+            val roomsToParse = roomsJson.keys().asSequence().mapNotNull { roomId ->
+                val roomObj = roomsJson.optJSONObject(roomId)
+                val meta = roomObj?.optJSONObject("meta")
+                if (roomObj != null && meta != null) {
+                    Triple(roomId, roomObj, meta)
+                } else {
+                    null
+                }
+            }.toList()
             
-            // Parse all rooms
-            for (roomId in roomsToParse) {
-                val roomObj = roomsJson.optJSONObject(roomId) ?: continue
-                val meta = roomObj.optJSONObject("meta") ?: continue
+            // PERFORMANCE: Parse rooms in parallel using coroutines
+            // This significantly speeds up processing when there are many rooms (e.g., 100+)
+            coroutineScope {
+                val roomResults = roomsToParse.map { (roomId, roomObj, meta) ->
+                    async(Dispatchers.Default) {
+                        // Check if this is a space (skip spaces for now)
+                        val type = meta.optJSONObject("creation_content")?.optString("type")?.takeIf { it.isNotBlank() }
+                        if (type == "m.space") {
+                            Pair(roomId, null as RoomItem?)
+                        } else {
+                            // Parse the room (always parse message previews)
+                            val room = parseRoomFromJson(roomId, roomObj, meta, memberCache, appViewModel)
+                            Pair(roomId, room)
+                        }
+                    }
+                }
                 
-                // Check if this is a space (skip spaces for now)
-                val type = meta.optJSONObject("creation_content")?.optString("type")?.takeIf { it.isNotBlank() }
-                if (type == "m.space") {
+                // Collect results (maintains order)
+                for ((roomId, room) in roomResults.map { it.await() }) {
+                if (room == null) {
+                    // This is a space
                     discoveredSpaceIds.add(roomId)
                     continue
                 }
                 
-                // Parse the room (always parse message previews)
-                val room = parseRoomFromJson(roomId, roomObj, meta, memberCache, appViewModel)
-                if (room != null) {
                     // Determine if this is a new room or updated room
                     val existingRoom = existingRooms?.get(roomId)
                     if (existingRoom == null) {

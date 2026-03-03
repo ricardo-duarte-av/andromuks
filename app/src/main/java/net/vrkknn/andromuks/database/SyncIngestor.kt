@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Base64
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.TimelineEvent
@@ -416,113 +418,63 @@ class SyncIngestor(private val context: Context) {
         // Process rooms - all data is in-memory only, no DB operations
         val roomsJson = data.optJSONObject("rooms")
         if (roomsJson != null) {
+            // PERFORMANCE: Extract all room data upfront to avoid repeated JSON operations
             val roomKeys = roomsJson.keys()
-            val roomsToProcess = mutableListOf<String>()
+            val roomsToProcess = mutableListOf<Pair<String, JSONObject>>()
             
             while (roomKeys.hasNext()) {
-                roomsToProcess.add(roomKeys.next())
+                val roomId = roomKeys.next()
+                val roomObj = roomsJson.optJSONObject(roomId)
+                if (roomObj != null) {
+                    roomsToProcess.add(Pair(roomId, roomObj))
+                }
             }
             
-            // Process all rooms immediately - no deferral or DB operations
             if (BuildConfig.DEBUG) {
-                val cachedRoomsInSync = roomsToProcess.filter { it in cachedRoomIds }
-                Log.d(TAG, "SyncIngestor: Processing ${roomsToProcess.size} rooms from sync_complete (${cachedRoomsInSync.size} are cached: ${cachedRoomsInSync.take(3).joinToString(", ")})")
+                val cachedRoomsInSync = roomsToProcess.filter { (roomId, _) -> roomId in cachedRoomIds }
+                Log.d(TAG, "SyncIngestor: Processing ${roomsToProcess.size} rooms from sync_complete (${cachedRoomsInSync.size} of these are in cached set: ${cachedRoomsInSync.take(3).map { it.first }.joinToString(", ")})")
             }
-            for ((index, roomId) in roomsToProcess.withIndex()) {
-                val roomObj = roomsJson.optJSONObject(roomId) ?: continue
-                
-                // Log room contents for debugging
-                val roomContents = analyzeRoomContents(roomId, roomObj)
-                val isRoomCached = cachedRoomIds.contains(roomId)
+            
+            // PERFORMANCE: Early return if no rooms are cached - skip all expensive processing
+            val roomsToActuallyProcess = roomsToProcess.filter { (roomId, _) ->
+                roomId in cachedRoomIds
+            }
+            
+            if (roomsToActuallyProcess.isEmpty()) {
                 if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "SyncIngestor: Processing room $roomId - $roomContents (cached: $isRoomCached)")
+                    Log.d(TAG, "SyncIngestor: No cached rooms in this sync_complete - skipping event processing")
+                }
+                // Still return invites and left_rooms info, just skip room event processing
+            } else {
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "SyncIngestor: Processing ${roomsToActuallyProcess.size} cached rooms (${roomsToProcess.size - roomsToActuallyProcess.size} skipped)")
                 }
                 
-                // CRITICAL FIX: Check if this room has notifications that will trigger FCM
-                // If so, mark room as actively cached and trigger preemptive pagination BEFORE processing events
-                // This solves the race condition where events arrive via sync_complete before FCM notification
-                var hasNotificationWithSoundOrHighlight = false
-                val notificationsArray = roomObj.optJSONArray("notifications")
-                if (notificationsArray != null && notificationsArray.length() > 0) {
-                    if (BuildConfig.DEBUG) {
-                        Log.d(TAG, "SyncIngestor: Room $roomId has notifications array with ${notificationsArray.length()} entries")
-                    }
-                    for (i in 0 until notificationsArray.length()) {
-                        val notification = notificationsArray.optJSONObject(i)
-                        if (notification != null) {
-                            val sound = notification.optBoolean("sound", false)
-                            val highlight = notification.optBoolean("highlight", false)
-                            if (BuildConfig.DEBUG) {
-                                Log.d(TAG, "SyncIngestor: Room $roomId notification[$i]: sound=$sound, highlight=$highlight")
-                            }
-                            if (sound || highlight) {
-                                hasNotificationWithSoundOrHighlight = true
-                                if (BuildConfig.DEBUG) {
-                                    Log.d(TAG, "SyncIngestor: 🔔 Room $roomId has notification with sound/highlight - FCM will arrive soon")
-                                }
-                                break
-                            }
+                // PERFORMANCE: Process rooms in parallel (maintains order for cache updates)
+                // Use coroutines to parallelize room processing while keeping cache updates sequential
+                coroutineScope {
+                    val roomResults = roomsToActuallyProcess.mapIndexed { index, (roomId, roomObj) ->
+                        async(Dispatchers.IO) {
+                            // Process room and return result
+                            val hadEvents = processRoom(roomId, roomObj, isAppVisible, true) // Always cached at this point
+                            Pair(roomId, hadEvents)
                         }
                     }
                     
-                    if (hasNotificationWithSoundOrHighlight && !isRoomCached) {
-                        if (BuildConfig.DEBUG) {
-                            Log.d(TAG, "SyncIngestor: 🔔 Room $roomId has notification with sound/highlight and is NOT cached - marking as actively cached and triggering preemptive pagination")
+                    // Collect results (maintains order - await in sequence)
+                    for ((index, deferred) in roomResults.withIndex()) {
+                        val (roomId, hadEvents) = deferred.await()
+                        if (hadEvents) {
+                            roomsWithEvents.add(roomId)
+                            if (BuildConfig.DEBUG) {
+                                Log.d(TAG, "SyncIngestor: ✓ Room $roomId had events added to cache")
+                            }
                         }
-                        // Mark room as actively cached immediately so events from this sync_complete will be cached
-                        cacheUpdateListener?.onNotificationExpected(roomId)
-                    } else if (hasNotificationWithSoundOrHighlight && isRoomCached) {
-                        if (BuildConfig.DEBUG) {
-                            Log.d(TAG, "SyncIngestor: Room $roomId has notification with sound/highlight but is already cached - events will be processed normally")
+                        // Yield every 20 rooms to allow other coroutines to run (prevents ANR on reconnect)
+                        if ((index + 1) % 20 == 0) {
+                            kotlinx.coroutines.yield()
                         }
                     }
-                } else if (BuildConfig.DEBUG) {
-                    // Log when there's no notifications array to help debug
-                    val hasEvents = roomObj.has("events") || roomObj.has("timeline")
-                    if (hasEvents) {
-                        Log.d(TAG, "SyncIngestor: Room $roomId has events but no notifications array")
-                    }
-                }
-                
-                // Re-check if room is cached (may have been marked by onNotificationExpected)
-                // Get fresh cached room IDs from listener to account for onNotificationExpected marking
-                val isRoomCachedAfterNotification = if (hasNotificationWithSoundOrHighlight && !isRoomCached) {
-                    val listener = cacheUpdateListener
-                    if (listener != null) {
-                        // Room was just marked as cached by onNotificationExpected, get fresh set
-                        val freshCachedIds = listener.getCachedRoomIds()
-                        val isNowCached = freshCachedIds.contains(roomId)
-                        if (BuildConfig.DEBUG) {
-                            Log.d(TAG, "SyncIngestor: Room $roomId was marked as cached by onNotificationExpected, fresh check: $isNowCached")
-                        }
-                        isNowCached
-                    } else {
-                        cachedRoomIds.contains(roomId)
-                    }
-                } else {
-                    cachedRoomIds.contains(roomId)
-                }
-                
-                if (BuildConfig.DEBUG && !isRoomCachedAfterNotification) {
-                    Log.d(TAG, "SyncIngestor: Room $roomId is NOT in actively cached set (${cachedRoomIds.size} cached rooms: ${cachedRoomIds.take(3).joinToString(", ")}) - events will NOT be cached")
-                }
-                val hadEvents = processRoom(roomId, roomObj, isAppVisible, isRoomCachedAfterNotification)
-                if (hadEvents) {
-                    roomsWithEvents.add(roomId)
-                    if (BuildConfig.DEBUG) {
-                        Log.d(TAG, "SyncIngestor: ✓ Room $roomId had events added to cache")
-                    }
-                } else if (BuildConfig.DEBUG) {
-                    // Log when room had no events added to cache (room not cached or no events)
-                    if (isRoomCached) {
-                        Log.d(TAG, "SyncIngestor: Room $roomId is cached but had no events added to cache (contents: $roomContents)")
-                    } else {
-                        Log.d(TAG, "SyncIngestor: Room $roomId had no events added to cache - room not in actively cached set (contents: $roomContents)")
-                    }
-                }
-                // Yield every 20 rooms to allow other coroutines to run (prevents ANR on reconnect)
-                if ((index + 1) % 20 == 0) {
-                    kotlinx.coroutines.yield()
                 }
             }
             
