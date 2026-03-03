@@ -1364,10 +1364,18 @@ class WebSocketService : Service() {
                 return
             }
             
-            // If already connected/initializing/ready, close the old connection first (for reconnection)
+            // CRITICAL FIX: If we're already Ready with a live socket, reject replacement attempts
+            // This prevents reconnection jobs from killing healthy connections
+            if (serviceInstance.connectionState.isReady() && serviceInstance.webSocket != null) {
+                android.util.Log.w("WebSocketService", "WebSocket already Ready with live socket - rejecting replacement attempt (likely stale reconnection job)")
+                // Close the new socket immediately - we don't want it
+                webSocket.close(1000, "Connection already established")
+                return
+            }
+            
+            // If already connected/initializing (but not Ready), close the old connection first (for reconnection)
             if (serviceInstance.connectionState.isConnected() || 
-                serviceInstance.connectionState.isInitializing() || 
-                serviceInstance.connectionState.isReady()) {
+                serviceInstance.connectionState.isInitializing()) {
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Replacing existing WebSocket connection (reconnection)")
                 serviceInstance.webSocket?.close(1000, "Reconnecting")
             }
@@ -1468,6 +1476,11 @@ class WebSocketService : Service() {
                 serviceInstance.reconnectionJob = null
             }
             
+            // Clear connection flag - connection attempt failed or was cleared
+            synchronized(serviceInstance.reconnectionLock) {
+                serviceInstance.isConnecting = false
+            }
+            
             // Reset connection start time
             serviceInstance.connectionStartTime = 0
             
@@ -1500,6 +1513,34 @@ class WebSocketService : Service() {
             
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "WebSocket connection cleared in service")
             logPingStatus()
+        }
+        
+        /**
+         * Handle WebSocket closing events safely, ignoring stale sockets.
+         *
+         * When we replace an existing WebSocket with a new one in setWebSocket(), the old socket
+         * will still emit onClosing/onClosed callbacks. Previously, those callbacks always invoked
+         * clearWebSocket(), which would incorrectly tear down the NEW active connection.
+         *
+         * This helper ensures we only clear the connection if the closing socket is the currently
+         * active one stored in the service. Closes from stale/old sockets are logged and ignored.
+         */
+        fun handleWebSocketClosing(webSocket: WebSocket, code: Int, reason: String) {
+            val serviceInstance = instance ?: return
+            
+            // Only act if this WebSocket is the one currently tracked by the service.
+            // If it's a stale socket from a previous connection, ignore its close event.
+            if (serviceInstance.webSocket !== webSocket) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                        "WebSocketService",
+                        "handleWebSocketClosing: Ignoring close for stale WebSocket instance (code=$code, reason=$reason)"
+                    )
+                }
+                return
+            }
+            
+            clearWebSocket("WebSocket closing ($code)", code, reason)
         }
         
         /**
@@ -1887,6 +1928,16 @@ class WebSocketService : Service() {
                         return@launch
                     }
                     
+                    // CRITICAL FIX: Set flag to prevent NetworkMonitor from scheduling duplicate reconnections
+                    // This flag is cleared when connection completes (Ready) or fails (Disconnected)
+                    synchronized(serviceInstance.reconnectionLock) {
+                        if (serviceInstance.isConnecting) {
+                            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "connectWebSocket() called but connection already in progress - skipping")
+                            return@launch
+                        }
+                        serviceInstance.isConnecting = true
+                    }
+                    
                     // If last_received_id is provided, store it in SharedPreferences for NetworkUtils to read
                     if (lastReceivedId != 0) {
                         updateLastReceivedRequestId(lastReceivedId, serviceInstance.applicationContext)
@@ -1915,7 +1966,12 @@ class WebSocketService : Service() {
                 } catch (e: Exception) {
                     android.util.Log.e("WebSocketService", "Error in connectWebSocket()", e)
                     clearWebSocket("Connection error: ${e.message}")
+                    // clearWebSocket() already clears isConnecting flag, so no need to do it here
                 }
+                // Note: isConnecting flag is cleared by:
+                // 1. clearWebSocket() if connection fails
+                // 2. When transitioning to Ready if connection succeeds
+                // No finally block needed - the flag lifecycle is managed by state transitions
             }
         }
         
@@ -1952,6 +2008,14 @@ class WebSocketService : Service() {
                 if (newPending > 0 && newProcessed >= newPending) {
                     updateConnectionState(WebSocketState.Ready)
                     android.util.Log.i("WebSocketService", "All sync_completes processed - state transition: INITIALIZING → READY")
+                    
+                    // Clear connection flag - connection completed successfully
+                    synchronized(serviceInstance.reconnectionLock) {
+                        serviceInstance.isConnecting = false
+                    }
+                    
+                    // Cancel any pending reconnection jobs now that we're Ready
+                    resetReconnectionState()
                     
                     // Start ping loop when ready
                     if (!serviceInstance.pingLoopStarted) {
@@ -2087,6 +2151,14 @@ class WebSocketService : Service() {
             if (currentState is WebSocketState.Initializing && currentState.pendingSyncCompleteCount == 0) {
                 android.util.Log.i("WebSocketService", "Init_complete received with no pending sync_completes - transitioning to READY immediately")
                 updateConnectionState(WebSocketState.Ready)
+                
+                // Clear connection flag - connection completed successfully
+                synchronized(serviceInstance.reconnectionLock) {
+                    serviceInstance.isConnecting = false
+                }
+                
+                // Cancel any pending reconnection jobs now that we're Ready
+                resetReconnectionState()
             }
             
             if (!serviceInstance.pingLoopStarted) {
@@ -2548,8 +2620,20 @@ class WebSocketService : Service() {
                         }
                         
                         // Network validated and backend healthy - proceed with reconnection
+                        // BUT: If, in the meantime, another path has already established a
+                        // healthy READY connection with a live WebSocket, this job is now
+                        // stale and must not touch the state machine at all.
+                        val currentStateNow = serviceInstance.connectionState
+                        if (currentStateNow.isReady() && serviceInstance.webSocket != null) {
+                            android.util.Log.i(
+                                "WebSocketService",
+                                "Reconnection job: connection already READY with live WebSocket - skipping reconnection (reason=$reason)"
+                            )
+                            return@launch
+                        }
+                        
                         // Get last_received_id from current state (may have been updated in retry loop)
-                        val finalState = serviceInstance.connectionState
+                        val finalState = currentStateNow
                         val lastReceivedId = if (finalState is WebSocketState.Reconnecting) {
                             finalState.lastReceivedRequestId
                         } else {
@@ -2557,6 +2641,17 @@ class WebSocketService : Service() {
                         }
                         
                         if (isActive) {
+                            // FINAL CHECK: Right before invoking callback, verify we're still not Ready
+                            // This prevents race conditions where state changes between the earlier check and now
+                            val stateBeforeCallback = serviceInstance.connectionState
+                            if (stateBeforeCallback.isReady() && serviceInstance.webSocket != null) {
+                                android.util.Log.w(
+                                    "WebSocketService",
+                                    "Reconnection job: connection became READY before callback - aborting reconnection (reason=$reason)"
+                                )
+                                return@launch
+                            }
+                            
                             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Executing reconnection: $reason (attempt ${serviceInstance.reconnectionAttemptCount}/$MAX_RECONNECTION_ATTEMPTS, last_received_id: $lastReceivedId)")
                             logActivity("Reconnection Attempt - $reason", serviceInstance.currentNetworkType.name)
                             
@@ -2567,7 +2662,16 @@ class WebSocketService : Service() {
                             // Pass last_received_id to reconnection callback
                             invokeReconnectionCallback(reason, lastReceivedId)
                         } else {
-                            updateConnectionState(WebSocketState.Disconnected)
+                            // Job was cancelled (e.g., because a separate successful connection
+                            // path called resetReconnectionState()). In that case, do NOT
+                            // overwrite whatever the current connection state is (it might
+                            // already be READY). Just exit quietly.
+                            if (BuildConfig.DEBUG) {
+                                android.util.Log.d(
+                                    "WebSocketService",
+                                    "Reconnection job cancelled before execution, skipping state change (reason=$reason, currentState=$currentStateNow)"
+                                )
+                            }
                         }
                     } catch (e: Exception) {
                         android.util.Log.e("WebSocketService", "Reconnection job failed", e)
@@ -2759,6 +2863,7 @@ class WebSocketService : Service() {
     private var reconnectionJob: Job? = null
     
     private var isReconnecting = false // Prevent multiple simultaneous reconnections
+    private var isConnecting = false // Track if connectWebSocket() is currently running (prevents NetworkMonitor from triggering duplicate reconnections)
     private var lastReconnectionTime = 0L
     private var reconnectionAttemptCount = 0 // Track reconnection attempts for retry limit
     
@@ -3162,6 +3267,18 @@ class WebSocketService : Service() {
                     //
                     // For same network (same type and identity), do nothing - let ping/pong handle failures
                     if (connectionState.isDisconnected()) {
+                        // CRITICAL FIX: Check if connectWebSocket() is already running before scheduling reconnection
+                        // This prevents NetworkMonitor from triggering duplicate reconnections during startup
+                        val alreadyConnecting = synchronized(this@WebSocketService.reconnectionLock) {
+                            this@WebSocketService.isConnecting
+                        }
+                        if (alreadyConnecting) {
+                            if (BuildConfig.DEBUG) {
+                                android.util.Log.d("WebSocketService", "Network validated but connection already in progress - skipping duplicate reconnection")
+                            }
+                            return@launch
+                        }
+                        
                         // Not connected - reconnect (network is now validated)
                         android.util.Log.w("WebSocketService", "Network validated but WebSocket disconnected - triggering reconnection")
                         logActivity("Network Validated - Reconnecting", currentNetworkType.name)
@@ -3896,11 +4013,26 @@ class WebSocketService : Service() {
             android.util.Log.w("WebSocketService", reason)
             logActivity("Init Complete Timeout - Connection Failed", currentNetworkType.name)
             
-            // Show notification about connection failure
-            showInitCompleteFailureNotification()
-            
             // Drop the connection
             clearWebSocket("Init complete timeout - connection failed")
+            
+            // CRITICAL FIX: Check if we're already in a reconnection flow (from NetworkMonitor)
+            // If so, don't show duplicate notification or schedule another retry - let NetworkMonitor handle it
+            val alreadyReconnecting = synchronized(reconnectionLock) {
+                isReconnecting || reconnectionJob?.isActive == true
+            }
+            
+            if (alreadyReconnecting) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("WebSocketService", "Init complete timeout but already reconnecting - skipping duplicate notification and retry")
+                }
+                // Reset retry count since we're already reconnecting
+                initCompleteRetryCount = 0
+                return@launch
+            }
+            
+            // Show notification about connection failure (only if not already reconnecting)
+            showInitCompleteFailureNotification()
             
             // Calculate exponential backoff delay (2s, 4s, 8s, 16s, 32s, 64s max)
             val delayMs = minOf(

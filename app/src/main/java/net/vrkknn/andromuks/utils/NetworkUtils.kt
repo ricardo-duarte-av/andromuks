@@ -941,8 +941,10 @@ fun connectToWebsocket(
             Log.i("Andromuks", "NetworkUtils: WebSocket Closing ($code): $reason")
             
             // REFACTORING: Service handles close events and reconnection strategy
-            // Clear WebSocket in service with close code information
-            WebSocketService.clearWebSocket("WebSocket closing ($code)", code, reason)
+            // Clear WebSocket in service with close code information, but only if this
+            // is the currently active socket. Stale sockets from previous connections
+            // must not tear down the new active connection.
+            WebSocketService.handleWebSocketClosing(webSocket, code, reason)
             
             // If ViewModel is available, notify it (for UI updates)
             appViewModel?.handleWebSocketClose(code, reason)

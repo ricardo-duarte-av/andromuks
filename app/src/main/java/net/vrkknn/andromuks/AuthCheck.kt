@@ -497,8 +497,28 @@ fun AuthCheckScreen(
     
     LaunchedEffect(appViewModel.spacesLoaded, hasCredentials) {
         if (hasCredentials && appViewModel.spacesLoaded && !navigationHandled) {
-            // Spaces loaded from cache - navigate immediately
-            if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Spaces loaded from cache - navigating to room_list (WebSocket may not be connected)")
+            // Spaces loaded from cache - prefer to wait for WebSocket when network is available.
+            // On a normal cold start with WiFi/5G, WebSocket connection should be fast; showing
+            // room_list without a real connection leads to confusing “stuck connecting” states.
+            val isWebSocketConnected = WebSocketService.isWebSocketConnected()
+            val currentNetworkType = WebSocketService.getCurrentNetworkType()
+            
+            if (!isWebSocketConnected && currentNetworkType != WebSocketService.NetworkType.NONE) {
+                // Network is available but WebSocket is still disconnected — wait for the normal
+                // navigation callback (which fires after WebSocket + initial sync), instead of
+                // navigating early from cache and exposing a half‑offline UI.
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "AuthCheckScreen",
+                        "Spaces loaded from cache but WebSocket not connected and network=$currentNetworkType; waiting for WebSocket before navigating"
+                    )
+                }
+                return@LaunchedEffect
+            }
+            
+            // Either WebSocket is connected, or we are offline — in both cases it’s safe to
+            // proceed to room_list using cached data.
+            if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Spaces loaded from cache - navigating to room_list (isWebSocketConnected=$isWebSocketConnected, network=$currentNetworkType)")
             appViewModel.isLoading = false
             val currentRoute = navController.currentBackStackEntry?.destination?.route
             if (currentRoute != null && currentRoute != "simple_room_list" && 
