@@ -2595,6 +2595,10 @@ internal fun ImageViewerDialog(
     // Track cumulative rotation (can be any value, not just 0-360) to avoid wrap-around animation issues
     var rotationDegrees by remember { mutableFloatStateOf(0f) }
     
+    // Button visibility state - auto-hide after 1 second of inactivity
+    var showButtons by remember { mutableStateOf(true) }
+    var lastInteractionTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    
     // Animate rotation smoothly - normalize to 0-360 range only for rendering
     val animatedRotation by animateFloatAsState(
         targetValue = rotationDegrees,
@@ -2605,7 +2609,21 @@ internal fun ImageViewerDialog(
     // Normalize rotation to 0-360 range for rendering (handles wrap-around correctly)
     val normalizedRotation = (animatedRotation % 360f + 360f) % 360f
     
+    // Animate button visibility
+    val buttonsAlpha by animateFloatAsState(
+        targetValue = if (showButtons) 1f else 0f,
+        animationSpec = tween(durationMillis = 300),
+        label = "buttons_alpha"
+    )
+    
+    // Function to reset button visibility timer
+    fun resetButtonTimer() {
+        lastInteractionTime = System.currentTimeMillis()
+        showButtons = true
+    }
+    
     val transformableState = rememberTransformableState { zoomChange, offsetChange, _ ->
+        resetButtonTimer() // Reset timer on zoom/pan
         scale = (scale * zoomChange).coerceIn(0.5f, 5f)
         // Keep pan speed consistent regardless of zoom level by scaling the offset
         val panScale = scale
@@ -2662,6 +2680,24 @@ internal fun ImageViewerDialog(
             isOpening = false
         } else {
             isOpening = false
+        }
+    }
+    
+    // Reset button timer when opening animation completes
+    LaunchedEffect(openProgress) {
+        if (openProgress == 1f) {
+            resetButtonTimer() // Show buttons when animation completes
+        }
+    }
+    
+    // Auto-hide buttons after 1 second of inactivity
+    LaunchedEffect(lastInteractionTime, openProgress) {
+        if (openProgress < 1f) return@LaunchedEffect // Don't hide during opening animation
+        kotlinx.coroutines.delay(1000) // Wait 1 second
+        // Check if enough time has passed since last interaction
+        val timeSinceLastInteraction = System.currentTimeMillis() - lastInteractionTime
+        if (timeSinceLastInteraction >= 1000) {
+            showButtons = false
         }
     }
 
@@ -2749,18 +2785,23 @@ internal fun ImageViewerDialog(
 
                 Box(
                     modifier = Modifier
-                        .size(
-                            width = with(density) { targetWidthPx.toDp() },
-                            height = with(density) { targetHeightPx.toDp() }
-                        )
-                        .align(Alignment.Center)
+                        .fillMaxSize() // Always fill max size to allow full-screen zooming
                         .graphicsLayer(
-                            scaleX = containerScaleX,
-                            scaleY = containerScaleY,
-                            translationX = containerTx,
-                            translationY = containerTy
+                            // Only apply container transformations during opening animation
+                            // When animation completes (openProgress == 1f), these become identity
+                            scaleX = if (openProgress < 1f) containerScaleX else 1f,
+                            scaleY = if (openProgress < 1f) containerScaleY else 1f,
+                            translationX = if (openProgress < 1f) containerTx else 0f,
+                            translationY = if (openProgress < 1f) containerTy else 0f
                         )
-                        .clip(RoundedCornerShape(8.dp))
+                        .then(
+                            // Only clip during opening animation to allow zoom beyond bounds when complete
+                            if (openProgress < 1f) {
+                                Modifier.clip(RoundedCornerShape(8.dp))
+                            } else {
+                                Modifier // No clipping when animation complete - allows full zoom
+                            }
+                        )
                 ) {
                     Box(
                         modifier = Modifier
@@ -2776,6 +2817,7 @@ internal fun ImageViewerDialog(
                             .pointerInput(Unit) {
                                 detectTapGestures(
                                     onTap = {
+                                        resetButtonTimer() // Show buttons on tap
                                         // Tap on image: reset zoom and pan to center
                                         scale = 1f
                                         offsetX = 0f
@@ -2835,7 +2877,7 @@ internal fun ImageViewerDialog(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .fillMaxWidth()
-                            .graphicsLayer(alpha = openProgress)
+                            .graphicsLayer(alpha = openProgress * buttonsAlpha) // Combine openProgress and buttonsAlpha
                             .windowInsetsPadding(WindowInsets.statusBars)
                             .padding(horizontal = 8.dp)
                             .padding(top = 8.dp),
@@ -2844,6 +2886,7 @@ internal fun ImageViewerDialog(
                         // Rotate Left button
                         IconButton(
                             onClick = {
+                                resetButtonTimer() // Show buttons on click
                                 // Always subtract 90 (don't normalize here - let animation handle it)
                                 rotationDegrees = rotationDegrees - 90f
                                 // Reset zoom/pan when rotating
@@ -2867,6 +2910,7 @@ internal fun ImageViewerDialog(
                         // Rotate Right button
                         IconButton(
                             onClick = {
+                                resetButtonTimer() // Show buttons on click
                                 // Always add 90 (don't normalize here - let animation handle it)
                                 rotationDegrees = rotationDegrees + 90f
                                 // Reset zoom/pan when rotating
@@ -2890,6 +2934,7 @@ internal fun ImageViewerDialog(
                         // Save button
                         IconButton(
                             onClick = {
+                                resetButtonTimer() // Show buttons on click
                                 coroutineScope.launch {
                                     saveImageToGallery(context, null, cachedFile, imageUrl, mediaMessage.filename, authToken)
                                 }
@@ -2909,7 +2954,10 @@ internal fun ImageViewerDialog(
                         
                         // Close button
                         IconButton(
-                            onClick = { requestClose() },
+                            onClick = {
+                                resetButtonTimer() // Show buttons on click
+                                requestClose()
+                            },
                             colors = IconButtonDefaults.iconButtonColors(
                                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer
