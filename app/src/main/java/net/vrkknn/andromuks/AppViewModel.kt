@@ -1146,7 +1146,7 @@ class AppViewModel : ViewModel() {
     private val syncBatchProcessor = SyncBatchProcessor(
         scope = viewModelScope,
         processSyncImmediately = { syncJson, requestId, runId ->
-            processInitialSyncComplete(syncJson, onComplete = null)
+            processSyncCompleteAtomic(syncJson, requestId, runId, onComplete = null)
         },
         onBatchComplete = {
             // BATTERY OPTIMIZATION: When background batch completes, trigger single UI update
@@ -4685,6 +4685,131 @@ class AppViewModel : ViewModel() {
             null
         }
     }
+
+    /**
+     * Process a sync_complete message atomically and in-order.
+     *
+     * Key goals:
+     * - Avoid piling up background coroutines when many sync_complete messages arrive.
+     * - Ensure per-message processing completes before the next message begins (FIFO semantics).
+     * - Keep heavy parsing off the main thread; switch to main only for UI state updates.
+     *
+     * Note: handleSyncToDeviceEvents() is called in updateRoomsFromSyncJsonAsync() at receive time,
+     * so we intentionally do NOT call it again here to avoid double-processing.
+     */
+    private suspend fun processSyncCompleteAtomic(
+        syncJson: JSONObject,
+        requestId: Int,
+        runId: String,
+        onComplete: (suspend () -> Unit)? = null
+    ) {
+        val context = appContext
+        if (context == null) {
+            android.util.Log.w("Andromuks", "AppViewModel: Skipping sync processing because appContext is null")
+            onComplete?.invoke()
+            return
+        }
+
+        try {
+            // clear_state must be handled BEFORE parsing/ingesting (atomic reset)
+            val data = syncJson.optJSONObject("data")
+            val isClearState = data?.optBoolean("clear_state") == true
+            if (isClearState) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.w("Andromuks", "🟣 processSyncCompleteAtomic: clear_state=true - clearing state (request_id=$requestId)")
+                }
+                handleClearStateReset()
+            }
+
+            // Update last sync timestamp immediately (lightweight) and notify service
+            lastSyncTimestamp = System.currentTimeMillis()
+            WebSocketService.updateLastSyncTimestamp()
+
+            ensureSyncIngestor()
+            val ingestor = syncIngestor
+            if (ingestor == null) {
+                android.util.Log.w("Andromuks", "AppViewModel: syncIngestor is null - cannot ingest sync_complete")
+                onComplete?.invoke()
+                return
+            }
+
+            // Capture flags/ids once to keep consistent across background jobs.
+            val visible = isAppVisible
+            val runIdForIngest = currentRunId
+
+            // JSONObject is not thread-safe: clone once and create isolated copies per dispatcher.
+            val raw = try {
+                syncJson.toString()
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Failed to stringify sync_complete JSON: ${e.message}", e)
+                null
+            } ?: run {
+                onComplete?.invoke()
+                return
+            }
+
+            kotlinx.coroutines.coroutineScope {
+                val ingestDeferred = async(Dispatchers.IO) {
+                    val jsonForIngest = JSONObject(raw)
+                    ingestor.ingestSyncComplete(jsonForIngest, requestId, runIdForIngest, visible)
+                }
+
+                val parseDeferred = async(Dispatchers.Default) {
+                    val jsonForParse = JSONObject(raw)
+                    val existingRoomsSnapshot = synchronized(roomMap) { HashMap(roomMap) }
+                    SpaceRoomParser.parseSyncUpdate(
+                        jsonForParse,
+                        RoomMemberCache.getAllMembers(),
+                        this@AppViewModel,
+                        existingRooms = existingRoomsSnapshot,
+                        isClearState = isClearState
+                    )
+                }
+
+                val ingestResult = ingestDeferred.await()
+                val syncResult = parseDeferred.await()
+
+                // Apply UI state changes on main thread (Compose safety)
+                withContext(Dispatchers.Main) {
+                    try {
+                        val jsonForMain = JSONObject(raw)
+                        processParsedSyncResult(syncResult, jsonForMain)
+
+                        // Apply invites (in-memory) and UI invalidation flags.
+                        val invites = ingestResult?.invites ?: emptyList()
+                        if (invites.isNotEmpty()) {
+                            invites.forEach { invite ->
+                                PendingInvitesCache.updateInvite(invite)
+                            }
+                            needsRoomListUpdate = true
+                            if (visible) {
+                                roomListUpdateCounter++
+                            }
+                        }
+
+                        // Keep existing behavior: if cached-room events arrived, bump summary counter (foreground).
+                        val roomsWithEvents = ingestResult?.roomsWithEvents ?: emptySet()
+                        if (roomsWithEvents.isNotEmpty() && visible) {
+                            roomSummaryUpdateCounter++
+                        }
+
+                        onComplete?.invoke()
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: Crash applying sync_complete on main: ${e.message}", e)
+                        onComplete?.invoke()
+                    }
+                }
+            }
+
+            // Update last_received_request_id AFTER we fully processed this message.
+            if (requestId != 0) {
+                WebSocketService.updateLastReceivedRequestId(requestId, context)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: processSyncCompleteAtomic failed (request_id=$requestId): ${e.message}", e)
+            onComplete?.invoke()
+        }
+    }
     
     /**
      * Handles server-directed clear_state=true: purge in-memory derived state
@@ -5341,9 +5466,6 @@ class AppViewModel : ViewModel() {
                                     android.util.Log.d("Andromuks", "AppViewModel: Processing ${queuedMessages.size} queued initial sync_complete messages")
                                 }
                                 
-                                // Collect summary update jobs to monitor them (but don't wait for them)
-                                val summaryUpdateJobs = mutableListOf<Job>()
-                                
                                 // PERFORMANCE FIX: Process queued messages in chunks with yields to prevent ANR
                                 // This is critical for reconnect scenarios where hundreds of sync batches may queue up
                                 val chunkSize = 10 // Process 10 sync batches before yielding
@@ -5389,32 +5511,21 @@ class AppViewModel : ViewModel() {
                                         if (BuildConfig.DEBUG) {
                                             android.util.Log.d("Andromuks", "🟣 onInitComplete: About to process message ${currentIndex + 1}/${queuedMessages.size} (sequential processing)")
                                         }
-                                        val job = processInitialSyncComplete(syncJson) {
-                                            // Update processed count after actual processing completes (inside the job)
-                                            // Use launch to switch to Main dispatcher since we're in a suspend context
-                                            viewModelScope.launch(Dispatchers.Main) {
-                                                processedSyncCompleteCount = currentIndex + 1
-                                                if (BuildConfig.DEBUG) {
-                                                    android.util.Log.d("Andromuks", "🟣 onInitComplete: Message ${currentIndex + 1} processing complete callback invoked")
+                                        val msgRunId = data?.optString("run_id", "") ?: ""
+                                        kotlinx.coroutines.withTimeoutOrNull(30000L) { // 30 second timeout per message
+                                            processSyncCompleteAtomic(
+                                                syncJson = syncJson,
+                                                requestId = requestId,
+                                                runId = msgRunId,
+                                                onComplete = {
+                                                    processedSyncCompleteCount = currentIndex + 1
+                                                    if (BuildConfig.DEBUG) {
+                                                        android.util.Log.d("Andromuks", "🟣 onInitComplete: Message ${currentIndex + 1} processing complete callback invoked")
+                                                    }
                                                 }
-                                            }
-                                        }
-                                        if (job != null) {
-                                            summaryUpdateJobs.add(job)
-                                            // CRITICAL FIX: Wait for this message to complete before processing the next one
-                                            // This ensures strict FIFO ordering and prevents race conditions
-                                            try {
-                                                kotlinx.coroutines.withTimeoutOrNull(30000L) { // 30 second timeout per message (increased for large accounts)
-                                                    job.join() // Wait for this message to complete
-                                                } ?: run {
-                                                    android.util.Log.w("Andromuks", "🟣 onInitComplete: Message ${currentIndex + 1} timed out after 30 seconds - continuing to next message")
-                                                }
-                                            } catch (e: Exception) {
-                                                android.util.Log.e("Andromuks", "🟣 onInitComplete: Message ${currentIndex + 1} failed: ${e.message}", e)
-                                                // Continue to next message even if this one fails
-                                            }
-                                        } else {
-                                            android.util.Log.w("Andromuks", "🟣 onInitComplete: processInitialSyncComplete returned null for message ${currentIndex + 1} (may have crashed)")
+                                            )
+                                        } ?: run {
+                                            android.util.Log.w("Andromuks", "🟣 onInitComplete: Message ${currentIndex + 1} timed out after 30 seconds - continuing to next message")
                                         }
                                     } catch (e: Exception) {
                                         android.util.Log.e("Andromuks", "🟣 onInitComplete: CRASH while processing message ${currentIndex + 1}/${queuedMessages.size} - ${e.message}", e)
@@ -5471,7 +5582,7 @@ class AppViewModel : ViewModel() {
                                 }
                                 
                                 if (BuildConfig.DEBUG) {
-                                    android.util.Log.d("Andromuks", "AppViewModel: Finished processing all ${queuedMessages.size} initial sync_complete messages - ${summaryUpdateJobs.size} summary update jobs running in background")
+                                    android.util.Log.d("Andromuks", "AppViewModel: Finished processing all ${queuedMessages.size} initial sync_complete messages")
                                 }
                                 
                                 // CRITICAL FIX: Ensure initialSyncComplete is set even if early unblock didn't trigger (e.g., < 3 messages)

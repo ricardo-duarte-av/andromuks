@@ -57,10 +57,12 @@ class SyncBatchProcessor(
         const val DEFAULT_BATCH_INTERVAL_MS = 5L * 60_000L   // 5 minutes
         const val DEFAULT_MAX_BATCH_SIZE = 500
         
-        // CRASH FIX: Maximum time allowed for batch processing (5 seconds)
-        // Prevents getting stuck in RUSH state if processing hangs
-        // Normal processing of 1000 messages takes <5s, so this is sufficient
-        private const val BATCH_PROCESSING_TIMEOUT_MS = 5_000L
+        // CRASH FIX: Timeout guard for batch processing.
+        // This is a safety valve against deadlocks/stalls, NOT a performance budget.
+        // When batches contain hundreds/thousands of messages, processing can legitimately take > 5s.
+        private const val BATCH_PROCESSING_TIMEOUT_MIN_MS = 10_000L
+        private const val BATCH_PROCESSING_TIMEOUT_MAX_MS = 10L * 60_000L // 10 minutes cap
+        private const val BATCH_PROCESSING_TIMEOUT_PER_MESSAGE_MS = 2_000L // heuristic upper bound
     }
     
     
@@ -141,7 +143,12 @@ class SyncBatchProcessor(
             // CRASH FIX: Add timeout to prevent getting stuck in RUSH state
             // If processing hangs or takes too long, timeout and reset state
             var processedCount = 0
-            val timeoutOccurred = withTimeoutOrNull(BATCH_PROCESSING_TIMEOUT_MS) {
+            val computedTimeoutMs = run {
+                val estimate = batchSize.toLong() * BATCH_PROCESSING_TIMEOUT_PER_MESSAGE_MS
+                estimate.coerceIn(BATCH_PROCESSING_TIMEOUT_MIN_MS, BATCH_PROCESSING_TIMEOUT_MAX_MS)
+            }
+
+            val timeoutOccurred = withTimeoutOrNull(computedTimeoutMs) {
                 batch.forEach { msg ->
                     try {
                         processSyncImmediately(msg.syncJson, msg.requestId, msg.runId)

@@ -3813,8 +3813,10 @@ class WebSocketService : Service() {
         lastPingTimestamp = System.currentTimeMillis()
         pingInFlight = true // Mark ping as in flight
         
-        // NOTE: We no longer send last_received_id in ping - we never pass it on connect/reconnect
-        val data = emptyMap<String, Any>()
+        // Include last_received_id so backend can evict already-processed sync_complete payloads.
+        // This value is updated *after* a sync_complete is processed successfully (including during batch flush).
+        val lastReceivedId = WebSocketService.getLastReceivedRequestId(applicationContext)
+        val data = mapOf<String, Any>("last_received_id" to lastReceivedId)
         
         if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Sending ping (requestId: $reqId)")
         
