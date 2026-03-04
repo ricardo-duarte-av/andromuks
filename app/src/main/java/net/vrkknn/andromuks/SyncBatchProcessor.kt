@@ -40,6 +40,11 @@ class SyncBatchProcessor(
     private var _isProcessingBatch = MutableStateFlow(false)
     val isProcessingBatch = _isProcessingBatch.asStateFlow()
     
+    // CRITICAL FIX: Flag to bypass timeline rebuilds during batch processing
+    // When true, buildTimelineFromChain() should skip execution
+    private var _shouldSkipTimelineRebuild = MutableStateFlow(false)
+    val shouldSkipTimelineRebuild = _shouldSkipTimelineRebuild.asStateFlow()
+    
     // ── Configurable knobs (updated from AppViewModel.loadSettings) ──────────
     @Volatile var batchIntervalMs: Long = DEFAULT_BATCH_INTERVAL_MS
     @Volatile var maxBatchSize: Int = DEFAULT_MAX_BATCH_SIZE
@@ -68,13 +73,18 @@ class SyncBatchProcessor(
     
     /**
      * Process a sync_complete message.
-     * - If app is visible: process immediately + flush any pending batch
+     * - If app is visible AND no batch is processing: process immediately + flush any pending batch
+     * - If app is visible BUT batch is processing: add to batch queue (defer until batch completes)
      * - If app is backgrounded: add to batch queue
      */
     suspend fun processSyncComplete(syncJson: JSONObject, requestId: Int, runId: String) {
         batchLock.withLock {
-            if (isAppVisible) {
-                // FOREGROUND: Process immediately
+            // CRITICAL FIX: If a batch is currently being processed, defer this sync_complete
+            // even if app is visible. This prevents messages from appearing one-by-one during batch flush.
+            val isCurrentlyProcessingBatch = _isProcessingBatch.value
+            
+            if (isAppVisible && !isCurrentlyProcessingBatch) {
+                // FOREGROUND: Process immediately (only if not currently processing a batch)
                 processSyncImmediately(syncJson, requestId, runId)
                 
                 // RUSH: Also flush any pending batch
@@ -83,18 +93,23 @@ class SyncBatchProcessor(
                     flushBatchLocked()
                 }
             } else {
-                // BACKGROUND: Add to batch
+                // BACKGROUND OR BATCH PROCESSING: Add to batch queue
+                if (isCurrentlyProcessingBatch && BuildConfig.DEBUG) {
+                    Log.d(TAG, "Batch processing in progress - deferring sync_complete (requestId=$requestId) until batch completes")
+                }
                 batchQueue.add(SyncMessage(syncJson, requestId, runId))
                 
-                // Start batch timer if not running
-                if (batchJob == null || !batchJob!!.isActive) {
-                    scheduleBatchProcessing()
-                }
-                
-                // Safety: Force flush if batch gets too large
-                if (batchQueue.size >= maxBatchSize) {
-                    Log.w(TAG, "Batch size limit reached (${batchQueue.size}/$maxBatchSize) - forcing flush")
-                    flushBatchLocked()
+                // Start batch timer if not running (only if app is backgrounded)
+                if (!isAppVisible) {
+                    if (batchJob == null || !batchJob!!.isActive) {
+                        scheduleBatchProcessing()
+                    }
+                    
+                    // Safety: Force flush if batch gets too large
+                    if (batchQueue.size >= maxBatchSize) {
+                        Log.w(TAG, "Batch size limit reached (${batchQueue.size}/$maxBatchSize) - forcing flush")
+                        flushBatchLocked()
+                    }
                 }
             }
         }
@@ -117,21 +132,31 @@ class SyncBatchProcessor(
     
     /**
      * Flush all batched messages (must be called with batchLock held)
+     * @param recursionDepth Internal parameter to prevent infinite recursion (default 0)
      */
-    private suspend fun flushBatchLocked() {
+    private suspend fun flushBatchLocked(recursionDepth: Int = 0) {
         if (batchQueue.isEmpty()) return
+        
+        // Safety guard: prevent infinite recursion if messages keep arriving
+        if (recursionDepth > 10) {
+            Log.w(TAG, "Batch flush recursion depth limit reached ($recursionDepth) - stopping to prevent infinite loop")
+            return
+        }
         
         val startTime = System.currentTimeMillis()
         val batchSize = batchQueue.size
         
-        Log.i(TAG, "Processing batch of $batchSize sync_complete messages")
+        Log.i(TAG, "Processing batch of $batchSize sync_complete messages (recursionDepth=$recursionDepth)")
         
+        // CRITICAL FIX: Set batch processing flag BEFORE processing starts to ensure
+        // appendEventsToCachedRoom() sees it as true. StateFlow is thread-safe, so we can
+        // set it from any thread, but we need to ensure it's set before processSyncImmediately() runs.
         // BATTERY OPTIMIZATION: Only update UI state when foregrounded
         if (isAppVisible) {
-            withContext(Dispatchers.Main) {
-                _isProcessingBatch.value = true
-                Log.i(TAG, "Batch processing STARTED - isProcessingBatch set to true (foreground)")
-            }
+            // Set synchronously (StateFlow is thread-safe) before processing starts
+            _isProcessingBatch.value = true
+            _shouldSkipTimelineRebuild.value = true // CRITICAL: Skip timeline rebuilds during batch processing
+            Log.i(TAG, "Batch processing STARTED - isProcessingBatch set to true, shouldSkipTimelineRebuild set to true (foreground)")
         } else {
             Log.i(TAG, "Batch processing STARTED (background - skipping UI state updates)")
         }
@@ -188,18 +213,23 @@ class SyncBatchProcessor(
             Log.e(TAG, "Unexpected error during batch processing: ${e.message}", e)
         } finally {
             // CRASH FIX: Always reset processing state, even if processing failed or timed out
+            // StateFlow is thread-safe, so we can set it from any thread
             if (isAppVisible) {
-                withContext(Dispatchers.Main) {
-                    _isProcessingBatch.value = false
-                    Log.i(TAG, "Batch processing COMPLETED - isProcessingBatch set to false (foreground)")
-                }
+                _isProcessingBatch.value = false
+                _shouldSkipTimelineRebuild.value = false // CRITICAL: Re-enable timeline rebuilds after batch completes
+                Log.i(TAG, "Batch processing COMPLETED - isProcessingBatch set to false, shouldSkipTimelineRebuild set to false (foreground)")
             } else {
                 Log.i(TAG, "Batch processing COMPLETED (background - skipped UI state updates)")
             }
         }
         
-        // Reschedule if more messages arrived during processing
-        if (batchQueue.isNotEmpty() && !isAppVisible) {
+        // CRITICAL FIX: If new messages arrived during batch processing and app is visible,
+        // process them immediately in a new batch to prevent them from being processed one-by-one
+        if (batchQueue.isNotEmpty() && isAppVisible) {
+            Log.i(TAG, "New messages arrived during batch processing - processing ${batchQueue.size} messages in new batch")
+            flushBatchLocked(recursionDepth + 1)
+        } else if (batchQueue.isNotEmpty() && !isAppVisible) {
+            // Background: reschedule periodic processing
             scheduleBatchProcessing()
         }
     }
@@ -241,10 +271,10 @@ class SyncBatchProcessor(
                     // CRASH FIX: If job is cancelled or fails, ensure state is reset
                     Log.e(TAG, "Error in batch flush job: ${e.message}", e)
                     if (isAppVisible) {
-                        withContext(Dispatchers.Main) {
-                            _isProcessingBatch.value = false
-                            Log.w(TAG, "Batch processing state RESET due to job cancellation/failure")
-                        }
+                        // StateFlow is thread-safe, so we can set it from any thread
+                        _isProcessingBatch.value = false
+                        _shouldSkipTimelineRebuild.value = false
+                        Log.w(TAG, "Batch processing state RESET due to job cancellation/failure")
                     }
                 }
             }
