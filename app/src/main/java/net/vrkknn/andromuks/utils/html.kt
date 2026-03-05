@@ -1240,8 +1240,10 @@ private fun AnnotatedString.Builder.appendImage(
     if (src.isNotBlank()) {
         val id = "inline_img_${inlineImages.size}"
         inlineImages[id] = InlineImageData(src, alt, height, isHidden = hideContent)
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlParser: Added inline image id=$id, src=$src, alt=$alt, height=$height")
         appendInlineContent(id, "\u200B")
     } else {
+        if (BuildConfig.DEBUG) Log.w("Andromuks", "HtmlParser: Image tag has no src attribute, using alt text: $alt")
         append(if (hideContent) maskSpoilerText(alt) else alt)
     }
 }
@@ -1633,9 +1635,14 @@ fun HtmlMessageText(
     val roomChipColor = MaterialTheme.colorScheme.tertiary
     val roomChipTextColor = MaterialTheme.colorScheme.onTertiary
     
-    val inlineContentMap = remember(annotatedString, inlineImages.toMap(), inlineMatrixUsers.toMap(), inlineMatrixRooms.toMap(), inlineCodeBlocks.toMap(), onMatrixUserClick, onRoomLinkClick, onCodeBlockClick, density, chipTextStyle, textMeasurer, textLineHeight, primaryColor, isEmojiOnly, color, bodyTextStyle, roomChipColor, roomChipTextColor) {
+    // CRITICAL FIX: Use inlineImages.size as a dependency to ensure recomputation when images are added/removed
+    // This fixes the issue where inline images don't load after timeline orientation changes
+    val inlineImagesSnapshot = remember(inlineImages.size, annotatedString) {
+        inlineImages.toMap()
+    }
+    val inlineContentMap = remember(annotatedString, inlineImagesSnapshot, inlineMatrixUsers.toMap(), inlineMatrixRooms.toMap(), inlineCodeBlocks.toMap(), onMatrixUserClick, onRoomLinkClick, onCodeBlockClick, density, chipTextStyle, textMeasurer, textLineHeight, primaryColor, isEmojiOnly, color, bodyTextStyle, roomChipColor, roomChipTextColor, homeserverUrl, authToken) {
         val map = mutableMapOf<String, InlineTextContent>()
-        inlineImages.forEach { (id, imageData) ->
+        inlineImagesSnapshot.forEach { (id, imageData) ->
             // Limit image height to text line height, but use 2x size for emoji-only messages
             val baseMaxHeight = minOf(imageData.height, textLineHeight)
             val maxHeight = if (isEmojiOnly) {
@@ -1964,19 +1971,29 @@ private fun InlineImage(
             file.absolutePath
         } else {
             // Use HTTP URL
-            when {
+            val url = when {
                 src.startsWith("mxc://") -> {
                     MediaUtils.mxcToHttpUrl(src, homeserverUrl)
                 }
                 src.startsWith("_gomuks/media/") -> {
                     // Already in gomuks format, just prepend homeserver URL
-                    "$homeserverUrl/$src"
+                    // Ensure proper URL construction (handle trailing slash in homeserverUrl)
+                    val baseUrl = if (homeserverUrl.endsWith("/")) {
+                        homeserverUrl.dropLast(1)
+                    } else {
+                        homeserverUrl
+                    }
+                    "$baseUrl/$src"
                 }
                 else -> {
                     Log.w("Andromuks", "InlineImage: Invalid image source: $src")
                     null
                 }
             }
+            if (BuildConfig.DEBUG && url != null) {
+                Log.d("Andromuks", "InlineImage: Converted src=$src to url=$url (homeserverUrl=$homeserverUrl)")
+            }
+            url
         }
     }
     
