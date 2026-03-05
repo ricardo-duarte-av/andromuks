@@ -13419,8 +13419,10 @@ class AppViewModel : ViewModel() {
         
         // CRITICAL FIX: Find the user ID from request metadata to clean up pending requests
         // This ensures cleanup even if response is empty or doesn't contain member events
-        val metadataForRequest = profileRequestMetadata.entries.find { it.value.requestId == requestId }
-        val userIdFromRequest = metadataForRequest?.value?.userId
+        // CRASH FIX: Create a snapshot of entries to avoid ConcurrentModificationException
+        // The map can be modified concurrently (e.g., by timeout handlers), so we need a snapshot
+        val metadataForRequest = profileRequestMetadata.toList().find { (_, metadata) -> metadata.requestId == requestId }
+        val userIdFromRequest = metadataForRequest?.second?.userId
         
         when (data) {
             is JSONArray -> {

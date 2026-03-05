@@ -703,6 +703,15 @@ fun BubbleTimelineScreen(
             40.dp // Fallback height (will be updated when text field is measured)
         }
     }
+
+    // PERFORMANCE FIX: Use derivedStateOf to only recompose when keyboard state (open/closed) changes
+    // This reduces recomposition from ~60fps to 2 (open + close) by only updating when boolean changes
+    val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    val isKeyboardOpen by remember {
+        derivedStateOf {
+            imeBottom > 50.dp
+        }
+    }
     
     // Sync draft with TextFieldValue
     LaunchedEffect(draft) {
@@ -1604,6 +1613,7 @@ fun BubbleTimelineScreen(
     }
 
     // List state and auto-scroll to bottom when data loads/changes
+    // List state and auto-scroll to bottom when data loads/changes
     val listState = rememberLazyListState()
 
     // Prefetch guardband assets around the viewport (+50 above, +50 below).
@@ -1767,9 +1777,48 @@ fun BubbleTimelineScreen(
     // Track if user is "attached" to the bottom (sticky scroll)
     var isAttachedToBottom by remember { mutableStateOf(true) }
     
-    // Use imePadding for keyboard handling (defined early so it's accessible to all LaunchedEffects)
-    val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
-    var previousImeBottom by remember { mutableStateOf(0.dp) }
+    // Track previous app visibility state to detect background/foreground transitions
+    var previousAppVisibleState by remember(roomId) { mutableStateOf(appViewModel.isAppVisible) }
+    
+    // CRITICAL FIX: Immediately set scroll position to bottom when timelineItems first becomes available
+    // This LaunchedEffect runs as soon as items are computed, before the first render completes
+    // Using a separate flag to ensure we only do this once per room
+    var hasSetInitialScrollPosition by remember(roomId) { mutableStateOf(false) }
+    LaunchedEffect(timelineItems.size, roomId) {
+        if (timelineItems.isNotEmpty() && !hasSetInitialScrollPosition) {
+            val lastIndex = timelineItems.lastIndex
+            if (lastIndex >= 0) {
+                // Set scroll position immediately - this happens before first render
+                listState.scrollToItem(lastIndex)
+                isAttachedToBottom = true
+                hasSetInitialScrollPosition = true
+                if (BuildConfig.DEBUG) Log.d(
+                    "Andromuks",
+                    "BubbleTimelineScreen: Set initial scroll position to bottom (index=$lastIndex, items=${timelineItems.size}) - no visible scrolling"
+                )
+            }
+        }
+    }
+    
+    // CRITICAL FIX: When new items are added while attached, adjust scroll position immediately
+    // This ensures we stay at bottom without visible scrolling when messages arrive
+    LaunchedEffect(timelineItems.size, isAttachedToBottom) {
+        if (timelineItems.isNotEmpty() && isAttachedToBottom && hasSetInitialScrollPosition) {
+            val lastIndex = timelineItems.lastIndex
+            val currentLastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            
+            // Only adjust if we're not already showing the last item
+            if (currentLastVisible < lastIndex) {
+                // Immediately adjust scroll position - happens in same frame as item addition
+                listState.scrollToItem(lastIndex)
+                if (BuildConfig.DEBUG) Log.d(
+                    "Andromuks",
+                    "BubbleTimelineScreen: Adjusted scroll position for new items (oldLast=$currentLastVisible, newLast=$lastIndex) - no visible scrolling"
+                )
+            }
+        }
+    }
+    
 
     // Track if this is the first load (to avoid animation on initial room open)
     var isInitialLoad by remember { mutableStateOf(true) }
@@ -1864,6 +1913,53 @@ fun BubbleTimelineScreen(
                 )
             }
         }
+    }
+    
+    // CRITICAL FIX: Track app visibility changes to handle background/foreground transitions
+    // When app foregrounds, if we were attached to bottom, verify we're still at bottom and scroll if needed
+    LaunchedEffect(appViewModel.isAppVisible, roomId) {
+        val appJustBecameVisible = !previousAppVisibleState && appViewModel.isAppVisible
+        
+        if (appJustBecameVisible && isAttachedToBottom) {
+            // App was foregrounded AND we're marked as attached - animate scroll to bottom smoothly
+            // Use animated scroll instead of instant jump for better UX
+            if (timelineItems.isNotEmpty()) {
+                val lastIndex = timelineItems.lastIndex
+                if (lastIndex >= 0) {
+                    // Animate scroll smoothly - this feels much better than a jump
+                    coroutineScope.launch {
+                        listState.animateScrollToItem(lastIndex)
+                        if (BuildConfig.DEBUG) Log.d(
+                            "Andromuks",
+                            "BubbleTimelineScreen: App resumed, animating scroll to bottom (index=$lastIndex, items=${timelineItems.size})"
+                        )
+                    }
+                }
+            }
+            
+            // Also set up a delayed check in case more items arrive during batch processing
+            kotlinx.coroutines.delay(150)
+            
+            // Re-check after a brief delay to catch any items added during batch processing
+            if (timelineItems.isNotEmpty() && listState.layoutInfo.totalItemsCount > 0) {
+                val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+                val lastTimelineItemIndex = timelineItems.lastIndex
+                val actuallyAtBottom = lastVisibleIndex >= lastTimelineItemIndex - 1
+                
+                if (!actuallyAtBottom) {
+                    // Still not at bottom after batch processing - animate scroll again
+                    coroutineScope.launch {
+                        listState.animateScrollToItem(lastTimelineItemIndex)
+                        if (BuildConfig.DEBUG) Log.d(
+                            "Andromuks",
+                            "BubbleTimelineScreen: App resumed, adjusted animated scroll after batch (lastVisible=$lastVisibleIndex, lastItem=$lastTimelineItemIndex)"
+                        )
+                    }
+                }
+            }
+        }
+        
+        previousAppVisibleState = appViewModel.isAppVisible
     }
 
     // Track previous pagination state to detect when pagination finishes
@@ -2059,14 +2155,33 @@ fun BubbleTimelineScreen(
             return@LaunchedEffect
         }
 
-        if (
-            hasNewItems &&
-                isAttachedToBottom &&
-                lastEventId != null &&
-                lastEventId != lastKnownTimelineEventId
-        ) {
-            coroutineScope.launch {
-                listState.scrollToItem(timelineItems.lastIndex)
+        // CRITICAL FIX: When attached and new messages arrive, verify we're actually at bottom
+        // This handles cases where messages arrive in batches and scroll position isn't updated correctly
+        if (hasNewItems && isAttachedToBottom && lastEventId != null && lastEventId != lastKnownTimelineEventId) {
+            // Wait a moment for layout to settle after new items are added
+            kotlinx.coroutines.delay(100)
+            
+            // Re-check conditions after delay
+            if (listState.layoutInfo.totalItemsCount > 0 && timelineItems.isNotEmpty()) {
+                val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+                val lastTimelineItemIndex = timelineItems.lastIndex
+                val actuallyAtBottom = lastVisibleIndex >= lastTimelineItemIndex - 1
+                
+                if (!actuallyAtBottom) {
+                    // We're attached but not actually at bottom - scroll to bottom
+                    if (BuildConfig.DEBUG) Log.d(
+                        "Andromuks",
+                        "BubbleTimelineScreen: Attached but not at bottom (lastVisible=$lastVisibleIndex, lastItem=$lastTimelineItemIndex). Scrolling to bottom."
+                    )
+                    coroutineScope.launch {
+                        listState.scrollToItem(lastTimelineItemIndex)
+                    }
+                }
+            } else {
+                // Fallback: just scroll if we can't verify position
+                coroutineScope.launch {
+                    listState.scrollToItem(timelineItems.lastIndex)
+                }
             }
             lastKnownTimelineEventId = lastEventId
         }
@@ -2082,16 +2197,15 @@ fun BubbleTimelineScreen(
     
     // CRITICAL FIX: Scroll to bottom when keyboard opens (so latest message is visible above keyboard)
     // In chat bubbles, users are typically at the bottom, so we always scroll when keyboard opens
-    LaunchedEffect(imeBottom) {
+    // PERFORMANCE: Use isKeyboardOpen derived state instead of imeBottom to reduce recomposition
+    var previousKeyboardOpen by remember { mutableStateOf(isKeyboardOpen) }
+    LaunchedEffect(isKeyboardOpen) {
         if (timelineItems.isEmpty() || listState.layoutInfo.totalItemsCount == 0) {
-            previousImeBottom = imeBottom
+            previousKeyboardOpen = isKeyboardOpen
             return@LaunchedEffect
         }
         
-        // Use threshold of 50dp to avoid false positives from small padding values during layout
-        val keyboardWasOpen = previousImeBottom > 50.dp
-        val keyboardIsOpen = imeBottom > 50.dp
-        val keyboardJustOpened = !keyboardWasOpen && keyboardIsOpen
+        val keyboardJustOpened = !previousKeyboardOpen && isKeyboardOpen
         
         // When keyboard opens, always scroll to bottom in bubbles (users are typically at bottom)
         if (keyboardJustOpened && hasInitialSnapCompleted) {
@@ -2106,16 +2220,32 @@ fun BubbleTimelineScreen(
             
             val lastIndex = timelineItems.lastIndex
             if (lastIndex >= 0) {
-                // Wait for keyboard animation to start and layout to adjust
-                kotlinx.coroutines.delay(150)
-                // Scroll to bottom (we're already in LaunchedEffect coroutine context)
-                listState.scrollToItem(lastIndex, scrollOffset = 0)
-                isAttachedToBottom = true // Update state
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Keyboard opened, scrolled to bottom to show latest message above keyboard")
+                // Wait for layout to actually adjust (viewport shrinks due to keyboard)
+                var layoutSettled = false
+                val initialLayoutHeight = listState.layoutInfo.viewportSize.height
+                var attempts = 0
+                while (!layoutSettled && attempts < 10) {
+                    kotlinx.coroutines.delay(50)
+                    val currentLayoutHeight = listState.layoutInfo.viewportSize.height
+                    // Layout has changed (viewport shrunk due to keyboard)
+                    if (currentLayoutHeight < initialLayoutHeight - 50) {
+                        layoutSettled = true
+                    }
+                    attempts++
+                }
+                // Additional small delay to ensure layout is fully settled
+                kotlinx.coroutines.delay(50)
+                
+                // Animate scroll to bottom for smooth transition
+                coroutineScope.launch {
+                    listState.animateScrollToItem(lastIndex, scrollOffset = 0)
+                    isAttachedToBottom = true // Update state
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Keyboard opened, animated scroll to bottom to show latest message above keyboard after layout settled")
+                }
             }
         }
         
-        previousImeBottom = imeBottom
+        previousKeyboardOpen = isKeyboardOpen
     }
 
     // Auto-scroll after each individual message bubble animation completes
@@ -2383,8 +2513,7 @@ fun BubbleTimelineScreen(
                 Column(
                     modifier =
                         Modifier.fillMaxSize()
-                            // CRITICAL FIX: Don't add imePadding to Column - let the window shrink naturally
-                            // The weight(1f) timeline will compress when message box takes space with imePadding
+                            .imePadding()  // Handle keyboard padding at Column level
                             .then(
                                 if (showDeleteDialog) {
                                     Modifier.blur(10.dp)
@@ -2677,7 +2806,7 @@ fun BubbleTimelineScreen(
                 modifier =
                     Modifier.fillMaxWidth()
                         .navigationBarsPadding()
-                        .imePadding() // CRITICAL FIX: Keep message box above keyboard
+                        // .imePadding() removed - Column handles it now
                     ) {
                     Row(
                         modifier =
