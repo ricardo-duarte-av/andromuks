@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
@@ -114,13 +115,8 @@ fun RoomInfoScreen(
     // State for dialog visibility
     var showPowerLevelsDialog by remember { mutableStateOf(false) }
     var showServerAclDialog by remember { mutableStateOf(false) }
-    
-    // State for member search
-    var showMemberSearch by remember { mutableStateOf(false) }
-    var memberSearchQuery by remember { mutableStateOf("") }
-    
-    // State for topic expansion
-    var isTopicExpanded by remember { mutableStateOf(false) }
+    var showMembersDialog by remember { mutableStateOf(false) }
+    var memberDialogSearchQuery by remember { mutableStateOf("") }
     
     // State for leave room confirmation dialog
     var showLeaveRoomDialog by remember { mutableStateOf(false) }
@@ -209,7 +205,7 @@ fun RoomInfoScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
-                    .padding(16.dp),
+                    .padding(top = 8.dp, start = 16.dp, end = 16.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // Room ID
@@ -296,12 +292,10 @@ fun RoomInfoScreen(
                     }
                 }
                 
-                // Room Topic (collapsible)
+                // Room Topic (always expanded)
                 roomStateInfo!!.topic?.let { topic ->
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { isTopicExpanded = !isTopicExpanded }
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
                             text = "Topic",
@@ -311,18 +305,8 @@ fun RoomInfoScreen(
                         Text(
                             text = topic,
                             style = MaterialTheme.typography.bodyMedium,
-                            maxLines = if (isTopicExpanded) Int.MAX_VALUE else 2,
-                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(top = 4.dp)
                         )
-                        if (topic.length > 100 || topic.lines().size > 2) {
-                            Text(
-                                text = if (isTopicExpanded) "Show less" else "Show more",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                        }
                     }
                 }
                 
@@ -335,9 +319,14 @@ fun RoomInfoScreen(
                     if (roomStateInfo!!.powerLevels != null) {
                         Button(
                             onClick = { showPowerLevelsDialog = true },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(56.dp)
                         ) {
-                            Text("Power Levels")
+                            Text(
+                                text = "Power\nLevels",
+                                textAlign = TextAlign.Center
+                            )
                         }
                     }
                     
@@ -345,9 +334,14 @@ fun RoomInfoScreen(
                     Button(
                         onClick = { showServerAclDialog = true },
                         enabled = roomStateInfo!!.serverAcl != null,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp)
                     ) {
-                        Text("ACL List")
+                        Text(
+                            text = "ACL List",
+                            textAlign = TextAlign.Center
+                        )
                     }
 
                     // Pinned Events Button
@@ -376,110 +370,30 @@ fun RoomInfoScreen(
                             }
                         },
                         enabled = roomStateInfo!!.pinnedEventIds.isNotEmpty(),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp)
                     ) {
-                        Text("Pinned")
+                        Text(
+                            text = "Pinned",
+                            textAlign = TextAlign.Center
+                        )
                     }
                 }
                 
-                // Member List Frame with Search - takes remaining space
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                // Members Button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    HorizontalDivider()
-                    
-                    // Header with member count and search button
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Button(
+                        onClick = {
+                            memberDialogSearchQuery = ""
+                            showMembersDialog = true
+                        },
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Column {
-                            Text(
-                                text = "Room Members (${roomStateInfo!!.members.size})",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            val joinedCount = roomStateInfo!!.members.count { it.membership == "join" }
-                            val invitedCount = roomStateInfo!!.members.count { it.membership == "invite" }
-                            if (invitedCount > 0) {
-                                Text(
-                                    text = "$joinedCount joined, $invitedCount invited",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        
-                        IconButton(onClick = { 
-                            showMemberSearch = !showMemberSearch
-                            if (!showMemberSearch) memberSearchQuery = ""
-                        }) {
-                            Icon(
-                                imageVector = Icons.Filled.Search,
-                                contentDescription = "Search Members",
-                                tint = if (showMemberSearch) MaterialTheme.colorScheme.primary 
-                                       else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    
-                    // Search box (shown when search is active)
-                    if (showMemberSearch) {
-                        TextField(
-                            value = memberSearchQuery,
-                            onValueChange = { memberSearchQuery = it },
-                            placeholder = { Text("Search members...") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            colors = TextFieldDefaults.colors(
-                                focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                                unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent
-                            )
-                        )
-                    }
-                    
-                    // Scrollable member list in a card frame - fills remaining space
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
-                        ),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        // Filter members based on search query
-                        val filteredMembers = if (memberSearchQuery.isBlank()) {
-                            roomStateInfo!!.members
-                        } else {
-                            roomStateInfo!!.members.filter { member ->
-                                (member.displayName?.contains(memberSearchQuery, ignoreCase = true) ?: false) ||
-                                member.userId.contains(memberSearchQuery, ignoreCase = true)
-                            }
-                        }
-                        
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            items(filteredMembers) { member ->
-                                RoomMemberItem(
-                                    member = member,
-                                    homeserverUrl = appViewModel.homeserverUrl,
-                                    authToken = appViewModel.authToken,
-                                    powerLevel = roomStateInfo!!.powerLevels?.users?.get(member.userId),
-                                    onUserClick = { userId ->
-                                        navController.navigateToUserInfo(userId, roomId)
-                                    }
-                                )
-                            }
-                        }
+                        Text("Members")
                     }
                 }
             }
@@ -621,6 +535,25 @@ fun RoomInfoScreen(
             contentDescription = roomStateInfo?.name ?: roomId
         )
     }
+    
+    // Members Dialog
+    if (showMembersDialog && roomStateInfo != null) {
+        MembersDialog(
+            members = roomStateInfo!!.members,
+            powerLevels = roomStateInfo!!.powerLevels,
+            memberMap = memberMap,
+            memberSearchQuery = memberDialogSearchQuery,
+            onSearchQueryChange = { memberDialogSearchQuery = it },
+            homeserverUrl = appViewModel.homeserverUrl,
+            authToken = appViewModel.authToken,
+            navController = navController,
+            roomId = roomId,
+            onDismiss = {
+                showMembersDialog = false
+                memberDialogSearchQuery = ""
+            }
+        )
+    }
 }
 
 data class PinnedEventItem(
@@ -742,6 +675,143 @@ private fun PinnedEventsDialog(
                                 myUserId = myUserId,
                                 appViewModel = appViewModel,
                                 navController = navController
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
+}
+
+@Composable
+private fun MembersDialog(
+    members: List<RoomMember>,
+    powerLevels: PowerLevelsInfo?,
+    memberMap: Map<String, MemberProfile>,
+    memberSearchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    homeserverUrl: String,
+    authToken: String,
+    navController: NavController,
+    roomId: String,
+    onDismiss: () -> Unit
+) {
+    // Sort and filter members
+    val sortedAndFilteredMembers = remember(members, powerLevels, memberMap, memberSearchQuery) {
+        // First filter by search query
+        val filtered = if (memberSearchQuery.isBlank()) {
+            members
+        } else {
+            members.filter { member ->
+                val roomDisplayName = member.displayName?.lowercase() ?: ""
+                val globalDisplayName = memberMap[member.userId]?.displayName?.lowercase() ?: ""
+                val username = usernameFromMatrixId(member.userId).lowercase()
+                val searchLower = memberSearchQuery.lowercase()
+                
+                roomDisplayName.contains(searchLower) ||
+                globalDisplayName.contains(searchLower) ||
+                username.contains(searchLower) ||
+                member.userId.lowercase().contains(searchLower)
+            }
+        }
+        
+        // Separate BAN and LEAVE members
+        val activeMembers = filtered.filter { it.membership != "ban" && it.membership != "leave" }
+        val banLeaveMembers = filtered.filter { it.membership == "ban" || it.membership == "leave" }
+        
+        // Sort active members: by power level (descending), then by room-specific displayname, then global displayname, then username
+        val sortedActive = activeMembers.sortedWith(compareBy<RoomMember>(
+            { -(powerLevels?.users?.get(it.userId) ?: powerLevels?.usersDefault ?: 0) }, // Power level descending
+            { it.displayName?.lowercase() ?: "" }, // Room-specific displayname
+            { memberMap[it.userId]?.displayName?.lowercase() ?: "" }, // Global displayname
+            { usernameFromMatrixId(it.userId).lowercase() } // Username
+        ))
+        
+        // Sort ban/leave members: alphabetically by room-specific displayname, then global displayname, then username
+        val sortedBanLeave = banLeaveMembers.sortedWith(compareBy<RoomMember>(
+            { it.displayName?.lowercase() ?: "" }, // Room-specific displayname
+            { memberMap[it.userId]?.displayName?.lowercase() ?: "" }, // Global displayname
+            { usernameFromMatrixId(it.userId).lowercase() } // Username
+        ))
+        
+        // Return active members first, then ban/leave members at the bottom
+        sortedActive + sortedBanLeave
+    }
+    
+    val joinedCount = members.count { it.membership == "join" }
+    val invitedCount = members.count { it.membership == "invite" }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { 
+            Column {
+                Text("Room Members (${members.size})")
+                if (invitedCount > 0) {
+                    Text(
+                        text = "$joinedCount joined, $invitedCount invited",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Search box
+                TextField(
+                    value = memberSearchQuery,
+                    onValueChange = onSearchQueryChange,
+                    placeholder = { Text("Search members...") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = TextFieldDefaults.colors(
+                        focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                        unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent
+                    ),
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.Search,
+                            contentDescription = "Search"
+                        )
+                    }
+                )
+                
+                // Member list
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (sortedAndFilteredMembers.isEmpty()) {
+                        item {
+                            Text(
+                                text = if (memberSearchQuery.isBlank()) "No members found" else "No members match your search",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(16.dp)
+                            )
+                        }
+                    } else {
+                        items(sortedAndFilteredMembers) { member ->
+                            RoomMemberItem(
+                                member = member,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                powerLevel = powerLevels?.users?.get(member.userId),
+                                onUserClick = { userId ->
+                                    navController.navigateToUserInfo(userId, roomId)
+                                }
                             )
                         }
                     }

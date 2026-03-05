@@ -11535,6 +11535,15 @@ class AppViewModel : ViewModel() {
         pendingProfileRequests.remove(userId)
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile lookup failed for $userId: $errorMessage")
         
+        // Check if this is part of a full user info request and handle it immediately
+        val fullUserInfoCallback = fullUserInfoCallbacks.remove(requestId)
+        if (fullUserInfoCallback != null) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile error for full user info request (requestId: $requestId, userId: $userId), invoking callback with null")
+            // Invoke callback with null to indicate profile request failed
+            // This will mark profileCompleted = true and trigger checkCompletion() immediately
+            fullUserInfoCallback(null)
+        }
+        
         // CRITICAL FIX: Before applying low-quality fallback (username only),
         // check if we ALREADY have a valid profile from room state (e.g. from get_specific_room_state)
         val existingProfile = getUserProfile(userId, requestingRoomId)
