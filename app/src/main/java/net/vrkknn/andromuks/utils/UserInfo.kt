@@ -1368,7 +1368,7 @@ fun UserInfoScreen(
                     ) {
                         val buttonText = when {
                             encInfo == null -> "Device List"
-                            !encInfo.devicesTracked -> "Track Device\nList"
+                            !encInfo.devicesTracked -> "Track\nDevices"
                             else -> "Device List"
                         }
                         Text(
