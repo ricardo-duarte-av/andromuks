@@ -1725,15 +1725,22 @@ fun BubbleTimelineScreen(
         refreshing = isRefreshingPull,
         onRefresh = {
             // Capture current scroll position before pagination
-            // This ensures new events appear above the current viewport
+            // With reverseLayout, visibleItemsInfo gives indices in the reversed list
+            // We need to convert to original list index to find the event
             val firstVisibleInfo = listState.layoutInfo.visibleItemsInfo
                 .sortedBy { it.index }
                 .firstOrNull { info ->
-                    val item = timelineItems.getOrNull(info.index)
+                    // info.index is in reversed list, convert to original
+                    val reversedIndex = info.index
+                    val originalIndex = timelineItems.lastIndex - reversedIndex
+                    val item = timelineItems.getOrNull(originalIndex)
                     item is BubbleTimelineItem.Event
                 }
             val eventItem = firstVisibleInfo?.let { info ->
-                timelineItems.getOrNull(info.index) as? BubbleTimelineItem.Event
+                // Convert reversed index to original index
+                val reversedIndex = info.index
+                val originalIndex = timelineItems.lastIndex - reversedIndex
+                timelineItems.getOrNull(originalIndex) as? BubbleTimelineItem.Event
             }
             
             if (eventItem != null) {
@@ -1741,9 +1748,10 @@ fun BubbleTimelineScreen(
                 anchorEventIdForRestore = eventItem.event.eventId
                 anchorScrollOffsetForRestore = firstVisibleInfo?.offset ?: listState.firstVisibleItemScrollOffset
                 pendingScrollRestoration = true
+                // CRITICAL: pendingScrollRestoration flag prevents other LaunchedEffects from scrolling to bottom
                 if (BuildConfig.DEBUG) Log.d(
                     "Andromuks",
-                    "BubbleTimelineScreen: Pull-to-refresh triggered, capturing anchor event: ${anchorEventIdForRestore} at offset ${anchorScrollOffsetForRestore}"
+                    "BubbleTimelineScreen: Pull-to-refresh triggered, capturing anchor event: ${anchorEventIdForRestore} at reversed index ${firstVisibleInfo?.index}, offset ${anchorScrollOffsetForRestore}, set isAttachedToBottom=false"
                 )
             } else {
                 // Fallback: use first visible item index if no event found
@@ -1800,7 +1808,13 @@ fun BubbleTimelineScreen(
     
     // CRITICAL FIX: When new items are added while attached, adjust scroll position immediately
     // With reverseLayout, index 0 is bottom (newest message)
+    // CRITICAL FIX: When new items are added while attached, adjust scroll position immediately
+    // With reverseLayout, index 0 is bottom (newest message)
+    // CRITICAL: Skip during scroll restoration (pagination) to avoid jumping to bottom
     LaunchedEffect(timelineItems.size, isAttachedToBottom) {
+        if (pendingScrollRestoration) {
+            return@LaunchedEffect // Don't scroll during pagination scroll restoration
+        }
         if (timelineItems.isNotEmpty() && isAttachedToBottom && hasSetInitialScrollPosition) {
             val currentFirstVisible = listState.firstVisibleItemIndex
             
@@ -1986,12 +2000,17 @@ fun BubbleTimelineScreen(
                     "reversed index $targetIndex, restoring with offset $anchorScrollOffsetForRestore"
                 )
                 
-                // Scroll immediately (we're in a LaunchedEffect coroutine context)
+                // CRITICAL: Wait a moment for layout to settle after new items are added
+                kotlinx.coroutines.delay(100)
+                
+                // Scroll to the anchor event to maintain viewport position
                 listState.scrollToItem(targetIndex, anchorScrollOffsetForRestore)
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: ✅ Scroll position restored to event at reversed index $targetIndex")
             } else {
                     Log.w("Andromuks", "BubbleTimelineScreen: ⚠️ Could not find anchor event $anchorEventIdForRestore in new timeline, falling back to scroll offset")
                     // Fallback: try to maintain scroll position using offset
+                    // Wait for layout to settle
+                    kotlinx.coroutines.delay(100)
                     val currentFirstIndex = listState.firstVisibleItemIndex
                     if (currentFirstIndex >= 0 && currentFirstIndex < timelineItems.size) {
                         listState.scrollToItem(currentFirstIndex, anchorScrollOffsetForRestore)
@@ -2000,6 +2019,8 @@ fun BubbleTimelineScreen(
             } else {
                 // Fallback: restore using scroll offset (when no anchor event was captured)
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Pagination completed, restoring scroll using offset: $anchorScrollOffsetForRestore")
+                // Wait for layout to settle
+                kotlinx.coroutines.delay(100)
                 val currentFirstIndex = listState.firstVisibleItemIndex
                 if (currentFirstIndex >= 0 && currentFirstIndex < timelineItems.size) {
                     listState.scrollToItem(currentFirstIndex, anchorScrollOffsetForRestore)
