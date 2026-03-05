@@ -9315,7 +9315,9 @@ class AppViewModel : ViewModel() {
             // Still request room state in background for any updates
             if (isWebSocketConnected() && !pendingRoomStateRequests.contains(roomId)) {
                 val stateRequestId = requestIdCounter++
-                roomStateRequests[stateRequestId] = roomId
+                synchronized(roomStateRequests) {
+                    roomStateRequests[stateRequestId] = roomId
+                }
                 pendingRoomStateRequests.add(roomId)
                 sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
                     "room_id" to roomId,
@@ -10020,12 +10022,14 @@ class AppViewModel : ViewModel() {
         roomSpecificStateRequests[requestId] = roomId  // Use roomSpecificStateRequests for get_specific_room_state responses
         
         // CRITICAL FIX: Store request metadata for timeout handling
-        profileRequestMetadata[requestKey] = ProfileRequestMetadata(
-            requestId = requestId,
-            timestamp = currentTime,
-            userId = userId,
-            roomId = roomId
-        )
+        synchronized(profileRequestMetadata) {
+            profileRequestMetadata[requestKey] = ProfileRequestMetadata(
+                requestId = requestId,
+                timestamp = currentTime,
+                userId = userId,
+                roomId = roomId
+            )
+        }
         
         // Request specific room state for this user
         sendWebSocketCommand("get_specific_room_state", requestId, mapOf(
@@ -10080,12 +10084,14 @@ class AppViewModel : ViewModel() {
         roomSpecificStateRequests[requestId] = roomId
         
         // CRITICAL FIX: Store request metadata for timeout handling
-        profileRequestMetadata[requestKey] = ProfileRequestMetadata(
-            requestId = requestId,
-            timestamp = currentTime,
-            userId = userId,
-            roomId = roomId
-        )
+        synchronized(profileRequestMetadata) {
+            profileRequestMetadata[requestKey] = ProfileRequestMetadata(
+                requestId = requestId,
+                timestamp = currentTime,
+                userId = userId,
+                roomId = roomId
+            )
+        }
         
         // Request specific room state for this user
         sendWebSocketCommand("get_specific_room_state", requestId, mapOf(
@@ -11253,7 +11259,8 @@ class AppViewModel : ViewModel() {
     }
     fun handleResponse(requestId: Int, data: Any) {
         // THREAD SAFETY: Create safe copies to avoid ConcurrentModificationException during logging
-        val roomStateKeysSnapshot = synchronized(roomStateRequests) { roomStateRequests.keys.toList() }
+        // Use ArrayList constructor to create a proper copy, not just a view
+        val roomStateKeysSnapshot = synchronized(roomStateRequests) { ArrayList(roomStateRequests.keys) }
 
         // PHASE 5.2/5.3: Acknowledge ALL commands with positive request_id when response arrives
         // Backend responds with same request_id, so we match by request_id and remove from queue
@@ -11287,7 +11294,7 @@ class AppViewModel : ViewModel() {
             // Check if this request_id exists in any of our request maps - if so, it's valid (not stale)
             val isInRequestMap = profileRequests.containsKey(requestId) ||
                     timelineRequests.containsKey(requestId) ||
-                    roomStateRequests.containsKey(requestId) ||
+                    synchronized(roomStateRequests) { roomStateRequests.containsKey(requestId) } ||
                     messageRequests.containsKey(requestId) ||
                     reactionRequests.containsKey(requestId) ||
                     markReadRequests.containsKey(requestId) ||
@@ -11335,7 +11342,7 @@ class AppViewModel : ViewModel() {
             handleProfileResponse(requestId, data)
         } else if (timelineRequests.containsKey(requestId)) {
             handleTimelineResponse(requestId, data)
-        } else if (roomStateRequests.containsKey(requestId)) {
+        } else if (synchronized(roomStateRequests) { roomStateRequests.containsKey(requestId) }) {
             handleRoomStateResponse(requestId, data)
         } else if (messageRequests.containsKey(requestId)) {
             handleMessageResponse(requestId, data)
@@ -11435,9 +11442,9 @@ class AppViewModel : ViewModel() {
             markReadRequests.remove(requestId)
             // Invoke completion callback to prevent UI stalling
             notificationActionCompletionCallbacks.remove(requestId)?.invoke()
-        } else if (roomStateRequests.containsKey(requestId)) {
+        } else if (synchronized(roomStateRequests) { roomStateRequests.containsKey(requestId) }) {
             android.util.Log.w("Andromuks", "AppViewModel: Room state error for requestId=$requestId: $errorMessage")
-            val roomId = roomStateRequests.remove(requestId)
+            val roomId = synchronized(roomStateRequests) { roomStateRequests.remove(requestId) }
             // PERFORMANCE: Remove from pending requests set on error
             if (roomId != null) {
                 pendingRoomStateRequests.remove(roomId)
@@ -12703,7 +12710,7 @@ class AppViewModel : ViewModel() {
         backgroundPrefetchRequests.remove(requestId)
     }
     private fun handleRoomStateResponse(requestId: Int, data: Any) {
-        val roomId = roomStateRequests.remove(requestId) ?: return
+        val roomId = synchronized(roomStateRequests) { roomStateRequests.remove(requestId) } ?: return
         
         // PERFORMANCE: Remove from pending requests set
         pendingRoomStateRequests.remove(roomId)
@@ -13419,9 +13426,11 @@ class AppViewModel : ViewModel() {
         
         // CRITICAL FIX: Find the user ID from request metadata to clean up pending requests
         // This ensures cleanup even if response is empty or doesn't contain member events
-        // CRASH FIX: Create a snapshot of entries to avoid ConcurrentModificationException
-        // The map can be modified concurrently (e.g., by timeout handlers), so we need a snapshot
-        val metadataForRequest = profileRequestMetadata.toList().find { (_, metadata) -> metadata.requestId == requestId }
+        // CRASH FIX: Create a snapshot of entries in a synchronized block to avoid ConcurrentModificationException
+        // The map can be modified concurrently (e.g., by timeout handlers), so we need a synchronized snapshot
+        val metadataForRequest = synchronized(profileRequestMetadata) {
+            profileRequestMetadata.toList().find { (_, metadata) -> metadata.requestId == requestId }
+        }
         val userIdFromRequest = metadataForRequest?.second?.userId
         
         when (data) {
@@ -13436,7 +13445,9 @@ class AppViewModel : ViewModel() {
                 if (data.length() == 0 && userIdFromRequest != null) {
                     val requestKey = "$roomId:$userIdFromRequest"
                     pendingProfileRequests.remove(requestKey)
-                    profileRequestMetadata.remove(requestKey)
+                    synchronized(profileRequestMetadata) {
+                        profileRequestMetadata.remove(requestKey)
+                    }
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleaned up pending profile request for empty response: $requestKey")
                 }
             }
@@ -13446,7 +13457,9 @@ class AppViewModel : ViewModel() {
                 if (userIdFromRequest != null) {
                     val requestKey = "$roomId:$userIdFromRequest"
                     pendingProfileRequests.remove(requestKey)
-                    profileRequestMetadata.remove(requestKey)
+                    synchronized(profileRequestMetadata) {
+                        profileRequestMetadata.remove(requestKey)
+                    }
                     if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Cleaned up pending profile request for unexpected response format: $requestKey")
                 }
             }
@@ -13456,7 +13469,9 @@ class AppViewModel : ViewModel() {
                 if (userIdFromRequest != null) {
                     val requestKey = "$roomId:$userIdFromRequest"
                     pendingProfileRequests.remove(requestKey)
-                    profileRequestMetadata.remove(requestKey)
+                    synchronized(profileRequestMetadata) {
+                        profileRequestMetadata.remove(requestKey)
+                    }
                     if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Cleaned up pending profile request for unhandled response type: $requestKey")
                 }
             }
@@ -13828,7 +13843,9 @@ class AppViewModel : ViewModel() {
                 if (stateKey.isNotEmpty()) {
                     val requestKey = "$roomId:$stateKey"
                     pendingProfileRequests.remove(requestKey)
-                    profileRequestMetadata.remove(requestKey) // CRITICAL FIX: Also clean up metadata
+                    synchronized(profileRequestMetadata) {
+                        profileRequestMetadata.remove(requestKey) // CRITICAL FIX: Also clean up metadata
+                    }
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleaned up pendingProfileRequests for $requestKey")
                 }
             }
