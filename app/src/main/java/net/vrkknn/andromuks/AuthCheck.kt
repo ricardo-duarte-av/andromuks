@@ -503,7 +503,7 @@ fun AuthCheckScreen(
             val isWebSocketConnected = WebSocketService.isWebSocketConnected()
             val currentNetworkType = WebSocketService.getCurrentNetworkType()
             
-            if (!isWebSocketConnected && currentNetworkType != WebSocketService.NetworkType.NONE) {
+            if (!isWebSocketConnected && currentNetworkType != net.vrkknn.andromuks.WebSocketService.NetworkType.NONE) {
                 // Network is available but WebSocket is still disconnected — wait for the normal
                 // navigation callback (which fires after WebSocket + initial sync), instead of
                 // navigating early from cache and exposing a half‑offline UI.

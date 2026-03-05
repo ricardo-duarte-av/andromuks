@@ -5463,6 +5463,18 @@ class AppViewModel : ViewModel() {
                                 messages
                             }
                             
+                            // CRITICAL FIX: Update WebSocketService state with actual queued count
+                            // This ensures notification shows correct count (e.g., "Initializing (0/9)" instead of "Initializing (0/0)")
+                            if (queuedMessages.isNotEmpty()) {
+                                net.vrkknn.andromuks.WebSocketService.updateInitializingProgress(
+                                    pendingCount = queuedMessages.size,
+                                    processedCount = 0
+                                )
+                                if (BuildConfig.DEBUG) {
+                                    android.util.Log.d("Andromuks", "AppViewModel: Updated WebSocketService state - Initializing (0/${queuedMessages.size})")
+                                }
+                            }
+                            
                             if (queuedMessages.isNotEmpty()) {
                                 if (BuildConfig.DEBUG) {
                                     android.util.Log.d("Andromuks", "AppViewModel: Processing ${queuedMessages.size} queued initial sync_complete messages")
@@ -5521,8 +5533,14 @@ class AppViewModel : ViewModel() {
                                                 runId = msgRunId,
                                                 onComplete = {
                                                     processedSyncCompleteCount = currentIndex + 1
+                                                    // CRITICAL FIX: Update WebSocketService state with progress
+                                                    // This ensures notification shows correct progress (e.g., "Initializing (3/9)")
+                                                    net.vrkknn.andromuks.WebSocketService.updateInitializingProgress(
+                                                        pendingCount = queuedMessages.size,
+                                                        processedCount = currentIndex + 1
+                                                    )
                                                     if (BuildConfig.DEBUG) {
-                                                        android.util.Log.d("Andromuks", "🟣 onInitComplete: Message ${currentIndex + 1} processing complete callback invoked")
+                                                        android.util.Log.d("Andromuks", "🟣 onInitComplete: Message ${currentIndex + 1} processing complete callback invoked - Updated state: Initializing (${currentIndex + 1}/${queuedMessages.size})")
                                                     }
                                                 }
                                             )
@@ -7646,7 +7664,7 @@ class AppViewModel : ViewModel() {
         // CRITICAL FIX: Check if network is available before scheduling reconnection
         // This prevents reconnection attempts when network is lost (WiFi turned off, etc.)
         val networkType = WebSocketService.getCurrentNetworkType()
-        if (networkType == WebSocketService.NetworkType.NONE) {
+        if (networkType == net.vrkknn.andromuks.WebSocketService.NetworkType.NONE) {
             android.util.Log.w("Andromuks", "AppViewModel: Connection failure but no network available - not scheduling reconnection (reason: $reason)")
             logActivity("Connection Failure - No Network Available", null)
             return
@@ -7673,7 +7691,7 @@ class AppViewModel : ViewModel() {
                     // CRITICAL FIX: Check network again before executing reconnection
                     // Network might have been lost during the delay
                     val currentNetworkType = WebSocketService.getCurrentNetworkType()
-                    if (currentNetworkType == WebSocketService.NetworkType.NONE) {
+                    if (currentNetworkType == net.vrkknn.andromuks.WebSocketService.NetworkType.NONE) {
                         android.util.Log.w("Andromuks", "AppViewModel: DNS retry delayed but network now unavailable - cancelling reconnection")
                         return@launch
                     }
@@ -7696,7 +7714,7 @@ class AppViewModel : ViewModel() {
                     delay(10000L)
                     // CRITICAL FIX: Check network again before executing reconnection
                     val currentNetworkType = WebSocketService.getCurrentNetworkType()
-                    if (currentNetworkType == WebSocketService.NetworkType.NONE) {
+                    if (currentNetworkType == net.vrkknn.andromuks.WebSocketService.NetworkType.NONE) {
                         android.util.Log.w("Andromuks", "AppViewModel: Network still unavailable after 10s - not scheduling fallback reconnection")
                         return@launch
                     }
