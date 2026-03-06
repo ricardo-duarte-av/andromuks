@@ -2644,7 +2644,12 @@ internal fun ImageViewerDialog(
             file.absolutePath
         } else {
             val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
-            if (isEncrypted) "$httpUrl?encrypted=true" else httpUrl ?: ""
+            if (isEncrypted && httpUrl != null) {
+                val separator = if (httpUrl.contains("?")) "&" else "?"
+                "$httpUrl$separator" + "encrypted=true"
+            } else {
+                httpUrl ?: ""
+            }
         }
     }
 

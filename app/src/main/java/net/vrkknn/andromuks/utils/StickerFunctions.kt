@@ -401,11 +401,11 @@ private fun StickerContent(
                     val httpUrl = MediaUtils.mxcToThumbnailUrl(stickerMessage.url, homeserverUrl, width = 400, height = 400)
                     if (isEncrypted && httpUrl != null) {
                         val separator = if (httpUrl.contains("?")) "&" else "?"
-                        val encryptedUrl = "$httpUrl${separator}encrypted=true"
+                        val encryptedUrl = "$httpUrl$separator" + "encrypted=true"
                         if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerMessage: Added encrypted=true to URL: $encryptedUrl")
                         encryptedUrl
                     } else {
-                        httpUrl
+                        httpUrl ?: ""
                     }
                 }
             }
@@ -439,6 +439,7 @@ private fun StickerContent(
                     .build(),
                 imageLoader = imageLoader,
                 contentDescription = stickerMessage.body,
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                 modifier = Modifier
                     .fillMaxSize()
                     .onGloballyPositioned { coords ->
@@ -455,7 +456,12 @@ private fun StickerContent(
                 onSuccess = {
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ Sticker loaded successfully: $imageUrl")
                 },
-                onError = { },
+                onError = { errorState ->
+                    if (BuildConfig.DEBUG) {
+                        val throwable = errorState.result.throwable
+                        Log.e("Andromuks", "❌ Sticker failed to load: $imageUrl", throwable)
+                    }
+                },
                 onLoading = { state ->
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "⏳ Sticker loading: $imageUrl, state: $state")
                 }

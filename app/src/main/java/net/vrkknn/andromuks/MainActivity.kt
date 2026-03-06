@@ -1311,6 +1311,35 @@ fun AppNavigation(
             )
         }
         composable(
+            route = "event_context/{roomId}/{eventId}",
+            arguments = listOf(
+                navArgument("roomId") { type = NavType.StringType },
+                navArgument("eventId") { type = NavType.StringType }
+            ),
+            enterTransition = {
+                slideInHorizontally(
+                    initialOffsetX = { it },
+                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                )
+            },
+            popExitTransition = {
+                slideOutHorizontally(
+                    targetOffsetX = { it },
+                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                )
+            }
+        ) { backStackEntry: NavBackStackEntry ->
+            val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+            val eventId = backStackEntry.arguments?.getString("eventId") ?: ""
+            EventContextScreen(
+                roomId = roomId,
+                eventId = eventId,
+                navController = navController,
+                modifier = modifier,
+                appViewModel = appViewModel
+            )
+        }
+        composable(
             route = "invite_detail/{roomId}",
             arguments = listOf(navArgument("roomId") { type = NavType.StringType })
         ) { backStackEntry: NavBackStackEntry ->

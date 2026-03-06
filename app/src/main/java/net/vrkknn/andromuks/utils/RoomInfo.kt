@@ -674,7 +674,8 @@ private fun PinnedEventsDialog(
                                 memberMap = memberMap,
                                 myUserId = myUserId,
                                 appViewModel = appViewModel,
-                                navController = navController
+                                navController = navController,
+                                onDismiss = onDismiss
                             )
                         }
                     }
@@ -834,7 +835,8 @@ private fun PinnedEventItemView(
     memberMap: Map<String, MemberProfile>,
     myUserId: String?,
     appViewModel: AppViewModel,
-    navController: NavController
+    navController: NavController,
+    onDismiss: () -> Unit
 ) {
     val event = pinnedItem.timelineEvent
 
@@ -865,19 +867,31 @@ private fun PinnedEventItemView(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
-                TimelineEventItem(
-                    event = event,
-                    timelineEvents = listOf(event),
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    userProfileCache = memberMap,
-                    isMine = myUserId != null && event.sender == myUserId,
-                    myUserId = myUserId,
-                    appViewModel = appViewModel,
-                    onUserClick = { userId ->
-                        navController.navigateToUserInfo(userId, event.roomId)
+                Box(
+                    modifier = Modifier.clickable {
+                        // Navigate to event context screen
+                        val encodedRoomId = java.net.URLEncoder.encode(event.roomId, "UTF-8")
+                        val encodedEventId = java.net.URLEncoder.encode(event.eventId, "UTF-8")
+                        navController.navigate("event_context/$encodedRoomId/$encodedEventId")
+                        onDismiss() // Dismiss the pinned events dialog
                     }
-                )
+                ) {
+                    TimelineEventItem(
+                        event = event,
+                        timelineEvents = listOf(event),
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        userProfileCache = memberMap,
+                        isMine = myUserId != null && event.sender == myUserId,
+                        myUserId = myUserId,
+                        appViewModel = appViewModel,
+                        onUserClick = { userId ->
+                            // Navigate to user info and dismiss dialog
+                            navController.navigateToUserInfo(userId, event.roomId)
+                            onDismiss()
+                        }
+                    )
+                }
             }
         }
     }

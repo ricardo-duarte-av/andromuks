@@ -7189,6 +7189,7 @@ class AppViewModel : ViewModel() {
     private val fcmRegistrationRequests = mutableMapOf<Int, String>() // requestId -> "fcm_registration"
     private var lastFCMRegistrationTime: Long = 0 // Track last registration to prevent duplicates
     private val eventRequests = mutableMapOf<Int, Pair<String, (TimelineEvent?) -> Unit>>() // requestId -> (roomId, callback)
+    private val eventContextRequests = mutableMapOf<Int, Pair<String, (List<TimelineEvent>?) -> Unit>>() // requestId -> (roomId, callback)
     private val paginateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for pagination)
     private val paginateRequestMaxTimelineIds = mutableMapOf<Int, Long>() // requestId -> max_timeline_id used in request (for progress detection)
     private val backgroundPrefetchRequests = mutableMapOf<Int, String>() // requestId -> roomId (for background prefetch)
@@ -11321,6 +11322,7 @@ class AppViewModel : ViewModel() {
                     leaveRoomRequests.containsKey(requestId) ||
                     fcmRegistrationRequests.containsKey(requestId) ||
                     eventRequests.containsKey(requestId) ||
+                    eventContextRequests.containsKey(requestId) ||
                     freshnessCheckRequests.containsKey(requestId) ||
                     backgroundPrefetchRequests.containsKey(requestId) ||
                     paginateRequests.containsKey(requestId) ||
@@ -11380,6 +11382,8 @@ class AppViewModel : ViewModel() {
             handleFCMRegistrationResponse(requestId, data)
         } else if (eventRequests.containsKey(requestId)) {
             handleEventResponse(requestId, data)
+        } else if (eventContextRequests.containsKey(requestId)) {
+            handleEventContextResponse(requestId, data)
         } else if (freshnessCheckRequests.containsKey(requestId)) {
             handleFreshnessCheckResponse(requestId, data)
         } else if (backgroundPrefetchRequests.containsKey(requestId)) {
@@ -11482,6 +11486,10 @@ class AppViewModel : ViewModel() {
         } else if (eventRequests.containsKey(requestId)) {
             android.util.Log.w("Andromuks", "AppViewModel: Event request error for requestId=$requestId: $errorMessage")
             val (_, callback) = eventRequests.remove(requestId) ?: return
+            callback(null)
+        } else if (eventContextRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Event context request error for requestId=$requestId: $errorMessage")
+            val (_, callback) = eventContextRequests.remove(requestId) ?: return
             callback(null)
         } else if (mentionsRequests.containsKey(requestId)) {
             android.util.Log.w("Andromuks", "AppViewModel: Mentions request error for requestId=$requestId: $errorMessage")
@@ -13374,6 +13382,104 @@ class AppViewModel : ViewModel() {
             }
             else -> {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleEventResponse: ${data::class.java.simpleName}")
+                callback(null)
+            }
+        }
+    }
+    
+    private fun handleEventContextResponse(requestId: Int, data: Any) {
+        val requestInfo = eventContextRequests.remove(requestId) ?: return
+        val (roomId, callback) = requestInfo
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling event context response for requestId: $requestId")
+        
+        when (data) {
+            is JSONObject -> {
+                // Parse JSONObject response - contains "before", "event", "after"
+                val events = mutableListOf<TimelineEvent>()
+                
+                // Parse "before" array
+                val beforeArray = data.optJSONArray("before")
+                if (beforeArray != null) {
+                    for (i in 0 until beforeArray.length()) {
+                        val eventJson = beforeArray.optJSONObject(i) ?: continue
+                        try {
+                            val event = TimelineEvent.fromJson(eventJson)
+                            events.add(event)
+                        } catch (e: Exception) {
+                            android.util.Log.e("Andromuks", "AppViewModel: Error parsing before event at index $i: ${e.message}", e)
+                        }
+                    }
+                }
+                
+                // Parse the target event
+                val targetEventJson = data.optJSONObject("event")
+                if (targetEventJson != null) {
+                    try {
+                        val event = TimelineEvent.fromJson(targetEventJson)
+                        events.add(event)
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: Error parsing target event: ${e.message}", e)
+                    }
+                }
+                
+                // Parse "after" array
+                val afterArray = data.optJSONArray("after")
+                if (afterArray != null) {
+                    for (i in 0 until afterArray.length()) {
+                        val eventJson = afterArray.optJSONObject(i) ?: continue
+                        try {
+                            val event = TimelineEvent.fromJson(eventJson)
+                            events.add(event)
+                        } catch (e: Exception) {
+                            android.util.Log.e("Andromuks", "AppViewModel: Error parsing after event at index $i: ${e.message}", e)
+                        }
+                    }
+                }
+                
+                // Sort by timestamp to ensure chronological order
+                val sortedEvents = events.sortedBy { it.timestamp }
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Retrieved ${sortedEvents.size} events in context (from JSONObject: ${beforeArray?.length() ?: 0} before, ${if (targetEventJson != null) 1 else 0} target, ${afterArray?.length() ?: 0} after)")
+                callback(sortedEvents)
+            }
+            is JSONArray -> {
+                // Parse array of events
+                val events = mutableListOf<TimelineEvent>()
+                for (i in 0 until data.length()) {
+                    val eventJson = data.optJSONObject(i) ?: continue
+                    try {
+                        val event = TimelineEvent.fromJson(eventJson)
+                        events.add(event)
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: Error parsing event context event at index $i: ${e.message}", e)
+                    }
+                }
+                // Sort by timestamp to ensure chronological order
+                val sortedEvents = events.sortedBy { it.timestamp }
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Retrieved ${sortedEvents.size} events in context")
+                callback(sortedEvents)
+            }
+            is List<*> -> {
+                // Handle list of events (already parsed)
+                val events = data.mapNotNull { item ->
+                    when (item) {
+                        is JSONObject -> {
+                            try {
+                                TimelineEvent.fromJson(item)
+                            } catch (e: Exception) {
+                                android.util.Log.e("Andromuks", "AppViewModel: Error parsing event context event: ${e.message}", e)
+                                null
+                            }
+                        }
+                        is TimelineEvent -> item
+                        else -> null
+                    }
+                }
+                val sortedEvents = events.sortedBy { it.timestamp }
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Retrieved ${sortedEvents.size} events in context (from List)")
+                callback(sortedEvents)
+            }
+            else -> {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleEventContextResponse: ${data::class.java.simpleName}")
                 callback(null)
             }
         }
@@ -16323,6 +16429,66 @@ class AppViewModel : ViewModel() {
                 // Switch to Main dispatcher for callback
                 withContext(Dispatchers.Main) {
                     eventRequests.remove(eventRequestId)?.let { (_, callback) ->
+                        callback(null)
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Get event context (events before and after a specific event)
+     * @param roomId The room ID
+     * @param eventId The event ID to get context for
+     * @param limitBefore Number of events before the target event (default 5)
+     * @param limitAfter Number of events after the target event (default 5)
+     * @param callback Callback with list of events (target event in the middle)
+     */
+    fun getEventContext(
+        roomId: String,
+        eventId: String,
+        limitBefore: Int = 5,
+        limitAfter: Int = 5,
+        callback: (List<TimelineEvent>?) -> Unit
+    ) {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: getEventContext called for roomId: '$roomId', eventId: '$eventId', limitBefore: $limitBefore, limitAfter: $limitAfter")
+        
+        // Check if WebSocket is connected
+        if (!isWebSocketConnected()) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected - calling back with null, health monitor will handle reconnection")
+            callback(null)
+            return
+        }
+        
+        val eventContextRequestId = requestIdCounter++
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Generated request_id for get_event_context: $eventContextRequestId")
+        
+        // Store the callback to handle the response
+        eventContextRequests[eventContextRequestId] = roomId to callback
+        
+        val commandData = mapOf(
+            "room_id" to roomId,
+            "event_id" to eventId,
+            "limit_before" to limitBefore,
+            "limit_after" to limitAfter
+        )
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: get_event_context with data: $commandData")
+        sendWebSocketCommand("get_event_context", eventContextRequestId, commandData)
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $eventContextRequestId")
+        
+        // Add timeout mechanism to prevent infinite loading
+        viewModelScope.launch(Dispatchers.IO) {
+            val timeoutMs = 10000L // 10 second timeout
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting get_event_context timeout to ${timeoutMs}ms for requestId=$eventContextRequestId")
+            delay(timeoutMs)
+            
+            // Check if request is still pending
+            if (eventContextRequests.containsKey(eventContextRequestId)) {
+                android.util.Log.w("Andromuks", "AppViewModel: get_event_context timeout after ${timeoutMs}ms for requestId=$eventContextRequestId, calling callback with null")
+                // Switch to Main dispatcher for callback
+                withContext(Dispatchers.Main) {
+                    eventContextRequests.remove(eventContextRequestId)?.let { (_, callback) ->
                         callback(null)
                     }
                 }
