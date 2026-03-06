@@ -2674,10 +2674,6 @@ internal fun ImageViewerDialog(
         }
     }
 
-    BackHandler(enabled = true) {
-        requestClose()
-    }
-
     LaunchedEffect(sourceBounds) {
         if (sourceBounds != null) {
             isOpening = true
@@ -2709,11 +2705,15 @@ internal fun ImageViewerDialog(
     Dialog(
                 onDismissRequest = { requestClose() },
                 properties = DialogProperties(
-                    dismissOnBackPress = false,
+                    dismissOnBackPress = true, // Allow back button to dismiss
                     dismissOnClickOutside = false, // We handle this manually
                     usePlatformDefaultWidth = false
                 )
             ) {
+                // Handle back button/gesture to dismiss
+                BackHandler(enabled = true) {
+                    requestClose()
+                }
                 // Pure black background - tapping it dismisses the dialog
                 Box(
                     modifier = Modifier
