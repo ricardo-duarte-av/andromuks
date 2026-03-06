@@ -72,6 +72,8 @@ import coil.request.ImageRequest
 import java.io.File
 import java.net.URLDecoder
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.CacheUtils
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
@@ -1957,9 +1959,15 @@ private fun InlineImage(
     }
     
     // Check if we have a cached version first
+    // CRITICAL FIX: Use Dispatchers.IO for file I/O operations (file.exists() is blocking)
+    // IntelligentMediaCache.getCachedFile() performs file.exists() which blocks the thread
     var cachedFile by remember { mutableStateOf<File?>(null) }
     LaunchedEffect(mxcUrl) {
-        cachedFile = mxcUrl?.let { IntelligentMediaCache.getCachedFile(context, it) }
+        cachedFile = mxcUrl?.let { 
+            withContext(Dispatchers.IO) {
+                IntelligentMediaCache.getCachedFile(context, it)
+            }
+        }
     }
     
     // Convert to HTTP URL or use cached file
@@ -2008,6 +2016,9 @@ private fun InlineImage(
                 .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp))
         )
     } else if (imageUrl != null) {
+        // CRITICAL FIX: Disable error caching for inline images to allow retries
+        // Inline images (custom emojis) are small and should retry on failure
+        // This fixes the issue where images fail once and never load again
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(imageUrl)
@@ -2022,7 +2033,17 @@ private fun InlineImage(
             imageLoader = imageLoader,
             contentDescription = alt,
             modifier = Modifier.size(height.dp),
-            onError = { }
+            onError = { errorState ->
+                // CRITICAL FIX: Use existing error handling utility for consistent error handling
+                // This logs the error and invalidates cache if appropriate
+                // Cache invalidation allows retries on next render instead of permanent error caching
+                CacheUtils.handleImageLoadError(
+                    imageUrl = imageUrl,
+                    throwable = errorState.result.throwable,
+                    imageLoader = imageLoader,
+                    context = "InlineImage"
+                )
+            }
         )
     } else {
         // Fallback to alt text
