@@ -1213,47 +1213,51 @@ fun AppNavigation(
                 navArgument("roomId") { type = NavType.StringType }
             ),
             // Fades only = Smooth Shared Element flight
-            // IMPORTANT: When transitioning to/from user_info, disable route fades so
+            // IMPORTANT: When transitioning to/from user_info or room_info, disable route fades so
             // shared-element avatar motion remains the only animation.
             enterTransition = {
                 val fromUserInfo = initialState.destination.route?.startsWith("user_info") == true
+                val fromRoomInfo = initialState.destination.route?.startsWith("room_info") == true
                 if (BuildConfig.DEBUG) {
                     Log.d(
                         "Andromuks",
-                        "MainActivity room_timeline enterTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, fromUserInfo=$fromUserInfo"
+                        "MainActivity room_timeline enterTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, fromUserInfo=$fromUserInfo, fromRoomInfo=$fromRoomInfo"
                     )
                 }
-                if (fromUserInfo) null else fadeIn(tween(500))
+                if (fromUserInfo || fromRoomInfo) null else fadeIn(tween(500))
             },
             exitTransition = {
                 val toUserInfo = targetState.destination.route?.startsWith("user_info") == true
+                val toRoomInfo = targetState.destination.route?.startsWith("room_info") == true
                 if (BuildConfig.DEBUG) {
                     Log.d(
                         "Andromuks",
-                        "MainActivity room_timeline exitTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, toUserInfo=$toUserInfo"
+                        "MainActivity room_timeline exitTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, toUserInfo=$toUserInfo, toRoomInfo=$toRoomInfo"
                     )
                 }
-                if (toUserInfo) null else fadeOut(tween(500))
+                if (toUserInfo || toRoomInfo) null else fadeOut(tween(500))
             },
             popEnterTransition = {
                 val fromUserInfo = initialState.destination.route?.startsWith("user_info") == true
+                val fromRoomInfo = initialState.destination.route?.startsWith("room_info") == true
                 if (BuildConfig.DEBUG) {
                     Log.d(
                         "Andromuks",
-                        "MainActivity room_timeline popEnterTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, fromUserInfo=$fromUserInfo"
+                        "MainActivity room_timeline popEnterTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, fromUserInfo=$fromUserInfo, fromRoomInfo=$fromRoomInfo"
                     )
                 }
-                if (fromUserInfo) null else fadeIn(tween(500))
+                if (fromUserInfo || fromRoomInfo) null else fadeIn(tween(500))
             },
             popExitTransition = {
                 val toUserInfo = targetState.destination.route?.startsWith("user_info") == true
+                val toRoomInfo = targetState.destination.route?.startsWith("room_info") == true
                 if (BuildConfig.DEBUG) {
                     Log.d(
                         "Andromuks",
-                        "MainActivity room_timeline popExitTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, toUserInfo=$toUserInfo"
+                        "MainActivity room_timeline popExitTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, toUserInfo=$toUserInfo, toRoomInfo=$toRoomInfo"
                     )
                 }
-                if (toUserInfo) null else fadeOut(tween(500))
+                if (toUserInfo || toRoomInfo) null else fadeOut(tween(500))
             }
         ) { backStackEntry ->
             val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
@@ -1396,36 +1400,52 @@ fun AppNavigation(
             route = "room_info/{roomId}",
             arguments = listOf(navArgument("roomId") { type = NavType.StringType }),
             enterTransition = {
-                fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
-                    scaleIn(
-                        initialScale = 0.85f,
-                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-                        transformOrigin = TransformOrigin.Center
-                    )
+                // Disable fade/scale when coming from room_timeline to allow shared element transition
+                val fromRoomTimeline = initialState.destination.route?.startsWith("room_timeline") == true
+                if (fromRoomTimeline) null else {
+                    fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
+                        scaleIn(
+                            initialScale = 0.85f,
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                            transformOrigin = TransformOrigin.Center
+                        )
+                }
             },
             exitTransition = {
-                fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)) +
-                    scaleOut(
-                        targetScale = 0.85f,
-                        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
-                        transformOrigin = TransformOrigin.Center
-                    )
+                // Disable fade/scale when going to room_timeline to allow shared element transition
+                val toRoomTimeline = targetState.destination.route?.startsWith("room_timeline") == true
+                if (toRoomTimeline) null else {
+                    fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)) +
+                        scaleOut(
+                            targetScale = 0.85f,
+                            animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
+                            transformOrigin = TransformOrigin.Center
+                        )
+                }
             },
             popEnterTransition = {
-                fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
-                    scaleIn(
-                        initialScale = 0.85f,
-                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-                        transformOrigin = TransformOrigin.Center
-                    )
+                // Disable fade/scale when coming from room_timeline to allow shared element transition
+                val fromRoomTimeline = initialState.destination.route?.startsWith("room_timeline") == true
+                if (fromRoomTimeline) null else {
+                    fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
+                        scaleIn(
+                            initialScale = 0.85f,
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                            transformOrigin = TransformOrigin.Center
+                        )
+                }
             },
             popExitTransition = {
-                fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)) +
-                    scaleOut(
-                        targetScale = 0.85f,
-                        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
-                        transformOrigin = TransformOrigin.Center
-                    )
+                // Disable fade/scale when going to room_timeline to allow shared element transition
+                val toRoomTimeline = targetState.destination.route?.startsWith("room_timeline") == true
+                if (toRoomTimeline) null else {
+                    fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)) +
+                        scaleOut(
+                            targetScale = 0.85f,
+                            animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
+                            transformOrigin = TransformOrigin.Center
+                        )
+                }
             }
         ) { backStackEntry: NavBackStackEntry ->
             val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
@@ -1433,7 +1453,9 @@ fun AppNavigation(
                 roomId = roomId,
                 navController = navController,
                 appViewModel = appViewModel,
-                modifier = modifier
+                modifier = modifier,
+                sharedTransitionScope = this@SharedTransitionLayout,
+                animatedVisibilityScope = this@composable
             )
         }
         // Route with eventId (for shared transitions)

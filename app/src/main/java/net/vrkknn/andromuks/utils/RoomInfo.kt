@@ -26,11 +26,15 @@ import net.vrkknn.andromuks.TimelineEventItem
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.components.FullImageDialog
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
-
-
 import org.json.JSONObject
 import androidx.compose.foundation.shape.RoundedCornerShape
 import net.vrkknn.andromuks.utils.navigateToUserInfo
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
 
 private fun usernameFromMatrixId(userId: String): String =
     userId.removePrefix("@").substringBefore(":")
@@ -94,13 +98,15 @@ data class ServerAclInfo(
 /**
  * Room Info Screen - displays detailed information about a room
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun RoomInfoScreen(
     roomId: String,
     navController: NavController,
     appViewModel: AppViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     // State to hold the room info
@@ -280,15 +286,45 @@ fun RoomInfoScreen(
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        AvatarImage(
-                            mxcUrl = roomStateInfo!!.avatarUrl,
-                            homeserverUrl = appViewModel.homeserverUrl,
-                            authToken = appViewModel.authToken,
-                            fallbackText = roomStateInfo!!.name ?: roomId,
-                            size = 120.dp,
-                            userId = roomId,
-                            displayName = roomStateInfo!!.name
-                        )
+                        if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                            val sharedKey = "avatar-${roomId}"
+                            with(sharedTransitionScope) {
+                                AvatarImage(
+                                    mxcUrl = roomStateInfo!!.avatarUrl,
+                                    homeserverUrl = appViewModel.homeserverUrl,
+                                    authToken = appViewModel.authToken,
+                                    fallbackText = roomStateInfo!!.name ?: roomId,
+                                    size = 120.dp,
+                                    userId = roomId,
+                                    displayName = roomStateInfo!!.name,
+                                    modifier = Modifier
+                                        .sharedElement(
+                                            rememberSharedContentState(key = sharedKey),
+                                            animatedVisibilityScope = animatedVisibilityScope,
+                                            boundsTransform = { _, _ ->
+                                                spring(
+                                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                                    stiffness = Spring.StiffnessLow
+                                                )
+                                            },
+                                            renderInOverlayDuringTransition = true,
+                                            zIndexInOverlay = 1f
+                                        )
+                                        .clip(CircleShape)
+                                )
+                            }
+                        } else {
+                            AvatarImage(
+                                mxcUrl = roomStateInfo!!.avatarUrl,
+                                homeserverUrl = appViewModel.homeserverUrl,
+                                authToken = appViewModel.authToken,
+                                fallbackText = roomStateInfo!!.name ?: roomId,
+                                size = 120.dp,
+                                userId = roomId,
+                                displayName = roomStateInfo!!.name,
+                                modifier = Modifier.clip(CircleShape)
+                            )
+                        }
                     }
                 }
                 
