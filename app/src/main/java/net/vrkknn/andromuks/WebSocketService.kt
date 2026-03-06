@@ -1539,6 +1539,10 @@ class WebSocketService : Service() {
          *
          * This helper ensures we only clear the connection if the closing socket is the currently
          * active one stored in the service. Closes from stale/old sockets are logged and ignored.
+         * 
+         * CRITICAL FIX: If we're in Connecting state when WebSocket closes, treat it as a failed
+         * connection attempt and schedule reconnection, regardless of close code. Code 1000 during
+         * Connecting means the connection attempt failed, not that we had a healthy connection.
          */
         fun handleWebSocketClosing(webSocket: WebSocket, code: Int, reason: String) {
             val serviceInstance = instance ?: return
@@ -1555,7 +1559,29 @@ class WebSocketService : Service() {
                 return
             }
             
+            // CRITICAL FIX: If we're in Connecting state, this is a failed connection attempt
+            // We need to schedule reconnection even if close code is 1000 (normal closure)
+            // Code 1000 during Connecting means the connection attempt failed, not that we had a healthy connection
+            val wasConnecting = serviceInstance.connectionState.isConnecting()
+            
             clearWebSocket("WebSocket closing ($code)", code, reason)
+            
+            // If we were Connecting when the socket closed, schedule reconnection
+            // This handles the case where network type changes trigger a reconnection that fails
+            if (wasConnecting) {
+                android.util.Log.w("WebSocketService", "WebSocket closed with code $code while in Connecting state - scheduling reconnection (failed connection attempt)")
+                logActivity("Connection Failed - Retrying", serviceInstance.currentNetworkType.name)
+                
+                // Reset reconnection state to allow new attempt
+                synchronized(serviceInstance.reconnectionLock) {
+                    serviceInstance.isReconnecting = false
+                    serviceInstance.reconnectionJob?.cancel()
+                    serviceInstance.reconnectionJob = null
+                }
+                
+                // Schedule reconnection
+                scheduleReconnection("WebSocket closed during connection attempt (code=$code)")
+            }
         }
         
         /**
@@ -3535,22 +3561,21 @@ class WebSocketService : Service() {
                 // Always force reconnect on network type change
                 android.util.Log.w("WebSocketService", "Network type changed - forcing reconnection ($previousNetworkType → $newNetworkType)")
                 
-                // CRITICAL FIX: If we're in Connecting state, clear it properly before scheduling reconnection
-                // This prevents getting stuck in Connecting state when network type changes
-                if (connectionState.isConnecting()) {
-                    android.util.Log.w("WebSocketService", "Network type changed while in CONNECTING state - clearing connection before reconnecting")
-                    clearWebSocket("Network type changed: $previousNetworkType → $newNetworkType (was Connecting)")
-                }
-                
-                // Cancel any pending reconnection attempts
+                // CRITICAL FIX: Cancel any pending reconnection attempts FIRST
+                // This prevents race conditions where a reconnection starts after we clear the WebSocket
                 synchronized(reconnectionLock) {
                     reconnectionJob?.cancel()
                     reconnectionJob = null
                     isReconnecting = false
                 }
                 
-                // Clear WebSocket and force reconnection (if not already cleared above)
-                if (!connectionState.isDisconnected()) {
+                // CRITICAL FIX: If we're in Connecting state, clear it properly before scheduling reconnection
+                // This prevents getting stuck in Connecting state when network type changes
+                if (connectionState.isConnecting()) {
+                    android.util.Log.w("WebSocketService", "Network type changed while in CONNECTING state - clearing connection before reconnecting")
+                    clearWebSocket("Network type changed: $previousNetworkType → $newNetworkType (was Connecting)")
+                } else if (!connectionState.isDisconnected()) {
+                    // Clear WebSocket if not already disconnected
                     clearWebSocket("Network type changed: $previousNetworkType → $newNetworkType")
                 }
                 if (!hasCallback) {
