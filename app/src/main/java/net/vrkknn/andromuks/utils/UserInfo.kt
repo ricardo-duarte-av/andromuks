@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.automirrored.filled.RotateLeft
 import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.ui.layout.ContentScale
@@ -929,44 +930,38 @@ fun UserInfoScreen(
                             )
                         }
                     } else {
-                        // Save button to add contact (replaces "Add to Contacts" button)
+                        // Show AccountCircle icon if contact exists (opens in Contacts app), otherwise Save icon (adds contact)
                         IconButton(
                             onClick = {
-                                // Check permissions first (need both READ and WRITE)
-                                val hasReadContacts = ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.READ_CONTACTS
-                                ) == PackageManager.PERMISSION_GRANTED
-                                val hasWriteContacts = ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.WRITE_CONTACTS
-                                ) == PackageManager.PERMISSION_GRANTED
-                                
-                                if (hasReadContacts && hasWriteContacts) {
+                                if (isUserInContacts) {
+                                    // Open contact in Contacts app
                                     coroutineScope.launch {
-                                        addMatrixUserToContacts(
-                                            context = context,
-                                            userId = userId,
-                                            displayName = userProfileInfo?.displayName 
-                                                ?: usernameFromMatrixId(userId),
-                                            avatarUrl = userProfileInfo?.avatarUrl,
-                                            homeserverUrl = appViewModel.homeserverUrl,
-                                            authToken = appViewModel.authToken
-                                        )
-                                        // Check if contact was successfully added and update state
                                         withContext(Dispatchers.IO) {
                                             val syncService = ContactsSyncService(
                                                 context,
                                                 accountName = "Andromuks",
                                                 accountType = "net.vrkknn.andromuks.matrix"
                                             )
-                                            val wasAdded = syncService.isUserInContacts(userId)
-                                            if (wasAdded) {
-                                                isUserInContacts = true
-                                                withContext(Dispatchers.Main) {
+                                            val contactUri = syncService.getContactUri(userId)
+                                            withContext(Dispatchers.Main) {
+                                                if (contactUri != null) {
+                                                    try {
+                                                        val intent = Intent(Intent.ACTION_VIEW, contactUri)
+                                                        context.startActivity(intent)
+                                                    } catch (e: Exception) {
+                                                        Log.e("Andromuks", "Failed to open contact in Contacts app", e)
+                                                        Toast.makeText(
+                                                            context,
+                                                            "Failed to open contact",
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                    }
+                                                } else {
+                                                    // Contact was deleted, update state
+                                                    isUserInContacts = false
                                                     Toast.makeText(
                                                         context,
-                                                        "Contact saved successfully",
+                                                        "Contact not found",
                                                         Toast.LENGTH_SHORT
                                                     ).show()
                                                 }
@@ -974,20 +969,64 @@ fun UserInfoScreen(
                                         }
                                     }
                                 } else {
-                                    // Request both permissions
-                                    contactsPermissionLauncher.launch(
-                                        arrayOf(
-                                            Manifest.permission.READ_CONTACTS,
-                                            Manifest.permission.WRITE_CONTACTS
+                                    // Add contact to Android Contacts
+                                    // Check permissions first (need both READ and WRITE)
+                                    val hasReadContacts = ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.READ_CONTACTS
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                    val hasWriteContacts = ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.WRITE_CONTACTS
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                    
+                                    if (hasReadContacts && hasWriteContacts) {
+                                        coroutineScope.launch {
+                                            addMatrixUserToContacts(
+                                                context = context,
+                                                userId = userId,
+                                                displayName = userProfileInfo?.displayName 
+                                                    ?: usernameFromMatrixId(userId),
+                                                avatarUrl = userProfileInfo?.avatarUrl,
+                                                homeserverUrl = appViewModel.homeserverUrl,
+                                                authToken = appViewModel.authToken
+                                            )
+                                            // Check if contact was successfully added and update state
+                                            withContext(Dispatchers.IO) {
+                                                val syncService = ContactsSyncService(
+                                                    context,
+                                                    accountName = "Andromuks",
+                                                    accountType = "net.vrkknn.andromuks.matrix"
+                                                )
+                                                val wasAdded = syncService.isUserInContacts(userId)
+                                                if (wasAdded) {
+                                                    isUserInContacts = true
+                                                    withContext(Dispatchers.Main) {
+                                                        Toast.makeText(
+                                                            context,
+                                                            "Contact saved successfully",
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        // Request both permissions
+                                        contactsPermissionLauncher.launch(
+                                            arrayOf(
+                                                Manifest.permission.READ_CONTACTS,
+                                                Manifest.permission.WRITE_CONTACTS
+                                            )
                                         )
-                                    )
+                                    }
                                 }
                             },
-                            enabled = !isUserInContacts
+                            enabled = true // Always enabled - either opens contact or adds it
                         ) {
                             Icon(
-                                imageVector = Icons.Filled.Save,
-                                contentDescription = if (isUserInContacts) "Already in Contacts" else "Save to Contacts"
+                                imageVector = if (isUserInContacts) Icons.Filled.AccountCircle else Icons.Filled.Save,
+                                contentDescription = if (isUserInContacts) "Open in Contacts" else "Save to Contacts"
                             )
                         }
                     }

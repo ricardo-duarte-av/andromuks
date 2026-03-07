@@ -394,13 +394,59 @@ class ContactsSyncService(
     }
     
     /**
+     * Get the contact URI for opening in Contacts app
+     * Returns null if contact doesn't exist
+     */
+    fun getContactUri(userId: String): android.net.Uri? {
+        val rawContactId = getRawContactId(userId) ?: return null
+        
+        // Get the contact ID from the raw contact ID
+        val rawContactCursor = context.contentResolver.query(
+            RawContacts.CONTENT_URI,
+            arrayOf(RawContacts.CONTACT_ID),
+            "${RawContacts._ID} = ?",
+            arrayOf(rawContactId.toString()),
+            null
+        )
+        
+        val contactId = rawContactCursor?.use {
+            if (it.moveToFirst()) {
+                it.getLong(it.getColumnIndexOrThrow(RawContacts.CONTACT_ID))
+            } else {
+                null
+            }
+        } ?: return null
+        
+        // Get the lookup key from the Contacts table
+        val contactsCursor = context.contentResolver.query(
+            ContactsContract.Contacts.CONTENT_URI,
+            arrayOf(ContactsContract.Contacts.LOOKUP_KEY),
+            "${ContactsContract.Contacts._ID} = ?",
+            arrayOf(contactId.toString()),
+            null
+        )
+        
+        return contactsCursor?.use {
+            if (it.moveToFirst()) {
+                val lookupKey = it.getString(it.getColumnIndexOrThrow(ContactsContract.Contacts.LOOKUP_KEY))
+                // Build lookup URI for the contact
+                ContactsContract.Contacts.getLookupUri(contactId, lookupKey)
+            } else {
+                null
+            }
+        }
+    }
+    
+    /**
      * Get raw contact ID for a Matrix user ID
+     * CRITICAL FIX: Excludes deleted contacts (DELETED = 1)
+     * This ensures we can re-add contacts that were deleted from the Contacts app
      */
     private fun getRawContactId(userId: String): Long? {
         val cursor = context.contentResolver.query(
             RawContacts.CONTENT_URI,
-            arrayOf(RawContacts._ID, RawContacts.SYNC1, RawContacts.ACCOUNT_TYPE),
-            "${RawContacts.SYNC1} = ?",  // removed ACCOUNT_TYPE filter
+            arrayOf(RawContacts._ID, RawContacts.SYNC1, RawContacts.ACCOUNT_TYPE, RawContacts.DELETED),
+            "${RawContacts.SYNC1} = ? AND (${RawContacts.DELETED} = 0 OR ${RawContacts.DELETED} IS NULL)",
             arrayOf(userId),
             null
         )
@@ -410,10 +456,12 @@ class ContactsSyncService(
                 val id = it.getLong(it.getColumnIndexOrThrow(RawContacts._ID))
                 val sync1 = it.getString(it.getColumnIndexOrThrow(RawContacts.SYNC1))
                 val type = it.getString(it.getColumnIndexOrThrow(RawContacts.ACCOUNT_TYPE))
-                Log.d(TAG, "getRawContactId($userId) → found id=$id sync1=$sync1 accountType=$type")
+                val deletedIndex = it.getColumnIndex(RawContacts.DELETED)
+                val deleted = if (deletedIndex >= 0) it.getInt(deletedIndex) else 0
+                Log.d(TAG, "getRawContactId($userId) → found id=$id sync1=$sync1 accountType=$type deleted=$deleted")
                 id
             } else {
-                Log.d(TAG, "getRawContactId($userId) → not found")
+                Log.d(TAG, "getRawContactId($userId) → not found (or deleted)")
                 null
             }
         }
