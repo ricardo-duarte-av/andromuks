@@ -908,7 +908,14 @@ fun UserInfoScreen(
             TopAppBar(
                 title = { Text("User Info") },
                 navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
+                    IconButton(onClick = { 
+                        // If opened from external app (like Contacts), finish activity instead of navigating back
+                        if (appViewModel.openedFromExternalApp) {
+                            (context as? android.app.Activity)?.finish()
+                        } else {
+                            navController.popBackStack()
+                        }
+                    }) {
                         Icon(
                             imageVector = Icons.Filled.ArrowBack,
                             contentDescription = "Back"

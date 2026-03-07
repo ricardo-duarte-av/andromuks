@@ -261,6 +261,10 @@ class MainActivity : ComponentActivity() {
                             // Handle custom MIME type from contacts
                             val mimeType = intent.type
                             if (mimeType == MatrixContactsProvider.MIME_TYPE_MATRIX_USER && matrixUri != null) {
+                                // Mark that we were opened from external app (Contacts)
+                                appViewModel.setOpenedFromExternalApp(true)
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Opened from Contacts app - will finish activity on back navigation")
+                                
                                 // Extract Matrix URI from contact data
                                 try {
                                     // Android Contacts sends a content:// URI pointing to the contact's data row
@@ -291,6 +295,16 @@ class MainActivity : ComponentActivity() {
                                     Log.e("Andromuks", "MainActivity: Security exception querying contact (missing READ_CONTACTS permission?)", e)
                                 } catch (e: Exception) {
                                     Log.e("Andromuks", "MainActivity: Error extracting Matrix URI from contact MIME type", e)
+                                }
+                            }
+                            
+                            // Also check if opened from matrix:u/ URI (could be from Contacts or other apps)
+                            if (matrixUri != null && matrixUri.toString().startsWith("matrix:u/", ignoreCase = true)) {
+                                // Check if the calling package is Contacts app
+                                val callingPackage = callingPackage
+                                if (callingPackage != null && (callingPackage.contains("contacts", ignoreCase = true) || callingPackage == "com.android.contacts")) {
+                                    appViewModel.setOpenedFromExternalApp(true)
+                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Opened from Contacts app via matrix:u/ URI - will finish activity on back navigation")
                                 }
                             }
                             

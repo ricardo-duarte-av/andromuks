@@ -558,11 +558,17 @@ fun RoomListScreen(
     // Handle back button - suspend app and move to background
     // When user presses back from room list, app suspends and moves to background
     // A 15-second timer starts to close the websocket for resource management
+    // CRITICAL FIX: If opened from external app (like Contacts), finish activity instead of moving to background
     BackHandler {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Back button pressed, suspending app")
-        appViewModel.suspendApp() // Start 15-second timer to close websocket
-        // Move app to background instead of closing completely
-        (context as? ComponentActivity)?.moveTaskToBack(true)
+        if (appViewModel.openedFromExternalApp) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Back button pressed, opened from external app - finishing activity")
+            (context as? ComponentActivity)?.finish()
+        } else {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Back button pressed, suspending app")
+            appViewModel.suspendApp() // Start 15-second timer to close websocket
+            // Move app to background instead of closing completely
+            (context as? ComponentActivity)?.moveTaskToBack(true)
+        }
     }
     
     // Clear current room ID when room list is shown - allows notifications to resume for previously open rooms

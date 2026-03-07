@@ -140,6 +140,15 @@ enum class WebSocketResult {
 }
 
 class AppViewModel : ViewModel() {
+    // Track if app was opened from external app (like Contacts) - affects back navigation behavior
+    private var _openedFromExternalApp by mutableStateOf(false)
+    val openedFromExternalApp: Boolean
+        get() = _openedFromExternalApp
+    
+    fun setOpenedFromExternalApp(value: Boolean) {
+        _openedFromExternalApp = value
+    }
+    
     // Tracks which sender profiles have been processed per room to avoid duplicate fetches.
     // Used by RoomListScreen opportunistic profile loading.
     val processedSendersByRoom = mutableStateMapOf<String, MutableSet<String>>()
@@ -1523,12 +1532,53 @@ class AppViewModel : ViewModel() {
     /**
      * Get all DM room IDs for a user from m.direct account data
      * Returns empty set if user is not in m.direct or has no DM rooms
+     * CRITICAL FIX: Falls back to scanning rooms when account data is not available
+     * (e.g., when opened from external apps like Contacts before account_data is received)
      */
     fun getDirectRoomIdsForUser(userId: String): Set<String> {
         if (userId.isBlank()) return emptySet()
         
         val normalizedUserId = if (userId.startsWith("@")) userId else "@$userId"
-        return directMessageUserMap[normalizedUserId] ?: emptySet()
+        
+        // 1. Use mapping from m.direct account data if available
+        val fromAccountData = directMessageUserMap[normalizedUserId]
+        if (fromAccountData != null && fromAccountData.isNotEmpty()) {
+            return fromAccountData
+        }
+        
+        // 2. Fallback: scan known direct rooms for the user (when account_data not loaded yet)
+        if (directMessageUserMap.isEmpty()) {
+            val roomsToCheck = if (cachedDirectChatRooms.isNotEmpty()) {
+                cachedDirectChatRooms
+            } else {
+                allRooms.filter { it.isDirectMessage }
+            }
+            
+            val foundRooms = mutableSetOf<String>()
+            for (room in roomsToCheck) {
+                try {
+                    val members = getMemberMap(room.id)
+                    if (members.containsKey(normalizedUserId)) {
+                        foundRooms.add(room.id)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w(
+                        "Andromuks",
+                        "AppViewModel: Failed to inspect members for room ${room.id} when resolving DM for $normalizedUserId",
+                        e
+                    )
+                }
+            }
+            
+            if (foundRooms.isNotEmpty()) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Found ${foundRooms.size} DM rooms for $normalizedUserId via fallback scanning (account_data not loaded yet)")
+                }
+                return foundRooms
+            }
+        }
+        
+        return emptySet()
     }
 
     /**
@@ -3970,6 +4020,10 @@ class AppViewModel : ViewModel() {
      * This ensures that keys not present in the incoming sync are preserved.
      */
     private fun processAccountData(accountDataJson: JSONObject) {
+        // CRITICAL FIX: Store account_data in singleton cache so all ViewModel instances can access it
+        // This ensures secondary instances (e.g., opened from Contacts) can access account_data
+        AccountDataCache.setAllAccountData(accountDataJson)
+        
         // Account data is already extracted, process it directly
         if (BuildConfig.DEBUG) {
             val allKeys = accountDataJson.keys().asSequence().toList()
@@ -4869,6 +4923,9 @@ class AppViewModel : ViewModel() {
         directMessageUserMap = emptyMap()
         EmojiPacksCache.clear()
         StickerPacksCache.clear()
+        
+        // CRITICAL FIX: Clear singleton account_data cache on clear_state
+        AccountDataCache.clear()
         
         // Clear pending invites - new invites will come from clear_state sync_complete
         PendingInvitesCache.clear()
@@ -6395,6 +6452,25 @@ class AppViewModel : ViewModel() {
                 if (roomMap.isNotEmpty() && !spacesLoaded) {
                     spacesLoaded = true
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Set spacesLoaded=true (have ${roomMap.size} rooms)")
+                }
+                
+                // CRITICAL FIX: Load account_data from singleton cache when attaching to existing WebSocket
+                // This ensures secondary instances (e.g., opened from Contacts) can access account_data
+                // that was loaded by the primary instance
+                val cachedAccountData = AccountDataCache.getAllAccountData()
+                if (cachedAccountData.isNotEmpty()) {
+                    val accountDataJson = JSONObject()
+                    cachedAccountData.forEach { (key, value) ->
+                        accountDataJson.put(key, value)
+                    }
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Loading ${cachedAccountData.size} account_data types from cache (m.direct=${AccountDataCache.hasAccountData("m.direct")})")
+                    }
+                    processAccountData(accountDataJson)
+                } else {
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d("Andromuks", "AppViewModel: No account_data in cache - will use fallback room scanning for DM detection")
+                    }
                 }
                 
                 // CRITICAL FIX: When attaching to existing WebSocket, room states have already been loaded by the primary instance
