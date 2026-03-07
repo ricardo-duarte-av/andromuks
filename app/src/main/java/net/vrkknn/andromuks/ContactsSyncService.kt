@@ -204,7 +204,7 @@ class ContactsSyncService(
         val displayName = user.displayName ?: extractUsername(user.userId)
         
         
-        // Create raw contact with TYPE_KEEP_TOGETHER
+        // Create raw contact
         // This prevents Android from auto-merging with existing contacts
         val rawContactInsertIndex = operations.size
         operations.add(
@@ -212,7 +212,7 @@ class ContactsSyncService(
                 .withValue(RawContacts.ACCOUNT_NAME, account.name)
                 .withValue(RawContacts.ACCOUNT_TYPE, account.type)
                 .withValue(RawContacts.SOURCE_ID, user.userId) // Store Matrix user ID as source ID
-                .withValue(RawContacts.SYNC1, user.userId) // Also store in SYNC1 for backward compatibility    
+                .withValue(RawContacts.SYNC1, user.userId) // Also store in SYNC1 for backward compatibility
                 .build()
         )
         
@@ -257,9 +257,10 @@ class ContactsSyncService(
             ContentProviderOperation.newInsert(Data.CONTENT_URI)
                 .withValueBackReference(Data.RAW_CONTACT_ID, rawContactInsertIndex)
                 .withValue(Data.MIMETYPE, MatrixContactsProvider.MIME_TYPE_MATRIX_USER)
-                .withValue(Data.DATA1, user.userId) // Label 
-                .withValue(Data.DATA2, matrixUri) // URI 
-                .withValue(Data.DATA3, "Matrix") // Action label
+                .withValue(Data.DATA1, matrixUri) // URI (must be in DATA1 for Android Contacts to find it)
+                .withValue(Data.DATA2, "Matrix") // Type/label
+                .withValue(Data.DATA3, "Send Matrix message") // Action label
+                .withValue(Data.DATA4, user.userId) // Store full user ID for reference
                 .build()
         )
                 

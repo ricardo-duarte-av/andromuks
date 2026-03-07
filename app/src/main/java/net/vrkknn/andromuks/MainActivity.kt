@@ -204,17 +204,7 @@ class MainActivity : ComponentActivity() {
             // AppViewModel will be created and will register with the service
         }
         
-        // TEMPORARY DEBUG CLEANUP - remove after running once
-        if (BuildConfig.DEBUG) {
-            CoroutineScope(Dispatchers.IO).launch {
-                val syncService = ContactsSyncService(
-                    applicationContext,
-                    accountName = "Andromuks",
-                    accountType = "net.vrkknn.andromuks.matrix"
-                )
-                syncService.nukeAllMatrixContacts()
-            }
-        }
+
         
         setContent {
             AndromuksTheme {
@@ -273,6 +263,8 @@ class MainActivity : ComponentActivity() {
                             if (mimeType == MatrixContactsProvider.MIME_TYPE_MATRIX_USER && matrixUri != null) {
                                 // Extract Matrix URI from contact data
                                 try {
+                                    // Android Contacts sends a content:// URI pointing to the contact's data row
+                                    // Query it to get the Matrix URI from DATA1
                                     val cursor = contentResolver.query(
                                         matrixUri,
                                         arrayOf(android.provider.ContactsContract.Data.DATA1), // Matrix URI is in DATA1
@@ -281,20 +273,43 @@ class MainActivity : ComponentActivity() {
                                         null
                                     )
                                     cursor?.use {
-                                        if (it.moveToFirst()) {
+                                        if (it.moveToFirst() && it.columnCount > 0) {
                                             val matrixUriString = it.getString(0)
-                                            if (matrixUriString != null && matrixUriString.startsWith("matrix:")) {
+                                            if (!matrixUriString.isNullOrBlank() && matrixUriString.startsWith("matrix:")) {
                                                 matrixUri = android.net.Uri.parse(matrixUriString)
                                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Extracted Matrix URI from contact MIME type: $matrixUriString")
+                                            } else {
+                                                if (BuildConfig.DEBUG) Log.w("Andromuks", "MainActivity: Contact data row exists but DATA1 is empty or invalid: '$matrixUriString'")
                                             }
+                                        } else {
+                                            if (BuildConfig.DEBUG) Log.w("Andromuks", "MainActivity: Contact data row query returned no results for URI: $matrixUri")
                                         }
+                                    } ?: run {
+                                        if (BuildConfig.DEBUG) Log.w("Andromuks", "MainActivity: Contact data row query returned null cursor for URI: $matrixUri")
                                     }
+                                } catch (e: SecurityException) {
+                                    Log.e("Andromuks", "MainActivity: Security exception querying contact (missing READ_CONTACTS permission?)", e)
                                 } catch (e: Exception) {
                                     Log.e("Andromuks", "MainActivity: Error extracting Matrix URI from contact MIME type", e)
                                 }
                             }
                             
                             if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
+                            
+                            // Extract userId from matrix:u/ URI if present
+                            var extractedUserId: String? = null
+                            if (matrixUri != null) {
+                                val uriString = matrixUri.toString()
+                                if (uriString.startsWith("matrix:u/", ignoreCase = true)) {
+                                    val encodedUser = uriString.substringAfter("matrix:u/", missingDelimiterValue = "")
+                                        .substringBefore("?")
+                                    val decodedUser = runCatching {
+                                        java.net.URLDecoder.decode(encodedUser, Charsets.UTF_8.name())
+                                    }.getOrDefault(encodedUser)
+                                    extractedUserId = if (decodedUser.startsWith("@")) decodedUser else "@$decodedUser"
+                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Extracted userId from matrix:u/ URI: $extractedUserId")
+                                }
+                            }
                             
                             val extractedRoomId = if (directNavigation && roomId != null) {
                                 // OPTIMIZATION #2: Fast path - room ID already extracted
@@ -364,6 +379,11 @@ class MainActivity : ComponentActivity() {
                                 }
                                 // NOTE: Don't call navigateToRoomWithCache() here - RoomListScreen will handle it
                                 // after WebSocket connection and spacesLoaded = true
+                            } else if (extractedUserId != null) {
+                                // Store user info navigation for matrix:u/ URIs
+                                // Navigate to user info screen when WebSocket is connected
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - Storing user info navigation for userId: $extractedUserId (will wait for WebSocket)")
+                                appViewModel.setPendingUserInfoNavigation(extractedUserId)
                             }
                             
                             // Register broadcast receiver for notification actions
@@ -757,6 +777,26 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        // Handle matrix:u/ URIs (from contacts)
+        val matrixUri = intent.data
+        if (matrixUri != null) {
+            val uriString = matrixUri.toString()
+            if (uriString.startsWith("matrix:u/", ignoreCase = true)) {
+                val encodedUser = uriString.substringAfter("matrix:u/", missingDelimiterValue = "")
+                    .substringBefore("?")
+                val decodedUser = runCatching {
+                    java.net.URLDecoder.decode(encodedUser, Charsets.UTF_8.name())
+                }.getOrDefault(encodedUser)
+                val userId = if (decodedUser.startsWith("@")) decodedUser else "@$decodedUser"
+                
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - matrix:u/ URI received for userId: $userId")
+                
+                // Store for navigation in the composable (AppNavigation will handle it)
+                appViewModel.setPendingUserInfoNavigation(userId)
+                return
+            }
+        }
+        
         if (isShareIntent(intent)) {
             if (::appViewModel.isInitialized) {
                 processShareIntent(intent)
@@ -771,7 +811,7 @@ class MainActivity : ComponentActivity() {
         val roomId = intent.getStringExtra("room_id")
         val directNavigation = intent.getBooleanExtra("direct_navigation", false)
         val fromNotification = intent.getBooleanExtra("from_notification", false)
-        val matrixUri = intent.data
+        // matrixUri already declared above for matrix:u/ URI handling
         val notificationEventId = intent.getStringExtra("event_id")
         
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
@@ -939,32 +979,12 @@ class MainActivity : ComponentActivity() {
         }
 
         if (uriString.startsWith("matrix:u/", ignoreCase = true)) {
-            val encodedUser = uriString.substringAfter("matrix:u/", missingDelimiterValue = "")
-                .substringBefore("?")
-            val decodedUser = runCatching {
-                URLDecoder.decode(encodedUser, Charsets.UTF_8.name())
-            }.getOrDefault(encodedUser)
-            val userId = if (decodedUser.startsWith("@")) decodedUser else "@$decodedUser"
-
-            if (::appViewModel.isInitialized) {
-                val roomId = appViewModel.getDirectRoomIdForUser(userId)
-                if (roomId != null) {
-                    if (BuildConfig.DEBUG) Log.d(
-                        "Andromuks",
-                        "MainActivity: Resolved matrix:u URI for $userId to direct room $roomId"
-                    )
-                    return roomId
-                }
-            } else {
-                Log.w(
-                    "Andromuks",
-                    "MainActivity: ViewModel not initialised yet, cannot resolve matrix:u URI"
-                )
-            }
-
-            Log.w(
+            // matrix:u/ URIs should navigate to user info screen, not resolve to rooms
+            // This function is for room navigation, so return null for user URIs
+            // The actual navigation to user info is handled in onCreate/onNewIntent
+            if (BuildConfig.DEBUG) Log.d(
                 "Andromuks",
-                "MainActivity: No direct room found for matrix:u URI ($userId)"
+                "MainActivity: extractRoomIdFromMatrixUri - matrix:u/ URI detected, returning null (user info navigation handled separately)"
             )
             return null
         }
@@ -999,6 +1019,28 @@ fun AppNavigation(
                 launchSingleTop = true
             }
             appViewModel.markPendingShareNavigationHandled()
+        }
+    }
+    
+    // Handle pending user info navigation (from matrix:u/ URIs)
+    // Check both the trigger and directly check for pending navigation
+    val pendingUserInfoTrigger = appViewModel.pendingUserInfoNavigationTrigger
+    LaunchedEffect(pendingUserInfoTrigger, navController.currentBackStackEntry) {
+        val pendingUserId = appViewModel.getPendingUserInfoNavigation()
+        if (pendingUserId != null) {
+            // Wait for navigation to be ready (not on auth_check screen)
+            val currentRoute = navController.currentBackStackEntry?.destination?.route
+            if (currentRoute != null && currentRoute != "auth_check") {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppNavigation: Navigating to user info for: $pendingUserId (currentRoute=$currentRoute)")
+                appViewModel.clearPendingUserInfoNavigation()
+                val encodedUserId = java.net.URLEncoder.encode(pendingUserId, "UTF-8")
+                navController.navigate("user_info/$encodedUserId") {
+                    launchSingleTop = true
+                }
+            } else if (pendingUserInfoTrigger > 0) {
+                // Trigger is set but we're still on auth_check, navigation will happen in AuthCheck
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppNavigation: Pending user info navigation will be handled by AuthCheck (currentRoute=$currentRoute)")
+            }
         }
     }
     

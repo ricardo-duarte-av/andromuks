@@ -5978,6 +5978,11 @@ class AppViewModel : ViewModel() {
     var directRoomNavigationTrigger by mutableIntStateOf(0)
         private set
     
+    // User info navigation (for matrix:u/ URIs from contacts)
+    private var pendingUserInfoNavigation: String? = null
+    var pendingUserInfoNavigationTrigger by mutableIntStateOf(0)
+        private set
+    
     // Pending bubble navigation from chat bubbles
     private var pendingBubbleNavigation: String? = null
 
@@ -6067,6 +6072,21 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Clearing pending room navigation")
         pendingRoomNavigation = null
         isPendingNavigationFromNotification = false
+    }
+    
+    fun setPendingUserInfoNavigation(userId: String) {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Set pending user info navigation for: $userId")
+        pendingUserInfoNavigation = userId
+        pendingUserInfoNavigationTrigger++ // Notify observers
+    }
+    
+    fun getPendingUserInfoNavigation(): String? {
+        return pendingUserInfoNavigation
+    }
+    
+    fun clearPendingUserInfoNavigation() {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Clearing pending user info navigation")
+        pendingUserInfoNavigation = null
     }
     
     fun setPendingBubbleNavigation(roomId: String) {

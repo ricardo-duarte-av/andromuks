@@ -379,7 +379,20 @@ fun AuthCheckScreen(
                         navigateToRoomListIfNeeded("pendingRoomId missing")
                     }
                 } else {
-                    navigateToRoomListIfNeeded("default flow")
+                    // Check for pending user info navigation (from matrix:u/ URIs)
+                    val pendingUserId = appViewModel.getPendingUserInfoNavigation()
+                    if (pendingUserId != null) {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Navigating to user info for: $pendingUserId")
+                        appViewModel.clearPendingUserInfoNavigation()
+                        val encodedUserId = java.net.URLEncoder.encode(pendingUserId, "UTF-8")
+                        // Navigate directly to user info, don't go through room_list
+                        navController.navigate("user_info/$encodedUserId") {
+                            // Clear back stack and start fresh at user_info
+                            popUpTo(0) { inclusive = true }
+                        }
+                    } else {
+                        navigateToRoomListIfNeeded("default flow")
+                    }
                 }
             }
             if (BuildConfig.DEBUG) Log.d("Andromuks", "AuthCheckScreen: appViewModel instance: $appViewModel")
