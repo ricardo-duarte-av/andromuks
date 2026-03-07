@@ -76,10 +76,14 @@ data class MessageMenuConfig(
     val canDelete: Boolean,
     val canViewOriginal: Boolean,
     val canViewEditHistory: Boolean,
+    val canPin: Boolean,
+    val isPinned: Boolean,
     val onReply: () -> Unit,
     val onReact: () -> Unit,
     val onEdit: () -> Unit,
     val onDelete: () -> Unit,
+    val onPin: () -> Unit,
+    val onUnpin: () -> Unit,
     val onShowEditHistory: (() -> Unit)?,
     val appViewModel: net.vrkknn.andromuks.AppViewModel?
 )
@@ -287,10 +291,17 @@ fun MessageMenuBar(
                 ),
                 MenuButtonItem.Button(
                     icon = Icons.Filled.PushPin,
-                    label = "Pinn",
-                    enabled = false, // To be implemented later
+                    label = if (menuConfig.isPinned) "Unpin" else "Pin",
+                    enabled = menuConfig.canPin,
                     onClick = {
-                        // To be implemented later
+                        if (menuConfig.canPin) {
+                            onDismiss()
+                            if (menuConfig.isPinned) {
+                                menuConfig.onUnpin()
+                            } else {
+                                menuConfig.onPin()
+                            }
+                        }
                     }
                 )
             )

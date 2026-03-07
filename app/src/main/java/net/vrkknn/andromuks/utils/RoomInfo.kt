@@ -3,6 +3,7 @@ package net.vrkknn.andromuks.utils
 import net.vrkknn.andromuks.BuildConfig
 import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -35,6 +36,9 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 
 private fun usernameFromMatrixId(userId: String): String =
     userId.removePrefix("@").substringBefore(":")
@@ -543,6 +547,7 @@ fun RoomInfoScreen(
         }
         
         PinnedEventsDialog(
+            roomId = roomId,
             isLoading = isPinnedLoading,
             errorMessage = pinnedError,
             pinnedEvents = pinnedEvents,
@@ -552,6 +557,44 @@ fun RoomInfoScreen(
             myUserId = appViewModel.currentUserId,
             appViewModel = appViewModel,
             navController = navController,
+            onRefreshPinnedEvents = {
+                // First refresh the room state to get updated pinned event IDs
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomInfoScreen: Refreshing room state after unpin")
+                appViewModel.requestRoomStateWithMembers(roomId) { stateInfo, error ->
+                    if (error != null) {
+                        android.util.Log.e("Andromuks", "RoomInfoScreen: Error refreshing room state: $error")
+                        pinnedError = error
+                        isPinnedLoading = false
+                    } else {
+                        // Update roomStateInfo with fresh data
+                        roomStateInfo = stateInfo
+                        val pinnedIds = stateInfo?.pinnedEventIds ?: emptyList()
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomInfoScreen: Refreshed room state, found ${pinnedIds.size} pinned events")
+                        
+                        // Reload pinned events with updated IDs
+                        if (pinnedIds.isNotEmpty()) {
+                            pinnedEvents = emptyList()
+                            isPinnedLoading = true
+                            pinnedError = null
+                            loadPinnedEvents(
+                                pinnedIds = pinnedIds,
+                                roomId = roomId,
+                                appViewModel = appViewModel,
+                                onResult = { events, error ->
+                                    pinnedEvents = events
+                                    pinnedError = error
+                                    isPinnedLoading = false
+                                }
+                            )
+                        } else {
+                            // No pinned events left
+                            pinnedEvents = emptyList()
+                            pinnedError = null
+                            isPinnedLoading = false
+                        }
+                    }
+                }
+            },
             onDismiss = {
                 pinnedEvents = emptyList()
                 pinnedError = null
@@ -660,6 +703,7 @@ private fun loadPinnedEvents(
 
 @Composable
 private fun PinnedEventsDialog(
+    roomId: String,
     isLoading: Boolean,
     errorMessage: String?,
     pinnedEvents: List<PinnedEventItem>,
@@ -669,6 +713,7 @@ private fun PinnedEventsDialog(
     myUserId: String?,
     appViewModel: AppViewModel,
     navController: NavController,
+    onRefreshPinnedEvents: () -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -704,6 +749,7 @@ private fun PinnedEventsDialog(
                     ) {
                         items(pinnedEvents) { pinnedItem ->
                             PinnedEventItemView(
+                                roomId = roomId,
                                 pinnedItem = pinnedItem,
                                 homeserverUrl = homeserverUrl,
                                 authToken = authToken,
@@ -711,6 +757,7 @@ private fun PinnedEventsDialog(
                                 myUserId = myUserId,
                                 appViewModel = appViewModel,
                                 navController = navController,
+                                onRefreshPinnedEvents = onRefreshPinnedEvents,
                                 onDismiss = onDismiss
                             )
                         }
@@ -865,6 +912,7 @@ private fun MembersDialog(
 
 @Composable
 private fun PinnedEventItemView(
+    roomId: String,
     pinnedItem: PinnedEventItem,
     homeserverUrl: String,
     authToken: String,
@@ -872,9 +920,12 @@ private fun PinnedEventItemView(
     myUserId: String?,
     appViewModel: AppViewModel,
     navController: NavController,
+    onRefreshPinnedEvents: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val event = pinnedItem.timelineEvent
+    var showUnpinDialog by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
 
     // Debug logging for profile loading
     LaunchedEffect(event?.sender, memberMap) {
@@ -904,13 +955,19 @@ private fun PinnedEventItemView(
                 )
             } else {
                 Box(
-                    modifier = Modifier.clickable {
-                        // Navigate to event context screen
-                        val encodedRoomId = java.net.URLEncoder.encode(event.roomId, "UTF-8")
-                        val encodedEventId = java.net.URLEncoder.encode(event.eventId, "UTF-8")
-                        navController.navigate("event_context/$encodedRoomId/$encodedEventId")
-                        onDismiss() // Dismiss the pinned events dialog
-                    }
+                    modifier = Modifier.combinedClickable(
+                        onClick = {
+                            // Navigate to event context screen
+                            val encodedRoomId = java.net.URLEncoder.encode(event.roomId, "UTF-8")
+                            val encodedEventId = java.net.URLEncoder.encode(event.eventId, "UTF-8")
+                            navController.navigate("event_context/$encodedRoomId/$encodedEventId")
+                            onDismiss() // Dismiss the pinned events dialog
+                        },
+                        onLongClick = {
+                            // Show unpin dialog on long press
+                            showUnpinDialog = true
+                        }
+                    )
                 ) {
                     TimelineEventItem(
                         event = event,
@@ -930,6 +987,49 @@ private fun PinnedEventItemView(
                 }
             }
         }
+    }
+    
+    // Unpin confirmation dialog
+    if (showUnpinDialog && event != null) {
+        AlertDialog(
+            onDismissRequest = { showUnpinDialog = false },
+            title = { Text("Unpin Event") },
+            text = {
+                Column {
+                    Text("Are you sure you want to unpin this event?")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = event.eventId,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showUnpinDialog = false
+                        appViewModel.pinUnpinEvent(roomId, event.eventId, pin = false)
+                        // Refresh the pinned events list after a short delay to allow get_room_state to complete
+                        coroutineScope.launch {
+                            delay(500) // Wait for get_room_state response
+                            onRefreshPinnedEvents()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    Text("Unpin")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUnpinDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 

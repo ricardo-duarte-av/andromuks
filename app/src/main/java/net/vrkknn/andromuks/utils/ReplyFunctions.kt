@@ -888,6 +888,24 @@ fun MessageBubbleWithMenu(
         senderPowerLevel < myPowerLevel && canRedactMessage
     }
     
+    // Calculate pin/unpin permissions
+    val roomId = event.roomId
+    val currentRoomState = appViewModel?.currentRoomState
+    val isPinned = remember(roomId, currentRoomState?.pinnedEventIds, event.eventId) {
+        currentRoomState?.pinnedEventIds?.contains(event.eventId) ?: false
+    }
+    val pinnedEventsCount = remember(roomId, currentRoomState?.pinnedEventIds) {
+        currentRoomState?.pinnedEventIds?.size ?: 0
+    }
+    val pinnedEventsPowerLevel = remember(effectivePowerLevels) {
+        effectivePowerLevels?.events?.get("m.room.pinned_events") ?: effectivePowerLevels?.eventsDefault ?: 50
+    }
+    val canPin = remember(myPowerLevel, pinnedEventsPowerLevel, pinnedEventsCount, isPinned) {
+        val hasPermission = myPowerLevel >= pinnedEventsPowerLevel
+        val hasSpace = pinnedEventsCount < 100
+        hasPermission && hasSpace
+    }
+    
     // Watch external trigger and show menu when it changes
     LaunchedEffect(externalMenuTrigger) {
         if (externalMenuTrigger > 0) {
@@ -901,10 +919,18 @@ fun MessageBubbleWithMenu(
                 canDelete = canDelete,
                 canViewOriginal = viewOriginalButtonEnabled,
                 canViewEditHistory = historyButtonEnabled,
+                canPin = canPin,
+                isPinned = isPinned,
                 onReply = onReply,
                 onReact = onReact,
                 onEdit = onEdit,
                 onDelete = onDelete,
+                onPin = {
+                    appViewModel?.pinUnpinEvent(roomId, event.eventId, pin = true)
+                },
+                onUnpin = {
+                    appViewModel?.pinUnpinEvent(roomId, event.eventId, pin = false)
+                },
                 onShowEditHistory = onShowEditHistory,
                 appViewModel = appViewModel
             )
@@ -1012,10 +1038,18 @@ fun MessageBubbleWithMenu(
                             canDelete = canDelete,
                             canViewOriginal = viewOriginalButtonEnabled,
                             canViewEditHistory = historyButtonEnabled,
+                            canPin = canPin,
+                            isPinned = isPinned,
                             onReply = onReply,
                             onReact = onReact,
                             onEdit = onEdit,
                             onDelete = onDelete,
+                            onPin = {
+                                appViewModel?.pinUnpinEvent(roomId, event.eventId, pin = true)
+                            },
+                            onUnpin = {
+                                appViewModel?.pinUnpinEvent(roomId, event.eventId, pin = false)
+                            },
                             onShowEditHistory = onShowEditHistory,
                             appViewModel = appViewModel
                         )

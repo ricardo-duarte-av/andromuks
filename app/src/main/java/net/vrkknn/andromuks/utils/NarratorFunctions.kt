@@ -184,6 +184,23 @@ fun SystemEventNarrator(
         senderPowerLevel < myPowerLevel && canRedactMessage
     }
     
+    // Calculate pin/unpin permissions
+    val currentRoomState = appViewModel?.currentRoomState
+    val isPinned = remember(roomId, currentRoomState?.pinnedEventIds, event.eventId) {
+        currentRoomState?.pinnedEventIds?.contains(event.eventId) ?: false
+    }
+    val pinnedEventsCount = remember(roomId, currentRoomState?.pinnedEventIds) {
+        currentRoomState?.pinnedEventIds?.size ?: 0
+    }
+    val pinnedEventsPowerLevel = remember(effectivePowerLevels) {
+        effectivePowerLevels?.events?.get("m.room.pinned_events") ?: effectivePowerLevels?.eventsDefault ?: 50
+    }
+    val canPin = remember(myPowerLevel, pinnedEventsPowerLevel, pinnedEventsCount, isPinned) {
+        val hasPermission = myPowerLevel >= pinnedEventsPowerLevel
+        val hasSpace = pinnedEventsCount < 100
+        hasPermission && hasSpace
+    }
+    
     val triggerNarratorMenu = {
         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
         if (onShowMenu != null) {
@@ -193,10 +210,18 @@ fun SystemEventNarrator(
                 canDelete = canDelete,
                 canViewOriginal = false,
                 canViewEditHistory = false,
+                canPin = canPin,
+                isPinned = isPinned,
                 onReply = { onReply(event) },
                 onReact = {},
                 onEdit = {},
                 onDelete = { onDelete(event) },
+                onPin = {
+                    appViewModel?.pinUnpinEvent(roomId, event.eventId, pin = true)
+                },
+                onUnpin = {
+                    appViewModel?.pinUnpinEvent(roomId, event.eventId, pin = false)
+                },
                 onShowEditHistory = null,
                 appViewModel = appViewModel
             )

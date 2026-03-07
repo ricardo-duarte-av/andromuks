@@ -15947,6 +15947,58 @@ class AppViewModel : ViewModel() {
     }
     
     /**
+     * Pin or unpin an event in a room
+     * @param roomId The room ID
+     * @param eventId The event ID to pin/unpin
+     * @param pin true to pin, false to unpin
+     */
+    fun pinUnpinEvent(roomId: String, eventId: String, pin: Boolean) {
+        val roomState = currentRoomState
+        if (roomState == null || roomState.roomId != roomId) {
+            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Cannot pin/unpin - room state not available for room $roomId")
+            return
+        }
+        
+        val currentPinned = roomState.pinnedEventIds.toMutableList()
+        
+        if (pin) {
+            // Pin: add event if not already pinned
+            if (!currentPinned.contains(eventId)) {
+                currentPinned.add(eventId)
+            }
+        } else {
+            // Unpin: remove event if pinned
+            currentPinned.remove(eventId)
+        }
+        
+        val requestId = requestIdCounter++
+        sendWebSocketCommand("set_state", requestId, mapOf(
+            "room_id" to roomId,
+            "type" to "m.room.pinned_events",
+            "state_key" to "",
+            "content" to mapOf("pinned" to currentPinned)
+        ))
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ${if (pin) "Pinned" else "Unpinned"} event $eventId in room $roomId (${currentPinned.size} total pinned events)")
+        
+        // Request updated room state to refresh m.pinned_events and other room info
+        if (isWebSocketConnected() && !pendingRoomStateRequests.contains(roomId)) {
+            val stateRequestId = requestIdCounter++
+            synchronized(roomStateRequests) {
+                roomStateRequests[stateRequestId] = roomId
+            }
+            pendingRoomStateRequests.add(roomId)
+            sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
+                "room_id" to roomId,
+                "include_members" to false,
+                "fetch_members" to false,
+                "refetch" to false
+            ))
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requested room state update after ${if (pin) "pin" else "unpin"} (reqId: $stateRequestId)")
+        }
+    }
+    
+    /**
      * Set room tag (favourite or low priority)
      * @param roomId The room ID
      * @param tagType Either "m.favourite" or "m.lowpriority"
