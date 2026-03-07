@@ -570,12 +570,45 @@ fun UserInfoScreen(
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     
+    // Check if user is already in contacts
+    var isUserInContacts by remember { mutableStateOf(false) }
+    
+    // Function to check if user is in contacts
+    fun checkContactStatus() {
+        val myUserId = appViewModel.currentUserId
+        val isOwnProfile = myUserId.isNotBlank() && userId == myUserId
+        if (!isOwnProfile) {
+            val hasReadContacts = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_CONTACTS
+            ) == PackageManager.PERMISSION_GRANTED
+            
+            if (hasReadContacts) {
+                coroutineScope.launch {
+                    withContext(Dispatchers.IO) {
+                        val syncService = ContactsSyncService(
+                            context,
+                            accountName = "Andromuks",
+                            accountType = "net.vrkknn.andromuks.matrix"
+                        )
+                        isUserInContacts = syncService.isUserInContacts(userId)
+                    }
+                }
+            }
+        }
+    }
+    
     // Contacts permission launcher (needs both READ and WRITE)
     val contactsPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val hasReadContacts = permissions[Manifest.permission.READ_CONTACTS] == true
         val hasWriteContacts = permissions[Manifest.permission.WRITE_CONTACTS] == true
+        
+        // Re-check contact status after permissions are granted
+        if (hasReadContacts) {
+            checkContactStatus()
+        }
         
         if (hasReadContacts && hasWriteContacts && userProfileInfo != null) {
             coroutineScope.launch {
@@ -590,6 +623,25 @@ fun UserInfoScreen(
                     homeserverUrl = appViewModel.homeserverUrl,
                     authToken = appViewModel.authToken
                 )
+                // Check if contact was successfully added and update state
+                withContext(Dispatchers.IO) {
+                    val syncService = ContactsSyncService(
+                        context,
+                        accountName = "Andromuks",
+                        accountType = "net.vrkknn.andromuks.matrix"
+                    )
+                    val wasAdded = syncService.isUserInContacts(userId)
+                    if (wasAdded) {
+                        isUserInContacts = true
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(
+                                context,
+                                "Contact saved successfully",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                }
             }
         } else if (!hasReadContacts || !hasWriteContacts) {
             Toast.makeText(
@@ -686,6 +738,11 @@ fun UserInfoScreen(
     }
     val myUserId = appViewModel.currentUserId
     val isOwnProfile = myUserId.isNotBlank() && userId == myUserId
+    
+    // Check contact status when userId changes
+    LaunchedEffect(userId) {
+        checkContactStatus()
+    }
     
     // Debug logging for moderation buttons visibility
     LaunchedEffect(effectiveRoomId, myUserId, userId, roomPowerLevels) {
@@ -864,6 +921,70 @@ fun UserInfoScreen(
                             Icon(
                                 imageVector = Icons.Filled.Add,
                                 contentDescription = "Add profile info"
+                            )
+                        }
+                    } else {
+                        // Save button to add contact (replaces "Add to Contacts" button)
+                        IconButton(
+                            onClick = {
+                                // Check permissions first (need both READ and WRITE)
+                                val hasReadContacts = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.READ_CONTACTS
+                                ) == PackageManager.PERMISSION_GRANTED
+                                val hasWriteContacts = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.WRITE_CONTACTS
+                                ) == PackageManager.PERMISSION_GRANTED
+                                
+                                if (hasReadContacts && hasWriteContacts) {
+                                    coroutineScope.launch {
+                                        addMatrixUserToContacts(
+                                            context = context,
+                                            userId = userId,
+                                            displayName = userProfileInfo?.roomDisplayName 
+                                                ?: userProfileInfo?.displayName 
+                                                ?: usernameFromMatrixId(userId),
+                                            avatarUrl = userProfileInfo?.roomAvatarUrl 
+                                                ?: userProfileInfo?.avatarUrl,
+                                            homeserverUrl = appViewModel.homeserverUrl,
+                                            authToken = appViewModel.authToken
+                                        )
+                                        // Check if contact was successfully added and update state
+                                        withContext(Dispatchers.IO) {
+                                            val syncService = ContactsSyncService(
+                                                context,
+                                                accountName = "Andromuks",
+                                                accountType = "net.vrkknn.andromuks.matrix"
+                                            )
+                                            val wasAdded = syncService.isUserInContacts(userId)
+                                            if (wasAdded) {
+                                                isUserInContacts = true
+                                                withContext(Dispatchers.Main) {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Contact saved successfully",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Request both permissions
+                                    contactsPermissionLauncher.launch(
+                                        arrayOf(
+                                            Manifest.permission.READ_CONTACTS,
+                                            Manifest.permission.WRITE_CONTACTS
+                                        )
+                                    )
+                                }
+                            },
+                            enabled = !isUserInContacts
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Save,
+                                contentDescription = if (isUserInContacts) "Already in Contacts" else "Save to Contacts"
                             )
                         }
                     }
@@ -1492,50 +1613,7 @@ fun UserInfoScreen(
                     }
                 }
                 
-                // Add to Contacts Button (always visible, not in the row)
-                Button(
-                    onClick = {
-                        // Check permissions first (need both READ and WRITE)
-                        val hasReadContacts = ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.READ_CONTACTS
-                        ) == PackageManager.PERMISSION_GRANTED
-                        val hasWriteContacts = ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.WRITE_CONTACTS
-                        ) == PackageManager.PERMISSION_GRANTED
-                        
-                        if (hasReadContacts && hasWriteContacts) {
-                            coroutineScope.launch {
-                                addMatrixUserToContacts(
-                                    context = context,
-                                    userId = userId,
-                                    displayName = userProfileInfo!!.roomDisplayName 
-                                        ?: userProfileInfo!!.displayName 
-                                        ?: usernameFromMatrixId(userId),
-                                    avatarUrl = userProfileInfo!!.roomAvatarUrl 
-                                        ?: userProfileInfo!!.avatarUrl,
-                                    homeserverUrl = appViewModel.homeserverUrl,
-                                    authToken = appViewModel.authToken
-                                )
-                            }
-                        } else {
-                            // Request both permissions
-                            contactsPermissionLauncher.launch(
-                                arrayOf(
-                                    Manifest.permission.READ_CONTACTS,
-                                    Manifest.permission.WRITE_CONTACTS
-                                )
-                            )
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp)
-                        .heightIn(min = 48.dp)
-                ) {
-                    Text("Add to Contacts")
-                }
+                // Add to Contacts Button removed - functionality moved to save button in TopAppBar
                 
                 // Moderation buttons (only shown if we have a room context and not viewing own profile)
                 if (effectiveRoomId != null && myUserId != userId) {

@@ -387,12 +387,19 @@ class ContactsSyncService(
     }
     
     /**
+     * Check if a Matrix user is already in contacts
+     */
+    fun isUserInContacts(userId: String): Boolean {
+        return getRawContactId(userId) != null
+    }
+    
+    /**
      * Get raw contact ID for a Matrix user ID
      */
     private fun getRawContactId(userId: String): Long? {
         val cursor = context.contentResolver.query(
             RawContacts.CONTENT_URI,
-            arrayOf(RawContacts._ID),
+            arrayOf(RawContacts._ID, RawContacts.SYNC1, RawContacts.ACCOUNT_TYPE),
             "${RawContacts.SYNC1} = ?",  // removed ACCOUNT_TYPE filter
             arrayOf(userId),
             null
