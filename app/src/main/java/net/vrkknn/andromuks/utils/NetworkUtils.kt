@@ -579,6 +579,10 @@ fun connectToWebsocket(
                         }
                     }
                     "sync_complete" -> {
+                        // CRITICAL FIX: Extend init_complete timeout when sync_complete is received
+                        // This indicates the connection is alive but slow, so we extend the timeout
+                        WebSocketService.extendInitCompleteTimeoutOnMessage()
+                        
                         // CRITICAL: On reconnections with last_received_event, backend doesn't send init_complete
                         // The first sync_complete acts as init_complete - mark connection as CONNECTED
                         val isReconnectingWithLastReceivedEvent = WebSocketService.isReconnectingWithLastReceivedEvent()
@@ -661,6 +665,10 @@ fun connectToWebsocket(
                         }
                     }
                     "response" -> {
+                        // CRITICAL FIX: Extend init_complete timeout when response is received
+                        // This indicates the connection is alive but slow, so we extend the timeout
+                        WebSocketService.extendInitCompleteTimeoutOnMessage()
+                        
                         val requestId = jsonObject.optInt("request_id")
                         val data = jsonObject.opt("data")
                         
