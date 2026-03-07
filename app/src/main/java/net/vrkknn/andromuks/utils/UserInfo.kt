@@ -615,11 +615,9 @@ fun UserInfoScreen(
                 addMatrixUserToContacts(
                     context = context,
                     userId = userId,
-                    displayName = userProfileInfo!!.roomDisplayName 
-                        ?: userProfileInfo!!.displayName 
+                    displayName = userProfileInfo!!.displayName 
                         ?: usernameFromMatrixId(userId),
-                    avatarUrl = userProfileInfo!!.roomAvatarUrl 
-                        ?: userProfileInfo!!.avatarUrl,
+                    avatarUrl = userProfileInfo!!.avatarUrl,
                     homeserverUrl = appViewModel.homeserverUrl,
                     authToken = appViewModel.authToken
                 )
@@ -949,11 +947,9 @@ fun UserInfoScreen(
                                         addMatrixUserToContacts(
                                             context = context,
                                             userId = userId,
-                                            displayName = userProfileInfo?.roomDisplayName 
-                                                ?: userProfileInfo?.displayName 
+                                            displayName = userProfileInfo?.displayName 
                                                 ?: usernameFromMatrixId(userId),
-                                            avatarUrl = userProfileInfo?.roomAvatarUrl 
-                                                ?: userProfileInfo?.avatarUrl,
+                                            avatarUrl = userProfileInfo?.avatarUrl,
                                             homeserverUrl = appViewModel.homeserverUrl,
                                             authToken = appViewModel.authToken
                                         )
