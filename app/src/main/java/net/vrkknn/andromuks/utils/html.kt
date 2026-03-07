@@ -488,12 +488,16 @@ private fun AnnotatedString.Builder.appendHtmlNode(
                 if (previousWasLineBreak && normalized.isNotEmpty() && (normalized[0].isWhitespace() || normalized[0] == '\n')) {
                     normalized = normalized.trimStart()
                 }
-                // Skip text nodes that are only whitespace with newlines (e.g., newlines after <br> tags)
-                // This prevents extra spaces when HTML has "<br>\n"
-                // CRITICAL FIX: Preserve single spaces between inline elements (e.g., between </strong> and <a>)
-                // Only skip whitespace that contains newlines or is empty - single spaces are meaningful
-                if (normalized.isEmpty() || normalized.contains('\n')) {
-                    return@appendHtmlNode // Skip empty nodes or nodes with newlines (formatting artifacts)
+                // Skip text nodes that are only whitespace (formatting artifacts)
+                // CRITICAL FIX: Preserve single spaces between inline elements, but skip formatting-only whitespace
+                // This preserves:
+                // - Single spaces between inline elements (e.g., between </strong> and <a>)
+                // - Text with newlines that has actual content (e.g., "\nUploader: ..." after a link)
+                // But skips formatting-only whitespace like "\n" or multiple spaces after <br> tags
+                // Note: normalized already has newlines converted to spaces, so we check if it's blank
+                // but preserve single spaces (which are meaningful between inline elements)
+                if (normalized.isBlank() && normalized != " ") {
+                    return@appendHtmlNode // Skip whitespace-only nodes except single spaces (formatting artifacts)
                 }
                 normalized
             }
