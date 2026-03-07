@@ -37,6 +37,12 @@ object RoomTimelineCache {
     // Default: 100MB (conservative to prevent OOM, can be adjusted)
     private var MAX_CACHE_MEMORY_MB = 100L // Configurable variable
     
+    // Event-level cache management: Maximum events per room (except currently opened rooms)
+    // Periodically trim rooms to keep only the newest N events to prevent memory bloat
+    // Currently opened rooms have no limit (unbounded)
+    // Default: 100 events per room (keeps recent history while controlling memory)
+    private const val MAX_EVENTS_PER_ROOM = 100
+    
     // Application context for debug-only toasts and diagnostics (optional)
     private var appContext: Context? = null
     
@@ -429,13 +435,62 @@ object RoomTimelineCache {
             }
         }
 
-        // No per-room event limits - rely on LRU eviction based on RAM usage
-        // All rooms have unlimited events (LRU evicts entire rooms when RAM threshold exceeded)
-        if (BuildConfig.DEBUG && cache.events.size > 1000) {
-            Log.d(TAG, "Room $roomId cache now has ${cache.events.size} events (unlimited, LRU-based eviction)")
+        // After adding events, check if we need to trim this room (except opened rooms)
+        // Opened rooms have no limit, but other rooms are trimmed to MAX_EVENTS_PER_ROOM
+        if (!isRoomOpened(roomId) && cache.events.size > MAX_EVENTS_PER_ROOM) {
+            trimRoomToMaxEvents(roomId, cache)
         }
 
         return addedCount
+    }
+    
+    /**
+     * Trim a room's events to keep only the newest MAX_EVENTS_PER_ROOM events.
+     * Removes oldest events from the beginning of the sorted list.
+     * Also cleans up related caches for removed events.
+     * 
+     * @param roomId The room to trim
+     * @param cache The RoomCache for this room (must be accessed with cacheLock held)
+     */
+    private fun trimRoomToMaxEvents(roomId: String, cache: RoomCache) {
+        val currentSize = cache.events.size
+        if (currentSize <= MAX_EVENTS_PER_ROOM) return
+        
+        // Events are sorted by timelineRowid (ascending), so oldest are at the beginning
+        // Keep the newest MAX_EVENTS_PER_ROOM events (remove from the beginning)
+        val eventsToRemove = currentSize - MAX_EVENTS_PER_ROOM
+        val removedEvents = cache.events.take(eventsToRemove)
+        val removedEventIds = removedEvents.map { it.eventId }.toSet()
+        
+        // Remove oldest events from the list
+        repeat(eventsToRemove) {
+            cache.events.removeAt(0)
+        }
+        
+        // Remove event IDs from the set
+        removedEventIds.forEach { cache.eventIds.remove(it) }
+        
+        // Clean up related caches for removed events
+        if (removedEventIds.isNotEmpty()) {
+            ReadReceiptCache.clearForEventIds(removedEventIds)
+            MessageReactionsCache.clearForEventIds(removedEventIds)
+            MessageVersionsCache.clearForEventIds(removedEventIds)
+        }
+        
+        // Clean up processed state for removed events
+        synchronized(cacheStateLock) {
+            removedEventIds.forEach { eventId ->
+                cache.processedState.eventChainMap.remove(eventId)
+                cache.processedState.editEventsMap.remove(eventId)
+                cache.processedState.redactionEventsMap.remove(eventId)
+                // Remove from redaction mapping if this was a redaction event
+                cache.processedState.redactionMapping.values.remove(eventId)
+            }
+        }
+        
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "Trimmed room $roomId: removed $eventsToRemove oldest events (kept ${cache.events.size} newest events)")
+        }
     }
     
     /**
@@ -1160,6 +1215,110 @@ object RoomTimelineCache {
         synchronized(cacheLock) {
             synchronized(cacheStateLock) {
                 return activelyCachedRooms.contains(roomId)
+            }
+        }
+    }
+    
+    /**
+     * Trim all non-opened rooms to MAX_EVENTS_PER_ROOM events.
+     * This is a lighter-weight operation than clearing entire rooms - it keeps
+     * recent history while reducing memory usage.
+     * 
+     * This should be called periodically or when memory pressure is detected.
+     */
+    fun trimAllRoomsToMaxEvents() {
+        synchronized(cacheLock) {
+            val openedRooms = getOpenedRooms()
+            var trimmedCount = 0
+            var totalRemoved = 0
+            
+            for ((roomId, cache) in roomEventsCache) {
+                if (roomId in openedRooms) {
+                    // Skip opened rooms - they have no limits
+                    continue
+                }
+                
+                val sizeBefore = cache.events.size
+                if (sizeBefore > MAX_EVENTS_PER_ROOM) {
+                    trimRoomToMaxEvents(roomId, cache)
+                    trimmedCount++
+                    totalRemoved += (sizeBefore - cache.events.size)
+                }
+            }
+            
+            if (BuildConfig.DEBUG && trimmedCount > 0) {
+                Log.d(TAG, "trimAllRoomsToMaxEvents: Trimmed $trimmedCount rooms, removed $totalRemoved total events")
+            }
+        }
+    }
+    
+    /**
+     * Clear in-memory cache for non-opened rooms (non-suspend version for onTrimMemory).
+     * 
+     * This clears cached events for rooms that are not currently opened to prevent
+     * corruption when Android's LMK kills memory. Opened rooms are preserved to
+     * maintain user experience.
+     * 
+     * This should be called from Application.onTrimMemory() to prevent cache corruption.
+     */
+    fun clearInMemoryCache() {
+        synchronized(cacheLock) {
+            synchronized(cacheStateLock) {
+                val openedRooms = getOpenedRooms()
+                
+                if (openedRooms.isEmpty()) {
+                    // No opened rooms - clear everything
+                    val allRoomIds = roomEventsCache.keys.toSet()
+                    val allEventIds = roomEventsCache.values.flatMap { it.eventIds }.toSet()
+                    
+                    roomEventsCache.clear()
+                    roomsInitialized.clear()
+                    activelyCachedRooms.clear()
+                    
+                    // Clear all related caches for all rooms
+                    allRoomIds.forEach { ProfileCache.clearRoom(it) }
+                    RoomMemberCache.clear()
+                    ReadReceiptCache.clear()
+                    if (allEventIds.isNotEmpty()) {
+                        MessageReactionsCache.clearForEventIds(allEventIds)
+                        MessageVersionsCache.clearForEventIds(allEventIds)
+                    }
+                    
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "clearInMemoryCache: Cleared all room caches (no opened rooms)")
+                    }
+                } else {
+                    // Preserve caches for currently opened rooms
+                    val roomsToClear = roomEventsCache.keys.filter { it !in openedRooms }.toSet()
+                    
+                    // Collect eventIds for rooms being cleared
+                    val eventIdsToClear = roomsToClear.flatMap { roomId ->
+                        roomEventsCache[roomId]?.eventIds ?: emptySet()
+                    }.toSet()
+                    
+                    // Clear caches for non-opened rooms
+                    for (roomId in roomsToClear) {
+                        roomEventsCache.remove(roomId)
+                        roomsInitialized.remove(roomId)
+                        activelyCachedRooms.remove(roomId)
+                        
+                        // Clear all related caches for this room
+                        ProfileCache.clearRoom(roomId)
+                        RoomMemberCache.clearRoom(roomId)
+                        ReadReceiptCache.clearRoom(roomId)
+                    }
+                    
+                    // Clear event-specific caches for all cleared rooms' events
+                    if (eventIdsToClear.isNotEmpty()) {
+                        ReadReceiptCache.clearForEventIds(eventIdsToClear)
+                        MessageReactionsCache.clearForEventIds(eventIdsToClear)
+                        MessageVersionsCache.clearForEventIds(eventIdsToClear)
+                    }
+                    
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "clearInMemoryCache: Cleared ${roomsToClear.size} non-opened rooms, preserved ${openedRooms.size} opened rooms")
+                    }
+                }
             }
         }
     }

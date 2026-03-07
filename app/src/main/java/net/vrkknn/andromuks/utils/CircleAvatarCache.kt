@@ -333,9 +333,29 @@ object CircleAvatarCache {
             
             val (deletedCount, deletedSize) = deleteFiles(cacheDir)
             
+            // Also clear in-memory map
+            knownOnDisk.clear()
+            
             if (BuildConfig.DEBUG) {
                 Log.d(TAG, "CircleAvatarCache: Cleared $deletedCount files (${deletedSize / 1024 / 1024}MB)")
             }
+        }
+    }
+    
+    /**
+     * Clear in-memory cache map (non-suspend version for onTrimMemory).
+     * 
+     * This clears the in-memory knownOnDisk map to prevent stale references
+     * after Android's LMK kills cached bitmaps. Disk files are preserved.
+     * 
+     * This should be called from Application.onTrimMemory() to prevent cache corruption.
+     */
+    fun clearInMemoryCache() {
+        // Clear in-memory map (thread-safe, no mutex needed for clear)
+        knownOnDisk.clear()
+        
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "CircleAvatarCache: Cleared in-memory cache map (disk files preserved)")
         }
     }
 }

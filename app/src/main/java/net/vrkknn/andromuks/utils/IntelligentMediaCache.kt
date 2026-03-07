@@ -445,4 +445,22 @@ object IntelligentMediaCache {
         }
         return null
     }
+    
+    /**
+     * Clear in-memory cache entries (non-suspend version for onTrimMemory).
+     * 
+     * This clears the in-memory cache entry map to prevent stale references
+     * after Android's LMK kills cached bitmaps. Disk files are preserved.
+     * 
+     * This should be called from Application.onTrimMemory() to prevent cache corruption.
+     */
+    fun clearInMemoryCache() {
+        // Clear cache entries map (thread-safe, no mutex needed for clear)
+        cacheEntries.clear()
+        visibleMedia.clear()
+        
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "Cleared in-memory cache entries (disk files preserved)")
+        }
+    }
 }

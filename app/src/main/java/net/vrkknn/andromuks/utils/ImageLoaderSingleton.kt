@@ -35,6 +35,18 @@ object ImageLoaderSingleton {
         }
     }
     
+    /**
+     * Clear Coil's memory cache.
+     * 
+     * This should be called when memory pressure is detected (e.g., in onTrimMemory)
+     * to prevent cache corruption when Android's LMK kills cached bitmaps.
+     */
+    fun clearMemoryCache(context: Context) {
+        synchronized(this) {
+            instance?.memoryCache?.clear()
+        }
+    }
+    
     private fun createImageLoader(context: Context): ImageLoader {
         // PERFORMANCE FIX: Limit concurrent image loads to prevent crashes during fast scrolling
         // This queues requests instead of loading them all simultaneously
