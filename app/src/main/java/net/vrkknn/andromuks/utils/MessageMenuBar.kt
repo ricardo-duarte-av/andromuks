@@ -10,9 +10,6 @@ import net.vrkknn.andromuks.RoomTimelineCache
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,12 +22,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -309,8 +309,11 @@ fun MessageMenuBar(
             val allButtons = page1Buttons + page2Buttons
             
             val listState = rememberLazyListState()
+            var lastScrollPosition by remember { mutableStateOf(0f) }
+            var lastScrollTime by remember { mutableStateOf(0L) }
+            var scrollVelocity by remember { mutableStateOf(0f) }
             
-            // Snap scrolling: when scroll stops, snap to nearest page (first 7 or last 7)
+            // Track scroll velocity for springy effect
             LaunchedEffect(listState) {
                 snapshotFlow { 
                     Triple(
@@ -321,25 +324,62 @@ fun MessageMenuBar(
                 }
                 .distinctUntilChanged()
                 .collect { (isScrolling, firstVisibleIndex, scrollOffset) ->
+                    val currentTime = System.currentTimeMillis()
+                    val itemWidthPx = buttonWidthPx + with(density) { buttonSpacing.toPx() }
+                    val currentPosition = firstVisibleIndex * itemWidthPx + scrollOffset
+                    
+                    if (isScrolling) {
+                        // Calculate velocity during scroll
+                        if (lastScrollTime > 0 && currentTime > lastScrollTime) {
+                            val deltaTime = (currentTime - lastScrollTime).coerceAtLeast(1)
+                            val deltaPosition = currentPosition - lastScrollPosition
+                            scrollVelocity = (deltaPosition / deltaTime) * 1000f // pixels per second
+                        }
+                        lastScrollPosition = currentPosition
+                        lastScrollTime = currentTime
+                    }
+                    
                     if (!isScrolling && firstVisibleIndex >= 0) {
-                        // Scroll stopped - snap to nearest page
-                        val itemWidthPx = buttonWidthPx + with(density) { buttonSpacing.toPx() }
-                        val currentPositionPx = firstVisibleIndex * itemWidthPx + scrollOffset
+                        // Scroll stopped - snap to nearest page with spring animation
+                        val currentPositionPx = currentPosition
                         
-                        // Page boundaries: page 1 is 0-7 buttons, page 2 is 7-14 buttons
-                        // Snap to show either first 7 buttons (index 0) or last 7 buttons (index 7)
-                        val targetIndex = if (currentPositionPx < pageWidthPx / 2) {
-                            0 // Snap to first page (first 7 buttons)
-                        } else {
-                            7 // Snap to second page (last 7 buttons: Source + 6 empty)
+                        // Determine target based on position and velocity
+                        // If swiping left (negative velocity) and on first page, snap to second page faster
+                        // If swiping right (positive velocity) and on second page, snap to first page faster
+                        val targetIndex = when {
+                            // Fast left swipe on first page -> snap to second page (switchblade effect)
+                            scrollVelocity < -800f && firstVisibleIndex < 7 -> 7
+                            // Fast right swipe on second page -> snap to first page
+                            scrollVelocity > 800f && firstVisibleIndex >= 7 -> 0
+                            // Otherwise, snap to nearest page based on position
+                            currentPositionPx < pageWidthPx / 2 -> 0
+                            else -> 7
                         }
                         
                         // Only snap if we're not already at the target
                         if (firstVisibleIndex != targetIndex || (targetIndex == 0 && scrollOffset > 10) || (targetIndex == 7 && scrollOffset > 10)) {
                             coroutineScope.launch {
-                                listState.animateScrollToItem(targetIndex, scrollOffset = 0)
+                                // For very fast swipes (switchblade effect), use instant scroll
+                                // For normal swipes, use animated scroll with default spring
+                                if (kotlin.math.abs(scrollVelocity) > 1000f) {
+                                    // Very fast swipe - instant snap (switchblade effect)
+                                    listState.scrollToItem(
+                                        index = targetIndex,
+                                        scrollOffset = 0
+                                    )
+                                } else {
+                                    // Normal swipe - animated scroll with default spring animation
+                                    listState.animateScrollToItem(
+                                        index = targetIndex,
+                                        scrollOffset = 0
+                                    )
+                                }
                             }
                         }
+                        
+                        // Reset velocity after snap
+                        scrollVelocity = 0f
+                        lastScrollTime = 0L
                     }
                 }
             }
