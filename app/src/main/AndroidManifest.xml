@@ -28,6 +28,11 @@
     <!-- Microphone permission for voice/video calls -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    
+    <!-- Contacts permissions for Matrix user contact syncing -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
+    <uses-permission android:name="android.permission.GET_ACCOUNTS" />
 
     <application
         android:allowBackup="true"
@@ -57,11 +62,19 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Intent filter for matrix: URIs (general) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="matrix" />
+            </intent-filter>
+            <!-- Intent filter for matrix:u/ user URIs (more specific, higher priority) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="matrix" android:host="u" android:pathPrefix="/" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -72,6 +85,18 @@
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="*/*" />
+            </intent-filter>
+            <!-- Intent filter for "Send Matrix message" from contacts -->
+            <intent-filter>
+                <action android:name="android.intent.action.SENDTO" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="matrix" android:host="u" android:pathPrefix="/" />
+            </intent-filter>
+            <!-- Intent filter for Matrix user MIME type from contacts -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="vnd.android.cursor.item/vnd.net.vrkknn.andromuks.matrix.user" />
             </intent-filter>
         </activity>
         
@@ -158,6 +183,18 @@
             android:exported="false"
             android:foregroundServiceType="dataSync|remoteMessaging" />
 
+        <!-- Stub Authenticator Service -->
+        <service
+            android:name=".StubAuthenticatorService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accounts.AccountAuthenticator" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accounts.AccountAuthenticator"
+                android:resource="@xml/authenticator" />
+        </service>
+
         <!-- FileProvider for content:// URIs (used for bubble icons) -->
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -168,6 +205,29 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+        
+        <!-- Matrix Contacts Content Provider for custom MIME type -->
+        <provider
+            android:name=".MatrixContactsProvider"
+            android:authorities="net.vrkknn.andromuks.matrix.contacts"
+            android:exported="true"
+            android:readPermission="android.permission.READ_CONTACTS">
+        </provider>
+        
+        <!-- Matrix Contacts Sync Adapter Service -->
+        <service
+            android:name=".MatrixContactsSyncAdapterService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.content.SyncAdapter" />
+            </intent-filter>
+            <meta-data
+                android:name="android.content.SyncAdapter"
+                android:resource="@xml/contacts_sync_adapter" />
+            <meta-data
+                android:name="android.provider.CONTACTS_STRUCTURE"
+                android:resource="@xml/contacts" />
+        </service>
 
         <!-- Default notification icon -->
         <meta-data

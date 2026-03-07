@@ -75,6 +75,7 @@ import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.CrashHandler
 import net.vrkknn.andromuks.utils.CrashReportDialog
 import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.MatrixContactsProvider
 
 import androidx.lifecycle.Lifecycle
 import net.vrkknn.andromuks.SharedMediaItem
@@ -203,6 +204,18 @@ class MainActivity : ComponentActivity() {
             // AppViewModel will be created and will register with the service
         }
         
+        // TEMPORARY DEBUG CLEANUP - remove after running once
+        if (BuildConfig.DEBUG) {
+            CoroutineScope(Dispatchers.IO).launch {
+                val syncService = ContactsSyncService(
+                    applicationContext,
+                    accountName = "Andromuks",
+                    accountType = "net.vrkknn.andromuks.matrix"
+                )
+                syncService.nukeAllMatrixContacts()
+            }
+        }
+        
         setContent {
             AndromuksTheme {
                 // Check for crash and show dialog if needed
@@ -252,8 +265,34 @@ class MainActivity : ComponentActivity() {
                             val roomId = intent.getStringExtra("room_id")
                             val directNavigation = intent.getBooleanExtra("direct_navigation", false)
                             val fromNotification = intent.getBooleanExtra("from_notification", false)
-                            val matrixUri = intent.data
+                            var matrixUri = intent.data
                             val notificationEventId = intent.getStringExtra("event_id")
+                            
+                            // Handle custom MIME type from contacts
+                            val mimeType = intent.type
+                            if (mimeType == MatrixContactsProvider.MIME_TYPE_MATRIX_USER && matrixUri != null) {
+                                // Extract Matrix URI from contact data
+                                try {
+                                    val cursor = contentResolver.query(
+                                        matrixUri,
+                                        arrayOf(android.provider.ContactsContract.Data.DATA1), // Matrix URI is in DATA1
+                                        null,
+                                        null,
+                                        null
+                                    )
+                                    cursor?.use {
+                                        if (it.moveToFirst()) {
+                                            val matrixUriString = it.getString(0)
+                                            if (matrixUriString != null && matrixUriString.startsWith("matrix:")) {
+                                                matrixUri = android.net.Uri.parse(matrixUriString)
+                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Extracted Matrix URI from contact MIME type: $matrixUriString")
+                                            }
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("Andromuks", "MainActivity: Error extracting Matrix URI from contact MIME type", e)
+                                }
+                            }
                             
                             if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
                             
@@ -872,6 +911,32 @@ class MainActivity : ComponentActivity() {
         }
 
         val uriString = uri.toString()
+        
+        // Handle custom MIME type from contacts (content:// URI)
+        // Extract Matrix URI from contact data
+        if (uriString.startsWith("content://")) {
+            try {
+                val cursor = contentResolver.query(
+                    uri,
+                    arrayOf(android.provider.ContactsContract.Data.DATA1), // Matrix URI is in DATA1
+                    null,
+                    null,
+                    null
+                )
+                cursor?.use {
+                    if (it.moveToFirst()) {
+                        val matrixUriString = it.getString(0)
+                        if (matrixUriString != null && matrixUriString.startsWith("matrix:u/")) {
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Extracted Matrix URI from contact: $matrixUriString")
+                            // Recursively call with the extracted Matrix URI
+                            return extractRoomIdFromMatrixUri(android.net.Uri.parse(matrixUriString))
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("Andromuks", "MainActivity: Error extracting Matrix URI from contact", e)
+            }
+        }
 
         if (uriString.startsWith("matrix:u/", ignoreCase = true)) {
             val encodedUser = uriString.substringAfter("matrix:u/", missingDelimiterValue = "")

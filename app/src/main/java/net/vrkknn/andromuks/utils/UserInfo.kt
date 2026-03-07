@@ -30,6 +30,7 @@ import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.RoomItem
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.RoomTimelineCache
+import net.vrkknn.andromuks.MatrixContactsProvider
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import androidx.compose.foundation.gestures.rememberTransformableState
@@ -68,11 +69,22 @@ import java.util.TimeZone
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import net.vrkknn.andromuks.utils.getUserAgent
+import android.accounts.AccountManager
 import android.content.ContentValues
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.Manifest
+import android.os.Build
+import android.provider.ContactsContract
+import android.provider.ContactsContract.CommonDataKinds
+import android.provider.ContactsContract.RawContacts.DefaultAccount
+import android.provider.ContactsContract.RawContacts.DefaultAccount.DefaultAccountAndState
 import android.provider.MediaStore
 import android.os.Environment
 import android.os.SystemClock
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.background
 import androidx.compose.runtime.mutableFloatStateOf
@@ -113,8 +125,66 @@ import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+import net.vrkknn.andromuks.ContactsSyncService
+import net.vrkknn.andromuks.MatrixUser
+
 private fun usernameFromMatrixId(userId: String): String =
     userId.removePrefix("@").substringBefore(":")
+
+/**
+ * Get the default contact account for creating new contacts
+ * 
+ * Android 14+ requires using the default account when a cloud account is set.
+ * This function detects the default account and falls back gracefully.
+ * 
+ * @return Pair of (accountName, accountType) or (null, null) if no account available
+ */
+private fun getDefaultContactAccount(context: Context): Pair<String?, String?> {
+    // Android 15+ (API 35) provides direct API to get default account
+    if (Build.VERSION.SDK_INT >= 35) {
+        try {
+            val defaultAccountAndState: DefaultAccountAndState =
+                DefaultAccount.getDefaultAccountForNewContacts(context.contentResolver)
+            
+            // .account is only non-null for STATE_CLOUD or STATE_SIM
+            val account = defaultAccountAndState.account
+            if (account != null) {
+                if (BuildConfig.DEBUG) {
+                    Log.d("Andromuks", "Using default contact account: ${account.name} (${account.type})")
+                }
+                return Pair(account.name, account.type)
+            }
+        } catch (e: Exception) {
+            Log.e("Andromuks", "Error getting default contact account", e)
+        }
+    }
+    
+    // Fallback: first Google account
+    val accountManager = AccountManager.get(context)
+    val googleAccount = accountManager.getAccountsByType("com.google").firstOrNull()
+    if (googleAccount != null) {
+        if (BuildConfig.DEBUG) {
+            Log.d("Andromuks", "Using Google account: ${googleAccount.name}")
+        }
+        return Pair(googleAccount.name, "com.google")
+    }
+    
+    // Last resort: any non-local syncing account
+    val anyAccount = accountManager.accounts.firstOrNull { it.type != "local" }
+    if (anyAccount != null) {
+        if (BuildConfig.DEBUG) {
+            Log.d("Andromuks", "Using any available account: ${anyAccount.name} (${anyAccount.type})")
+        }
+        return Pair(anyAccount.name, anyAccount.type)
+    }
+    
+    // No account available - return null (local account)
+    // Note: This may fail on Android 14+ if a cloud account is set as default
+    if (BuildConfig.DEBUG) {
+        Log.w("Andromuks", "No account available, will attempt to use local account (may fail on Android 14+)")
+    }
+    return Pair(null, null)
+}
 
 /**
  * Helper function to parse power levels from JSON content
@@ -499,6 +569,36 @@ fun UserInfoScreen(
     var userProfileInfo by remember { mutableStateOf<UserProfileInfo?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    
+    // Contacts permission launcher (needs both READ and WRITE)
+    val contactsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val hasReadContacts = permissions[Manifest.permission.READ_CONTACTS] == true
+        val hasWriteContacts = permissions[Manifest.permission.WRITE_CONTACTS] == true
+        
+        if (hasReadContacts && hasWriteContacts && userProfileInfo != null) {
+            coroutineScope.launch {
+                addMatrixUserToContacts(
+                    context = context,
+                    userId = userId,
+                    displayName = userProfileInfo!!.roomDisplayName 
+                        ?: userProfileInfo!!.displayName 
+                        ?: usernameFromMatrixId(userId),
+                    avatarUrl = userProfileInfo!!.roomAvatarUrl 
+                        ?: userProfileInfo!!.avatarUrl,
+                    homeserverUrl = appViewModel.homeserverUrl,
+                    authToken = appViewModel.authToken
+                )
+            }
+        } else if (!hasReadContacts || !hasWriteContacts) {
+            Toast.makeText(
+                context,
+                "Contacts permissions are required to add contact",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
     
     // Dialog state
     var showDeviceListDialog by remember { mutableStateOf(false) }
@@ -1390,6 +1490,51 @@ fun UserInfoScreen(
                             textAlign = TextAlign.Center
                         )
                     }
+                }
+                
+                // Add to Contacts Button (always visible, not in the row)
+                Button(
+                    onClick = {
+                        // Check permissions first (need both READ and WRITE)
+                        val hasReadContacts = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.READ_CONTACTS
+                        ) == PackageManager.PERMISSION_GRANTED
+                        val hasWriteContacts = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.WRITE_CONTACTS
+                        ) == PackageManager.PERMISSION_GRANTED
+                        
+                        if (hasReadContacts && hasWriteContacts) {
+                            coroutineScope.launch {
+                                addMatrixUserToContacts(
+                                    context = context,
+                                    userId = userId,
+                                    displayName = userProfileInfo!!.roomDisplayName 
+                                        ?: userProfileInfo!!.displayName 
+                                        ?: usernameFromMatrixId(userId),
+                                    avatarUrl = userProfileInfo!!.roomAvatarUrl 
+                                        ?: userProfileInfo!!.avatarUrl,
+                                    homeserverUrl = appViewModel.homeserverUrl,
+                                    authToken = appViewModel.authToken
+                                )
+                            }
+                        } else {
+                            // Request both permissions
+                            contactsPermissionLauncher.launch(
+                                arrayOf(
+                                    Manifest.permission.READ_CONTACTS,
+                                    Manifest.permission.WRITE_CONTACTS
+                                )
+                            )
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                        .heightIn(min = 48.dp)
+                ) {
+                    Text("Add to Contacts")
                 }
                 
                 // Moderation buttons (only shown if we have a room context and not viewing own profile)
@@ -2859,3 +3004,39 @@ fun IgnoreConfirmationDialog(
     )
 }
 
+suspend fun addMatrixUserToContacts(
+    context: Context,
+    userId: String,
+    displayName: String,
+    avatarUrl: String?,
+    homeserverUrl: String,
+    authToken: String
+) = withContext(Dispatchers.IO) {
+    val hasRead = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+    val hasWrite = ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CONTACTS) == PackageManager.PERMISSION_GRANTED
+
+    if (!hasRead || !hasWrite) {
+        withContext(Dispatchers.Main) {
+            Toast.makeText(context, "Contacts permissions required to add contact", Toast.LENGTH_SHORT).show()
+        }
+        return@withContext
+    }
+
+    val (accountName, accountType) = getDefaultContactAccount(context)
+    if (accountName == null || accountType == null) {
+        Log.e("UserInfo", "No contact account available")
+        return@withContext
+    }
+
+    val syncService = ContactsSyncService(
+        context,
+        accountName = "Andromuks",           // display name for the account
+        accountType = "net.vrkknn.andromuks.matrix"
+    )
+    val user = net.vrkknn.andromuks.MatrixUser(
+        userId = userId,
+        displayName = displayName,
+        avatarUrl = avatarUrl
+    )
+    syncService.syncContacts(listOf(user), syncAvatars = avatarUrl != null)
+}
