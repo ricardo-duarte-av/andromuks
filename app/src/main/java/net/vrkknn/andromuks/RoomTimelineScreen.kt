@@ -245,6 +245,11 @@ suspend fun processTimelineEvents(
         "Andromuks",
         "RoomTimelineScreen: Event types in timeline: ${eventTypes.map { "${it.key}: ${it.value.size}" }.joinToString(", ")}"
     )
+    // Debug: Check specifically for tombstone events
+    val tombstoneEvents = timelineEvents.filter { it.type == "m.room.tombstone" }
+    if (BuildConfig.DEBUG && tombstoneEvents.isNotEmpty()) {
+        Log.d("Andromuks", "RoomTimelineScreen: Found ${tombstoneEvents.size} tombstone event(s): ${tombstoneEvents.map { it.eventId }}")
+    }
 
     val filteredEvents = timelineEvents.filter { event ->
         // Filter out redaction events
@@ -258,6 +263,11 @@ suspend fun processTimelineEvents(
         allowedEventTypes.contains(event.type)
     }
     if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: After type filtering: ${filteredEvents.size} events")
+    // Debug: Check if tombstone events passed the filter
+    val filteredTombstoneEvents = filteredEvents.filter { it.type == "m.room.tombstone" }
+    if (BuildConfig.DEBUG && filteredTombstoneEvents.isNotEmpty()) {
+        Log.d("Andromuks", "RoomTimelineScreen: ${filteredTombstoneEvents.size} tombstone event(s) passed filtering: ${filteredTombstoneEvents.map { it.eventId }}")
+    }
 
     // PERFORMANCE: Remove edit events (m.replace) but keep the original messages in the list.
     val eventsWithoutEdits = filteredEvents.filter { event ->
@@ -1595,6 +1605,7 @@ fun RoomTimelineScreen(
             "m.room.topic",
             "m.room.avatar",
             "m.room.pinned_events",
+            "m.room.tombstone",
             "m.reaction",
             "m.sticker"
             // m.room.redaction is intentionally excluded - redaction events should not appear in
@@ -3120,10 +3131,30 @@ fun RoomTimelineScreen(
                                                 onRoomLinkClick = { roomLink ->
                                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room link clicked: ${roomLink.roomIdOrAlias}")
                                                 
+                                                // Extract server from message sender (format: @user:server.com)
+                                                val senderServer = try {
+                                                    if (event.sender.contains(":")) {
+                                                        event.sender.substringAfter(":")
+                                                    } else {
+                                                        null
+                                                    }
+                                                } catch (e: Exception) {
+                                                    null
+                                                }
+                                                
+                                                // Add sender's server to viaServers if available
+                                                val enhancedViaServers = if (senderServer != null && !roomLink.viaServers.contains(senderServer)) {
+                                                    roomLink.viaServers + senderServer
+                                                } else {
+                                                    roomLink.viaServers
+                                                }
+                                                
+                                                val enhancedRoomLink = roomLink.copy(viaServers = enhancedViaServers)
+                                                
                                                 // If it's a room ID, check if we're already joined
-                                                val existingRoom = if (roomLink.roomIdOrAlias.startsWith("!")) {
-                                                    val room = appViewModel.getRoomById(roomLink.roomIdOrAlias)
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Checked for existing room ${roomLink.roomIdOrAlias}, found: ${room != null}")
+                                                val existingRoom = if (enhancedRoomLink.roomIdOrAlias.startsWith("!")) {
+                                                    val room = appViewModel.getRoomById(enhancedRoomLink.roomIdOrAlias)
+                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Checked for existing room ${enhancedRoomLink.roomIdOrAlias}, found: ${room != null}")
                                                     room
                                                 } else {
                                                     if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room link is an alias, showing joiner")
@@ -3132,7 +3163,7 @@ fun RoomTimelineScreen(
                                                 
                                                 if (existingRoom != null) {
                                                     // Already joined, navigate directly
-                                                    val targetRoomId = roomLink.roomIdOrAlias
+                                                    val targetRoomId = enhancedRoomLink.roomIdOrAlias
                                                     if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Already joined, navigating to $targetRoomId")
                                                     // CRITICAL: When navigating from one room_timeline to another, use setDirectRoomNavigation
                                                     // and navigate via room_list, letting RoomListScreen handle the final navigation.
@@ -3142,8 +3173,8 @@ fun RoomTimelineScreen(
                                                     navController.navigate("room_list")
                                                 } else {
                                                     // For aliases or non-joined rooms, show room joiner
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Not joined, showing room joiner")
-                                                    roomLinkToJoin = roomLink
+                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Not joined, showing room joiner with via servers: $enhancedViaServers")
+                                                    roomLinkToJoin = enhancedRoomLink
                                                     showRoomJoiner = true
                                                 }
                                                 },

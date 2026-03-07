@@ -12334,6 +12334,7 @@ class AppViewModel : ViewModel() {
                                 "m.room.topic",
                                 "m.room.avatar",
                                 "m.room.pinned_events",
+                                "m.room.tombstone",
                                 "m.sticker"
                             )
                             
@@ -17571,10 +17572,13 @@ class AppViewModel : ViewModel() {
         val requestId = requestIdCounter++
         getRoomSummaryRequests[requestId] = callback
         
+        // Always include "matrix.org" as default server, plus any additional servers
+        val finalViaServers = (viaServers + "matrix.org").distinct()
+        
         // REFACTORING: Use sendWebSocketCommand() instead of direct send()
         sendWebSocketCommand("get_room_summary", requestId, mapOf(
             "room_id_or_alias" to roomIdOrAlias,
-            "via" to viaServers
+            "via" to finalViaServers
         ))
     }
     
@@ -17588,11 +17592,12 @@ class AppViewModel : ViewModel() {
         // Store the roomIdOrAlias so we can mark it as newly joined when we get the response
         // We'll mark it in handleJoinRoomCallbackResponse when we get the actual room ID
         
+        // Always include "matrix.org" as default server, plus any additional servers
+        val finalViaServers = (viaServers + "matrix.org").distinct()
+        
         // REFACTORING: Use sendWebSocketCommand() instead of direct send()
         val dataMap = mutableMapOf<String, Any>("room_id_or_alias" to roomIdOrAlias)
-        if (viaServers.isNotEmpty()) {
-            dataMap["via"] = viaServers
-        }
+        dataMap["via"] = finalViaServers
         sendWebSocketCommand("join_room", requestId, dataMap)
     }
     

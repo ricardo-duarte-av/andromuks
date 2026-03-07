@@ -249,18 +249,22 @@ class RoomJoinerWebSocket(
     /**
      * Get room summary
      * Returns Pair<RoomSummary?, errorMessage?>
+     * Always includes "matrix.org" as a default server in the via list
      */
     suspend fun getRoomSummary(roomIdOrAlias: String, viaServers: List<String>): Pair<RoomSummary?, String?> = withContext(Dispatchers.IO) {
         val requestId = requestIdCounter.incrementAndGet()
         var result: RoomSummary? = null
         var errorMessage: String? = null
         
+        // Always include "matrix.org" as default server, plus any additional servers
+        val finalViaServers = (viaServers + "matrix.org").distinct()
+        
         val request = JSONObject().apply {
             put("command", "get_room_summary")
             put("request_id", requestId)
             put("data", JSONObject().apply {
                 put("room_id_or_alias", roomIdOrAlias)
-                put("via", JSONArray(viaServers))
+                put("via", JSONArray(finalViaServers))
             })
         }
         
@@ -308,20 +312,22 @@ class RoomJoinerWebSocket(
     /**
      * Join a room
      * Returns Pair<roomId?, errorMessage?>
+     * Always includes "matrix.org" as a default server in the via list
      */
     suspend fun joinRoom(roomIdOrAlias: String, viaServers: List<String>): Pair<String?, String?> = withContext(Dispatchers.IO) {
         val requestId = requestIdCounter.incrementAndGet()
         var joinedRoomId: String? = null
         var errorMessage: String? = null
         
+        // Always include "matrix.org" as default server, plus any additional servers
+        val finalViaServers = (viaServers + "matrix.org").distinct()
+        
         val request = JSONObject().apply {
             put("command", "join_room")
             put("request_id", requestId)
             put("data", JSONObject().apply {
                 put("room_id_or_alias", roomIdOrAlias)
-                if (viaServers.isNotEmpty()) {
-                    put("via", JSONArray(viaServers))
-                }
+                put("via", JSONArray(finalViaServers))
             })
         }
         

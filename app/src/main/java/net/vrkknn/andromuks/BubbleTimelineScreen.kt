@@ -1498,6 +1498,7 @@ fun BubbleTimelineScreen(
             "m.room.topic",
             "m.room.avatar",
             "m.room.pinned_events",
+            "m.room.tombstone",
             "m.reaction",
             "m.sticker"
             // m.room.redaction is intentionally excluded - redaction events should not appear in
@@ -2735,10 +2736,30 @@ fun BubbleTimelineScreen(
                                             onRoomLinkClick = { roomLink ->
                                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Room link clicked: ${roomLink.roomIdOrAlias}")
                                                 
+                                                // Extract server from message sender (format: @user:server.com)
+                                                val senderServer = try {
+                                                    if (event.sender.contains(":")) {
+                                                        event.sender.substringAfter(":")
+                                                    } else {
+                                                        null
+                                                    }
+                                                } catch (e: Exception) {
+                                                    null
+                                                }
+                                                
+                                                // Add sender's server to viaServers if available
+                                                val enhancedViaServers = if (senderServer != null && !roomLink.viaServers.contains(senderServer)) {
+                                                    roomLink.viaServers + senderServer
+                                                } else {
+                                                    roomLink.viaServers
+                                                }
+                                                
+                                                val enhancedRoomLink = roomLink.copy(viaServers = enhancedViaServers)
+                                                
                                                 // If it's a room ID, check if we're already joined
-                                                val existingRoom = if (roomLink.roomIdOrAlias.startsWith("!")) {
-                                                    val room = appViewModel.getRoomById(roomLink.roomIdOrAlias)
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Checked for existing room ${roomLink.roomIdOrAlias}, found: ${room != null}")
+                                                val existingRoom = if (enhancedRoomLink.roomIdOrAlias.startsWith("!")) {
+                                                    val room = appViewModel.getRoomById(enhancedRoomLink.roomIdOrAlias)
+                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Checked for existing room ${enhancedRoomLink.roomIdOrAlias}, found: ${room != null}")
                                                     room
                                                 } else {
                                                     if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Room link is an alias, showing joiner")
@@ -2747,7 +2768,7 @@ fun BubbleTimelineScreen(
                                                 
                                                 if (existingRoom != null) {
                                                     // Already joined, navigate directly
-                                                    val targetRoomId = roomLink.roomIdOrAlias
+                                                    val targetRoomId = enhancedRoomLink.roomIdOrAlias
                                                     if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Already joined, navigating to $targetRoomId")
                                                     // CRITICAL: When navigating from one room_timeline to another, use setDirectRoomNavigation
                                                     // and navigate via room_list, letting RoomListScreen handle the final navigation.
@@ -2757,8 +2778,8 @@ fun BubbleTimelineScreen(
                                                     navController.navigate("room_list")
                                                 } else {
                                                     // For aliases or non-joined rooms, show room joiner
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Not joined, showing room joiner")
-                                                    roomLinkToJoin = roomLink
+                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Not joined, showing room joiner with via servers: $enhancedViaServers")
+                                                    roomLinkToJoin = enhancedRoomLink
                                                     showRoomJoiner = true
                                                 }
                                             },

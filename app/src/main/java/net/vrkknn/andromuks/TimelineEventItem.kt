@@ -3246,8 +3246,26 @@ fun TimelineEventItem(
             powerLevels = appViewModel?.currentRoomState?.powerLevels,
             onUserClick = onUserClick,
             onRoomClick = { roomId ->
+                // Extract server from message sender (format: @user:server.com)
+                val senderServer = try {
+                    if (event.sender.contains(":")) {
+                        event.sender.substringAfter(":")
+                    } else {
+                        null
+                    }
+                } catch (e: Exception) {
+                    null
+                }
+                
+                // Create RoomLink with sender's server in viaServers
+                val viaServers = if (senderServer != null) {
+                    listOf(senderServer)
+                } else {
+                    emptyList()
+                }
+                
                 // Convert room ID to RoomLink and call onRoomLinkClick
-                onRoomLinkClick(RoomLink(roomIdOrAlias = roomId))
+                onRoomLinkClick(RoomLink(roomIdOrAlias = roomId, viaServers = viaServers))
             },
             onReply = { event -> onReply(event) },
             onDelete = { event -> onDelete(event) },

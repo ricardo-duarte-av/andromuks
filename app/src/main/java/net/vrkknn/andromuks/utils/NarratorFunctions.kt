@@ -1664,54 +1664,83 @@ private fun TombstoneEventNarrator(
     if (senderProfile == null && appViewModel != null) {
         appViewModel.requestUserProfile(event.sender, roomId)
     }
-    val reason = content?.optString("body", "")?.takeIf { it.isNotBlank() }
+    val body = content?.optString("body", "")?.takeIf { it.isNotBlank() }
     val replacementRoom = content?.optString("replacement_room", "")?.takeIf { it.isNotBlank() }
     
     if (replacementRoom != null) {
-        val useShortLink = replacementRoom.length > 20
-        val linkText = if (useShortLink) "this" else replacementRoom
+        // Get replacement room name for display (if available)
+        val replacementRoomItem = appViewModel?.getRoomById(replacementRoom)
+        val replacementRoomName = replacementRoomItem?.name ?: replacementRoom
         
-        Column(
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.fillMaxWidth()
+            val annotatedText = remember(
+                event.sender,
+                senderDisplayName,
+                replacementRoom,
+                replacementRoomName,
+                body,
+                memberMap,
+                userMentionColor
             ) {
-                val annotatedText = remember(event.sender, senderDisplayName, memberMap, userMentionColor) {
-                    buildAnnotatedString {
-                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
-                        append(" replaced this room with ")
+                buildAnnotatedString {
+                    appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+                    append(" replaced this room with ")
+                    // Make replacement room clickable
+                    pushStringAnnotation("ROOM_ID", replacementRoom)
+                    pushStyle(
+                        SpanStyle(
+                            fontWeight = FontWeight.Bold,
+                            color = userMentionColor
+                        )
+                    )
+                    append(replacementRoomName)
+                    pop()
+                    pop()
+                    if (body != null) {
+                        append(" with message: ")
+                        appendTextWithMentions(body, memberMap, appViewModel, roomId, userMentionColor)
                     }
                 }
-                
-                ClickableNarratorText(
-                    text = annotatedText,
-                    onUserClick = onUserClick
-                )
-                
-                Text(
-                    text = linkText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontStyle = FontStyle.Italic,
-                    modifier = Modifier.clickable { onRoomClick(replacementRoom) }
-                )
             }
             
-            if (reason != null) {
-                val reasonText = remember(reason, memberMap, userMentionColor) {
-                    buildAnnotatedString {
-                        append("for reason: ")
-                        appendTextWithMentions(reason, memberMap, appViewModel, roomId, userMentionColor)
-                    }
-                }
-                ClickableNarratorText(
-                    text = reasonText,
-                    onUserClick = onUserClick
-                )
-            }
+            var textLayoutResult: TextLayoutResult? by remember { mutableStateOf(null) }
+            Text(
+                text = annotatedText,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontStyle = FontStyle.Italic
+                ),
+                modifier = Modifier.pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = { tapOffset ->
+                            textLayoutResult?.let { layoutResult ->
+                                val offset = layoutResult.getOffsetForPosition(tapOffset)
+                                // Check for room ID annotation
+                                annotatedText.getStringAnnotations(
+                                    tag = "ROOM_ID",
+                                    start = offset,
+                                    end = offset
+                                ).firstOrNull()?.let { annotation ->
+                                    onRoomClick(annotation.item)
+                                }
+                                // Check for user ID annotation (from appendTextWithMentions)
+                                annotatedText.getStringAnnotations(
+                                    tag = "USER_ID",
+                                    start = offset,
+                                    end = offset
+                                ).firstOrNull()?.let { annotation ->
+                                    onUserClick(annotation.item)
+                                }
+                            }
+                        }
+                    )
+                },
+                onTextLayout = { textLayoutResult = it }
+            )
         }
     } else {
         val annotatedText = remember(event.sender, senderDisplayName, memberMap, userMentionColor) {

@@ -1361,6 +1361,7 @@ object RoomTimelineCache {
                     "m.room.topic",
                     "m.room.avatar",
                     "m.room.pinned_events",
+                    "m.room.tombstone",
                     "m.sticker",
                     "io.element.call.encryption_keys"
                 )
