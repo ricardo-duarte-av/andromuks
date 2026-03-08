@@ -30,6 +30,12 @@ jobs:
           # 3) FileProvider authority in AndroidManifest.xml
           sed -i 's/android:authorities="pt\.aguiarvieira\.andromuks\.fileprovider"/android:authorities="pt.aguiarvieira.andromuks.b.fileprovider"/' app/src/main/AndroidManifest.xml
 
+          # 4) Matrix Contacts provider authority in AndroidManifest.xml (must be unique per install)
+          sed -i 's/android:authorities="net\.vrkknn\.andromuks\.matrix\.contacts"/android:authorities="net.vrkknn.andromuks.matrix.contacts.b"/' app/src/main/AndroidManifest.xml
+
+          # 5) Matrix Contacts provider AUTHORITY constant in MatrixContactsProvider.kt
+          sed -i 's/AUTHORITY = "net\.vrkknn\.andromuks\.matrix\.contacts"/AUTHORITY = "net.vrkknn.andromuks.matrix.contacts.b"/' app/src/main/java/net/vrkknn/andromuks/MatrixContactsProvider.kt
+
       - name: Set Up JDK
         uses: actions/setup-java@v4
         with:
