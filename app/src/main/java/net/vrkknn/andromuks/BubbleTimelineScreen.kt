@@ -2797,11 +2797,14 @@ fun BubbleTimelineScreen(
                                                 codeViewerContent = code
                                                 showCodeViewer = true
                                             },
-                                            onShowMenu = { menuConfig ->
+onShowMenu = { menuConfig ->
                                                 // Close attach menu if open
                                                 showAttachmentMenu = false
-                                                messageMenuConfig = menuConfig
-                                            }
+                                                messageMenuConfig = menuConfig.copy(onViewSource = { code ->
+                                                    codeViewerContent = code
+                                                    showCodeViewer = true
+                                                })
+                                                }
                                             )
                                         }
                                     }

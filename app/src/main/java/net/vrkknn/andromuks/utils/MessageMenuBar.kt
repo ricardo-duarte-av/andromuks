@@ -24,15 +24,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.gestures.FlingBehavior
+import androidx.compose.foundation.gestures.ScrollScope
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -67,6 +65,11 @@ import androidx.compose.material.icons.filled.PushPin
 import kotlin.math.max
 import kotlin.math.min
 
+/** No-op fling: scroll stops when user releases, so we can snap without fighting a decay animation. */
+private val NoFlingBehavior = object : FlingBehavior {
+    override suspend fun ScrollScope.performFling(initialVelocity: Float): Float = 0f
+}
+
 /**
  * Data class to hold message menu configuration
  */
@@ -85,7 +88,8 @@ data class MessageMenuConfig(
     val onPin: () -> Unit,
     val onUnpin: () -> Unit,
     val onShowEditHistory: (() -> Unit)?,
-    val appViewModel: net.vrkknn.andromuks.AppViewModel?
+    val appViewModel: net.vrkknn.andromuks.AppViewModel?,
+    val onViewSource: ((String) -> Unit)? = null
 )
 
 /**
@@ -311,99 +315,69 @@ fun MessageMenuBar(
                     icon = Icons.Filled.Code,
                     label = "Source",
                     onClick = {
-                        rawJsonToShow = event.toRawJsonString(2)
-                        showRawJsonDialog = true
+                        onDismiss()
+                        val json = event.toRawJsonString(2)
+                        if (menuConfig.onViewSource != null) {
+                            menuConfig.onViewSource!!.invoke(json)
+                        } else {
+                            rawJsonToShow = json
+                            showRawJsonDialog = true
+                        }
                     }
                 )
             ) + List(6) { MenuButtonItem.Empty }
             
             val allButtons = page1Buttons + page2Buttons
             
-            val listState = rememberLazyListState()
+            // Use scrollable Row instead of LazyRow so buttons on the second page receive taps
+            // (LazyRow is known to consume taps after scrolling.)
+            val scrollState = rememberScrollState()
+            val contentWidthPx = 14 * buttonWidthPx + 13 * spacingPx
+            val contentWidthDp = with(density) { contentWidthPx.toDp() }
             var lastScrollPosition by remember { mutableStateOf(0f) }
             var lastScrollTime by remember { mutableStateOf(0L) }
             var scrollVelocity by remember { mutableStateOf(0f) }
+            var snapInProgress by remember { mutableStateOf(false) }
             
-            // Track scroll velocity for springy effect
-            LaunchedEffect(listState) {
-                snapshotFlow { 
-                    Triple(
-                        listState.isScrollInProgress,
-                        listState.firstVisibleItemIndex,
-                        listState.firstVisibleItemScrollOffset
-                    )
+            LaunchedEffect(scrollState.value) {
+                kotlinx.coroutines.delay(150)
+                if (snapInProgress) return@LaunchedEffect
+                val currentTime = System.currentTimeMillis()
+                val currentPosition = scrollState.value.toFloat()
+                if (lastScrollTime > 0 && currentTime > lastScrollTime) {
+                    val deltaTime = (currentTime - lastScrollTime).coerceAtLeast(1)
+                    val deltaPosition = currentPosition - lastScrollPosition
+                    scrollVelocity = (deltaPosition / deltaTime) * 1000f
                 }
-                .distinctUntilChanged()
-                .collect { (isScrolling, firstVisibleIndex, scrollOffset) ->
-                    val currentTime = System.currentTimeMillis()
-                    val itemWidthPx = buttonWidthPx + with(density) { buttonSpacing.toPx() }
-                    val currentPosition = firstVisibleIndex * itemWidthPx + scrollOffset
-                    
-                    if (isScrolling) {
-                        // Calculate velocity during scroll
-                        if (lastScrollTime > 0 && currentTime > lastScrollTime) {
-                            val deltaTime = (currentTime - lastScrollTime).coerceAtLeast(1)
-                            val deltaPosition = currentPosition - lastScrollPosition
-                            scrollVelocity = (deltaPosition / deltaTime) * 1000f // pixels per second
-                        }
-                        lastScrollPosition = currentPosition
-                        lastScrollTime = currentTime
-                    }
-                    
-                    if (!isScrolling && firstVisibleIndex >= 0) {
-                        // Scroll stopped - snap to nearest page with spring animation
-                        val currentPositionPx = currentPosition
-                        
-                        // Determine target based on position and velocity
-                        // If swiping left (negative velocity) and on first page, snap to second page faster
-                        // If swiping right (positive velocity) and on second page, snap to first page faster
-                        val targetIndex = when {
-                            // Fast left swipe on first page -> snap to second page (switchblade effect)
-                            scrollVelocity < -800f && firstVisibleIndex < 7 -> 7
-                            // Fast right swipe on second page -> snap to first page
-                            scrollVelocity > 800f && firstVisibleIndex >= 7 -> 0
-                            // Otherwise, snap to nearest page based on position
-                            currentPositionPx < pageWidthPx / 2 -> 0
-                            else -> 7
-                        }
-                        
-                        // Only snap if we're not already at the target
-                        if (firstVisibleIndex != targetIndex || (targetIndex == 0 && scrollOffset > 10) || (targetIndex == 7 && scrollOffset > 10)) {
-                            coroutineScope.launch {
-                                // For very fast swipes (switchblade effect), use instant scroll
-                                // For normal swipes, use animated scroll with default spring
-                                if (kotlin.math.abs(scrollVelocity) > 1000f) {
-                                    // Very fast swipe - instant snap (switchblade effect)
-                                    listState.scrollToItem(
-                                        index = targetIndex,
-                                        scrollOffset = 0
-                                    )
-                                } else {
-                                    // Normal swipe - animated scroll with default spring animation
-                                    listState.animateScrollToItem(
-                                        index = targetIndex,
-                                        scrollOffset = 0
-                                    )
-                                }
-                            }
-                        }
-                        
-                        // Reset velocity after snap
-                        scrollVelocity = 0f
-                        lastScrollTime = 0L
+                lastScrollPosition = currentPosition
+                lastScrollTime = currentTime
+                val targetOffset = when {
+                    scrollVelocity < -800f && currentPosition < pageWidthPx -> pageWidthPx.toInt().coerceAtMost(scrollState.maxValue)
+                    scrollVelocity > 800f && currentPosition >= pageWidthPx -> 0
+                    currentPosition < pageWidthPx / 2 -> 0
+                    else -> pageWidthPx.toInt().coerceAtMost(scrollState.maxValue)
+                }
+                if (kotlin.math.abs(scrollState.value - targetOffset) > 5) {
+                    snapInProgress = true
+                    try {
+                        scrollState.scrollTo(targetOffset)
+                    } finally {
+                        snapInProgress = false
                     }
                 }
+                scrollVelocity = 0f
+                lastScrollTime = 0L
             }
             
-            LazyRow(
-                state = listState,
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(buttonSpacing),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 0.dp) // No padding - buttons fill full width
+                    .padding(vertical = 12.dp)
+                    .width(contentWidthDp)
+                    .horizontalScroll(scrollState, flingBehavior = NoFlingBehavior),
+                horizontalArrangement = Arrangement.spacedBy(buttonSpacing)
             ) {
-                itemsIndexed(allButtons) { index, buttonItem ->
+                allButtons.forEach { buttonItem ->
                     when (buttonItem) {
                         is MenuButtonItem.Button -> {
                             Column(
