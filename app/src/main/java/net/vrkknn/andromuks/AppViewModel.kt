@@ -17542,11 +17542,15 @@ class AppViewModel : ViewModel() {
     fun joinRoomAndNavigate(roomId: String, navController: androidx.navigation.NavController) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: joinRoomAndNavigate called for $roomId")
         
-        // Navigate directly - RoomTimelineScreen's LaunchedEffect will handle timeline loading
-        val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
-        navController.navigate("room_timeline/$encodedRoomId")
-        // Timeline loading will be handled by RoomTimelineScreen's LaunchedEffect(roomId)
-        // which calls requestRoomTimeline, which will use reset=true for newly joined rooms
+        // CRITICAL: Navigation must happen on the main thread
+        // Dispatch to main thread to avoid IllegalStateException
+        viewModelScope.launch(Dispatchers.Main) {
+            // Navigate directly - RoomTimelineScreen's LaunchedEffect will handle timeline loading
+            val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+            navController.navigate("room_timeline/$encodedRoomId")
+            // Timeline loading will be handled by RoomTimelineScreen's LaunchedEffect(roomId)
+            // which calls requestRoomTimeline, which will use reset=true for newly joined rooms
+        }
     }
     
     private fun getRoomDisplayName(roomId: String): String {
