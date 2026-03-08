@@ -2341,48 +2341,45 @@ class AppViewModel : ViewModel() {
     /**
      * Register FCM token with Gomuks Backend via WebSocket
      * 
-     * DEBOUNCE FIX: Prevents multiple registrations within a short time window (5 seconds)
-     * This fixes the issue where registrations were triggered from multiple places:
-     * - setWebSocket() 
-     * - onInitComplete()
-     * - FCM token ready callback
+     * DEBOUNCE FIX: lastFCMRegistrationTime is only updated when we actually SEND (SUCCESS),
+     * so a call from onTokenReady before init_complete (which queues or drops) won't block the later onInitComplete() call.
+     * 
+     * @param forceRegistrationOnConnect If true, register on every connect/reconnect (skip time-based shouldRegisterPush check).
+     * @param forceNow If true, skip debounce (e.g. user tapped "Re-register" in Settings).
      */
-    fun registerFCMWithGomuksBackend() {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: registerFCMWithGomuksBackend called")
+    fun registerFCMWithGomuksBackend(forceRegistrationOnConnect: Boolean = false, forceNow: Boolean = false) {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: registerFCMWithGomuksBackend called (forceRegistrationOnConnect=$forceRegistrationOnConnect, forceNow=$forceNow)")
         
-        // DEBOUNCE: Check if we registered recently (within debounce window)
-        val now = System.currentTimeMillis()
-        val timeSinceLastRegistration = now - lastFCMRegistrationTime
-        if (timeSinceLastRegistration < FCM_REGISTRATION_DEBOUNCE_MS) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping FCM registration - only ${timeSinceLastRegistration}ms since last registration (debounce: ${FCM_REGISTRATION_DEBOUNCE_MS}ms)")
-            return
+        // DEBOUNCE: Skip if we sent recently (unless forceNow)
+        if (!forceNow) {
+            val now = System.currentTimeMillis()
+            val timeSinceLastRegistration = now - lastFCMRegistrationTime
+            if (timeSinceLastRegistration < FCM_REGISTRATION_DEBOUNCE_MS) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping FCM registration - only ${timeSinceLastRegistration}ms since last registration (debounce: ${FCM_REGISTRATION_DEBOUNCE_MS}ms)")
+                return
+            }
         }
         
-        // Check if registration is needed (time-based check)
-        val shouldRegister = shouldRegisterPush()
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: shouldRegisterPush() returned $shouldRegister")
-        
-        // Force registration if we have a new FCM token but haven't registered via WebSocket yet
-        val hasRegisteredViaWebSocket = appContext?.let { context ->
-            context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                .getBoolean("fcm_registered_via_websocket", false)
-        } ?: false
-        val forceRegistration = !hasRegisteredViaWebSocket
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: hasRegisteredViaWebSocket=$hasRegisteredViaWebSocket, forceRegistration=$forceRegistration")
-        
-        // Register FCM on WebSocket connection to ensure backend has current token
-        // Note: Only called once per connection lifecycle (from onInitComplete) due to debounce
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Registering FCM with Gomuks Backend")
+        // Time-based check: skip if we registered recently (unless forceRegistrationOnConnect or forceNow)
+        if (!forceRegistrationOnConnect && !forceNow) {
+            val shouldRegister = shouldRegisterPush()
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: shouldRegisterPush() returned $shouldRegister")
+            val hasRegisteredViaWebSocket = appContext?.let { context ->
+                context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                    .getBoolean("fcm_registered_via_websocket", false)
+            } ?: false
+            val forceRegistration = !hasRegisteredViaWebSocket
+            if (!shouldRegister && !forceRegistration) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping FCM registration - not due yet and already registered via WebSocket")
+                return
+            }
+        }
         
         val token = getFCMTokenForGomuksBackend()
-        // CRITICAL FIX: Use local device ID instead of backend's device_id
-        // This ensures each Android device has a unique identifier and prevents one device from overwriting another's FCM registration
         val deviceId = webClientPushIntegration?.getLocalDeviceID()
         val encryptionKey = webClientPushIntegration?.getPushEncryptionKey()
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: registerFCMWithGomuksBackend - token=${token?.take(20)}..., deviceId=$deviceId, encryptionKey=${encryptionKey?.take(20)}...")
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: webClientPushIntegration=${webClientPushIntegration != null}")
         
         if (token != null && deviceId != null && encryptionKey != null) {
             val registrationRequestId = requestIdCounter++
@@ -2390,26 +2387,29 @@ class AppViewModel : ViewModel() {
             
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Registering FCM with request_id=$registrationRequestId")
             
-            // Use the correct JSON structure for Gomuks Backend
+            // Gomuks backend: device_id, type, data (FCM token string), encryption { key, expiration (required) }
+            val expirationSeconds = System.currentTimeMillis() / 1000 + 86400 // 24 hours from now
             val registrationData = mapOf(
                 "type" to "fcm",
                 "device_id" to deviceId,
                 "data" to token,
                 "encryption" to mapOf(
-                    "key" to encryptionKey
-                ),
-                "expiration" to (System.currentTimeMillis() / 1000 + 86400) // 24 hours from now
+                    "key" to encryptionKey,
+                    "expiration" to expirationSeconds
+                )
             )
             
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending WebSocket command: register_push with data: $registrationData")
-            sendWebSocketCommand("register_push", registrationRequestId, registrationData)
+            val result = sendWebSocketCommand("register_push", registrationRequestId, registrationData)
             
-            // DEBOUNCE: Update last registration time immediately to prevent duplicates
-            lastFCMRegistrationTime = now
+            // DEBOUNCE: Only update last registration time when we actually sent (SUCCESS)
+            if (result == WebSocketResult.SUCCESS) {
+                lastFCMRegistrationTime = System.currentTimeMillis()
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent FCM registration to Gomuks Backend with device_id=$deviceId (request_id=$registrationRequestId)")
+            } else {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: register_push queued or not sent (result=$result) - will be sent after init_complete or when connected")
+            }
             
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent FCM registration to Gomuks Backend with device_id=$deviceId (request_id=$registrationRequestId)")
-            
-            // Mark that we've attempted WebSocket registration (will be confirmed when response comes back)
             appContext?.let { context ->
                 context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
                     .edit()
@@ -2418,7 +2418,6 @@ class AppViewModel : ViewModel() {
             }
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Missing required data for FCM registration - token=${token != null}, deviceId=${deviceId != null}, encryptionKey=${encryptionKey != null}")
-            android.util.Log.w("Andromuks", "AppViewModel: webClientPushIntegration=${webClientPushIntegration != null}")
         }
     }
     /**
@@ -5809,7 +5808,7 @@ class AppViewModel : ViewModel() {
         
         // Register FCM on every WebSocket connection to ensure backend has current token
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: onInitComplete - registering FCM to ensure backend has current token")
-        registerFCMWithGomuksBackend()
+        registerFCMWithGomuksBackend(forceRegistrationOnConnect = true)
         
         // QUEUE FLUSHING FIX: Flush pending queue after init_complete with stabilization delay
         // This ensures backend is ready and prevents triple-sending
@@ -8390,9 +8389,13 @@ class AppViewModel : ViewModel() {
     fun getCurrentRequestId(): Int = requestIdCounter
     
     /**
-     * Gets the last received request ID from the server
+     * Gets the last received request ID from the server (for reconnection and Settings).
+     * Prefers value persisted in WebSocketService/SharedPreferences so it stays in sync with sync_complete processing.
      */
-    fun getLastReceivedRequestId(): Int = lastReceivedRequestId
+    fun getLastReceivedRequestId(): Int {
+        appContext?.let { return WebSocketService.getLastReceivedRequestId(it) }
+        return lastReceivedRequestId
+    }
     
     /**
      * Check if an event is pinned in the current room

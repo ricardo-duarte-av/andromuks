@@ -412,6 +412,23 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
     val context = LocalContext.current
     var showSnackbar by remember { mutableStateOf(false) }
     var snackbarMessage by remember { mutableStateOf("") }
+    var lastReceivedRequestId by remember { mutableStateOf(0) }
+    var lastRegistration by remember { mutableStateOf(0L) }
+    var refreshTrigger by remember { mutableStateOf(0) }
+    
+    // Load persisted values when section is first shown
+    LaunchedEffect(Unit) {
+        lastReceivedRequestId = appViewModel.getLastReceivedRequestId()
+        lastRegistration = context.getSharedPreferences("web_client_prefs", Context.MODE_PRIVATE).getLong("last_push_reg", 0L)
+    }
+    // After user taps "Re-register", refresh values once response may have been written
+    LaunchedEffect(refreshTrigger) {
+        if (refreshTrigger > 0) {
+            delay(2000)
+            lastReceivedRequestId = appViewModel.getLastReceivedRequestId()
+            lastRegistration = context.getSharedPreferences("web_client_prefs", Context.MODE_PRIVATE).getLong("last_push_reg", 0L)
+        }
+    }
     
     // Get FCM-related data
     val fcmNotificationManager = remember { FCMNotificationManager(context) }
@@ -430,7 +447,6 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
     val vapidKey = remember { appViewModel.getVapidKey() }
     val runId = remember { appViewModel.getCurrentRunId() }
     val currentRequestId = remember { appViewModel.getCurrentRequestId() }
-    val lastReceivedRequestId = remember { appViewModel.getLastReceivedRequestId() }
     val homeserverUrl = remember { appViewModel.homeserverUrl }
     
     // Construct the current WebSocket URL (no longer includes last_received_id)
@@ -457,10 +473,6 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
         }
     }
     val isRegistered = remember { fcmNotificationManager.isRegisteredWithBackend() }
-    val lastRegistration = remember {
-        val prefs = context.getSharedPreferences("web_client_prefs", Context.MODE_PRIVATE)
-        prefs.getLong("last_push_reg", 0L)
-    }
     
     // Helper function to copy to clipboard
     fun copyToClipboard(label: String, text: String) {
@@ -488,9 +500,16 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Registration Status
+            // Registration Status (tappable to re-send register_push)
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        appViewModel.registerFCMWithGomuksBackend(forceNow = true)
+                        snackbarMessage = "Re-registering push…"
+                        showSnackbar = true
+                        refreshTrigger++
+                    },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -499,6 +518,12 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
                         text = "Registration Status",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Tap to re-send register_push",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp)
                     )
                 }
                 Surface(
@@ -629,7 +654,7 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
     // Snackbar for copy confirmation
     if (showSnackbar) {
         LaunchedEffect(snackbarMessage) {
-            kotlinx.coroutines.delay(2000)
+            delay(2000)
             showSnackbar = false
         }
         
