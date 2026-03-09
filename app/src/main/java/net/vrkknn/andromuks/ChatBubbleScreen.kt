@@ -376,7 +376,8 @@ fun ChatBubbleScreen(
             allowedEventTypes.contains(event.type) && event.type != "m.room.redaction"
         }
         
-        val sorted = filteredEvents.sortedBy { it.timestamp }
+        // Sort by timeline_rowid (server order), not timestamp - timestamps can be out of order
+        val sorted = filteredEvents.sortedWith(compareBy({ it.timelineRowid }, { it.timestamp }, { it.eventId }))
         if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: Final sorted events: ${sorted.size} events")
         sorted
     }

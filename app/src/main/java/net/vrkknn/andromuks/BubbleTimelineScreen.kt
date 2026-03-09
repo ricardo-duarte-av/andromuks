@@ -268,7 +268,9 @@ suspend fun bubbleProcessTimelineEvents(
 
     if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: After edit filtering: ${eventsWithoutSuperseded.size} events")
 
-    val sorted = eventsWithoutSuperseded.sortedBy { it.timestamp }
+    // Sort by timeline_rowid (server order), not timestamp - timestamps can be out of order
+    // (e.g. bridge backdates messages, or state events arrive after messages they precede)
+    val sorted = eventsWithoutSuperseded.sortedWith(compareBy({ it.timelineRowid }, { it.timestamp }, { it.eventId }))
     if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Final sorted events: ${sorted.size} events")
 
     sorted

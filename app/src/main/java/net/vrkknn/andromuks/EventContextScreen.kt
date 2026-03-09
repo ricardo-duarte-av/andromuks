@@ -69,7 +69,8 @@ fun EventContextScreen(
         appViewModel.getEventContext(roomId, eventId, limitBefore = 5, limitAfter = 5) { events ->
             isLoading = false
             if (events != null) {
-                contextEvents = events
+                // Sort by timeline_rowid (server order), not timestamp - timestamps can be out of order
+                contextEvents = events.sortedWith(compareBy({ it.timelineRowid }, { it.timestamp }, { it.eventId }))
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "EventContextScreen: Received ${events.size} events in context")
             } else {
                 errorMessage = "Failed to load event context"
