@@ -58,22 +58,15 @@ class WebSocketService : Service() {
         private val MIN_RECONNECTION_INTERVAL_MS = 1000L // 5 seconds minimum between any reconnections
         private val MIN_NOTIFICATION_UPDATE_INTERVAL_MS = 1000L // 500ms minimum between notification updates (UI smoothing)
         private const val BACKEND_HEALTH_RETRY_DELAY_MS = 1_000L
-        private const val PONG_TIMEOUT_MS = 1_000L // 1 second - "rush to healthy"
-        // BATTERY OPTIMIZATION: Ping interval kept at 15s foreground, 30s background
-        // Backend closes WebSocket if no message received in 60 seconds.
-        // 30s gives a safe 50% margin against scheduling jitter, GC pauses, and network latency.
-        private const val PING_INTERVAL_MS = 15_000L // 15 seconds normal interval (foreground)
-        private const val PING_INTERVAL_BACKGROUND_MS = 30_000L // 30 seconds when backgrounded (safe margin vs 60s backend timeout)
-        private const val CONSECUTIVE_FAILURES_TO_DROP = 3 // Drop WebSocket after 3 consecutive ping failures
-        // Base timeout values - lenient defaults for all networks (WiFi can be slow too)
-        private const val INIT_COMPLETE_TIMEOUT_MS_BASE = 15_000L // 15 seconds to wait for init_complete (fallback)
-        private const val RUN_ID_TIMEOUT_MS = 2_000L // 2 seconds to wait for run_id after connection (lenient for slow WiFi/AP distance)
-        private const val INIT_COMPLETE_AFTER_RUN_ID_TIMEOUT_MS_BASE = 5_000L // 5 seconds base timeout for init_complete after run_id
-        private const val INIT_COMPLETE_EXTENSION_PER_MESSAGE_MS = 5_000L // Extend timeout by 5s for each message received from backend
-        private const val HARD_CONNECTING_TIMEOUT_MS = 5_000L // 5 seconds hard limit for total Connecting state duration
-        private const val INIT_COMPLETE_GRACE_PERIOD_MS = 500L // Grace period after timeout before actually clearing connection
-        private const val INIT_COMPLETE_RETRY_BASE_MS = 2_000L // 2 seconds initial retry delay
-        private const val INIT_COMPLETE_RETRY_MAX_MS = 8_000L // 64 seconds max retry delay
+        // Connection health: Ping every 15s (first ping 15s after connect), mark bad after 60s without ANY message
+        private const val PING_INTERVAL_MS = 15_000L // 15 seconds - first ping 15s after connect, then every 15s
+        private const val MESSAGE_TIMEOUT_MS = 60_000L // 60 seconds without ANY message = connection stale, reconnect
+        private const val PONG_CLEAR_INFLIGHT_MS = 5_000L // Clear pingInFlight after 5s so next ping can be sent
+        private const val INIT_COMPLETE_TIMEOUT_MS_BASE = 15_000L // Legacy - used by unified monitoring
+        private const val HARD_CONNECTING_TIMEOUT_MS = 5_000L // Legacy - unused, we go directly to Ready
+        private const val RUN_ID_TIMEOUT_MS = 2_000L // Legacy - unused, we don't wait for run_id
+        private const val INIT_COMPLETE_AFTER_RUN_ID_TIMEOUT_MS_BASE = 5_000L // Legacy - unused
+        private const val INIT_COMPLETE_EXTENSION_PER_MESSAGE_MS = 5_000L // Legacy - unused
         private const val MAX_RECONNECTION_ATTEMPTS = 99
         private const val RECONNECTION_RESET_TIME_MS = 300_000L // Reset count after 5 minutes
         private const val NETWORK_CHANGE_DEBOUNCE_MS = 500L // Debounce rapid network changes
@@ -799,7 +792,9 @@ class WebSocketService : Service() {
         }
         
         /**
-         * Start ping/pong loop for connection health monitoring
+         * Start ping loop for connection health monitoring.
+         * First ping 15s after connect, then every 15s.
+         * Connection marked bad after 60s without ANY message (ping or otherwise).
          */
         fun startPingLoop() {
             instance?.let { serviceInstance ->
@@ -809,44 +804,36 @@ class WebSocketService : Service() {
                 serviceInstance.pongTimeoutJob = null
             }
             instance?.pingJob = serviceScope.launch {
-                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop coroutine started")
-                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop: isActive=$isActive, connectionState=${instance?.connectionState}")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop started - first ping in 15s")
+                // First ping 15 seconds after websocket connect
+                delay(PING_INTERVAL_MS)
                 
-                // Send immediate ping when loop starts (if conditions are met)
-                val serviceInstance = instance
-                if (serviceInstance != null && serviceInstance.connectionState.isReady() && serviceInstance.isCurrentlyConnected) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop: sending immediate ping on start")
-                    serviceInstance.sendPing()
-                }
-                
-                // Persistent loop - don't exit when disconnected, just skip pings
                 while (isActive) {
                     val serviceInstance = instance ?: break
                     
-                    // RUSH TO HEALTHY: If we have consecutive failures, send ping with minimal delay (prevent storm)
-                    val interval = if (serviceInstance.consecutivePingTimeouts > 0) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "RUSH TO HEALTHY: Sending ping after failure (consecutive: ${serviceInstance.consecutivePingTimeouts})")
-                        100L // Small delay to prevent ping storm (100ms minimum)
-                    } else {
-                        // BATTERY OPTIMIZATION: Use adaptive interval based on app visibility
-                        // Foreground: 15s, Background: 30s (safe margin vs 60s backend timeout)
-                        if (serviceInstance.isAppVisible) PING_INTERVAL_MS else PING_INTERVAL_BACKGROUND_MS
+                    if (!serviceInstance.connectionState.isReady() || !serviceInstance.isCurrentlyConnected) {
+                        delay(PING_INTERVAL_MS)
+                        continue
                     }
                     
-                    if (interval > 0) {
-                        delay(interval)
+                    // Check 60s message timeout - if no message for 60s, connection is stale
+                    val timeSinceLastMessage = System.currentTimeMillis() - serviceInstance.lastMessageReceivedTimestamp
+                    if (timeSinceLastMessage >= MESSAGE_TIMEOUT_MS) {
+                        android.util.Log.w("WebSocketService", "No message received for ${timeSinceLastMessage}ms (>= ${MESSAGE_TIMEOUT_MS}ms) - reconnecting")
+                        logActivity("Message Timeout - Reconnecting", serviceInstance.currentNetworkType.name)
+                        clearWebSocket("No message for 60 seconds - connection stale")
+                        scheduleReconnection("60 second message timeout")
+                        delay(PING_INTERVAL_MS)
+                        continue
                     }
                     
-                    // Only send ping if ready (fully initialized), network is available, and no ping is already in flight
-                    if (serviceInstance.connectionState.isReady() && 
-                        serviceInstance.isCurrentlyConnected && 
-                        !serviceInstance.pingInFlight) {
+                    if (!serviceInstance.pingInFlight) {
                         serviceInstance.sendPing()
-                    } else {
-                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop: skipping ping - ready: ${serviceInstance.connectionState.isReady()}, network: ${serviceInstance.isCurrentlyConnected}, pingInFlight: ${serviceInstance.pingInFlight}")
                     }
+                    
+                    delay(PING_INTERVAL_MS)
                 }
-                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop coroutine ended - isActive=$isActive")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop ended - isActive=$isActive")
             }
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop started")
             logPingStatus()
@@ -882,26 +869,11 @@ class WebSocketService : Service() {
         }
         
         /**
-         * Set app visibility for adaptive ping intervals
+         * Set app visibility (kept for compatibility, ping interval is fixed at 15s)
          */
         fun setAppVisibility(visible: Boolean) {
             instance?.isAppVisible = visible
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "App visibility changed to: $visible")
-            
-            // BATTERY OPTIMIZATION: Adaptive ping interval based on app visibility
-            // Foreground: 15 seconds (normal interval)
-            // Background: 30 seconds (safe margin vs 60s backend timeout)
-            val interval = instance?.let { serviceInstance ->
-                if (serviceInstance.isAppVisible) PING_INTERVAL_MS else PING_INTERVAL_BACKGROUND_MS
-            } ?: PING_INTERVAL_BACKGROUND_MS
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping interval: ${interval}ms (app visible: $visible)")
-            
-            // Force update the ping loop if it's running
-            instance?.let { serviceInstance ->
-                if (serviceInstance.pingJob?.isActive == true) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "App visibility changed while ping loop running - will use new interval on next ping")
-                }
-            }
         }
         
         
@@ -1267,11 +1239,22 @@ class WebSocketService : Service() {
         }
         
         /**
+         * Notify that a message was received from the server.
+         * Resets the 60-second message timeout - connection is marked bad if no message for 60s.
+         * Call from NetworkUtils on every message (pong, run_id, sync_complete, etc.)
+         */
+        fun onMessageReceived() {
+            val serviceInstance = instance ?: return
+            serviceInstance.lastMessageReceivedTimestamp = System.currentTimeMillis()
+        }
+        
+        /**
          * Handle pong response
          * RUSH TO HEALTHY: Reset failure counter on any successful pong
          */
         fun handlePong(requestId: Int) {
             val serviceInstance = instance ?: return
+            onMessageReceived() // Reset 60s message timeout
             
             // Accept pong if it matches the last ping request ID (most recent ping)
             // This prevents processing stale pongs from previous connections
@@ -1384,51 +1367,39 @@ class WebSocketService : Service() {
                 serviceInstance.webSocket?.close(1000, "Reconnecting")
             }
             
-            updateConnectionState(WebSocketState.Connecting)
+            // Connection is marked good when WebSocket connects - we don't wait for run_id or init_complete
+            updateConnectionState(WebSocketState.Ready)
             serviceInstance.webSocket = webSocket
-            // DO NOT mark as CONNECTED yet - wait for init_complete
-            // Track connection start time for duration display
             serviceInstance.connectionStartTime = System.currentTimeMillis()
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Connection state set to CONNECTING (waiting for init_complete)")
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "WebSocket reference set")
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Connection start time recorded: ${serviceInstance.connectionStartTime}")
+            serviceInstance.lastMessageReceivedTimestamp = System.currentTimeMillis()
             serviceInstance.lastPongTimestamp = SystemClock.elapsedRealtime()
+            
+            // Clear connection flag - connection completed successfully
+            synchronized(serviceInstance.reconnectionLock) {
+                serviceInstance.isConnecting = false
+            }
+            resetReconnectionState()
             
             // Ensure network connectivity is marked as available when WebSocket connects
             serviceInstance.isCurrentlyConnected = true
             
-            // Get the actual network type (not hardcoded to WiFi)
-            // Get network type from the service instance's connectivity manager
             val actualNetworkType = serviceInstance.getNetworkTypeFromCapabilities()
             serviceInstance.currentNetworkType = actualNetworkType
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network type set to: $actualNetworkType")
             
-            // Start timeout for init_complete - connection is only healthy after init_complete arrives
-            serviceInstance.waitingForInitComplete = true
-            serviceInstance.runIdReceived = false
-            serviceInstance.runIdReceivedTime = 0
-            // CRITICAL: Track if we're reconnecting with last_received_event (backend won't send init_complete)
-            // This is set when we connect with last_received_event in the URL (in NetworkUtils)
-            // Don't reset it here - it's set by NetworkUtils when building the URL
-            // Start timeout for run_id (2 seconds) - if not received, connection is broken
-            serviceInstance.startRunIdTimeout()
-            // Don't start init_complete timeout yet - wait for run_id first
+            // Start ping loop: first ping 15s after connect, then every 15s
+            if (!serviceInstance.pingLoopStarted) {
+                serviceInstance.pingLoopStarted = true
+                serviceInstance.hasEverReachedReadyState = true
+                android.util.Log.i("WebSocketService", "WebSocket connected - starting ping loop (first ping in 15s)")
+                logActivity("WebSocket Connected", actualNetworkType.name)
+                startPingLoop()
+            }
             
-            // CRITICAL FIX #1: Start hard timeout for total Connecting state duration (5 seconds)
-            // This is a safety net in case timeout jobs fail or get cancelled
-            serviceInstance.startHardConnectingTimeout()
-            
-            // Log activity: WebSocket connecting (not connected yet)
-            logActivity("WebSocket Connecting - Waiting for init_complete", actualNetworkType.name)
-            
-            // Update notification with connection status (still connecting)
-            updateConnectionStatus(false, null, serviceInstance.lastSyncTimestamp)
-            
-            android.util.Log.i("WebSocketService", "WebSocket connection opened - waiting for init_complete")
+            updateConnectionStatus(true, null, serviceInstance.lastSyncTimestamp)
+            android.util.Log.i("WebSocketService", "WebSocket connection opened - connection good")
             logPingStatus()
-            
-            // Show toast for connection opened
-            serviceInstance.showWebSocketToast("Connection opened - waiting for run_id")
+            serviceInstance.showWebSocketToast("Connection opened")
         }
         
         /**
@@ -1449,10 +1420,6 @@ class WebSocketService : Service() {
             }
             
             serviceInstance.pingInFlight = false // Reset ping-in-flight flag
-            
-            // CRITICAL FIX: Cancel hard timeout job when clearing WebSocket
-            serviceInstance.hardConnectingTimeoutJob?.cancel()
-            serviceInstance.hardConnectingTimeoutJob = null
             
             // Check if we're in a state that needs clearing (any active state)
             // DISCONNECTED state means we're already cleared, so we can skip
@@ -1518,6 +1485,7 @@ class WebSocketService : Service() {
             // Reset connection health tracking
             serviceInstance.lastKnownLagMs = null
             serviceInstance.lastPongTimestamp = 0L
+            serviceInstance.lastMessageReceivedTimestamp = 0L
             
             // Reset ping loop state for next connection (ready-state flag stays true so failsafe can run)
             serviceInstance.pingLoopStarted = false
@@ -1561,28 +1529,30 @@ class WebSocketService : Service() {
                 return
             }
             
-            // CRITICAL FIX: If we're in Connecting state, this is a failed connection attempt
-            // We need to schedule reconnection even if close code is 1000 (normal closure)
-            // Code 1000 during Connecting means the connection attempt failed, not that we had a healthy connection
+            val wasReady = serviceInstance.connectionState.isReady()
             val wasConnecting = serviceInstance.connectionState.isConnecting()
             
             clearWebSocket("WebSocket closing ($code)", code, reason)
             
-            // If we were Connecting when the socket closed, schedule reconnection
-            // This handles the case where network type changes trigger a reconnection that fails
-            if (wasConnecting) {
-                android.util.Log.w("WebSocketService", "WebSocket closed with code $code while in Connecting state - scheduling reconnection (failed connection attempt)")
-                logActivity("Connection Failed - Retrying", serviceInstance.currentNetworkType.name)
+            // Schedule reconnection when connection was closed by server
+            // - If Ready: had healthy connection, server closed us (1000, 1001, 1002, 1003, etc.)
+            // - If Connecting: failed connection attempt
+            if (wasReady || wasConnecting) {
+                val logMsg = if (wasReady) {
+                    "WebSocket closed by server (code=$code) - scheduling reconnection"
+                } else {
+                    "WebSocket closed during connection attempt (code=$code) - scheduling reconnection"
+                }
+                android.util.Log.w("WebSocketService", logMsg)
+                logActivity("Connection Closed - Reconnecting", serviceInstance.currentNetworkType.name)
                 
-                // Reset reconnection state to allow new attempt
                 synchronized(serviceInstance.reconnectionLock) {
                     serviceInstance.isReconnecting = false
                     serviceInstance.reconnectionJob?.cancel()
                     serviceInstance.reconnectionJob = null
                 }
                 
-                // Schedule reconnection
-                scheduleReconnection("WebSocket closed during connection attempt (code=$code)")
+                scheduleReconnection("WebSocket closed (code=$code): $reason")
             }
         }
         
@@ -2269,152 +2239,27 @@ class WebSocketService : Service() {
         }
         
         /**
-         * Notify that run_id was received - transition to CONNECTED state
-         * CONNECTING → CONNECTED (when WebSocket opened + run_id received)
+         * Notify that run_id was received.
+         * Connection health no longer depends on run_id - we mark good on websocket connect.
+         * Kept for AppViewModel which still needs run_id for reconnection params.
          */
         fun onRunIdReceived() {
-            val serviceInstance = instance ?: return
-            
-            if (serviceInstance.runIdReceived) {
-                // Already received - ignore duplicate
-                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Run ID already received - ignoring duplicate")
-                return
-            }
-            
-            serviceInstance.runIdReceived = true
-            serviceInstance.runIdReceivedTime = System.currentTimeMillis()
-            
-            // Cancel run_id timeout (we got it)
-            serviceInstance.runIdTimeoutJob?.cancel()
-            serviceInstance.runIdTimeoutJob = null
-            
-            // CRITICAL FIX: Cancel hard timeout when run_id received (connection progressing normally)
-            serviceInstance.hardConnectingTimeoutJob?.cancel()
-            serviceInstance.hardConnectingTimeoutJob = null
-            
-            // State transition: CONNECTING → CONNECTED
-            // CRITICAL FIX: Handle race condition where init_complete arrives before run_id
-            val currentState = serviceInstance.connectionState
-            if (currentState.isConnecting()) {
-                updateConnectionState(WebSocketState.Connected)
-                android.util.Log.i("WebSocketService", "Run ID received - state transition: CONNECTING → CONNECTED")
-                
-                // Start timeout for init_complete (base 5s, extends by 5s per message)
-                android.util.Log.i("WebSocketService", "Run ID received - starting init_complete timeout (base: ${INIT_COMPLETE_AFTER_RUN_ID_TIMEOUT_MS_BASE}ms, extends by ${INIT_COMPLETE_EXTENSION_PER_MESSAGE_MS}ms per message)")
-                serviceInstance.startInitCompleteTimeout()
-            } else if (currentState.isInitializing()) {
-                // Race condition: init_complete arrived before run_id
-                // State is already INITIALIZING, so we just mark run_id as received
-                // No need to start timeout since init_complete already arrived
-                android.util.Log.w("WebSocketService", "Run ID received but state is already INITIALIZING (init_complete arrived first) - marking run_id as received")
-            } else {
-                android.util.Log.w("WebSocketService", "Run ID received but state is ${serviceInstance.connectionState} (expected CONNECTING or INITIALIZING)")
-            }
+            instance?.runIdReceived = true
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Run ID received")
         }
         
         /**
-         * Handle init_complete received - transition to INITIALIZING state
-         * CONNECTED → INITIALIZING (when init_complete received)
+         * Handle init_complete received.
+         * Connection health no longer depends on init_complete - we mark good on websocket connect.
+         * Still clears caches and notifies AppViewModel for application-level sync processing.
          */
         fun onInitCompleteReceived() {
             val serviceInstance = instance ?: return
+            onMessageReceived() // Reset 60s message timeout
             
-            // Cancel timeout if still waiting
-            serviceInstance.initCompleteTimeoutJob?.cancel()
-            serviceInstance.initCompleteTimeoutJob = null
-            // Cancel run_id timeout if still active (should already be cancelled, but be safe)
-            serviceInstance.runIdTimeoutJob?.cancel()
-            serviceInstance.runIdTimeoutJob = null
-            // CRITICAL FIX: Cancel hard timeout when init_complete received (connection progressing normally)
-            serviceInstance.hardConnectingTimeoutJob?.cancel()
-            serviceInstance.hardConnectingTimeoutJob = null
-            
-            // CRITICAL FIX: Handle race condition where init_complete arrives just after timeout
-            // If we're not waiting but connection is still CONNECTING/CONNECTED, accept it anyway
-            if (!serviceInstance.waitingForInitComplete) {
-                if (serviceInstance.connectionState.isConnecting() || serviceInstance.connectionState.isConnected()) {
-                    // Race condition: timeout fired but init_complete arrived shortly after
-                    // Accept it anyway since connection is still active
-                    android.util.Log.w("WebSocketService", "Init complete received after timeout but connection still active - accepting (race condition)")
-                } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Init complete received but not waiting - ignoring (state: ${serviceInstance.connectionState})")
-                    return
-                }
-            }
-            
-            serviceInstance.waitingForInitComplete = false
-            
-            // CRITICAL FIX: Handle race condition where init_complete arrives before run_id
-            val currentState = serviceInstance.connectionState
-            if (currentState.isInitializing()) {
-                // Already in INITIALIZING state - probably duplicate init_complete or race condition
-                android.util.Log.w("WebSocketService", "Init complete received but connection state is already INITIALIZING - ignoring duplicate")
-                return
-            }
-            
-            // CRITICAL FIX: Verify connection state before proceeding
-            // If connection was cleared due to timeout, don't proceed with init_complete processing
-            // Also handle case where run_id hasn't arrived yet (state is still CONNECTING)
-            if (!currentState.isConnected() && !currentState.isConnecting()) {
-                android.util.Log.w("WebSocketService", "Init complete received but connection state is ${serviceInstance.connectionState} - ignoring")
-                return
-            }
-            
-            // CRITICAL FIX: Get queued sync_complete count from AppViewModel BEFORE creating Initializing state
-            // This ensures the notification shows the correct count (e.g., "Initializing (0/9)" instead of "Initializing (0/0)")
-            // AppViewModel tracks queued messages in initialSyncCompleteQueue and exposes pendingSyncCompleteCount
-            val queuedSyncCount = try {
-                // Try to get count from AppViewModel via registered ViewModels
-                // Match by primaryViewModelId using the receive callbacks
-                val primaryId = primaryViewModelId
-                if (primaryId != null) {
-                    // Find the actual AppViewModel instance from receive callbacks
-                    val viewModel = synchronized(callbacksLock) {
-                        webSocketReceiveCallbacks.firstOrNull { it.first == primaryId }?.second
-                    }
-                    val count = viewModel?.pendingSyncCompleteCount ?: 0
-                    if (BuildConfig.DEBUG && count > 0) {
-                        android.util.Log.d("WebSocketService", "Got queued sync count from AppViewModel: $count")
-                    }
-                    count
-                } else {
-                    0
-                }
-            } catch (e: Exception) {
-                if (BuildConfig.DEBUG) android.util.Log.w("WebSocketService", "Failed to get queued sync count from AppViewModel: ${e.message}")
-                0
-            }
-            
-            // State transition: CONNECTED → INITIALIZING (or CONNECTING → INITIALIZING if run_id hasn't arrived yet)
-            val previousState = if (currentState.isConnected()) "CONNECTED" else "CONNECTING"
-            updateConnectionState(WebSocketState.Initializing(
-                pendingSyncCompleteCount = queuedSyncCount,
-                processedSyncCompleteCount = 0
-            ))
-            android.util.Log.i("WebSocketService", "Init complete received - state transition: $previousState → INITIALIZING (queued sync_completes: $queuedSyncCount)")
-            
-            // CRITICAL FIX: AppViewModel will update this via updateInitializingProgress() when it starts processing
-            // But we initialize with the count if available to avoid showing (0/0) initially
-            
-            // If run_id hasn't been received yet, mark it as received (race condition handling)
-            if (!serviceInstance.runIdReceived) {
-                android.util.Log.w("WebSocketService", "Init complete received before run_id - marking run_id as received (race condition)")
-                serviceInstance.runIdReceived = true
-                serviceInstance.runIdReceivedTime = System.currentTimeMillis()
-                // Cancel run_id timeout if still active
-                serviceInstance.runIdTimeoutJob?.cancel()
-                serviceInstance.runIdTimeoutJob = null
-            }
-            
-            // Reset retry count on successful init_complete
-            serviceInstance.initCompleteRetryCount = 0
-            
-            // CRITICAL: Clear all timeline caches on connect/reconnect - all caches are stale
-            // This ensures we don't use stale data after reconnection
-            // Also notifies AppViewModel to clear its internal caches
+            // Clear all timeline caches on init_complete - all caches are stale
             RoomTimelineCache.clearAll()
             
-            // Notify AppViewModel to clear its internal caches via callback
             val clearCacheCallback = getActiveClearCacheCallback()
             if (clearCacheCallback != null) {
                 try {
@@ -2423,28 +2268,13 @@ class WebSocketService : Service() {
                 } catch (e: Exception) {
                     android.util.Log.e("WebSocketService", "Error invoking clear cache callback: ${e.message}", e)
                 }
-            } else {
-                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Clear cache callback not available - RoomTimelineCache already cleared")
             }
             
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Cleared all timeline caches on init_complete (all rooms marked as needing pagination)")
-            
-            // State transition to INITIALIZING already happened above
-            // No need to update state again here
-            logActivity("Init Complete Received - Connection Healthy", serviceInstance.currentNetworkType.name)
-            
-            // Show toast for successful connection
-            serviceInstance.showWebSocketToast("Connected!")
-            
-            // Update notification
+            logActivity("Init Complete Received", serviceInstance.currentNetworkType.name)
             updateConnectionStatus(true, null, serviceInstance.lastSyncTimestamp)
-            
-            // Clear any failure notifications
             serviceInstance.clearInitCompleteFailureNotification()
             
-            // CRITICAL FIX: Start ping loop immediately after init_complete
-            // This ensures backend doesn't close the connection due to inactivity
-            startPingLoopOnInitComplete()
+            // AppViewModel receives init_complete via NetworkUtils and handles sync_complete queue
         }
         
         /**
@@ -2935,6 +2765,7 @@ class WebSocketService : Service() {
     private var webSocket: WebSocket? = null
     private var connectionState: WebSocketState = WebSocketState.Disconnected
     private var lastPongTimestamp = 0L // Track last pong for heartbeat monitoring
+    private var lastMessageReceivedTimestamp = 0L // Reset on ANY message - 60s without = reconnect
     private var connectionStartTime: Long = 0 // Track when WebSocket connection was established (0 = not connected)
     // Reconnection state management
     // run_id is always read from SharedPreferences - not stored in service state
@@ -3981,90 +3812,16 @@ class WebSocketService : Service() {
     }
     
     /**
-     * Start pong timeout for a ping
-     * RUSH TO HEALTHY: 1 second timeout, immediate retry on failure, drop after 3 consecutive failures
+     * Start pong timeout - clears pingInFlight after delay so next ping can be sent.
+     * Reconnection is handled by 60s message timeout, not pong timeout.
      */
     private fun startPongTimeout(pingRequestId: Int) {
         pongTimeoutJob?.cancel()
         pongTimeoutJob = WebSocketService.serviceScope.launch {
-            delay(PONG_TIMEOUT_MS) // 1 second timeout
-            
-            // Check if we're still ready before processing timeout
-            if (!connectionState.isReady() || !isCurrentlyConnected) {
-                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Pong timeout but connection already inactive - ignoring")
-                return@launch
-            }
-            
-            android.util.Log.w("WebSocketService", "Pong timeout for ping $pingRequestId (${PONG_TIMEOUT_MS}ms)")
-            
-            // Clear ping-in-flight flag since we timed out
+            delay(PONG_CLEAR_INFLIGHT_MS)
+            if (!connectionState.isReady() || !isCurrentlyConnected) return@launch
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Pong clear timeout - clearing pingInFlight for next ping")
             pingInFlight = false
-            
-            // Increment consecutive failure counter
-            consecutivePingTimeouts++
-            android.util.Log.w("WebSocketService", "Consecutive ping failures: $consecutivePingTimeouts")
-            
-            // Log ping timeout to activity log
-            logActivity("Ping Timeout (${consecutivePingTimeouts}/${CONSECUTIVE_FAILURES_TO_DROP})", currentNetworkType.name)
-            
-            // RUSH TO HEALTHY: If 3 consecutive failures, drop WebSocket and reconnect
-            if (consecutivePingTimeouts >= CONSECUTIVE_FAILURES_TO_DROP) {
-                android.util.Log.e("WebSocketService", "3 consecutive ping failures - dropping WebSocket and reconnecting")
-                logActivity("Dropping Connection - 3 consecutive ping failures", currentNetworkType.name)
-                consecutivePingTimeouts = 0
-                
-                // CRITICAL: Wait for NET_CAPABILITY_VALIDATED before health check
-                val networkValidated = waitForNetworkValidation(2000L)
-                if (!networkValidated) {
-                    android.util.Log.w("WebSocketService", "Network not validated after ping failures - waiting for validation")
-                    // Still clear WebSocket and wait for network validation
-                    clearWebSocket("3 consecutive ping failures - waiting for network validation")
-                    return@launch
-                }
-                
-                // Check backend health
-                val backendHealthy = checkBackendHealth()
-                
-                if (backendHealthy) {
-                    // Backend is healthy - reconnect immediately
-                    android.util.Log.i("WebSocketService", "Backend healthy - triggering immediate reconnection")
-                    logActivity("Backend Healthy - Reconnecting", currentNetworkType.name)
-                    clearWebSocket("3 consecutive ping failures - backend healthy")
-                    // PHASE 1.4: Use safe invocation helper with error handling
-                    invokeReconnectionCallback("3 consecutive ping failures - backend healthy")
-                } else {
-                    // Backend unhealthy - wait for recovery
-                    android.util.Log.w("WebSocketService", "Backend unhealthy - waiting for recovery")
-                    logActivity("Backend Unhealthy - Waiting for Recovery", currentNetworkType.name)
-                    clearWebSocket("3 consecutive ping failures - backend unhealthy")
-                    
-                    // Poll backend health and reconnect when healthy
-                    while (isActive) {
-                        delay(BACKEND_HEALTH_RETRY_DELAY_MS)
-                        if (!isActive) return@launch
-                        
-                        // CRITICAL: Wait for NET_CAPABILITY_VALIDATED before health check
-                        val networkValidated = waitForNetworkValidation(2000L)
-                        if (!networkValidated) {
-                            android.util.Log.w("WebSocketService", "Network not validated during backend health polling - continuing")
-                            continue
-                        }
-                        
-                        val recovered = checkBackendHealth()
-                        if (recovered) {
-                            android.util.Log.i("WebSocketService", "Backend healthy again - triggering reconnection")
-                            logActivity("Backend Recovered - Reconnecting", currentNetworkType.name)
-                            // PHASE 1.4: Use safe invocation helper with error handling
-                            invokeReconnectionCallback("Backend recovered after ping failures")
-                            return@launch
-                        }
-                    }
-                }
-            } else {
-                // RUSH TO HEALTHY: Send next ping immediately (don't wait for normal interval)
-                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping failure #$consecutivePingTimeouts - sending next ping immediately")
-                // The ping loop will send immediately when it sees we're still connected
-            }
         }
     }
     
@@ -5398,9 +5155,7 @@ class WebSocketService : Service() {
             )
             
             // Calculate next alarm time: current interval + margin
-            // BATTERY OPTIMIZATION: Adaptive ping interval based on app visibility
-            // Foreground: 15s, Background: 30s (safe margin vs 60s backend timeout)
-            val interval = if (isAppVisible) PING_INTERVAL_MS else PING_INTERVAL_BACKGROUND_MS
+            val interval = PING_INTERVAL_MS
             val triggerTime = System.currentTimeMillis() + interval + HEARTBEAT_MARGIN_MS
             
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

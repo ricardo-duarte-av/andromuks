@@ -541,6 +541,7 @@ fun connectToWebsocket(
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
+            WebSocketService.onMessageReceived() // Reset 60s message timeout on any message
             val jsonObject = try { JSONObject(text) } catch (e: Exception) { 
                 Log.e("Andromuks", "NetworkUtils: Failed to parse JSON message: ${text.take(200)}", e)
                 null 
@@ -579,23 +580,21 @@ fun connectToWebsocket(
                         }
                     }
                     "sync_complete" -> {
-                        // CRITICAL FIX: Extend init_complete timeout when sync_complete is received
-                        // This indicates the connection is alive but slow, so we extend the timeout
-                        WebSocketService.extendInitCompleteTimeoutOnMessage()
-                        
                         // CRITICAL: On reconnections with last_received_event, backend doesn't send init_complete
-                        // The first sync_complete acts as init_complete - mark connection as CONNECTED
+                        // The first sync_complete acts as init_complete - clear caches and notify ViewModels
                         val isReconnectingWithLastReceivedEvent = WebSocketService.isReconnectingWithLastReceivedEvent()
-                        val connectionState = WebSocketService.getConnectionState()
-                        val isConnecting = connectionState != null && (connectionState is WebSocketService.WebSocketState.Connecting)
-                        if (isReconnectingWithLastReceivedEvent && isConnecting) {
+                        if (isReconnectingWithLastReceivedEvent) {
                             if (BuildConfig.DEBUG) {
                                 Log.i("NetworkUtils", "Reconnection with last_received_event: First sync_complete received - treating as init_complete")
                             }
-                            // Treat first sync_complete as init_complete
                             WebSocketService.onInitCompleteReceived()
-                            // Clear the flag so subsequent sync_complete messages are treated normally
                             WebSocketService.setReconnectingWithLastReceivedEvent(false)
+                            // Notify ViewModels (same as init_complete)
+                            WebSocketService.getServiceScope().launch(Dispatchers.Main) {
+                                for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                    viewModel.onInitComplete()
+                                }
+                            }
                         }
                         
                         // PHASE 4: Distribute to all registered ViewModels
@@ -665,10 +664,6 @@ fun connectToWebsocket(
                         }
                     }
                     "response" -> {
-                        // CRITICAL FIX: Extend init_complete timeout when response is received
-                        // This indicates the connection is alive but slow, so we extend the timeout
-                        WebSocketService.extendInitCompleteTimeoutOnMessage()
-                        
                         val requestId = jsonObject.optInt("request_id")
                         val data = jsonObject.opt("data")
                         
@@ -740,6 +735,7 @@ fun connectToWebsocket(
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+            WebSocketService.onMessageReceived() // Reset 60s message timeout on any message
             if (BuildConfig.DEBUG) {
                 Log.d("Andromuks", "NetworkUtils: onMessage received (bytes, length=${bytes.size})")
             }
@@ -800,18 +796,18 @@ fun connectToWebsocket(
                                 }
                                 "sync_complete" -> {
                                     // CRITICAL: On reconnections with last_received_event, backend doesn't send init_complete
-                                    // The first sync_complete acts as init_complete - mark connection as CONNECTED
                                     val isReconnectingWithLastReceivedEvent = WebSocketService.isReconnectingWithLastReceivedEvent()
-                                    val connectionState = WebSocketService.getConnectionState()
-                                    val isConnecting = connectionState != null && (connectionState is WebSocketService.WebSocketState.Connecting)
-                                    if (isReconnectingWithLastReceivedEvent && isConnecting) {
+                                    if (isReconnectingWithLastReceivedEvent) {
                                         if (BuildConfig.DEBUG) {
-                                            Log.i("NetworkUtils", "Reconnection with last_received_event (compressed): First sync_complete received - treating as init_complete")
+                                            Log.i("NetworkUtils", "Reconnection with last_received_event (compressed): First sync_complete - treating as init_complete")
                                         }
-                                        // Treat first sync_complete as init_complete
                                         WebSocketService.onInitCompleteReceived()
-                                        // Clear the flag so subsequent sync_complete messages are treated normally
                                         WebSocketService.setReconnectingWithLastReceivedEvent(false)
+                                        WebSocketService.getServiceScope().launch(Dispatchers.Main) {
+                                            for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                                viewModel.onInitComplete()
+                                            }
+                                        }
                                     }
                                     
                                     // PHASE 4: Distribute to all registered ViewModels
