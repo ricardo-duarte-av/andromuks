@@ -5489,6 +5489,12 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting spacesLoaded after $syncMessageCount sync messages")
             spacesLoaded = true
         }
+        
+        // Process space edges after roomMap is updated so spaces show only joined rooms.
+        // (Don't run from storeSpaceEdges — that runs before processParsedSyncResult, when data.rooms may be empty.)
+        if (storedSpaceEdges != null && initializationComplete) {
+            populateSpaceEdges()
+        }
     }
     
     fun onInitComplete() {
@@ -5937,11 +5943,8 @@ class AppViewModel : ViewModel() {
             registerSpaceIds(edgeIds)
         }
         
-        // If initialization is already complete (e.g., after a pull-to-refresh reconnection),
-        // process edges immediately so Spaces tab gets populated without waiting for another init cycle.
-        if (initializationComplete) {
-            populateSpaceEdges()
-        }
+        // Space edges are processed after roomMap is updated in processParsedSyncResult()
+        // (or on init_complete in onInitComplete), so we don't run here with stale data.rooms.
     }
     
     /**

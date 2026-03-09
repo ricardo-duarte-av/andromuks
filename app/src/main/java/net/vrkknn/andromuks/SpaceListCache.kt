@@ -24,33 +24,41 @@ object SpaceListCache {
     // Thread-safe map storing space data: spaceId -> SpaceItem
     private val spaceCache = ConcurrentHashMap<String, SpaceItem>()
     
+    // Order of space IDs (from top_level_spaces) so list matches server order
+    private var spaceOrder = listOf<String>()
+    
     // Thread-safe storage for space_edges JSONObject
     private var cachedSpaceEdges: JSONObject? = null
     
     private val cacheLock = Any()
     
     /**
-     * Update or add spaces to the cache
+     * Update or add spaces to the cache.
+     * List order is preserved (should match top_level_spaces from sync).
      */
     fun updateSpaces(spaces: List<SpaceItem>) {
         synchronized(cacheLock) {
-            // Clear existing spaces and add new ones
             spaceCache.clear()
+            spaceOrder = spaces.map { it.id }
             spaces.forEach { space ->
                 spaceCache[space.id] = space
             }
             if (BuildConfig.DEBUG) {
-                Log.d(TAG, "SpaceListCache: Updated ${spaces.size} spaces in cache")
+                Log.d(TAG, "SpaceListCache: Updated ${spaces.size} spaces in cache (order preserved)")
             }
         }
     }
     
     /**
-     * Update or add a single space to the cache
+     * Update or add a single space to the cache.
+     * Does not change space order; new space is appended for ordering purposes if not in spaceOrder.
      */
     fun updateSpace(space: SpaceItem) {
         synchronized(cacheLock) {
             spaceCache[space.id] = space
+            if (space.id !in spaceOrder) {
+                spaceOrder = spaceOrder + space.id
+            }
         }
     }
     
@@ -60,6 +68,7 @@ object SpaceListCache {
     fun removeSpace(spaceId: String) {
         synchronized(cacheLock) {
             spaceCache.remove(spaceId)
+            spaceOrder = spaceOrder.filter { it != spaceId }
         }
     }
     
@@ -73,11 +82,11 @@ object SpaceListCache {
     }
     
     /**
-     * Get all spaces from the cache
+     * Get all spaces from the cache in top_level_spaces order.
      */
     fun getAllSpaces(): List<SpaceItem> {
         return synchronized(cacheLock) {
-            spaceCache.values.toList()
+            spaceOrder.mapNotNull { spaceCache[it] }
         }
     }
     
@@ -117,6 +126,7 @@ object SpaceListCache {
     fun clear() {
         synchronized(cacheLock) {
             spaceCache.clear()
+            spaceOrder = emptyList()
             cachedSpaceEdges = null
             if (BuildConfig.DEBUG) Log.d(TAG, "SpaceListCache: Cleared all spaces and space_edges")
         }

@@ -711,18 +711,26 @@ object SpaceRoomParser {
                         val edge = spaceEdgeArray.optJSONObject(j)
                         val childId = edge?.optString("child_id")?.takeIf { it.isNotBlank() }
                         if (childId != null) {
-                            // Try to find this room in the rooms data
+                            // Skip nested spaces (show only rooms)
+                            if (spaceEdges.has(childId)) continue
+                            // Only show rooms the client is joined to. Use current sync data.rooms OR app's roomMap,
+                            // since the first sync_complete may have space_edges while data.rooms is still empty.
                             val childRoomData = roomsJson?.optJSONObject(childId)
+                            val joinedRoom = appViewModel?.getRoomById(childId)
+                            val isJoined = childRoomData != null || joinedRoom != null
+                            if (!isJoined) continue
                             val childMeta = childRoomData?.optJSONObject("meta")
                             val childName = childMeta?.optString("name")?.takeIf { it.isNotBlank() }
+                                ?: joinedRoom?.name
                                 ?: appViewModel?.allSpaces?.find { it.id == childId }?.name
                                 ?: childId
                             val childAvatar = childMeta?.optString("avatar")?.takeIf { it.isNotBlank() }
+                                ?: joinedRoom?.avatarUrl
                                 ?: appViewModel?.allSpaces?.find { it.id == childId }?.avatarUrl
-                            val unreadCount = childMeta?.optInt("unread_messages", 0) ?: 0
-                            val highlightCount = childMeta?.optInt("unread_highlights", 0) ?: 0
-                            
+                            val unreadCount = childMeta?.optInt("unread_messages", 0) ?: joinedRoom?.unreadCount ?: 0
+                            val highlightCount = childMeta?.optInt("unread_highlights", 0) ?: joinedRoom?.highlightCount ?: 0
                             val childCanonicalAlias = childMeta?.optString("canonical_alias")?.takeIf { it.isNotBlank() }
+                                ?: joinedRoom?.canonicalAlias
                             val childRoom = net.vrkknn.andromuks.RoomItem(
                                 id = childId,
                                 name = childName,
