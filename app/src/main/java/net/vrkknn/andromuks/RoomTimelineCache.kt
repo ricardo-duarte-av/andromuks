@@ -350,6 +350,16 @@ object RoomTimelineCache {
                                 Log.d(TAG, "RoomTimelineCache: Updated redactedBy for existing event ${event.eventId} in room $roomId (redactedBy=${event.redactedBy})")
                             }
                         }
+                        // CRITICAL: Update timeline_rowid when incoming has resolved value (positive) and
+                        // existing has invalid value (0 or -1). Events can arrive with timeline_rowid=0
+                        // before resolution; the resolved value must be merged so sorting works correctly.
+                        if (event.timelineRowid > 0 && existingEvent.timelineRowid <= 0) {
+                            updatedEvent = updatedEvent.copy(timelineRowid = event.timelineRowid)
+                            needsUpdate = true
+                            if (BuildConfig.DEBUG) {
+                                Log.d(TAG, "RoomTimelineCache: Updated timeline_rowid for existing event ${event.eventId} in room $roomId (was ${existingEvent.timelineRowid}, now ${event.timelineRowid})")
+                            }
+                        }
                         if (needsUpdate) {
                             cache.events[existingEventIndex] = updatedEvent
                         }

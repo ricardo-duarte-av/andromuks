@@ -14160,6 +14160,45 @@ class AppViewModel : ViewModel() {
      * This allows instant room opening if we have enough cached events
      */
     /**
+     * Resolve timeline_rowid from room's timeline mapping for events that have timeline_rowid=0.
+     * The sync_complete timeline array maps event_rowid -> timeline_rowid; events in the events
+     * array may have timeline_rowid=0 and must be looked up by their rowid.
+     */
+    private fun resolveTimelineRowidsFromRoomData(roomData: JSONObject): JSONArray? {
+        val events = roomData.optJSONArray("events") ?: return null
+        val timeline = roomData.optJSONArray("timeline") ?: return events
+
+        val mapping = mutableMapOf<Long, Long>()
+        for (i in 0 until timeline.length()) {
+            val entry = timeline.optJSONObject(i) ?: continue
+            if (entry.has("event_rowid") && entry.has("timeline_rowid")) {
+                val eventRowid = entry.optLong("event_rowid", -1)
+                val timelineRowid = entry.optLong("timeline_rowid", -1)
+                if (eventRowid != -1L && timelineRowid > 0) {
+                    mapping[eventRowid] = timelineRowid
+                }
+            }
+        }
+        if (mapping.isEmpty()) return events
+
+        for (i in 0 until events.length()) {
+            val event = events.optJSONObject(i) ?: continue
+            val rowid = event.optLong("rowid", -1)
+            val currentTimelineRowid = event.optLong("timeline_rowid", -1)
+            if ((currentTimelineRowid == 0L || currentTimelineRowid == -1L) && rowid != -1L) {
+                val resolved = mapping[rowid]
+                if (resolved != null) {
+                    event.put("timeline_rowid", resolved)
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Resolved timeline_rowid=$resolved for event rowid=$rowid (was $currentTimelineRowid)")
+                    }
+                }
+            }
+        }
+        return events
+    }
+
+    /**
      * Cache timeline events from sync for all rooms.
      * OPTIMIZED: Processes current room immediately, defers others to background thread.
      */
@@ -14171,7 +14210,7 @@ class AppViewModel : ViewModel() {
         while (roomKeys.hasNext()) {
             val roomId = roomKeys.next()
             val roomData = rooms.optJSONObject(roomId) ?: continue
-            val events = roomData.optJSONArray("events") ?: continue
+            val events = resolveTimelineRowidsFromRoomData(roomData) ?: continue
             
             val memberMap = RoomMemberCache.getRoomMembers(roomId)
             RoomTimelineCache.addEventsFromSync(roomId, events, memberMap)
@@ -14211,7 +14250,9 @@ class AppViewModel : ViewModel() {
                     }
                     
                     // Process new timeline events
-                    val events = roomData.optJSONArray("events")
+                    // CRITICAL: Resolve timeline_rowid from room's timeline mapping - events may have
+                    // timeline_rowid=0 and the actual value is in timeline array (event_rowid -> timeline_rowid)
+                    val events = resolveTimelineRowidsFromRoomData(roomData)
                     if (events != null && events.length() > 0) {
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing ${events.length()} new timeline events for room: $roomId")
                         
@@ -14532,9 +14573,19 @@ class AppViewModel : ViewModel() {
      * Includes deduplication to prevent the same event from being added multiple times.
      */
     private fun addNewEventToChain(event: TimelineEvent) {
-        
-        // DEDUPLICATION: Check if event already exists in chain
-        if (eventChainMap.containsKey(event.eventId)) {
+        val existingEntry = eventChainMap[event.eventId]
+        if (existingEntry != null) {
+            // Event already exists - merge timeline_rowid if incoming has resolved value
+            // (existing may have 0/-1 from earlier path; resolved value is critical for sorting)
+            val existingBubble = existingEntry.ourBubble
+            if (existingBubble != null && event.timelineRowid > 0 && existingBubble.timelineRowid <= 0) {
+                eventChainMap[event.eventId] = existingEntry.copy(
+                    ourBubble = existingBubble.copy(timelineRowid = event.timelineRowid)
+                )
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Updated eventChainMap timeline_rowid for ${event.eventId} (was ${existingBubble.timelineRowid}, now ${event.timelineRowid})")
+                }
+            }
             return
         }
         
