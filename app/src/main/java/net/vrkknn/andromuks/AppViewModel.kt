@@ -17522,10 +17522,25 @@ class AppViewModel : ViewModel() {
     
     private fun handleMutualRoomsResponse(requestId: Int, data: Any) {
         val callback = mutualRoomsRequests.remove(requestId) ?: return
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling mutual rooms response for requestId: $requestId")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling mutual rooms response for requestId: $requestId, data type: ${data::class.simpleName}")
         
         try {
             val roomsList = when (data) {
+                is JSONObject -> {
+                    // Response format: {"joined": ["room1", "room2", ...]}
+                    val joinedArray = data.optJSONArray("joined")
+                    if (joinedArray != null) {
+                        val list = mutableListOf<String>()
+                        for (i in 0 until joinedArray.length()) {
+                            list.add(joinedArray.getString(i))
+                        }
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Parsed ${list.size} mutual rooms from joined array")
+                        list
+                    } else {
+                        android.util.Log.w("Andromuks", "AppViewModel: No 'joined' array in mutual rooms response")
+                        emptyList()
+                    }
+                }
                 is JSONArray -> {
                     val list = mutableListOf<String>()
                     for (i in 0 until data.length()) {
@@ -17535,7 +17550,7 @@ class AppViewModel : ViewModel() {
                 }
                 is List<*> -> data.mapNotNull { it as? String }
                 else -> {
-                    android.util.Log.e("Andromuks", "AppViewModel: Unexpected data type for mutual rooms")
+                    android.util.Log.e("Andromuks", "AppViewModel: Unexpected data type for mutual rooms: ${data::class.simpleName}")
                     emptyList()
                 }
             }
