@@ -61,6 +61,7 @@ import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import net.vrkknn.andromuks.utils.MediaUtils
+import net.vrkknn.andromuks.utils.MediaUploadUtils
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -746,6 +747,12 @@ fun UserInfoScreen(
     var timezoneInput by remember { mutableStateOf("") }
     val allTimezones = remember { TimeZone.getAvailableIDs().toList().sorted() }
     var showAddProfileInfoDialog by remember { mutableStateOf(false) }
+    var showBannerEditDialog by remember { mutableStateOf(false) }
+    var bannerUploadInProgress by remember { mutableStateOf(false) }
+    var bannerUploadError by remember { mutableStateOf<String?>(null) }
+    var showBioEditDialog by remember { mutableStateOf(false) }
+    var bioInput by remember { mutableStateOf("") }
+    var bioEditError by remember { mutableStateOf<String?>(null) }
     
     // Current time state for user's timezone
     var currentTimeInUserTz by remember { mutableStateOf("") }
@@ -1271,6 +1278,31 @@ fun UserInfoScreen(
                                         )
                                     )
                             )
+                            
+                            // Edit button for own profile (top-right corner)
+                            if (isOwnProfile) {
+                                IconButton(
+                                    onClick = {
+                                        bannerUploadError = null
+                                        showBannerEditDialog = true
+                                    },
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(8.dp)
+                                        .size(32.dp)
+                                        .background(
+                                            MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                            CircleShape
+                                        )
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Edit,
+                                        contentDescription = "Edit banner",
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
                         }
                         
                         // Clickable area for banner - only the top part that doesn't overlap with avatar
@@ -1851,6 +1883,7 @@ fun UserInfoScreen(
                         "moe.sable.app.bio" -> "Bio"
                         else -> "About"
                     }
+                    val isEditableBio = profileBio.sourceKey == "chat.commet.profile_bio"
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
@@ -1862,11 +1895,34 @@ fun UserInfoScreen(
                             modifier = Modifier.padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text(
-                                text = bioLabel,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = bioLabel,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                if (isOwnProfile && isEditableBio) {
+                                    IconButton(
+                                        onClick = {
+                                            // Pre-populate with existing body (markdown source)
+                                            bioInput = profileBio.body
+                                            bioEditError = null
+                                            showBioEditDialog = true
+                                        },
+                                        modifier = Modifier.size(20.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Edit,
+                                            contentDescription = "Edit bio",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
                             
                             if (profileBio.isHtml) {
                                 // Render HTML bio using the HTML utilities
@@ -2256,15 +2312,21 @@ fun UserInfoScreen(
         val existingStatus = profile?.let { extractProfileStatus(it.arbitraryFields) }
         val existingPronouns = profile?.pronouns
         val existingTimezone = profile?.timezone
+        val existingBanner = profile?.let { extractProfileBanner(it.arbitraryFields) }
+        val existingBios = profile?.let { extractProfileBios(it.arbitraryFields) } ?: emptyList()
+        val hasCommetBio = existingBios.any { it.sourceKey == "chat.commet.profile_bio" }
         val missingStatus = existingStatus == null
         val missingPronouns = existingPronouns.isNullOrEmpty()
         val missingTimezone = existingTimezone.isNullOrBlank()
+        val missingBanner = existingBanner == null
+        val missingBio = !hasCommetBio
+        val allSet = !missingStatus && !missingPronouns && !missingTimezone && !missingBanner && !missingBio
         AlertDialog(
             onDismissRequest = { showAddProfileInfoDialog = false },
             title = { Text("Add Profile Info") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (!missingStatus && !missingPronouns && !missingTimezone) {
+                    if (allSet) {
                         Text("All supported profile fields are already set.")
                     }
                     if (missingStatus) {
@@ -2305,6 +2367,31 @@ fun UserInfoScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Pronouns")
+                        }
+                    }
+                    if (missingBanner) {
+                        TextButton(
+                            onClick = {
+                                bannerUploadError = null
+                                showAddProfileInfoDialog = false
+                                showBannerEditDialog = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Profile Banner")
+                        }
+                    }
+                    if (missingBio) {
+                        TextButton(
+                            onClick = {
+                                bioInput = ""
+                                bioEditError = null
+                                showAddProfileInfoDialog = false
+                                showBioEditDialog = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Profile Bio")
                         }
                     }
                 }
@@ -2448,6 +2535,175 @@ fun UserInfoScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showTimezoneEditDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+    
+    // Banner Edit Dialog
+    if (showBannerEditDialog) {
+        val bannerImagePickerLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.GetContent()
+        ) { uri: Uri? ->
+            uri?.let { selectedUri ->
+                val mimeType = context.contentResolver.getType(selectedUri)
+                if (mimeType?.startsWith("image/") == true) {
+                    bannerUploadInProgress = true
+                    bannerUploadError = null
+                    coroutineScope.launch {
+                        try {
+                            val uploadResult = MediaUploadUtils.uploadMedia(
+                                context = context,
+                                uri = selectedUri,
+                                homeserverUrl = appViewModel.homeserverUrl,
+                                authToken = appViewModel.authToken,
+                                isEncrypted = false,
+                                compressOriginal = false
+                            )
+                            if (uploadResult != null) {
+                                appViewModel.setCustomProfileField("chat.commet.profile_banner", uploadResult.mxcUrl)
+                                val updatedFields = userProfileInfo?.arbitraryFields?.toMutableMap() ?: mutableMapOf()
+                                updatedFields["chat.commet.profile_banner"] = uploadResult.mxcUrl
+                                userProfileInfo = userProfileInfo?.copy(arbitraryFields = updatedFields)
+                                bannerUploadInProgress = false
+                                showBannerEditDialog = false
+                                Toast.makeText(context, "Banner updated", Toast.LENGTH_SHORT).show()
+                            } else {
+                                bannerUploadError = "Failed to upload banner image"
+                                bannerUploadInProgress = false
+                            }
+                        } catch (e: Exception) {
+                            Log.e("Andromuks", "UserInfo: Banner upload error", e)
+                            bannerUploadError = "Error: ${e.message}"
+                            bannerUploadInProgress = false
+                        }
+                    }
+                } else {
+                    bannerUploadError = "Please select an image file"
+                }
+            }
+        }
+        
+        AlertDialog(
+            onDismissRequest = { 
+                if (!bannerUploadInProgress) showBannerEditDialog = false 
+            },
+            title = { Text("Set Profile Banner") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Select an image to use as your profile banner. The banner will be displayed behind your avatar on your profile.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    if (bannerUploadInProgress) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            Text("Uploading banner...")
+                        }
+                    }
+                    if (bannerUploadError != null) {
+                        Text(
+                            text = bannerUploadError!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { bannerImagePickerLauncher.launch("image/*") },
+                    enabled = !bannerUploadInProgress
+                ) {
+                    Text("Choose Image")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showBannerEditDialog = false },
+                    enabled = !bannerUploadInProgress
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+    
+    // Bio Edit Dialog
+    if (showBioEditDialog) {
+        AlertDialog(
+            onDismissRequest = { showBioEditDialog = false },
+            title = { Text("Edit Profile Bio") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Write your bio using Markdown formatting:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "**bold**, *italic*, > quote, [link](url)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = bioInput,
+                        onValueChange = { bioInput = it },
+                        label = { Text("Bio") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 120.dp),
+                        maxLines = 10
+                    )
+                    if (bioEditError != null) {
+                        Text(
+                            text = bioEditError!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val bio = bioInput.trim()
+                        if (bio.isBlank()) {
+                            bioEditError = "Bio cannot be empty."
+                            return@TextButton
+                        }
+                        if (bio.toByteArray(Charsets.UTF_8).size > 4096) {
+                            bioEditError = "Bio is too long (max 4KB)."
+                            return@TextButton
+                        }
+                        val htmlBody = markdownToHtml(bio)
+                        val bioPayload = mapOf(
+                            "body" to bio,
+                            "format" to "org.matrix.custom.html",
+                            "formatted_body" to htmlBody
+                        )
+                        appViewModel.setCustomProfileField("chat.commet.profile_bio", bioPayload)
+                        val updatedFields = userProfileInfo?.arbitraryFields?.toMutableMap() ?: mutableMapOf()
+                        val bioJson = JSONObject().apply {
+                            put("body", bio)
+                            put("format", "org.matrix.custom.html")
+                            put("formatted_body", htmlBody)
+                        }
+                        updatedFields["chat.commet.profile_bio"] = bioJson
+                        userProfileInfo = userProfileInfo?.copy(arbitraryFields = updatedFields)
+                        bioEditError = null
+                        showBioEditDialog = false
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBioEditDialog = false }) {
                     Text("Cancel")
                 }
             }
@@ -3501,4 +3757,78 @@ suspend fun addMatrixUserToContacts(
         avatarUrl = avatarUrl
     )
     syncService.syncContacts(listOf(user), syncAvatars = avatarUrl != null)
+}
+
+/**
+ * Convert basic Markdown to HTML for profile bio.
+ * Supports: **bold**, *italic*, > blockquote, [text](url), `code`, and newlines.
+ */
+private fun markdownToHtml(markdown: String): String {
+    var html = markdown
+    
+    // Escape HTML special characters first (except in URLs which we handle separately)
+    html = html
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    
+    // Restore blockquote markers (they were escaped as &gt;)
+    html = html.replace(Regex("^&gt;\\s*", RegexOption.MULTILINE), "> ")
+    
+    // Process blockquotes (lines starting with >)
+    val lines = html.split("\n")
+    val processedLines = mutableListOf<String>()
+    var inBlockquote = false
+    
+    for (line in lines) {
+        if (line.startsWith("> ")) {
+            if (!inBlockquote) {
+                processedLines.add("<blockquote>")
+                inBlockquote = true
+            }
+            processedLines.add(line.removePrefix("> "))
+        } else {
+            if (inBlockquote) {
+                processedLines.add("</blockquote>")
+                inBlockquote = false
+            }
+            processedLines.add(line)
+        }
+    }
+    if (inBlockquote) {
+        processedLines.add("</blockquote>")
+    }
+    html = processedLines.joinToString("\n")
+    
+    // Bold: **text** or __text__
+    html = html.replace(Regex("\\*\\*(.+?)\\*\\*"), "<strong>$1</strong>")
+    html = html.replace(Regex("__(.+?)__"), "<strong>$1</strong>")
+    
+    // Italic: *text* or _text_ (but not inside URLs or already processed bold)
+    html = html.replace(Regex("(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)"), "<em>$1</em>")
+    html = html.replace(Regex("(?<!_)_(?!_)(.+?)(?<!_)_(?!_)"), "<em>$1</em>")
+    
+    // Inline code: `code`
+    html = html.replace(Regex("`([^`]+)`"), "<code>$1</code>")
+    
+    // Links: [text](url)
+    html = html.replace(Regex("\\[([^\\]]+)\\]\\(([^)]+)\\)")) { match ->
+        val text = match.groupValues[1]
+        val url = match.groupValues[2]
+            .replace("&amp;", "&") // Restore & in URLs
+        "<a href=\"$url\">$text</a>"
+    }
+    
+    // Convert double newlines to paragraph breaks
+    html = html.replace(Regex("\n\n+"), "</p><p>")
+    
+    // Convert single newlines to <br>
+    html = html.replace("\n", "<br>")
+    
+    // Wrap in paragraph tags if not already wrapped
+    if (!html.startsWith("<p>") && !html.startsWith("<blockquote>")) {
+        html = "<p>$html</p>"
+    }
+    
+    return html
 }
