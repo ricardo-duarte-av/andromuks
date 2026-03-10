@@ -4489,6 +4489,26 @@ class WebSocketService : Service() {
         scheduleAlarmManagerRestart("App removed from recent apps")
     }
 
+    /**
+     * Get the notification title showing the backend server hostname.
+     * Falls back to "Andromuks" if no server URL is configured.
+     */
+    private fun getNotificationTitle(): String {
+        return try {
+            val prefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+            val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
+            if (homeserverUrl.isNotBlank()) {
+                // Extract hostname from URL (e.g., "https://webmuks.server.com" -> "webmuks.server.com")
+                val url = java.net.URL(if (homeserverUrl.startsWith("http")) homeserverUrl else "https://$homeserverUrl")
+                url.host
+            } else {
+                "Andromuks"
+            }
+        } catch (e: Exception) {
+            "Andromuks"
+        }
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -4543,7 +4563,7 @@ class WebSocketService : Service() {
         }
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Andromuks")
+            .setContentTitle(getNotificationTitle())
             .setContentText(initialText)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
@@ -4602,7 +4622,7 @@ class WebSocketService : Service() {
         val notificationText = "Lag: $lagText • Last: $lastSyncText"
         
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Andromuks")
+            .setContentTitle(getNotificationTitle())
             .setContentText(notificationText)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
@@ -4794,7 +4814,7 @@ class WebSocketService : Service() {
                         
                         // Create and show notification
                         val delayedNotification = NotificationCompat.Builder(this@WebSocketService, CHANNEL_ID)
-                            .setContentTitle("Andromuks")
+                            .setContentTitle(getNotificationTitle())
                             .setContentText(notificationText)
                             .setSmallIcon(R.mipmap.ic_launcher)
                             .setContentIntent(pendingIntent)
@@ -4817,7 +4837,7 @@ class WebSocketService : Service() {
         lastNotificationUpdateTime = System.currentTimeMillis()
         
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Andromuks")
+            .setContentTitle(getNotificationTitle())
             .setContentText(notificationText)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
@@ -4863,7 +4883,7 @@ class WebSocketService : Service() {
         lastNotificationUpdateTime = System.currentTimeMillis()
         
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Andromuks")
+            .setContentTitle(getNotificationTitle())
             .setContentText(notificationText)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
