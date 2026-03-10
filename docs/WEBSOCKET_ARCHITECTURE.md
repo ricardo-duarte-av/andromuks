@@ -34,8 +34,8 @@ wss://homeserver.example.com/_gomuks/websocket?run_id=abc123&last_received_event
 When Android reports a network change (WiFi ↔ Mobile, network lost, network available):
 
 1. **Close the WebSocket** immediately
-2. **Wait for Android to mark the connection stable** (NET_CAPABILITY_VALIDATED)
-3. **Restart the WebSocket** as soon as the network is validated
+2. **Wait for Android to mark the connection stable** (NET_CAPABILITY_VALIDATED, 2 second timeout)
+3. **Try WebSocket connection** even if validation times out (might be slow network)
 4. Treat as a fresh connection flow: connection is good when WebSocket connects
 
 The NetworkMonitor observes:
@@ -44,7 +44,9 @@ The NetworkMonitor observes:
 - `onNetworkTypeChanged`: Network type changed (e.g., WiFi → Mobile)
 - `onNetworkIdentityChanged`: Same type but different identity (e.g., different WiFi AP)
 
-On any meaningful network change, the WebSocket is closed and reconnection is scheduled. When the network is validated, a new connection is established.
+On any meaningful network change, the WebSocket is closed and reconnection is scheduled. 
+
+**Backend health check**: Before connecting, a simple HTTP GET is performed to check if the backend is reachable. However, **this does not block the connection attempt** - if the health check fails (common on cellular networks), the WebSocket connection is still attempted. The WebSocket connection will fail fast if the backend is truly unreachable, and retry with backoff.
 
 ## WebSocket Close Codes
 

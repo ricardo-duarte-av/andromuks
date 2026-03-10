@@ -2457,82 +2457,15 @@ class WebSocketService : Service() {
                         }
                         
                         // Check backend health with simple HTTP GET
+                        // But don't block reconnection if it fails - just log and proceed
+                        // The actual WebSocket connection will fail fast if backend is truly unreachable
                         val backendHealthy = serviceInstance.checkBackendHealth()
-                        
                         if (!backendHealthy) {
-                            // Backend unhealthy - increase backoff and retry in a loop
-                            var currentBackoff = backoffDelay
-                            var attempt = if (currentState is WebSocketState.Reconnecting) currentState.attemptCount else 1
-                            
-                            // Loop until backend is healthy or max attempts reached
-                            while (isActive && attempt < MAX_RECONNECTION_ATTEMPTS) {
-                                // Increase backoff exponentially
-                                currentBackoff = minOf(currentBackoff * 2, 120_000L)
-                                attempt++
-                                
-                                android.util.Log.w("WebSocketService", "Backend unhealthy - waiting ${currentBackoff}ms before retry (attempt $attempt)")
-                                logActivity("Backend Unhealthy - Backoff ${currentBackoff}ms", serviceInstance.currentNetworkType.name)
-                                
-                                // Update state with new backoff
-                                val lastReceivedId = if (currentState is WebSocketState.Reconnecting) {
-                                    currentState.lastReceivedRequestId
-                                } else {
-                                    getLastReceivedRequestId(serviceInstance.applicationContext)
-                                }
-                                
-                                updateConnectionState(WebSocketState.Reconnecting(
-                                    backoffDelayMs = currentBackoff,
-                                    attemptCount = attempt,
-                                    lastReceivedRequestId = lastReceivedId
-                                ))
-                                
-                                // Wait for backoff
-                                delay(currentBackoff)
-                                
-                                // Check if network is still available
-                                if (serviceInstance.currentNetworkType == NetworkType.NONE) {
-                                    android.util.Log.w("WebSocketService", "Network lost during backoff - cancelling reconnection")
-                                    updateConnectionState(WebSocketState.Disconnected)
-                                    serviceInstance.isReconnecting = false
-                                    return@launch
-                                }
-                                
-                                // CRITICAL: Wait for NET_CAPABILITY_VALIDATED before retrying health check
-                                val retryNetworkValidated = serviceInstance.waitForNetworkValidation(2000L)
-                                if (!retryNetworkValidated) {
-                                    android.util.Log.w("WebSocketService", "Network not validated during backoff retry - continuing loop")
-                                    // Continue loop - will retry again after next backoff
-                                    continue
-                                }
-                                
-                                // Check backend health again
-                                val retryBackendHealthy = serviceInstance.checkBackendHealth()
-                                if (retryBackendHealthy) {
-                                    android.util.Log.i("WebSocketService", "Backend is now healthy after ${currentBackoff}ms backoff - proceeding with reconnection")
-                                    break // Exit loop and proceed with reconnection
-                                }
-                                
-                                // Still unhealthy - continue loop
-                            }
-                            
-                            // If we exited the loop due to max attempts, cancel reconnection
-                            if (attempt >= MAX_RECONNECTION_ATTEMPTS) {
-                                android.util.Log.e("WebSocketService", "Backend unhealthy after $attempt attempts - cancelling reconnection")
-                                updateConnectionState(WebSocketState.Disconnected)
-                                serviceInstance.isReconnecting = false
-                                return@launch
-                            }
-                            
-                            // If we exited because job was cancelled, return
-                            if (!isActive) {
-                                serviceInstance.isReconnecting = false
-                                return@launch
-                            }
-                            
-                            // Backend is now healthy - proceed with reconnection below
+                            android.util.Log.w("WebSocketService", "Backend health check failed - proceeding with WebSocket connection anyway")
+                            logActivity("Backend Health Check Failed - Trying WebSocket", serviceInstance.currentNetworkType.name)
                         }
                         
-                        // Network validated and backend healthy - proceed with reconnection
+                        // Network validated - proceed with reconnection
                         // BUT: If, in the meantime, another path has already established a
                         // healthy READY connection with a live WebSocket, this job is now
                         // stale and must not touch the state machine at all.
