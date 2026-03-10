@@ -202,6 +202,28 @@ sealed class HtmlNode {
  */
 object HtmlParser {
     /**
+     * Find the actual tag end '>' while respecting quoted attribute values.
+     * This handles cases like: <blockquote data-md=">">
+     * where the '>' inside quotes should not be treated as the tag end.
+     */
+    private fun findTagEnd(html: String, startPos: Int): Int {
+        var pos = startPos + 1 // Skip the opening '<'
+        var inSingleQuote = false
+        var inDoubleQuote = false
+        
+        while (pos < html.length) {
+            val char = html[pos]
+            when {
+                char == '"' && !inSingleQuote -> inDoubleQuote = !inDoubleQuote
+                char == '\'' && !inDoubleQuote -> inSingleQuote = !inSingleQuote
+                char == '>' && !inSingleQuote && !inDoubleQuote -> return pos
+            }
+            pos++
+        }
+        return -1 // No closing '>' found
+    }
+    
+    /**
      * Parse sanitized HTML string into a tree of HtmlNodes
      */
     fun parse(html: String, preserveWhitespace: Boolean = false): List<HtmlNode> {
@@ -237,8 +259,8 @@ object HtmlParser {
                 }
             }
             
-            // Find the end of the tag
-            val tagEnd = html.indexOf('>', nextTagStart)
+            // Find the end of the tag (respecting quoted attribute values)
+            val tagEnd = findTagEnd(html, nextTagStart)
             if (tagEnd == -1) {
                 // No closing '>' found - this might be text that looks like a tag (e.g., "<--")
                 // Treat everything from the '<' onwards as text
@@ -2259,6 +2281,54 @@ fun htmlToNotificationText(htmlContent: String): android.text.Spanned {
         Log.e("Andromuks", "htmlToNotificationText: Error converting HTML to notification text", e)
         // Fallback to plain text
         android.text.SpannableString(htmlContent)
+    }
+}
+
+/**
+ * Render HTML content to AnnotatedString for simple display (profile bios, etc.)
+ * This is a simplified version that doesn't handle inline images from network,
+ * Matrix user chips, or other complex features - just basic text formatting.
+ */
+fun renderHtmlToAnnotatedString(htmlContent: String, baseColor: Color = Color.Unspecified): AnnotatedString {
+    return try {
+        val decoded = decodeHtmlEntities(htmlContent)
+        val nodes = HtmlParser.parse(decoded)
+        
+        if (nodes.isEmpty()) {
+            return AnnotatedString(decoded)
+        }
+        
+        buildAnnotatedString {
+            val inlineImages = mutableMapOf<String, InlineImageData>()
+            val inlineMatrixUsers = mutableMapOf<String, InlineMatrixUserChip>()
+            val inlineMatrixRooms = mutableMapOf<String, InlineMatrixRoomChip>()
+            var previousWasLineBreak = false
+            
+            nodes.forEach { node ->
+                appendHtmlNode(
+                    node = node,
+                    baseStyle = SpanStyle(color = baseColor),
+                    inlineImages = inlineImages,
+                    inlineMatrixUsers = inlineMatrixUsers,
+                    inlineMatrixRooms = inlineMatrixRooms,
+                    spoilerContext = null,
+                    hideContent = false,
+                    previousWasLineBreak = previousWasLineBreak,
+                    inlineCodeBlocks = null
+                )
+                previousWasLineBreak = node is HtmlNode.LineBreak
+            }
+        }.let { annotatedString ->
+            // Trim trailing newline if present
+            if (annotatedString.text.endsWith("\n")) {
+                annotatedString.subSequence(0, annotatedString.length - 1) as AnnotatedString
+            } else {
+                annotatedString
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("Andromuks", "renderHtmlToAnnotatedString: Error rendering HTML", e)
+        AnnotatedString(htmlContent)
     }
 }
 

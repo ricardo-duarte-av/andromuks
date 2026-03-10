@@ -329,6 +329,67 @@ private fun extractProfileCall(arbitraryFields: Map<String, Any>): ProfileCall? 
     return null
 }
 
+/**
+ * Data class for profile banner
+ */
+private data class ProfileBanner(
+    val mxcUrl: String,
+    val sourceKey: String
+)
+
+/**
+ * Data class for profile bio with optional HTML formatting
+ */
+private data class ProfileBio(
+    val body: String,
+    val isHtml: Boolean,
+    val sourceKey: String
+)
+
+/**
+ * Extract profile banner mxc URL from arbitrary profile fields
+ * Supports: chat.commet.profile_banner
+ */
+private fun extractProfileBanner(arbitraryFields: Map<String, Any>): ProfileBanner? {
+    val key = "chat.commet.profile_banner"
+    val value = arbitraryFields[key]
+    if (value is String && value.startsWith("mxc://")) {
+        return ProfileBanner(mxcUrl = value, sourceKey = key)
+    }
+    return null
+}
+
+/**
+ * Extract all profile bios from arbitrary profile fields
+ * Supports: chat.commet.profile_bio (with format detection) and moe.sable.app.bio (HTML)
+ * Returns a list of all available bios (both can be displayed if both exist)
+ */
+private fun extractProfileBios(arbitraryFields: Map<String, Any>): List<ProfileBio> {
+    val bios = mutableListOf<ProfileBio>()
+    
+    // Try chat.commet.profile_bio (it has format info)
+    val commetBio = valueToJsonObject(arbitraryFields["chat.commet.profile_bio"])
+    if (commetBio != null) {
+        val format = commetBio.optString("format", "")
+        val formattedBody = commetBio.optString("formatted_body", "")
+        val body = commetBio.optString("body", "")
+        
+        if (formattedBody.isNotBlank() && format == "org.matrix.custom.html") {
+            bios.add(ProfileBio(body = formattedBody, isHtml = true, sourceKey = "chat.commet.profile_bio"))
+        } else if (body.isNotBlank()) {
+            bios.add(ProfileBio(body = body, isHtml = false, sourceKey = "chat.commet.profile_bio"))
+        }
+    }
+    
+    // Try moe.sable.app.bio (always HTML)
+    val sableBio = arbitraryFields["moe.sable.app.bio"]
+    if (sableBio is String && sableBio.isNotBlank()) {
+        bios.add(ProfileBio(body = sableBio, isHtml = true, sourceKey = "moe.sable.app.bio"))
+    }
+    
+    return bios
+}
+
 @Composable
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 private fun rememberMorphingExpressiveAvatarMaskModifier(): Modifier {
@@ -566,6 +627,7 @@ fun UserInfoScreen(
     var showFullAvatarDialog by remember { mutableStateOf(false) }
     var fullAvatarUrl by remember { mutableStateOf<String?>(null) }
     var viewingGlobalAvatar by remember { mutableStateOf(false) } // Track which avatar is being viewed
+    var viewingBanner by remember { mutableStateOf(false) } // Track if viewing banner (not avatar)
     // State to hold user info
     var userProfileInfo by remember { mutableStateOf<UserProfileInfo?>(null) }
     var isLoading by remember { mutableStateOf(true) }
@@ -1140,57 +1202,277 @@ fun UserInfoScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
-                    .verticalScroll(scrollState)
-                    .padding(16.dp),
+                    .verticalScroll(scrollState),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // Profile Banner (if available) with Avatar overlay
+                val profileBanner = extractProfileBanner(userProfileInfo!!.arbitraryFields)
+                
                 // User Avatar - made larger (use room avatar if different from global, otherwise global)
                 val roomAvatarUrl = userProfileInfo!!.roomAvatarUrl?.takeIf { !it.isNullOrBlank() }
                 val globalAvatarUrl = userProfileInfo!!.avatarUrl?.takeIf { !it.isNullOrBlank() }
                 val hasRoomSpecificAvatar = roomAvatarUrl != null && roomAvatarUrl != globalAvatarUrl
                 val avatarUrlToUse = if (hasRoomSpecificAvatar) roomAvatarUrl else globalAvatarUrl
                 
-                Box(
-                    modifier = Modifier
-                        .size(128.dp)
-                        .clickable(enabled = avatarUrlToUse != null) {
-                            if (!avatarUrlToUse.isNullOrBlank()) {
-                                val fullUrl = AvatarUtils.getFullImageUrl(
-                                    context,
-                                    avatarUrlToUse,
-                                    appViewModel.homeserverUrl
-                                ) ?: AvatarUtils.getAvatarUrl(
-                                    context,
-                                    avatarUrlToUse,
-                                    appViewModel.homeserverUrl
+                // Banner + Avatar section
+                if (profileBanner != null) {
+                    // Banner image URL for click handler
+                    val bannerHttpUrl = remember(profileBanner.mxcUrl, appViewModel.homeserverUrl) {
+                        MediaUtils.mxcToHttpUrl(profileBanner.mxcUrl, appViewModel.homeserverUrl)
+                    }
+                    
+                    LaunchedEffect(profileBanner.mxcUrl, bannerHttpUrl) {
+                        if (BuildConfig.DEBUG) {
+                            Log.d("Andromuks", "UserInfo: Banner mxc=${profileBanner.mxcUrl}, http=$bannerHttpUrl")
+                        }
+                    }
+                    
+                    // Parent container for banner + avatar
+                    // Height = 136dp (non-overlapping banner) + 128dp (avatar) = 264dp
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(264.dp)
+                    ) {
+                        // Banner image (visual only, 200dp tall, but positioned at top)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(200.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                        ) {
+                            if (bannerHttpUrl != null) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(bannerHttpUrl)
+                                        .addHeader("Cookie", "gomuks_auth=${appViewModel.authToken}")
+                                        .memoryCachePolicy(CachePolicy.ENABLED)
+                                        .diskCachePolicy(CachePolicy.ENABLED)
+                                        .build(),
+                                    imageLoader = ImageLoaderSingleton.get(context),
+                                    contentDescription = "Profile banner",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
                                 )
-                                
-                                if (fullUrl != null) {
-                                    fullAvatarUrl = fullUrl
-                                    viewingGlobalAvatar = false // Main avatar (room-specific if available)
-                                    showFullAvatarDialog = true
+                            }
+                            
+                            // Gradient overlay for better avatar visibility
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                                            colors = listOf(
+                                                Color.Transparent,
+                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
+                                            ),
+                                            startY = 100f
+                                        )
+                                    )
+                            )
+                        }
+                        
+                        // Clickable area for banner - only the top part that doesn't overlap with avatar
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(136.dp)
+                                .clickable {
+                                    if (bannerHttpUrl != null) {
+                                        if (BuildConfig.DEBUG) {
+                                            Log.d("Andromuks", "UserInfo: Banner clicked, opening: $bannerHttpUrl")
+                                        }
+                                        fullAvatarUrl = bannerHttpUrl
+                                        viewingGlobalAvatar = false
+                                        viewingBanner = true
+                                        showFullAvatarDialog = true
+                                    }
+                                }
+                        )
+                        
+                        // Avatar positioned using Column + Spacer (preserves size and moves hit area)
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Spacer(modifier = Modifier.height(136.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(128.dp)
+                                    .clickable(enabled = avatarUrlToUse != null) {
+                                    if (!avatarUrlToUse.isNullOrBlank()) {
+                                        val fullUrl = AvatarUtils.getFullImageUrl(
+                                            context,
+                                            avatarUrlToUse,
+                                            appViewModel.homeserverUrl
+                                        ) ?: AvatarUtils.getAvatarUrl(
+                                            context,
+                                            avatarUrlToUse,
+                                            appViewModel.homeserverUrl
+                                        )
+                                        
+                                        if (fullUrl != null) {
+                                            fullAvatarUrl = fullUrl
+                                            viewingGlobalAvatar = false
+                                            viewingBanner = false
+                                            showFullAvatarDialog = true
+                                        } else {
+                                            Toast.makeText(
+                                                context,
+                                                "Full-size avatar unavailable",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    } else {
+                                        Toast.makeText(
+                                            context,
+                                            "User has no avatar",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val roomDisplayName = userProfileInfo!!.roomDisplayName?.takeIf { !it.isNullOrBlank() }
+                            val globalDisplayName = userProfileInfo!!.displayName?.takeIf { !it.isNullOrBlank() }
+                            val hasRoomSpecificDisplayName = roomDisplayName != null && roomDisplayName != globalDisplayName
+                            val displayNameForAvatar = if (hasRoomSpecificDisplayName) roomDisplayName else (globalDisplayName ?: usernameFromMatrixId(userId))
+                            
+                            // Border around avatar for better visibility on banner
+                            Surface(
+                                shape = CircleShape,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .border(4.dp, MaterialTheme.colorScheme.surface, CircleShape),
+                                color = MaterialTheme.colorScheme.surface
+                            ) {
+                                if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                                    with(sharedTransitionScope) {
+                                        AvatarImage(
+                                            mxcUrl = avatarUrlToUse,
+                                            homeserverUrl = appViewModel.homeserverUrl,
+                                            authToken = appViewModel.authToken,
+                                            fallbackText = displayNameForAvatar,
+                                            size = 120.dp,
+                                            userId = userId,
+                                            displayName = displayNameForAvatar,
+                                            modifier = Modifier.sharedElement(
+                                                rememberSharedContentState(key = sharedAvatarKey),
+                                                animatedVisibilityScope = animatedVisibilityScope,
+                                                boundsTransform = { _, _ ->
+                                                    tween(durationMillis = 380, easing = LinearEasing)
+                                                },
+                                                renderInOverlayDuringTransition = true,
+                                                zIndexInOverlay = 1f
+                                            )
+                                        )
+                                    }
+                                } else {
+                                    AvatarImage(
+                                        mxcUrl = avatarUrlToUse,
+                                        homeserverUrl = appViewModel.homeserverUrl,
+                                        authToken = appViewModel.authToken,
+                                        fallbackText = displayNameForAvatar,
+                                        size = 120.dp,
+                                        userId = userId,
+                                        displayName = displayNameForAvatar
+                                    )
+                                }
+                            }
+                            
+                            // Show global avatar as badge if we have room-specific avatar
+                            if (hasRoomSpecificAvatar && globalAvatarUrl != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .size(48.dp)
+                                        .clickable {
+                                            val fullUrl = AvatarUtils.getFullImageUrl(
+                                                context,
+                                                globalAvatarUrl,
+                                                appViewModel.homeserverUrl
+                                            ) ?: AvatarUtils.getAvatarUrl(
+                                                context,
+                                                globalAvatarUrl,
+                                                appViewModel.homeserverUrl
+                                            )
+                                            if (fullUrl != null) {
+                                                fullAvatarUrl = fullUrl
+                                                viewingGlobalAvatar = true
+                                                viewingBanner = false
+                                                showFullAvatarDialog = true
+                                            }
+                                        }
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape),
+                                        color = MaterialTheme.colorScheme.surface
+                                    ) {
+                                        AvatarImage(
+                                            mxcUrl = globalAvatarUrl,
+                                            homeserverUrl = appViewModel.homeserverUrl,
+                                            authToken = appViewModel.authToken,
+                                            fallbackText = globalDisplayName ?: usernameFromMatrixId(userId),
+                                            size = 48.dp,
+                                            userId = userId,
+                                            displayName = globalDisplayName
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        }
+                    }
+                }
+                
+                // Regular avatar section (when no banner)
+                if (profileBanner == null) {
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 16.dp)
+                            .size(128.dp)
+                            .clickable(enabled = avatarUrlToUse != null) {
+                                if (!avatarUrlToUse.isNullOrBlank()) {
+                                    val fullUrl = AvatarUtils.getFullImageUrl(
+                                        context,
+                                        avatarUrlToUse,
+                                        appViewModel.homeserverUrl
+                                    ) ?: AvatarUtils.getAvatarUrl(
+                                        context,
+                                        avatarUrlToUse,
+                                        appViewModel.homeserverUrl
+                                    )
+                                    
+                                    if (fullUrl != null) {
+                                        fullAvatarUrl = fullUrl
+                                        viewingGlobalAvatar = false // Main avatar (room-specific if available)
+                                        viewingBanner = false
+                                        showFullAvatarDialog = true
+                                    } else {
+                                        Toast.makeText(
+                                            context,
+                                            "Full-size avatar unavailable",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
                                 } else {
                                     Toast.makeText(
                                         context,
-                                        "Full-size avatar unavailable",
+                                        "User has no avatar",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }
-                            } else {
-                                Toast.makeText(
-                                    context,
-                                    "User has no avatar",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    val roomDisplayName = userProfileInfo!!.roomDisplayName?.takeIf { !it.isNullOrBlank() }
-                    val globalDisplayName = userProfileInfo!!.displayName?.takeIf { !it.isNullOrBlank() }
-                    val hasRoomSpecificDisplayName = roomDisplayName != null && roomDisplayName != globalDisplayName
-                    val displayNameForAvatar = if (hasRoomSpecificDisplayName) roomDisplayName else (globalDisplayName ?: usernameFromMatrixId(userId))
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val roomDisplayName = userProfileInfo!!.roomDisplayName?.takeIf { !it.isNullOrBlank() }
+                        val globalDisplayName = userProfileInfo!!.displayName?.takeIf { !it.isNullOrBlank() }
+                        val hasRoomSpecificDisplayName = roomDisplayName != null && roomDisplayName != globalDisplayName
+                        val displayNameForAvatar = if (hasRoomSpecificDisplayName) roomDisplayName else (globalDisplayName ?: usernameFromMatrixId(userId))
                     
                     // Keep sharedElement in loaded state too so destination node remains stable
                     // across fast loading transitions. Morph overlay is loading-only.
@@ -1262,6 +1544,7 @@ fun UserInfoScreen(
                                     if (fullUrl != null) {
                                         fullAvatarUrl = fullUrl
                                         viewingGlobalAvatar = true // Global avatar badge
+                                        viewingBanner = false
                                         showFullAvatarDialog = true
                                     } else {
                                         Toast.makeText(
@@ -1291,10 +1574,12 @@ fun UserInfoScreen(
                             }
                         }
                     }
-                }
+                    }
+                } // End of profileBanner == null block
                 
                 // User Display Name and Matrix ID - reduced spacing
                 Column(
+                    modifier = Modifier.padding(horizontal = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -1558,6 +1843,54 @@ fun UserInfoScreen(
                     }
                 }
                 
+                // Profile Bio section (chat.commet.profile_bio and/or moe.sable.app.bio)
+                val profileBios = extractProfileBios(userProfileInfo!!.arbitraryFields)
+                profileBios.forEach { profileBio ->
+                    val bioLabel = when (profileBio.sourceKey) {
+                        "chat.commet.profile_bio" -> "About"
+                        "moe.sable.app.bio" -> "Bio"
+                        else -> "About"
+                    }
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = bioLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            
+                            if (profileBio.isHtml) {
+                                // Render HTML bio using the HTML utilities
+                                val bioAnnotatedString = remember(profileBio.body) {
+                                    renderHtmlToAnnotatedString(profileBio.body)
+                                }
+                                
+                                Text(
+                                    text = bioAnnotatedString,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            } else {
+                                // Render plain text bio
+                                Text(
+                                    text = profileBio.body,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                        }
+                    }
+                }
+                
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -1741,7 +2074,10 @@ fun UserInfoScreen(
                     "org.msc4266.call",
                     "m.tz",
                     "us.cloke.msc4175.tz",
-                    "io.fsky.nyx.pronouns"
+                    "io.fsky.nyx.pronouns",
+                    "chat.commet.profile_banner",
+                    "chat.commet.profile_bio",
+                    "moe.sable.app.bio"
                 )
                 val arbitraryFields = userProfileInfo!!.arbitraryFields
                     .filterKeys { it !in hiddenKnownProfileKeys }
@@ -1778,12 +2114,17 @@ fun UserInfoScreen(
     }
     
     if (showFullAvatarDialog && fullAvatarUrl != null) {
-        val avatarMxcUrl = if (viewingGlobalAvatar) {
+        // When viewing banner, don't pass avatarMxcUrl (prevents cache lookup using wrong URL)
+        val avatarMxcUrl = if (viewingBanner) {
+            null
+        } else if (viewingGlobalAvatar) {
             userProfileInfo?.avatarUrl
         } else {
             userProfileInfo?.roomAvatarUrl ?: userProfileInfo?.avatarUrl
         }
-        val displayName = if (viewingGlobalAvatar) {
+        val displayName = if (viewingBanner) {
+            "Profile Banner"
+        } else if (viewingGlobalAvatar) {
             userProfileInfo?.displayName ?: userId
         } else {
             userProfileInfo?.roomDisplayName ?: userProfileInfo?.displayName ?: userId
@@ -1798,6 +2139,7 @@ fun UserInfoScreen(
             onDismiss = { 
                 showFullAvatarDialog = false
                 viewingGlobalAvatar = false
+                viewingBanner = false
             }
         )
     }
