@@ -183,7 +183,12 @@ fun ReplyPreview(
     } ?: "Reply to unknown event"
     
     val memberProfile = userProfileCache[originalSender]
-    val senderName = memberProfile?.displayName ?: originalSender
+    val baseSenderName = memberProfile?.displayName ?: originalSender
+    val senderName = if (appViewModel?.trimLongDisplayNames == true && baseSenderName.length > 40) {
+        baseSenderName.take(40) + "..."
+    } else {
+        baseSenderName
+    }
     
     val colorScheme = MaterialTheme.colorScheme
     Row(
@@ -535,7 +540,12 @@ fun ReplyPreviewInput(
     // CRITICAL FIX: Re-read profile from reactive member map to get latest display name
     // This ensures we show the display name once it's loaded, even if it wasn't available initially
     val latestProfile = reactiveMemberMap?.get(event.sender) ?: profile
-    val finalDisplayName = latestProfile?.displayName?.takeIf { it.isNotBlank() } ?: event.sender
+    val baseFinalDisplayName = latestProfile?.displayName?.takeIf { it.isNotBlank() } ?: event.sender
+    val finalDisplayName = if (appViewModel?.trimLongDisplayNames == true && baseFinalDisplayName.length > 40) {
+        baseFinalDisplayName.take(40) + "..."
+    } else {
+        baseFinalDisplayName
+    }
     
     // Final debug logging
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "=== FINAL VALUES ===")

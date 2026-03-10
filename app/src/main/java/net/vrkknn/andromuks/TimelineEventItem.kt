@@ -3236,7 +3236,12 @@ fun TimelineEventItem(
         // For narrator events, show only the small narrator content
         SystemEventNarrator(
             event = event,
-            displayName = displayName ?: event.sender,
+            displayName = if (appViewModel?.trimLongDisplayNames == true) {
+                val base = displayName ?: event.sender
+                if (base.length > 40) base.take(40) + "..." else base
+            } else {
+                displayName ?: event.sender
+            },
             avatarUrl = avatarUrl,
             homeserverUrl = homeserverUrl,
             authToken = authToken,
@@ -3528,6 +3533,15 @@ fun TimelineEventItem(
         ) {
             // Show name and timestamp header only for non-consecutive messages (and not for emotes)
             if (!isConsecutive && !isEmoteMessage) {
+                // Helper to trim display names if setting is enabled
+                val trimDisplayName: (String) -> String = { name ->
+                    if (appViewModel?.trimLongDisplayNames == true && name.length > 40) {
+                        name.take(40) + "..."
+                    } else {
+                        name
+                    }
+                }
+                
                 // For our messages, show display name right-aligned; for others, left-aligned
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -3540,8 +3554,8 @@ fun TimelineEventItem(
                     ) {
                         // Get bridge sender display name for better readability
                         val bridgeProfile = userProfileCache[bridgeSender]
-                        val bridgeDisplayName = bridgeProfile?.displayName ?: bridgeSender
-                        val fakeDisplayName = displayName ?: "Unknown"
+                        val bridgeDisplayName = trimDisplayName(bridgeProfile?.displayName ?: bridgeSender)
+                        val fakeDisplayName = trimDisplayName(displayName ?: "Unknown")
                         
                         // Get the fake sender's user ID from the per-message profile
                         val fakeSenderId = when {
@@ -3588,7 +3602,7 @@ fun TimelineEventItem(
                         
                         Pair(plainText, annotatedString)
                     } else {
-                        val plainText = displayName ?: event.sender
+                        val plainText = trimDisplayName(displayName ?: event.sender)
                         Pair(plainText, null)
                     }
 

@@ -73,6 +73,14 @@ import org.json.JSONObject
 
 private val LocalNarratorLongPressAction = compositionLocalOf<(() -> Unit)?> { null }
 
+private fun trimDisplayNameForNarrator(name: String, appViewModel: AppViewModel?): String {
+    return if (appViewModel?.trimLongDisplayNames == true && name.length > 40) {
+        name.take(40) + "..."
+    } else {
+        name
+    }
+}
+
 @Composable
 fun SystemEventNarrator(
     event: TimelineEvent,
@@ -337,7 +345,8 @@ fun SystemEventNarrator(
                 }
                 val userMentionColor = MaterialTheme.colorScheme.primary
                 val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
-                val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+                val rawSenderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+                val senderDisplayName = trimDisplayNameForNarrator(rawSenderDisplayName, appViewModel)
                 
                 if (senderProfile == null && appViewModel != null) {
                     appViewModel.requestUserProfile(event.sender, roomId)
@@ -361,7 +370,8 @@ fun SystemEventNarrator(
                 }
                 val userMentionColor = MaterialTheme.colorScheme.primary
                 val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
-                val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+                val rawSenderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+                val senderDisplayName = trimDisplayNameForNarrator(rawSenderDisplayName, appViewModel)
                 
                 if (senderProfile == null && appViewModel != null) {
                     appViewModel.requestUserProfile(event.sender, roomId)
@@ -382,7 +392,8 @@ fun SystemEventNarrator(
                 }
                 val userMentionColor = MaterialTheme.colorScheme.primary
                 val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
-                val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+                val rawSenderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+                val senderDisplayName = trimDisplayNameForNarrator(rawSenderDisplayName, appViewModel)
                 
                 if (senderProfile == null && appViewModel != null) {
                     appViewModel.requestUserProfile(event.sender, roomId)
@@ -1181,7 +1192,8 @@ private fun MemberEventNarrator(
                     }
                     val userMentionColor = MaterialTheme.colorScheme.primary
                     val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
-                    val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+                    val rawSenderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+                    val senderDisplayName = trimDisplayNameForNarrator(rawSenderDisplayName, appViewModel)
                     
                     if (senderProfile == null && appViewModel != null) {
                         appViewModel.requestUserProfile(event.sender, roomId)

@@ -561,6 +561,9 @@ class AppViewModel : ViewModel() {
     // Room timeline read receipts layout: false = inline next to bubble, true = moved to opposite screen edge
     var moveReadReceiptsToEdge by mutableStateOf(false)
         private set
+    // Trim long display names in timeline: if true, names longer than 40 chars are trimmed with "..."
+    var trimLongDisplayNames by mutableStateOf(true)
+        private set
     var elementCallBaseUrl by mutableStateOf("")
         private set
 
@@ -16989,6 +16992,21 @@ class AppViewModel : ViewModel() {
         }
     }
 
+    fun toggleTrimLongDisplayNames() {
+        trimLongDisplayNames = !trimLongDisplayNames
+
+        appContext?.let { context ->
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("trim_long_display_names", trimLongDisplayNames)
+                .apply()
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Saved trimLongDisplayNames setting: $trimLongDisplayNames"
+            )
+        }
+    }
+
     fun updateElementCallBaseUrl(url: String) {
         elementCallBaseUrl = url.trim()
         appContext?.let { context ->
@@ -17066,6 +17084,8 @@ class AppViewModel : ViewModel() {
             showAllRoomListTabs = prefs.getBoolean("show_all_room_list_tabs", false) // Default to false (4 tabs)
             // Room timeline read receipts: default to inline next to bubble
             moveReadReceiptsToEdge = prefs.getBoolean("move_read_receipts_to_edge", false) // Default to false
+            // Trim long display names: default to true (enabled)
+            trimLongDisplayNames = prefs.getBoolean("trim_long_display_names", true) // Default to true
             elementCallBaseUrl = prefs.getString("element_call_base_url", "") ?: ""
 
             // Background purge settings
@@ -17083,6 +17103,7 @@ class AppViewModel : ViewModel() {
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded renderThumbnailsAlways setting: $renderThumbnailsAlways")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded showAllRoomListTabs setting: $showAllRoomListTabs")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded moveReadReceiptsToEdge setting: $moveReadReceiptsToEdge")
+                android.util.Log.d("Andromuks", "AppViewModel: Loaded trimLongDisplayNames setting: $trimLongDisplayNames")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded elementCallBaseUrl setting: $elementCallBaseUrl")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded backgroundPurgeIntervalMinutes=$backgroundPurgeIntervalMinutes, backgroundPurgeMessageThreshold=$backgroundPurgeMessageThreshold")
             }

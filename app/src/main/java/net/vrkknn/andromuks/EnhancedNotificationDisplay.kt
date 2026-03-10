@@ -282,6 +282,15 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 return
             }
             
+            // Trim long sender display name if setting is enabled (same as timeline)
+            val trimLongDisplayNames = sharedPrefs.getBoolean("trim_long_display_names", true)
+            val rawSenderDisplayName = notificationData.senderDisplayName ?: notificationData.sender
+            val senderDisplayNameForDisplay = if (trimLongDisplayNames && rawSenderDisplayName.length > 40) {
+                rawSenderDisplayName.take(40) + "..."
+            } else {
+                rawSenderDisplayName
+            }
+            
             // PREEMPTIVE CACHING: Check if room is already in cache, if not, trigger preemptive pagination
             // This ensures the room timeline is cached before the user taps the notification
             try {
@@ -331,8 +340,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 loadAvatarAsIcon(it)
             } ?: run {
                 // Create fallback avatar for sender
-                if (BuildConfig.DEBUG) Log.d(TAG, "No sender avatar URL, creating fallback for: ${notificationData.senderDisplayName}")
-                createFallbackAvatarIcon(notificationData.senderDisplayName, notificationData.sender)
+                if (BuildConfig.DEBUG) Log.d(TAG, "No sender avatar URL, creating fallback for: $senderDisplayNameForDisplay")
+                createFallbackAvatarIcon(senderDisplayNameForDisplay, notificationData.sender)
             }
             
             // Load room avatar bitmap for large icon
@@ -344,7 +353,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Load sender avatar bitmap
             val senderAvatarBitmap = notificationData.avatarUrl?.let { 
                 loadAvatarBitmap(it)
-            } ?: createFallbackAvatarBitmap(notificationData.senderDisplayName, notificationData.sender, 128)
+            } ?: createFallbackAvatarBitmap(senderDisplayNameForDisplay, notificationData.sender, 128)
             val circularSenderAvatar = createCircularBitmap(senderAvatarBitmap)
             
             // Get current user info for MessagingStyle (the local user, not the room)
@@ -414,7 +423,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // URI is required for Android's notification ranking system to recognize conversations
             val messagePerson = Person.Builder()
                 .setKey(notificationData.sender)
-                .setName(notificationData.senderDisplayName ?: notificationData.sender)
+                .setName(senderDisplayNameForDisplay)
                 .setUri(buildPersonUri(notificationData.sender))
                 .setIcon(senderAvatarIcon)
                 .build()
@@ -518,7 +527,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 id = notificationData.roomId,
                 name = notificationData.roomName ?: notificationData.roomId,
                 messagePreview = notificationData.body,
-                messageSender = notificationData.senderDisplayName ?: notificationData.sender,
+                messageSender = senderDisplayNameForDisplay,
                 unreadCount = 1,
                 highlightCount = 0,
                 avatarUrl = notificationData.roomAvatarUrl,
@@ -588,7 +597,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     notificationData.roomName
                 } else {
                     // For DMs, use sender display name as the conversation title
-                    notificationData.senderDisplayName ?: notificationData.sender
+                    senderDisplayNameForDisplay
                 }
                 
                 val messagingStyle = (existingStyle ?: NotificationCompat.MessagingStyle(me))

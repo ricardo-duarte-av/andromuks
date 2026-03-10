@@ -2110,7 +2110,12 @@ fun RoomListItem(
                 // Enhanced message preview with sender avatar and display name
                 if (room.messagePreview != null && room.messageSender != null) {
                     // PERFORMANCE: Use cached senderDisplayName instead of expensive profile lookup on every recomposition
-                    val displayNameToUse = senderDisplayName ?: room.messageSender
+                    val rawDisplayName = senderDisplayName ?: room.messageSender
+                    val displayNameToUse = if (appViewModel.trimLongDisplayNames && rawDisplayName.length > 40) {
+                        rawDisplayName.take(40) + "..."
+                    } else {
+                        rawDisplayName
+                    }
                     
                     Row(
                         modifier = Modifier.padding(top = 2.dp),
@@ -2166,7 +2171,12 @@ fun RoomListItem(
                 } else if (room.messageSender != null) {
                     // Fallback: Sender available but no message preview (shouldn't happen normally since backend decrypts)
                     // This is a safety fallback in case of edge cases
-                    val displayNameToUse = senderDisplayName ?: room.messageSender
+                    val rawDisplayName = senderDisplayName ?: room.messageSender
+                    val displayNameToUse = if (appViewModel.trimLongDisplayNames && rawDisplayName.length > 40) {
+                        rawDisplayName.take(40) + "..."
+                    } else {
+                        rawDisplayName
+                    }
                     Row(
                         modifier = Modifier.padding(top = 2.dp),
                         verticalAlignment = Alignment.CenterVertically

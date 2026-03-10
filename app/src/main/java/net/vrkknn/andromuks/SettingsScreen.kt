@@ -225,6 +225,40 @@ fun SettingsScreen(
                 }
             }
 
+            // Trim long display names
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "Trim long display names",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "If a user's display name is longer than 40 characters, it will be trimmed and suffixed with \"...\" when rendering in the timeline.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Switch(
+                        checked = appViewModel.trimLongDisplayNames,
+                        onCheckedChange = { appViewModel.toggleTrimLongDisplayNames() }
+                    )
+                }
+            }
+
             // ── Background Sync Section ──────────────────────────────────────
             Text(
                 text = "Background Sync",
