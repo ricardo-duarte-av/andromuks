@@ -4835,7 +4835,7 @@ fun RoomHeader(
             ) {
                 if (sharedTransitionScope != null && animatedVisibilityScope != null && roomId != null) {
                     val sharedKey = "avatar-${roomId}"
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomHeader: sharedKey = $sharedKey")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomHeader: opening room $roomId with sharedKey = $sharedKey")
                     with(sharedTransitionScope) {
                         AvatarImage(
                             mxcUrl = roomState?.avatarUrl ?: fallbackAvatarUrl,
@@ -4845,7 +4845,8 @@ fun RoomHeader(
                             size = 48.dp,
                             userId = roomId,
                             displayName = roomState?.name ?: fallbackName,
-                            isVisible = true, // Always visible for room header
+                            isVisible = true,
+                            useCircleCache = true, // CRITICAL: Match RoomListScreen's cache path for smooth shared element transitions
                             modifier = Modifier
                                 .sharedElement(
                                     rememberSharedContentState(key = sharedKey),
@@ -4872,7 +4873,8 @@ fun RoomHeader(
                         size = 48.dp,
                         userId = roomId ?: roomState?.roomId,
                         displayName = roomState?.name ?: fallbackName,
-                        isVisible = true, // Always visible for room header
+                        isVisible = true,
+                        useCircleCache = true, // CRITICAL: Match RoomListScreen's cache path for consistent avatar loading
                         modifier = Modifier.clip(CircleShape)
                     )
                 }

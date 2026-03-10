@@ -301,6 +301,7 @@ fun RoomInfoScreen(
                                     size = 120.dp,
                                     userId = roomId,
                                     displayName = roomStateInfo!!.name,
+                                    useCircleCache = true, // Match RoomListScreen's cache path for smooth shared element transitions
                                     modifier = Modifier
                                         .sharedElement(
                                             rememberSharedContentState(key = sharedKey),
@@ -326,6 +327,7 @@ fun RoomInfoScreen(
                                 size = 120.dp,
                                 userId = roomId,
                                 displayName = roomStateInfo!!.name,
+                                useCircleCache = true, // Match RoomListScreen's cache path for consistent avatar loading
                                 modifier = Modifier.clip(CircleShape)
                             )
                         }

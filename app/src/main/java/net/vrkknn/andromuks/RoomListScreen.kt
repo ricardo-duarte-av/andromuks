@@ -2957,6 +2957,7 @@ fun RoomListContent(
                                 
                                 // Navigate immediately; prefetch runs best-effort.
                                 // NOTE: markRoomAsRead is handled by navigateToRoomWithCache, so we don't need to call it here
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: opening room $roomIdForNavigation with sharedKey = avatar-$roomIdForNavigation")
                                 appViewModel.navigateToRoomWithCache(roomIdForNavigation)
                                 navController.navigate("room_timeline/$roomIdForNavigation")
 

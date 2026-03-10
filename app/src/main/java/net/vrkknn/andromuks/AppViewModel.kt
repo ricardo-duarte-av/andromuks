@@ -6829,6 +6829,9 @@ class AppViewModel : ViewModel() {
             if (previousRoomId.isNotEmpty()) {
                 RoomTimelineCache.removeOpenedRoom(previousRoomId)
             }
+            // CRITICAL: Clear currentRoomState to prevent stale avatar showing during shared element transitions
+            // Without this, opening room B after room A briefly shows room A's avatar in the header
+            currentRoomState = null
         }
         updateCurrentRoomIdInPrefs("")
     }
