@@ -1870,14 +1870,14 @@ fun UserInfoScreen(
                             
                             if (profileBio.isHtml) {
                                 // Render HTML bio using the HTML utilities
-                                val bioAnnotatedString = remember(profileBio.body) {
-                                    renderHtmlToAnnotatedString(profileBio.body)
+                                val bioTextColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                val bioAnnotatedString = remember(profileBio.body, bioTextColor) {
+                                    renderHtmlToAnnotatedString(profileBio.body, bioTextColor)
                                 }
                                 
                                 Text(
                                     text = bioAnnotatedString,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    style = MaterialTheme.typography.bodyMedium
                                 )
                             } else {
                                 // Render plain text bio

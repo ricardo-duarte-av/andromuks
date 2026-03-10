@@ -829,9 +829,21 @@ private fun AnnotatedString.Builder.appendBlockQuote(
     if (length > 0 && !endsWithNewline()) append("\n")
     
     // Style for quoted text - italic and slightly muted
+    // Use a softer color that works in both light and dark modes
+    val quoteColor = if (baseStyle.color == Color.Unspecified) {
+        Color.Gray
+    } else {
+        // Blend the base color toward gray for a muted effect
+        Color(
+            red = baseStyle.color.red * 0.7f + 0.3f * 0.5f,
+            green = baseStyle.color.green * 0.7f + 0.3f * 0.5f,
+            blue = baseStyle.color.blue * 0.7f + 0.3f * 0.5f,
+            alpha = baseStyle.color.alpha
+        )
+    }
     val quoteStyle = baseStyle.copy(
         fontStyle = FontStyle.Italic,
-        color = baseStyle.color.copy(alpha = 0.8f)
+        color = quoteColor
     )
     
     // Add quote marker with styling
