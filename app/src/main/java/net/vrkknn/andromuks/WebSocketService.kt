@@ -1161,33 +1161,26 @@ class WebSocketService : Service() {
         }
     
         /**
-         * Trigger backend health check and reconnection if needed
+         * Trigger reconnection check if needed
          * This can be called from FCM or other external triggers
          */
         fun triggerBackendHealthCheck() {
             val serviceInstance = instance ?: return
             serviceScope.launch {
                 try {
-                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Triggering manual backend health check")
-                    // CRITICAL: Wait for NET_CAPABILITY_VALIDATED before health check
-                    val networkValidated = serviceInstance.waitForNetworkValidation(5000L)
-                    if (!networkValidated) {
-                        android.util.Log.w("WebSocketService", "Manual backend health check skipped - network not validated")
-                        return@launch
-                    }
-                    val isHealthy = serviceInstance.checkBackendHealth()
-                    
-                    if (!isHealthy && serviceInstance.connectionState.isReady()) {
-                        android.util.Log.w("WebSocketService", "Manual backend health check failed - triggering reconnection")
-                        triggerReconnectionFromExternal("Manual backend health check failed")
-                    } else if (isHealthy) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Manual backend health check passed")
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "triggerBackendHealthCheck called - checking connection state")
+                    // Skip HTTP health check - if WebSocket is not connected, trigger reconnection
+                    if (!serviceInstance.connectionState.isReady() || serviceInstance.webSocket == null) {
+                        android.util.Log.w("WebSocketService", "WebSocket not connected - triggering reconnection")
+                        triggerReconnectionFromExternal("External trigger - WebSocket not connected")
+                    } else {
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "WebSocket already connected and ready")
                     }
                 } catch (e: Exception) {
-                    android.util.Log.e("WebSocketService", "Error in manual backend health check", e)
-                }
+                    android.util.Log.e("WebSocketService", "Error in triggerBackendHealthCheck", e)
                 }
             }
+        }
             
             /**
          * Stop the WebSocket service properly
@@ -1400,6 +1393,11 @@ class WebSocketService : Service() {
             android.util.Log.i("WebSocketService", "WebSocket connection opened - connection good")
             logPingStatus()
             serviceInstance.showWebSocketToast("Connection opened")
+            
+            // Add startup progress message to all registered ViewModels
+            for (viewModel in getRegisteredViewModels()) {
+                viewModel.addStartupProgressMessage("Connection established")
+            }
         }
         
         /**
@@ -1957,18 +1955,9 @@ class WebSocketService : Service() {
                         if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Stored last_received_id: $lastReceivedId for reconnection")
                     }
                     
-                    // Verify backend health with timeout
-                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Verifying backend health before opening WebSocket")
-                    try {
-                        withTimeout(10_000L) { // 10 second timeout
-                            net.vrkknn.andromuks.utils.waitForBackendHealth(homeserverUrl, loggerTag = "WebSocketService")
-                        }
-                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Backend health check completed, connecting WebSocket")
-                    } catch (e: TimeoutCancellationException) {
-                        android.util.Log.w("WebSocketService", "Backend health check timed out after 10 seconds - proceeding with WebSocket connection anyway")
-                    } catch (e: Exception) {
-                        android.util.Log.e("WebSocketService", "Backend health check failed with exception - proceeding with WebSocket connection anyway", e)
-                    }
+                    // Skip backend health check on initial connect - WebSocket will fail fast if backend is unreachable
+                    // and we handle connection failures gracefully with retry logic
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Connecting WebSocket directly (skipping health check)")
                     
                     // REFACTORING: Connect websocket - no ViewModel needed, service handles everything
                     if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Calling NetworkUtils.connectToWebsocket()")
@@ -2456,14 +2445,8 @@ class WebSocketService : Service() {
                             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network validated - proceeding with reconnection")
                         }
                         
-                        // Check backend health with simple HTTP GET
-                        // But don't block reconnection if it fails - just log and proceed
-                        // The actual WebSocket connection will fail fast if backend is truly unreachable
-                        val backendHealthy = serviceInstance.checkBackendHealth()
-                        if (!backendHealthy) {
-                            android.util.Log.w("WebSocketService", "Backend health check failed - proceeding with WebSocket connection anyway")
-                            logActivity("Backend Health Check Failed - Trying WebSocket", serviceInstance.currentNetworkType.name)
-                        }
+                        // Skip backend HTTP health check - it's redundant since backend serves both HTTP and WebSocket
+                        // If backend is unreachable, WebSocket connection will fail fast
                         
                         // Network validated - proceed with reconnection
                         // BUT: If, in the meantime, another path has already established a
@@ -2754,56 +2737,8 @@ class WebSocketService : Service() {
     // RUSH TO HEALTHY: Fixed ping interval - no adaptive logic needed
     // Ping/pong failures are handled by immediate retry and dropping after 3 failures
     
-    /**
-     * Check backend health by making a simple HTTP GET request
-     * This is faster than WebSocket ping/pong and catches backend-specific issues
-     */
-    private suspend fun checkBackendHealth(): Boolean {
-        // CRITICAL: This function should ONLY be called after NET_CAPABILITY_VALIDATED is confirmed.
-        // Android performs its own DNS check (against Google) to set this flag.
-        // By waiting for NET_CAPABILITY_VALIDATED, we ensure the system's DNS resolver has "woken up."
-        return try {
-            val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-            val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
-            
-            if (homeserverUrl.isEmpty()) {
-                android.util.Log.w("WebSocketService", "Backend health check skipped - no homeserver URL")
-                return false
-            }
-            
-            // Use shared health check client (connection pool evicted on network changes)
-            val request = okhttp3.Request.Builder()
-                .url(homeserverUrl)
-                .get()
-                .header("User-Agent", getUserAgent())
-                .header("Cache-Control", "no-cache, no-store, must-revalidate")
-                .header("Pragma", "no-cache")
-                .header("Expires", "0")
-                .build()
-            
-            val response = WebSocketService.healthCheckClient.newCall(request).execute()
-            val isHealthy = response.isSuccessful && response.code == 200
-            
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Backend health check: ${response.code} - ${if (isHealthy) "HEALTHY" else "UNHEALTHY"}")
-            
-            // Log backend health check result
-            logActivity("Backend Health Check: ${if (isHealthy) "HEALTHY" else "UNHEALTHY"} (HTTP ${response.code})", currentNetworkType.name)
-            
-            // Show toast for backend health check
-            showWebSocketToast("Backend: ${if (isHealthy) "HEALTHY" else "UNHEALTHY"} (${response.code})")
-            
-            response.close()
-            isHealthy
-        } catch (e: Exception) {
-            android.util.Log.w("WebSocketService", "Backend health check failed", e)
-            logActivity("Backend Health Check: FAILED - ${e.message}", currentNetworkType.name)
-            
-            // Show toast for backend health check failure
-            showWebSocketToast("Backend: FAILED - ${e.message?.take(20)}")
-            
-            false
-        }
-    }
+    // checkBackendHealth removed - HTTP health check is redundant since backend serves both HTTP and WebSocket
+    // If backend is unreachable, WebSocket connection will fail fast
     
     /**
      * BATTERY OPTIMIZATION: Unified monitoring job
@@ -3214,37 +3149,29 @@ class WebSocketService : Service() {
                         // This prevents scheduling a reconnection that will fail immediately
                         // Network is already validated (we're past the validation check above)
                         android.util.Log.w("WebSocketService", "Network validated while in RECONNECTING state - checking backend health before reconnecting")
-                        logActivity("Network Validated - Checking Backend Health", currentNetworkType.name)
+                        logActivity("Network Validated - Reconnecting", currentNetworkType.name)
                         
-                        // Check backend health (network is already validated, so this is safe)
-                        val backendHealthy = checkBackendHealth()
-                        if (backendHealthy) {
-                            android.util.Log.i("WebSocketService", "Backend healthy - cancelling existing reconnection job and starting immediately")
-                            logActivity("Network Available - Reconnecting Immediately", currentNetworkType.name)
-                            
-                            // Cancel existing reconnection job since we've already validated and checked health
-                            synchronized(reconnectionLock) {
-                                reconnectionJob?.cancel()
-                                reconnectionJob = null
-                                isReconnecting = false
-                            }
-                            
-                            // Get last received request ID from current state
-                            val currentState = connectionState
-                            val lastReceivedId = if (currentState is WebSocketState.Reconnecting) {
-                                currentState.lastReceivedRequestId
-                            } else {
-                                getLastReceivedRequestId(applicationContext)
-                            }
-                            
-                            // FIX #1: Don't transition to Connecting here - let setWebSocket() do it when connection actually starts
-                            // Start reconnection immediately (no backoff)
-                            invokeReconnectionCallback("Network available: $networkType (validated and healthy)", lastReceivedId)
-                        } else {
-                            android.util.Log.w("WebSocketService", "Backend unhealthy - will retry when backend recovers")
-                            logActivity("Backend Unhealthy - Waiting", currentNetworkType.name)
-                            // Don't schedule reconnection - the existing reconnection job will retry with backoff
+                        // Skip backend HTTP health check - it's redundant
+                        android.util.Log.i("WebSocketService", "Network validated - reconnecting immediately")
+                        
+                        // Cancel existing reconnection job since network is validated
+                        synchronized(reconnectionLock) {
+                            reconnectionJob?.cancel()
+                            reconnectionJob = null
+                            isReconnecting = false
                         }
+                        
+                        // Get last received request ID from current state
+                        val currentState = connectionState
+                        val lastReceivedId = if (currentState is WebSocketState.Reconnecting) {
+                            currentState.lastReceivedRequestId
+                        } else {
+                            getLastReceivedRequestId(applicationContext)
+                        }
+                        
+                        // FIX #1: Don't transition to Connecting here - let setWebSocket() do it when connection actually starts
+                        // Start reconnection immediately (no backoff)
+                        invokeReconnectionCallback("Network available: $networkType (validated)", lastReceivedId)
                     } else if (previousNetworkType != newNetworkType && previousNetworkType != NetworkType.NONE) {
                         // Network type changed - USER REQUIREMENT: Always force reconnect
                         android.util.Log.w("WebSocketService", "Network type changed while connected - forcing reconnection ($previousNetworkType → $newNetworkType)")

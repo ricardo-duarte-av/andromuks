@@ -1226,13 +1226,15 @@ class AppViewModel : ViewModel() {
      * Messages are added to the front (newest on top), keeping only the last 10
      */
     fun addStartupProgressMessage(message: String) {
+        val timestamp = java.text.SimpleDateFormat("HH:mm:ss:SSS", java.util.Locale.US).format(java.util.Date())
+        val timestampedMessage = "[$timestamp] $message"
         synchronized(_startupProgressMessages) {
-            _startupProgressMessages.add(0, message) // Add to front
+            _startupProgressMessages.add(0, timestampedMessage) // Add to front
             if (_startupProgressMessages.size > 10) {
                 _startupProgressMessages.removeAt(_startupProgressMessages.size - 1) // Remove oldest
             }
         }
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟦 Startup Progress: $message")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟦 Startup Progress: $timestampedMessage")
     }
     
     /**

@@ -23,7 +23,6 @@ import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.connectToWebsocket
-import net.vrkknn.andromuks.utils.waitForBackendHealth
 import net.vrkknn.andromuks.BuildConfig
 
 import okhttp3.OkHttpClient

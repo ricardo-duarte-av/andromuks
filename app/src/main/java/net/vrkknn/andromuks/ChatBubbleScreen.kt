@@ -84,7 +84,6 @@ import androidx.compose.ui.zIndex
 import okhttp3.OkHttpClient
 import kotlin.math.min
 import net.vrkknn.andromuks.utils.connectToWebsocket
-import net.vrkknn.andromuks.utils.waitForBackendHealth
 import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
 import net.vrkknn.andromuks.utils.MediaMessage
 import net.vrkknn.andromuks.utils.HtmlMessageText
