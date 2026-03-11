@@ -998,8 +998,17 @@ fun ChatBubbleEventItem(
 ) {
     val context = LocalContext.current
     
+    // Include cached profile for sender in keys so when on-demand load completes and parent
+    // recomposes with updated map, we pick up display name/avatar without sticking to stale null.
+    val cachedSenderProfile = userProfileCache[event.sender]
     // PERFORMANCE: Cache profile extraction to avoid recalculation on every scroll frame
-    val profileData = remember(event.eventId, event.content, event.decrypted) {
+    val profileData = remember(
+        event.eventId,
+        event.content,
+        event.decrypted,
+        cachedSenderProfile?.displayName,
+        cachedSenderProfile?.avatarUrl
+    ) {
         // Check for per-message profile (e.g., from Beeper bridge)
         val perMessageProfile = event.content?.optJSONObject("com.beeper.per_message_profile")
         val encryptedPerMessageProfile = event.decrypted?.optJSONObject("com.beeper.per_message_profile")
@@ -1038,6 +1047,24 @@ fun ChatBubbleEventItem(
                          (event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace")
         
         Triple(actualProfile, actualIsMine, isEditEvent)
+    }
+
+    // On-demand room member profile when bubble has no per-message profile and cache incomplete.
+    // ViewModel dedupes pending/throttle so scrolling many bubbles from same sender stays cheap.
+    LaunchedEffect(event.sender, event.roomId) {
+        val hasPerMessage =
+            event.content?.has("com.beeper.per_message_profile") == true ||
+                event.decrypted?.has("com.beeper.per_message_profile") == true
+        if (hasPerMessage) return@LaunchedEffect
+        if (appViewModel == null || event.roomId.isBlank()) return@LaunchedEffect
+        val p = userProfileCache[event.sender]
+        if (p != null &&
+            !p.displayName.isNullOrBlank() &&
+            !p.avatarUrl.isNullOrBlank()
+        ) {
+            return@LaunchedEffect
+        }
+        appViewModel.requestUserProfileOnDemand(event.sender, event.roomId)
     }
     
     val actualProfile = profileData.first

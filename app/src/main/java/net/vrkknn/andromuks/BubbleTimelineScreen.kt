@@ -2420,9 +2420,10 @@ fun BubbleTimelineScreen(
         // Only request profiles for users that are actually visible in the timeline
         // This dramatically reduces memory usage for large rooms
         if (sortedEvents.isNotEmpty()) {
-            val visibleUsers = sortedEvents.take(50) // Only first 50 events to avoid overwhelming
-                .map { it.sender }
-                .distinct()
+            val visibleUsers = buildSet {
+                sortedEvents.take(50).forEach { add(it.sender) }
+                sortedEvents.takeLast(50).forEach { add(it.sender) }
+            }
             
             if (BuildConfig.DEBUG) Log.d(
                 "Andromuks",

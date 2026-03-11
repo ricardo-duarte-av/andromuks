@@ -2543,9 +2543,12 @@ fun RoomTimelineScreen(
         // Only request profiles for users that are actually visible in the timeline
         // This dramatically reduces memory usage for large rooms
         if (sortedEvents.isNotEmpty()) {
-            val visibleUsers = sortedEvents.take(50) // Only first 50 events to avoid overwhelming
-                .map { it.sender }
-                .distinct()
+            // sortedEvents is oldest-first; include both ends so senders only in recent messages
+            // (e.g. first message from a user) still get profile requests without scanning all.
+            val visibleUsers = buildSet {
+                sortedEvents.take(50).forEach { add(it.sender) }
+                sortedEvents.takeLast(50).forEach { add(it.sender) }
+            }
             
             if (BuildConfig.DEBUG) Log.d(
                 "Andromuks",

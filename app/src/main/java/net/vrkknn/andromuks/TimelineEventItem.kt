@@ -3072,18 +3072,6 @@ fun TimelineEventItem(
     onShowMenu: ((MessageMenuConfig) -> Unit)? = null
 ) {
     val context = LocalContext.current
-    
-    // OPPORTUNISTIC PROFILE LOADING: Request profile only when this event is actually rendered
-    //LaunchedEffect(event.sender, event.roomId) {
-    //    if (appViewModel != null) {
-    //        // Check if we already have the profile (including for current user)
-    //        val existingProfile = appViewModel.getUserProfile(event.sender, event.roomId)
-    //        if (existingProfile == null || existingProfile.displayName.isNullOrBlank()) {
-    //            if (BuildConfig.DEBUG) Log.d("Andromuks", "TimelineEventItem: Requesting profile on-demand for ${event.sender}")
-    //            appViewModel.requestUserProfileOnDemand(event.sender, event.roomId)
-    //        }
-    //    }
-    //}
 
     // Check for per-message profile (e.g., from Beeper bridge)
     // This can be in either the content (for regular messages) or decrypted content (for encrypted
@@ -3122,6 +3110,25 @@ fun TimelineEventItem(
             }
             else -> userProfileCache[event.sender]
         }
+
+    // On-demand room member profile when cache is incomplete (no per-message profile).
+    // Guard inside LaunchedEffect so the effect is always invoked (Compose rules); the ViewModel
+    // fast-paths when already pending/throttled so scroll/recompose stays cheap.
+    LaunchedEffect(event.sender, event.roomId) {
+        if (hasPerMessageProfile || hasEncryptedPerMessageProfile) return@LaunchedEffect
+        if (appViewModel == null || event.roomId.isBlank()) return@LaunchedEffect
+        val p = userProfileCache[event.sender]
+        if (p != null &&
+            !p.displayName.isNullOrBlank() &&
+            !p.avatarUrl.isNullOrBlank()
+        ) {
+            return@LaunchedEffect
+        }
+        if (BuildConfig.DEBUG) {
+            Log.d("Andromuks", "TimelineEventItem: On-demand profile for ${event.sender} in ${event.roomId}")
+        }
+        appViewModel.requestUserProfileOnDemand(event.sender, event.roomId)
+    }
 
     val displayName = actualProfile?.displayName
     val avatarUrl = actualProfile?.avatarUrl

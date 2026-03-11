@@ -8817,10 +8817,11 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // Request profiles for users with missing data
+        // Request profiles for users with missing data — use room-specific member state so
+        // display name and avatar match the room (same path as UserInfo / timeline rows).
         for (userId in usersToRequest) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting missing profile for $userId")
-            requestUserProfile(userId, roomId)
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting missing profile (on-demand) for $userId")
+            requestUserProfileOnDemand(userId, roomId)
         }
     }
     
@@ -10134,8 +10135,14 @@ class AppViewModel : ViewModel() {
             //android.util.Log.d("Andromuks", "AppViewModel: Profile already cached for $userId, skipping request")
             return
         }
-        
+
         val requestKey = "$roomId:$userId"
+        // FAST PATH: Many timeline rows for the same sender + scroll recycle would otherwise
+        // repeat throttle/pending logic. If a request is already in flight, return immediately
+        // so scrolling/recomposition stays cheap.
+        if (pendingProfileRequests.contains(requestKey)) {
+            return
+        }
         
         fun enqueueNetworkRequest() {
             // Avoid duplicate network requests
