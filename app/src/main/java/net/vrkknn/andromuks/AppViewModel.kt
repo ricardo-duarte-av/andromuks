@@ -1649,6 +1649,12 @@ class AppViewModel : ViewModel() {
      * @return map of new message event IDs (eventId -> current timestamp)
      */
     fun getNewMessageAnimations(): Map<String, Long> = newMessageAnimations.toMap()
+
+    /**
+     * Milliseconds when the user opened this room (Matrix-style timestamp).
+     * Used to animate only messages newer than open time, not paginated history.
+     */
+    fun getRoomOpenTimestamp(roomId: String): Long? = roomOpenTimestamps[roomId]
     
     /**
      * Update cached room sections to avoid expensive filtering on every recomposition.

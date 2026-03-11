@@ -2327,8 +2327,8 @@ fun RoomTimelineScreen(
                 !isKeyboardOpen // ONLY handle when keyboard is CLOSED
         ) {
             coroutineScope.launch {
-                listState.scrollToItem(0)
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: New message arrived (keyboard closed), scrolled to bottom (index=0, attached=$isAttachedToBottom)")
+                listState.animateScrollToItem(0, scrollOffset = 0)
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: New message arrived (keyboard closed), animateScrollToItem to bottom (index=0, attached=$isAttachedToBottom)")
             }
             lastKnownTimelineEventId = lastEventId
         }
@@ -2985,6 +2985,20 @@ fun RoomTimelineScreen(
                                 }
                             }
                         } else {
+                            // When media async-load changes height (portrait E2EE), re-anchor scroll if at bottom
+                            DisposableEffect(listState, coroutineScope) {
+                                TimelineMediaLayoutCallback.callback = {
+                                    coroutineScope.launch {
+                                        if (pendingScrollRestoration) return@launch
+                                        if (listState.firstVisibleItemIndex == 0 &&
+                                            listState.firstVisibleItemScrollOffset < 100
+                                        ) {
+                                            listState.animateScrollToItem(0, scrollOffset = 0)
+                                        }
+                                    }
+                                }
+                                onDispose { TimelineMediaLayoutCallback.callback = null }
+                            }
                             Box(modifier = Modifier.fillMaxSize()) {
                             LazyColumn(
                                     modifier = Modifier

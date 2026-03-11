@@ -2180,16 +2180,16 @@ fun BubbleTimelineScreen(
                     // We're attached but not actually at bottom - scroll to bottom
                     if (BuildConfig.DEBUG) Log.d(
                         "Andromuks",
-                        "BubbleTimelineScreen: Attached but not at bottom (firstVisible=$currentFirstVisible). Scrolling to bottom (index=0)."
+                        "BubbleTimelineScreen: Attached but not at bottom (firstVisible=$currentFirstVisible). animateScrollToItem to bottom (index=0)."
                     )
                     coroutineScope.launch {
-                        listState.scrollToItem(0)
+                        listState.animateScrollToItem(0, scrollOffset = 0)
                     }
                 }
             } else {
                 // Fallback: just scroll if we can't verify position
                 coroutineScope.launch {
-                    listState.scrollToItem(0)
+                    listState.animateScrollToItem(0, scrollOffset = 0)
                 }
             }
             lastKnownTimelineEventId = lastEventId
@@ -2620,6 +2620,19 @@ fun BubbleTimelineScreen(
                                 }
                             }
                         } else {
+                            DisposableEffect(listState, coroutineScope) {
+                                TimelineMediaLayoutCallback.callback = {
+                                    coroutineScope.launch {
+                                        if (pendingScrollRestoration) return@launch
+                                        if (listState.firstVisibleItemIndex == 0 &&
+                                            listState.firstVisibleItemScrollOffset < 100
+                                        ) {
+                                            listState.animateScrollToItem(0, scrollOffset = 0)
+                                        }
+                                    }
+                                }
+                                onDispose { TimelineMediaLayoutCallback.callback = null }
+                            }
                             Box(modifier = Modifier.fillMaxSize()) {
                             LazyColumn(
                                     modifier = Modifier

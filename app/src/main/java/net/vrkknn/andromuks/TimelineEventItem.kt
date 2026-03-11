@@ -53,6 +53,12 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -3357,6 +3363,43 @@ fun TimelineEventItem(
         (absDrag / swipeThreshold).coerceIn(0f, 1f)
     }
     
+    // Entrance only for messages newer than room open, or flagged as new (sound/animation map)
+    val roomOpenTs = appViewModel?.getRoomOpenTimestamp(event.roomId)
+    val isFlaggedNew = appViewModel?.getNewMessageAnimations()?.containsKey(event.eventId) == true
+    val shouldAnimateEntrance =
+        !isNarratorEvent &&
+            (isFlaggedNew || (roomOpenTs != null && event.timestamp > roomOpenTs))
+    // AnimatedVisibility(visible=true) skips enter on first frame — must go false -> true
+    val entranceVisibleState = remember(event.eventId) {
+        MutableTransitionState(!shouldAnimateEntrance) // no animation => already visible
+    }
+    LaunchedEffect(event.eventId, shouldAnimateEntrance) {
+        if (shouldAnimateEntrance && !entranceVisibleState.currentState) {
+            // Defer so first frame lays out hidden, then enter transition runs
+            kotlinx.coroutines.delay(1)
+            entranceVisibleState.targetState = true
+        } else if (!shouldAnimateEntrance) {
+            entranceVisibleState.targetState = true
+        }
+    }
+    val entranceEnter =
+        if (shouldAnimateEntrance) {
+            if (actualIsMine) {
+                fadeIn(animationSpec = tween(500)) +
+                    slideInVertically(animationSpec = tween(500)) { h -> h / 2 }
+            } else {
+                fadeIn(animationSpec = tween(500)) +
+                    slideInHorizontally(animationSpec = tween(500)) { w -> -w }
+            }
+        } else {
+            fadeIn(animationSpec = tween(0))
+        }
+
+    AnimatedVisibility(
+        visibleState = entranceVisibleState,
+        enter = entranceEnter,
+        exit = fadeOut(animationSpec = tween(0)) // no exit flash when item leaves lazy list
+    ) {
     Box(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -3782,6 +3825,7 @@ fun TimelineEventItem(
             }
         }
     }
+    } // AnimatedVisibility
 
     if (showEditHistoryDialog) {
         when {

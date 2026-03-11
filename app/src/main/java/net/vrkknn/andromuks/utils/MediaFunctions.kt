@@ -118,6 +118,7 @@ import net.vrkknn.andromuks.MediaMessage
 import net.vrkknn.andromuks.utils.BlurHashUtils
 import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.AppViewModel
+import net.vrkknn.andromuks.TimelineMediaLayoutCallback
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Pause
@@ -1299,6 +1300,8 @@ private fun MediaContent(
                                                     "Updated aspect ratio from loaded image: $actualAspectRatio"
                                                 )
                                             }
+                                            // E2EE/portrait: async decode changes height — re-scroll if timeline registered callback
+                                            TimelineMediaLayoutCallback.notifyAfterLayoutSettled()
                                         }
                             },
                             onError = { },
@@ -1563,6 +1566,7 @@ private fun MediaContent(
                                                     "Andromuks",
                                                     "Updated video thumbnail aspect ratio from loaded image: $actualAspectRatio"
                                                 )
+                                                TimelineMediaLayoutCallback.notifyAfterLayoutSettled()
                                             }
                                         }
                                     },
