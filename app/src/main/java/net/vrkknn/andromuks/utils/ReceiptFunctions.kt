@@ -740,10 +740,12 @@ fun AnimatedInlineReadReceiptAvatars(
                                 mutableStateOf(!isNewlyMoved)  // Start hidden if newly moved
                             }
 
+                            // Delay so message row entrance (fade/slide) can start first — avoids
+                            // receipt scale/fade running while parent is still alpha 0 / off-screen.
                             LaunchedEffect(receipt.userId, eventId, isNewlyMoved) {
                                 if (isNewlyMoved) {
-                                    delay(50)  // Small delay
-                                    isVisible = true  // Then show with animation
+                                    delay(180)
+                                    isVisible = true
                                 }
                             }
                             

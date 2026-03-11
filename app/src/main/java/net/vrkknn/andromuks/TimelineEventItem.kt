@@ -3373,24 +3373,34 @@ fun TimelineEventItem(
     // Entrance only for messages newer than room open, or flagged as new (sound/animation map)
     val roomOpenTs = appViewModel?.getRoomOpenTimestamp(event.roomId)
     val isFlaggedNew = appViewModel?.getNewMessageAnimations()?.containsKey(event.eventId) == true
-    val shouldAnimateEntrance =
+    val eligibleForEntrance =
         !isNarratorEvent &&
             (isFlaggedNew || (roomOpenTs != null && event.timestamp > roomOpenTs))
+    // Run entrance only once per eventId — LazyColumn disposes off-screen items; without this,
+    // scrolling back would recompose and replay animation every time.
+    val alreadyPlayed = appViewModel?.hasTimelineEntrancePlayed(event.eventId) == true
+    val runEntrance = eligibleForEntrance && !alreadyPlayed
     // AnimatedVisibility(visible=true) skips enter on first frame — must go false -> true
-    val entranceVisibleState = remember(event.eventId) {
-        MutableTransitionState(!shouldAnimateEntrance) // no animation => already visible
+    val entranceVisibleState = remember(event.eventId, runEntrance) {
+        MutableTransitionState(!runEntrance) // no animation => already visible
     }
-    LaunchedEffect(event.eventId, shouldAnimateEntrance) {
-        if (shouldAnimateEntrance && !entranceVisibleState.currentState) {
-            // Defer so first frame lays out hidden, then enter transition runs
-            kotlinx.coroutines.delay(1)
+    // Entrance tween is 500ms — mark played only after it can run, otherwise receipt/timeline
+    // recompositions cancel this effect and we'd mark played without ever showing animation.
+    val entranceDurationMs = 500
+    LaunchedEffect(event.eventId, runEntrance) {
+        if (runEntrance && !entranceVisibleState.currentState) {
+            kotlinx.coroutines.delay(1) // next frame so enter transition actually runs
             entranceVisibleState.targetState = true
-        } else if (!shouldAnimateEntrance) {
+            // Wait for enter animation to finish before marking; if cancelled (scroll/receipt
+            // storm), do not mark so next composition can retry entrance.
+            kotlinx.coroutines.delay((entranceDurationMs + 80).toLong())
+            appViewModel?.markTimelineEntrancePlayed(event.eventId)
+        } else {
             entranceVisibleState.targetState = true
         }
     }
     val entranceEnter =
-        if (shouldAnimateEntrance) {
+        if (runEntrance) {
             if (actualIsMine) {
                 fadeIn(animationSpec = tween(500)) +
                     slideInVertically(animationSpec = tween(500)) { h -> h / 2 }

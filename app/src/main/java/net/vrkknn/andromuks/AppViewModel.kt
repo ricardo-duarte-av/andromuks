@@ -7310,7 +7310,16 @@ class AppViewModel : ViewModel() {
         // PERFORMANCE: Track new messages for sound notifications only (animations removed)
     // Use ConcurrentHashMap for thread-safe access (modified from background threads, read from UI thread)
     private val newMessageAnimations = ConcurrentHashMap<String, Long>() // eventId -> timestamp
-    
+
+    // EventIds that already ran timeline bubble entrance animation (LazyColumn recomposition would replay without this)
+    private val timelineEntrancePlayed = ConcurrentHashMap.newKeySet<String>()
+
+    fun hasTimelineEntrancePlayed(eventId: String): Boolean = timelineEntrancePlayed.contains(eventId)
+
+    fun markTimelineEntrancePlayed(eventId: String) {
+        timelineEntrancePlayed.add(eventId)
+    }
+
     // CRITICAL: Track when each room was opened (in milliseconds, Matrix timestamp format)
     // Only messages with timestamp NEWER than this will animate
     // This ensures paginated (old) messages don't animate, only truly new messages do
@@ -9740,6 +9749,7 @@ class AppViewModel : ViewModel() {
         
         // Clear new message tracking and room-open timestamp
         newMessageAnimations.clear()
+        timelineEntrancePlayed.clear()
         roomOpenTimestamps.remove(roomId)
         
         // Reset member update counter to avoid stale diffs
