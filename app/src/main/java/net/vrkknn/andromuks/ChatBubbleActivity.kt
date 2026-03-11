@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -330,6 +331,23 @@ class ChatBubbleActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Extract room ID from matrix bubble URI or null. Used from composables so bubble ViewModels
+ * can be keyed per room without relying on LocalViewModelStoreOwner (which may not be the Activity).
+ */
+internal fun extractBubbleRoomIdFromIntent(intent: Intent?): String? {
+    if (intent == null) return null
+    intent.getStringExtra("room_id")?.let { return it }
+    val uri = intent.data ?: return null
+    if (uri.scheme == "matrix" && uri.host == "bubble") {
+        val pathSegments = uri.pathSegments
+        if (pathSegments.isNotEmpty()) {
+            return "!${pathSegments[0]}"
+        }
+    }
+    return null
+}
+
 @Composable
 fun ChatBubbleNavigation(
     modifier: Modifier,
@@ -338,7 +356,25 @@ fun ChatBubbleNavigation(
     onMinimizeBubble: () -> Unit = {}
 ) {
     val navController = rememberNavController()
-    val appViewModel: AppViewModel = viewModel()
+    // Per-bubble state isolation: scope AppViewModel to this Activity instance and key by room.
+    // Do NOT use default LocalViewModelStoreOwner alone — taskAffinity="" and bubble embedding
+    // can otherwise share one VM. viewModel(application) would also be wrong.
+    val activity = LocalContext.current as ComponentActivity
+    val bubbleRoomId = remember(activity) {
+        extractBubbleRoomIdFromIntent(activity.intent)
+    }
+    val viewModelKey = bubbleRoomId?.let { "bubble_room_$it" }
+        ?: "bubble_activity_${System.identityHashCode(activity)}"
+    val appViewModel: AppViewModel = viewModel(
+        viewModelStoreOwner = activity,
+        key = viewModelKey
+    )
+    if (BuildConfig.DEBUG) {
+        Log.d(
+            "Andromuks",
+            "ChatBubbleNavigation: AppViewModel scoped to Activity=${System.identityHashCode(activity)}, key=$viewModelKey"
+        )
+    }
     
     // Notify the parent about the ViewModel creation (only once)
     LaunchedEffect(Unit) {

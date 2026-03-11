@@ -44,7 +44,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontStyle
 import androidx.navigation.NavController
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.activity.ComponentActivity
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
@@ -174,7 +173,8 @@ private fun ChatBubbleMentionMemberList(
 fun ChatBubbleLoadingScreen(
     navController: NavController,
     modifier: Modifier = Modifier,
-    appViewModel: AppViewModel = viewModel(),
+    // Must be passed from ChatBubbleNavigation — scoped per Activity + room key.
+    appViewModel: AppViewModel,
     onCloseBubble: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -292,7 +292,8 @@ fun ChatBubbleScreen(
     roomId: String,
     roomName: String,
     modifier: Modifier = Modifier,
-    appViewModel: AppViewModel = viewModel(),
+    // Caller must pass Activity-scoped VM; do not use default viewModel() (shared store risk).
+    appViewModel: AppViewModel,
     onCloseBubble: () -> Unit = {}
 ) {
     // Debug logging for bubble lifecycle

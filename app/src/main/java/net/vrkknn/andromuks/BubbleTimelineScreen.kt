@@ -127,7 +127,6 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -471,7 +470,8 @@ fun BubbleTimelineScreen(
     roomName: String,
     navController: NavController,
     modifier: Modifier = Modifier,
-    appViewModel: AppViewModel = viewModel(),
+    // Must be passed from ChatBubbleNavigation — scoped per Activity + room key; no default viewModel().
+    appViewModel: AppViewModel,
     onCloseBubble: () -> Unit = {},
     onMinimizeBubble: () -> Unit = {},
     onOpenInApp: () -> Unit = {}
