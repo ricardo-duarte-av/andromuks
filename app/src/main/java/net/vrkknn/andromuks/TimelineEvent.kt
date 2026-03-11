@@ -170,6 +170,15 @@ data class TimelineEvent(
             null
         }
     }
+
+    /**
+     * JSON object that holds msgtype, body, m.relates_to, m.new_content, etc.
+     * For m.room.encrypted, [content] is ciphertext only; backend exposes plaintext in [decrypted].
+     */
+    fun getMessagePayload(): JSONObject? = when {
+        type == "m.room.encrypted" && decryptedType == "m.room.message" && decrypted != null -> decrypted
+        else -> content ?: decrypted
+    }
 }
 
 @Immutable

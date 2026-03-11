@@ -629,8 +629,8 @@ fun EditPreviewInput(
     event: TimelineEvent,
     onCancel: () -> Unit
 ) {
-    // Get message content - handle both encrypted and non-encrypted messages
-    val content = event.content ?: event.decrypted
+    // Encrypted events: body is in decrypted only; content is ciphertext
+    val content = event.getMessagePayload()
     val body = content?.optString("body", "") ?: ""
     val msgType = content?.optString("msgtype", "") ?: ""
     

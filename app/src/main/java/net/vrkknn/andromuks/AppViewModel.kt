@@ -3348,9 +3348,12 @@ class AppViewModel : ViewModel() {
      * Text to pre-fill when opening the edit composer. Handles sync_complete edits where
      * the original event still has body from first send while the latest text lives in
      * m.new_content on the edit event(s) only.
+     *
+     * E2EE: backend exposes plaintext in [TimelineEvent.decrypted] with decrypted_type m.room.message;
+     * [TimelineEvent.content] is ciphertext only—never use it for body/msgtype.
      */
     fun getBodyTextForEdit(event: TimelineEvent): String {
-        val content = event.content ?: event.decrypted ?: return ""
+        val content = event.getMessagePayload() ?: return ""
         val msgType = content.optString("msgtype", "")
         if (msgType == "m.emote") {
             val editSource = event.localContent?.optString("edit_source")?.takeIf { it.isNotBlank() }
@@ -3359,9 +3362,9 @@ class AppViewModel : ViewModel() {
         content.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }?.let { return it }
         val versioned = getMessageVersions(event.eventId) ?: return content.optString("body", "")
         val latestEdit = versioned.versions.firstOrNull { !it.isOriginal }?.event ?: return content.optString("body", "")
-        val editContent = latestEdit.content ?: latestEdit.decrypted
-        editContent?.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }?.let { return it }
-        return editContent?.optString("body", "")?.takeIf { it.isNotBlank() } ?: content.optString("body", "")
+        val editPayload = latestEdit.getMessagePayload()
+        editPayload?.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }?.let { return it }
+        return editPayload?.optString("body", "")?.takeIf { it.isNotBlank() } ?: content.optString("body", "")
     }
     
     /**
