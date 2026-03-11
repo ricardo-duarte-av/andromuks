@@ -5,6 +5,8 @@ import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -211,11 +213,14 @@ fun RoomInfoScreen(
                 )
             }
         } else if (roomStateInfo != null) {
+            val roomInfoScrollState = rememberScrollState()
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
-                    .padding(top = 8.dp, start = 16.dp, end = 16.dp, bottom = 16.dp),
+                    .padding(top = 8.dp, start = 16.dp, end = 16.dp, bottom = 16.dp)
+                    // Whole screen scrolls so long topics / aliases cannot push buttons off-screen
+                    .verticalScroll(roomInfoScrollState),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // Room ID
@@ -334,8 +339,10 @@ fun RoomInfoScreen(
                     }
                 }
                 
-                // Room Topic (always expanded)
+                // Room Topic: cap height + nested scroll so button row stays reachable without
+                // scrolling through pages of topic text (get_room_state can return huge m.room.topic)
                 roomStateInfo!!.topic?.let { topic ->
+                    val topicScrollState = rememberScrollState()
                     Column(
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -347,7 +354,11 @@ fun RoomInfoScreen(
                         Text(
                             text = topic,
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(top = 4.dp)
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                // Max height keeps Power Levels / ACL / Pinned / Members visible below
+                                .heightIn(max = 220.dp)
+                                .verticalScroll(topicScrollState)
                         )
                     }
                 }
@@ -1244,6 +1255,18 @@ fun ServerAclDialog(
 }
 
 /**
+ * Extract topic text from MSC-style content: m.topic.m.text[0].body
+ */
+private fun extractTopicFromMTopicContent(content: JSONObject?): String? {
+    if (content == null) return null
+    val mTopic = content.optJSONObject("m.topic") ?: return null
+    val mText = mTopic.optJSONArray("m.text") ?: return null
+    if (mText.length() == 0) return null
+    val first = mText.optJSONObject(0) ?: return null
+    return first.optString("body").takeIf { it.isNotBlank() }
+}
+
+/**
  * Parse room state response from the server
  */
 fun parseRoomStateResponse(data: Any): RoomStateInfo? {
@@ -1306,7 +1329,12 @@ fun parseRoomStateResponse(data: Any): RoomStateInfo? {
                     name = content?.optString("name")
                 }
                 "m.room.topic" -> {
-                    topic = content?.optString("topic")
+                    // Plain string topic (common)
+                    topic = content?.optString("topic")?.takeIf { it.isNotBlank() }
+                    // Fallback: MSC-style m.topic.m.text[].body when topic key missing or empty
+                    if (topic.isNullOrBlank()) {
+                        topic = extractTopicFromMTopicContent(content)
+                    }
                 }
                 "m.room.avatar" -> {
                     avatarUrl = content?.optString("url")
