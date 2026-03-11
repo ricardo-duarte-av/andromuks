@@ -7,6 +7,7 @@ import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.CircleAvatarCache
+import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.RoomTimelineCache
 
 /**
@@ -84,6 +85,8 @@ class AndromuksApplication : Application() {
             // but we clear them to avoid stale references after LMK kills bitmaps)
             IntelligentMediaCache.clearInMemoryCache()
             CircleAvatarCache.clearInMemoryCache()
+            // 2b. Clear resolved mxc → path map so we don't AsyncImage dead paths after eviction
+            AvatarUtils.clearResolvedUrlCache()
             
             // 3. Trim timeline event cache for non-opened rooms (keep newest 100 events per room)
             // This is lighter-weight than clearing entire rooms - keeps recent history

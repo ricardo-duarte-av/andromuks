@@ -327,6 +327,17 @@ fun AvatarImage(
                             }
                         },
                         onError = {
+                            // Stale file path after cache eviction/trim: drop resolved entry and retry via HTTP
+                            if (mxcUrl != null && !avatarUrlForRequest.startsWith("http", ignoreCase = true)) {
+                                AvatarUtils.removeResolvedUrl(mxcUrl)
+                                val httpUrl = AvatarUtils.mxcToHttpUrl(mxcUrl, homeserverUrl)
+                                if (httpUrl != null) {
+                                    avatarUrl = httpUrl
+                                    imageLoadFailed = false
+                                    shouldLoadImage = true
+                                    return@AsyncImage
+                                }
+                            }
                             // Mark as failed so fallback shows
                             imageLoadFailed = true
                         }

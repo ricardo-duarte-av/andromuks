@@ -7,6 +7,7 @@ import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.request.ErrorResult
 import coil.request.SuccessResult
+import java.io.File
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
@@ -151,14 +152,41 @@ object AvatarUtils {
     }
     
     /**
+     * Clear the in-memory mxc → resolved path/URL map.
+     * Call from onTrimMemory alongside other cache clears so we don't keep pointing at
+     * evicted/deleted files after IntelligentMediaCache or CircleAvatarCache trims.
+     */
+    fun clearResolvedUrlCache() {
+        resolvedUrlCache.clear()
+    }
+
+    /**
+     * Remove a single resolved entry so the next load falls back to HTTP / re-resolves.
+     * Use when a cached file path fails to load (file deleted after eviction).
+     */
+    fun removeResolvedUrl(mxcUrl: String) {
+        resolvedUrlCache.remove(mxcUrl)
+    }
+
+    /**
      * PERFORMANCE: Synchronous, lock-free lookup for the room list.
      * Returns a previously resolved URL from the in-memory cache, or null on miss.
      * This avoids launching a coroutine, acquiring Mutexes, SHA-256 hashing, and file I/O
      * for the vast majority of items during scroll.
+     *
+     * If the cached value is a local file path and the file no longer exists (eviction),
+     * the entry is removed and the HTTP URL is returned so Coil can refetch.
      */
     fun getAvatarUrlForRoomListCached(mxcUrl: String?, homeserverUrl: String): String? {
         if (mxcUrl == null) return null
-        return resolvedUrlCache[mxcUrl] ?: mxcToHttpUrl(mxcUrl, homeserverUrl)
+        val cached = resolvedUrlCache[mxcUrl]
+        if (cached != null) {
+            // HTTP URLs are always usable; local paths must still exist on disk
+            if (cached.startsWith("http", ignoreCase = true)) return cached
+            if (File(cached).exists()) return cached
+            resolvedUrlCache.remove(mxcUrl)
+        }
+        return mxcToHttpUrl(mxcUrl, homeserverUrl)
     }
 
     /**
@@ -177,8 +205,12 @@ object AvatarUtils {
     ): String? {
         if (mxcUrl == null) return null
         
-        // 0. Check in-memory resolution cache first (no locks, no I/O)
-        resolvedUrlCache[mxcUrl]?.let { return it }
+        // 0. Check in-memory resolution cache first — but validate file paths still exist
+        resolvedUrlCache[mxcUrl]?.let { cached ->
+            if (cached.startsWith("http", ignoreCase = true)) return cached
+            if (File(cached).exists()) return cached
+            resolvedUrlCache.remove(mxcUrl)
+        }
         
         // 1. Check CircleAvatarCache first (pre-processed circular avatars)
         val circleCachedFile = CircleAvatarCache.getCachedFile(context, mxcUrl)
@@ -211,8 +243,8 @@ object AvatarUtils {
         resolvedUrlCache[mxcUrl] = localPath
     }
 
-    // No invalidateResolvedUrl needed — mxc:// URLs are immutable.
-    // If an avatar changes, the server issues a new mxc:// URL (different key).
+    // MXC URLs are immutable for content; use removeResolvedUrl when a cached file path
+    // is stale (evicted/deleted) so the next load refetches via HTTP.
 
     /**
      * Converts an MXC URL to the original media URL without thumbnail parameters.
