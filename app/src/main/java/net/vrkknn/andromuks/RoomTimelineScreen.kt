@@ -94,6 +94,8 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.graphicsLayer
@@ -492,7 +494,7 @@ fun DateDivider(date: String) {
 
 // NOTE: Keep this screen in sync with `BubbleTimelineScreen`. Any structural or data-flow changes
 // should be mirrored between both implementations. Refer to `docs/BUBBLE_IMPLEMENTATION.md`.
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class, ExperimentalSharedTransitionApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class, ExperimentalSharedTransitionApi::class, FlowPreview::class)
 @Composable
 fun RoomTimelineScreen(
     roomId: String,
@@ -2000,37 +2002,40 @@ fun RoomTimelineScreen(
         previousAppVisibleState = appViewModel.isAppVisible
     }
     
-    // CRITICAL FIX: Track user scroll intent directly instead of using derived isAtBottom
-    // With reverseLayout, firstVisibleItemIndex == 0 means at bottom
-    // Track scroll completion to update isAttachedToBottom when scroll settles
+    // Bottom attachment: single snapshotFlow over (index, offset) so both read in one frame.
+    // Avoids races between separate isScrollInProgress vs offset effects during keyboard transitions.
+    // With reverseLayout=true, bottom == first item; offset tolerance matches Signal/WhatsApp UX.
     LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress }
-            .collect { scrolling ->
-                if (!scrolling && hasInitialSnapCompleted && hasLoadedInitialBatch) {
-                    // When scroll settles, check real position (only when keyboard is CLOSED)
-                    if (!isKeyboardOpen) {
-                        val currentFirstVisible = listState.firstVisibleItemIndex
-                        val atBottom = currentFirstVisible == 0
-                        if (atBottom != isAttachedToBottom) {
-                            isAttachedToBottom = atBottom
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Scroll settled, isAttachedToBottom=$atBottom (firstVisible=$currentFirstVisible)")
+        snapshotFlow {
+            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+        }
+            .distinctUntilChanged()
+            .debounce(50L) // coalesce keyboard/layout jitter
+            .collect { (index, offset) ->
+                if (!hasInitialSnapCompleted || !hasLoadedInitialBatch || pendingScrollRestoration) {
+                    return@collect
+                }
+                val atBottom = index == 0 && offset < 100
+                if (!isKeyboardOpen) {
+                    if (atBottom != isAttachedToBottom) {
+                        isAttachedToBottom = atBottom
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                                "Andromuks",
+                                "RoomTimelineScreen: Attachment updated, isAttachedToBottom=$atBottom (index=$index, offset=$offset)"
+                            )
                         }
                     }
-                }
-            }
-    }
-    
-    // Track scroll position changes to detect when user manually scrolls up
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.firstVisibleItemScrollOffset to listState.firstVisibleItemIndex }
-            .distinctUntilChanged()
-            .collect { (_, index) ->
-                // If user manually scrolled up (not during keyboard open), detach
-                // With reverseLayout, index > 0 means scrolled up from bottom
-                if (hasInitialSnapCompleted && hasLoadedInitialBatch && !isKeyboardOpen) {
-                    if (index > 0 && isAttachedToBottom) {
+                } else {
+                    // Same as BubbleTimelineScreen: allow detach while IME open so FAB can show
+                    if (!atBottom && isAttachedToBottom) {
                         isAttachedToBottom = false
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: User scrolled up (index=$index), detaching from bottom")
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                                "Andromuks",
+                                "RoomTimelineScreen: Keyboard open, user scrolled up — detached (index=$index, offset=$offset)"
+                            )
+                        }
                     }
                 }
             }
@@ -2077,7 +2082,9 @@ fun RoomTimelineScreen(
             // Re-check conditions after delay
             if (listState.layoutInfo.totalItemsCount > 0 && timelineItems.isNotEmpty()) {
                 val currentFirstVisible = listState.firstVisibleItemIndex
-                val actuallyAtBottom = currentFirstVisible == 0
+                val currentOffset = listState.firstVisibleItemScrollOffset
+                // Match attachment tolerance (index==0 && offset<100) to avoid scroll fighting
+                val actuallyAtBottom = currentFirstVisible == 0 && currentOffset < 100
                 
                 if (!actuallyAtBottom) {
                     // We're attached but not actually at bottom - scroll to bottom
@@ -3869,17 +3876,17 @@ fun RoomTimelineScreen(
                 if (!isAttachedToBottom) {
                     // Push FAB up when attach menu or message menu is open
                     val menuOpen = showAttachmentMenu || messageMenuConfig != null
-                    val fabBottomPadding = if (menuOpen) 170.dp else 60.dp // Higher when menu is open to avoid clipping
+                    val fabBottomPadding = if (menuOpen) 200.dp else 90.dp // Higher when menu is open to avoid clipping
                     FloatingActionButton(
                         onClick = {
                             coroutineScope.launch {
-                                // Scroll to bottom and re-attach (instant, no animation)
+                                // Animated scroll to bottom, then re-attach (FAB hides once settled)
                                 // With reverseLayout, index 0 is bottom
-                                listState.scrollToItem(0)
+                                listState.animateScrollToItem(0, scrollOffset = 0)
                                 isAttachedToBottom = true
                                 if (BuildConfig.DEBUG) Log.d(
                                     "Andromuks",
-                                    "RoomTimelineScreen: FAB clicked, scrolling to bottom (index=0) and re-attaching - reverseLayout"
+                                    "RoomTimelineScreen: FAB clicked, animateScrollToItem to bottom and re-attaching - reverseLayout"
                                 )
                             }
                         },
