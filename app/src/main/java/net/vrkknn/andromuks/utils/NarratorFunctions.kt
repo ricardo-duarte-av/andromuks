@@ -174,22 +174,19 @@ fun SystemEventNarrator(
     }
 
     // Permission logic mirrors message bubble behavior:
-    // - own events: delete if my PL >= room redact PL
-    // - others' events: delete if sender PL < my PL and my PL >= room redact PL
+    // redact PL = minimum PL to redact others' messages; own messages can always be redacted.
+    // If my PL >= redact PL, can redact anyone's messages (regardless of sender PL).
     val effectivePowerLevels = powerLevels ?: appViewModel?.currentRoomState?.powerLevels
     val myPowerLevel = if (myUserId != null && effectivePowerLevels != null) {
         effectivePowerLevels.users[myUserId] ?: effectivePowerLevels.usersDefault
     } else 0
-    val senderPowerLevel = if (effectivePowerLevels != null) {
-        effectivePowerLevels.users[event.sender] ?: effectivePowerLevels.usersDefault
-    } else 0
     val redactPowerLevel = effectivePowerLevels?.redact ?: 50
-    val canRedactMessage = myPowerLevel >= redactPowerLevel
+    val canRedactOthersMessages = myPowerLevel >= redactPowerLevel
     val isMine = myUserId != null && event.sender == myUserId
     val canDelete = if (isMine) {
-        canRedactMessage
+        true
     } else {
-        senderPowerLevel < myPowerLevel && canRedactMessage
+        canRedactOthersMessages
     }
     
     // Calculate pin/unpin permissions

@@ -248,10 +248,12 @@ suspend fun bubbleProcessTimelineEvents(
 
     // PERFORMANCE: Optimize edit filtering by creating a lookup set
     val editedEventIds = filteredEvents.filter { event ->
-        event.type == "m.room.message" &&
-        event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+        if (event.type != "m.room.message") return@filter false
+        event.relationType == "m.replace" ||
+            event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
     }.mapNotNull { event ->
         event.content?.optJSONObject("m.relates_to")?.optString("event_id")?.takeIf { it.isNotBlank() }
+            ?: event.relatesTo?.takeIf { event.relationType == "m.replace" && it.isNotBlank() }
     }.toSet()
 
     // Filter out superseded events using the lookup set for O(1) performance
@@ -727,17 +729,7 @@ fun BubbleTimelineScreen(
     // Pre-fill draft when editing starts
     LaunchedEffect(editingEvent) {
         if (editingEvent != null) {
-            val content = editingEvent!!.content ?: editingEvent!!.decrypted
-            val msgType = content?.optString("msgtype", "")
-            
-            // For emote messages, use edit_source which includes the /me prefix
-            val body = if (msgType == "m.emote") {
-                val localContent = editingEvent!!.localContent
-                val editSource = localContent?.optString("edit_source")?.takeIf { it.isNotBlank() }
-                editSource ?: content?.optString("body", "") ?: ""
-            } else {
-                content?.optString("body", "") ?: ""
-            }
+            val body = appViewModel.getBodyTextForEdit(editingEvent!!)
             draft = body
             
             // Hide mention list when editing

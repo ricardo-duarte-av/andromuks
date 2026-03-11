@@ -603,16 +603,7 @@ fun ThreadViewerScreen(
     // Pre-fill draft when editing starts
     LaunchedEffect(editingEvent) {
         if (editingEvent != null) {
-            val content = editingEvent!!.content ?: editingEvent!!.decrypted
-            val msgType = content?.optString("msgtype", "")
-            val body = if (msgType == "m.emote") {
-                val localContent = editingEvent!!.localContent
-                val editSource = localContent?.optString("edit_source")?.takeIf { it.isNotBlank() }
-                editSource ?: content?.optString("body", "") ?: ""
-            } else {
-                content?.optString("body", "") ?: ""
-            }
-            draft = body
+            draft = appViewModel.getBodyTextForEdit(editingEvent!!)
             // Hide mention list when editing
             showMentionList = false
         }

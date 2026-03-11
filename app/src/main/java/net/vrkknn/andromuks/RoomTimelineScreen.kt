@@ -275,18 +275,16 @@ suspend fun processTimelineEvents(
     val eventsWithoutEdits = filteredEvents.filter { event ->
         when {
             event.type == "m.room.message" -> {
-                val relatesTo = event.content?.optJSONObject("m.relates_to")
-                val relType = relatesTo?.optString("rel_type")
-                val isEditEvent = relType == "m.replace"
+                val isEditEvent = event.relationType == "m.replace" ||
+                    event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
                 if (isEditEvent) {
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Filtering out edit event (m.replace) ${event.eventId}")
                 }
                 !isEditEvent
             }
             event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> {
-                val relatesTo = event.decrypted?.optJSONObject("m.relates_to")
-                val relType = relatesTo?.optString("rel_type")
-                val isEditEvent = relType == "m.replace"
+                val isEditEvent = event.relationType == "m.replace" ||
+                    event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
                 if (isEditEvent) {
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Filtering out encrypted edit event ${event.eventId}")
                 }
@@ -830,17 +828,8 @@ fun RoomTimelineScreen(
     // Pre-fill draft when editing starts
     LaunchedEffect(editingEvent) {
         if (editingEvent != null) {
-            val content = editingEvent!!.content ?: editingEvent!!.decrypted
-            val msgType = content?.optString("msgtype", "")
-            
-            // For emote messages, use edit_source which includes the /me prefix
-            val body = if (msgType == "m.emote") {
-                val localContent = editingEvent!!.localContent
-                val editSource = localContent?.optString("edit_source")?.takeIf { it.isNotBlank() }
-                editSource ?: content?.optString("body", "") ?: ""
-            } else {
-                content?.optString("body", "") ?: ""
-            }
+            // Use ViewModel helper so E2EE + sync_complete edits (m.new_content only) pre-fill correctly
+            val body = appViewModel.getBodyTextForEdit(editingEvent!!)
             draft = body
             
             // Hide mention list when editing

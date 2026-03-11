@@ -904,10 +904,9 @@ fun UserInfoScreen(
         myPowerLevel > targetUserPowerLevel
     }
     
-    val canRedact = remember(roomPowerLevels, myPowerLevel, targetUserPowerLevel) {
-        roomPowerLevels != null && 
-        myPowerLevel >= roomPowerLevels!!.redact && 
-        myPowerLevel > targetUserPowerLevel
+    // redact PL is minimum PL to redact others' messages; no need to be above target's PL.
+    val canRedact = remember(roomPowerLevels, myPowerLevel) {
+        roomPowerLevels != null && myPowerLevel >= roomPowerLevels!!.redact
     }
     
     // CRITICAL FIX: Always request fresh profile data from backend (never use cache)

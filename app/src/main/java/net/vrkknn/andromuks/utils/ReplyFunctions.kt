@@ -873,29 +873,24 @@ fun MessageBubbleWithMenu(
     val effectivePowerLevels = powerLevels ?: appViewModel?.currentRoomState?.powerLevels
     
     // Calculate power level permissions (works for both e2ee and non-e2ee rooms)
-    // 1. Others' messages: can redact when sender's PL < ours AND we have redact permission (my PL >= room redact PL)
-    // 2. Our messages: can edit/redact when our PL >= room redact PL
+    // Matrix: "redact" is the minimum PL to redact *others'* messages. You can always redact your own.
+    // If my PL >= redact PL, we can redact anyone's messages (no comparison to sender's PL).
     val myPowerLevel = if (myUserId != null && effectivePowerLevels != null) {
         effectivePowerLevels.users[myUserId] ?: effectivePowerLevels.usersDefault
     } else {
         0
     }
-    val senderPowerLevel = if (effectivePowerLevels != null) {
-        effectivePowerLevels.users[event.sender] ?: effectivePowerLevels.usersDefault
-    } else {
-        0
-    }
     val redactPowerLevel = effectivePowerLevels?.redact ?: 50
-    val canRedactMessage = myPowerLevel >= redactPowerLevel
+    val canRedactOthersMessages = myPowerLevel >= redactPowerLevel
     
     // Determine which buttons to show (same logic for m.room.message and m.room.encrypted)
-    val canEdit = isMine && canRedactMessage // Our messages: require redact level to edit
+    // Own messages: always edit/delete (server allows redacting own events without redact PL).
+    // Others' messages: delete only when we have redact PL or above.
+    val canEdit = isMine
     val canDelete = if (isMine) {
-        // Our messages: require redact permission to delete
-        canRedactMessage
+        true
     } else {
-        // Others' messages: sender's PL must be below ours AND we have redact permission
-        senderPowerLevel < myPowerLevel && canRedactMessage
+        canRedactOthersMessages
     }
     
     // Calculate pin/unpin permissions
@@ -948,7 +943,7 @@ fun MessageBubbleWithMenu(
         }
     }
     
-    //android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: isMine=$isMine, myPL=$myPowerLevel, senderPL=$senderPowerLevel, redactPL=$redactPowerLevel, canEdit=$canEdit, canDelete=$canDelete")
+    //android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: isMine=$isMine, myPL=$myPowerLevel, redactPL=$redactPowerLevel, canEdit=$canEdit, canDelete=$canDelete")
     
     // Detect dark mode for custom shadow/glow
     val isDarkMode = isSystemInDarkTheme()

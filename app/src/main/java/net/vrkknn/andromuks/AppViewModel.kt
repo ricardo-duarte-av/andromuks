@@ -3343,6 +3343,26 @@ class AppViewModel : ViewModel() {
         val versioned = getMessageVersions(eventId)
         return versioned != null && versioned.versions.size > 1
     }
+
+    /**
+     * Text to pre-fill when opening the edit composer. Handles sync_complete edits where
+     * the original event still has body from first send while the latest text lives in
+     * m.new_content on the edit event(s) only.
+     */
+    fun getBodyTextForEdit(event: TimelineEvent): String {
+        val content = event.content ?: event.decrypted ?: return ""
+        val msgType = content.optString("msgtype", "")
+        if (msgType == "m.emote") {
+            val editSource = event.localContent?.optString("edit_source")?.takeIf { it.isNotBlank() }
+            if (editSource != null) return editSource
+        }
+        content.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }?.let { return it }
+        val versioned = getMessageVersions(event.eventId) ?: return content.optString("body", "")
+        val latestEdit = versioned.versions.firstOrNull { !it.isOriginal }?.event ?: return content.optString("body", "")
+        val editContent = latestEdit.content ?: latestEdit.decrypted
+        editContent?.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }?.let { return it }
+        return editContent?.optString("body", "")?.takeIf { it.isNotBlank() } ?: content.optString("body", "")
+    }
     
     /**
      * Data class for room-specific profile entry
@@ -3668,13 +3688,28 @@ class AppViewModel : ViewModel() {
      * Helper function to check if an event is an edit (m.replace relationship)
      */
     private fun isEditEvent(event: TimelineEvent): Boolean {
+        if (event.relationType == "m.replace" && !event.relatesTo.isNullOrBlank()) return true
         return when {
-            event.type == "m.room.message" -> 
+            event.type == "m.room.message" ->
                 event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-            event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> 
+            event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" ->
                 event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
             else -> false
         }
+    }
+
+    /** Target event id for an edit (m.replace); supports sync_complete top-level relates_to only. */
+    private fun editTargetEventId(event: TimelineEvent): String? {
+        val fromContent = when {
+            event.type == "m.room.message" ->
+                event.content?.optJSONObject("m.relates_to")?.optString("event_id")
+            event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" ->
+                event.decrypted?.optJSONObject("m.relates_to")?.optString("event_id")
+            else -> null
+        }?.takeIf { it.isNotBlank() }
+        if (fromContent != null) return fromContent
+        if (event.relationType == "m.replace") return event.relatesTo?.takeIf { it.isNotBlank() }
+        return null
     }
     /**
      * Helper to merge message versions without duplicates and keep newest-first ordering.
@@ -3751,13 +3786,7 @@ class AppViewModel : ViewModel() {
                 
                 // Handle edit events (m.replace) - O(1) storage
                 isEditEvent(event) -> {
-                    val relatesTo = when {
-                        event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")
-                        event.type == "m.room.encrypted" -> event.decrypted?.optJSONObject("m.relates_to")
-                        else -> null
-                    }
-                    
-                    val originalEventId = relatesTo?.optString("event_id")?.takeIf { it.isNotBlank() }
+                    val originalEventId = editTargetEventId(event)
                     
                     if (originalEventId != null) {
                         // Store reverse mapping for quick lookup (handled by MessageVersionsCache)
@@ -3786,7 +3815,7 @@ class AppViewModel : ViewModel() {
                             val updatedVersioned = versioned.copy(
                                 versions = limitedVersions
                             )
-                            
+                            MessageVersionsCache.updateVersion(originalEventId, updatedVersioned)
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added edit ${event.eventId} to original $originalEventId (total versions: ${updatedVersions.size})")
                         } else {
                             // Edit came before original - create placeholder with just the edit
@@ -11807,6 +11836,12 @@ class AppViewModel : ViewModel() {
                             RoomTimelineCache.mergePaginatedEvents(roomId, events)
                             RoomTimelineCache.markRoomAccessed(roomId)
                             invalidateCachedRoom(roomId)
+                            // Same as pagination: populate MessageVersionsCache / edit chains from merged cache
+                            // so pencil + edit history work for edits that arrive via sync_complete only.
+                            val merged = RoomTimelineCache.getCachedEvents(roomId)
+                            if (!merged.isNullOrEmpty()) {
+                                processVersionedMessages(merged)
+                            }
                             // Rebuild timeline for the currently-open room so new events appear immediately
                             if (currentRoomId == roomId) {
                                 // CRITICAL FIX: Defer timeline rebuild during batch processing
@@ -14680,13 +14715,7 @@ class AppViewModel : ViewModel() {
         for (editEvent in sortedEditEvents) {
             val editEventId = editEvent.eventId
 
-            val relatesTo = when {
-                editEvent.type == "m.room.message" -> editEvent.content?.optJSONObject("m.relates_to")
-                editEvent.type == "m.room.encrypted" && editEvent.decryptedType == "m.room.message" -> editEvent.decrypted?.optJSONObject("m.relates_to")
-                else -> null
-            }
-
-            val targetEventId = relatesTo?.optString("event_id")
+            val targetEventId = editTargetEventId(editEvent)
             if (targetEventId != null) {
                 val targetEntry = eventChainMap[targetEventId]
                 if (targetEntry != null) {

@@ -892,8 +892,26 @@ class SyncIngestor(private val context: Context) {
             }
             else -> content
         }
-        val relatesTo = messageContent?.optJSONObject("m.relates_to")
-        val relType = relatesTo?.optString("rel_type")
+        var relatesTo = messageContent?.optJSONObject("m.relates_to")
+        var relType = relatesTo?.optString("rel_type")
+        // sync_complete often sends relation_type + relates_to at top level while content.body is "";
+        // paginate includes full content.m.relates_to. Normalize so edit pipeline matches paginate.
+        if (relatesTo == null && type == "m.room.message" && content != null) {
+            val topRelType = eventJson.optString("relation_type").takeIf { it.isNotBlank() }
+            val topRelatesToId = eventJson.optString("relates_to").takeIf { it.isNotBlank() }
+            if (topRelType == "m.replace" && topRelatesToId != null) {
+                val synthetic = JSONObject().apply {
+                    put("rel_type", "m.replace")
+                    put("event_id", topRelatesToId)
+                }
+                content.put("m.relates_to", synthetic)
+                relatesTo = synthetic
+                relType = "m.replace"
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "parseEventFromJson: Injected content.m.relates_to from top-level relation_type/relates_to for edit $eventId -> $topRelatesToId")
+                }
+            }
+        }
         val isThreadMessage = relType == "m.thread"
         
         // Check if this is a redaction (can be m.room.redaction or m.room.encrypted with decryptedType == m.room.redaction)
