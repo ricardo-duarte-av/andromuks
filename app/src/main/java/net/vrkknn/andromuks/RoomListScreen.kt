@@ -1857,12 +1857,12 @@ fun RoomListItem(
             null
         }
     }
-    // If we still don't have a profile display name, opportunistically request it so the
-    // UI can re-render with the proper display name instead of the raw userId.
+    // Always try to resolve sender to display name: request profile on demand so we can show
+    // display name instead of username fallback. requestUserProfileOnDemand skips if already cached.
     val requestedProfile = remember(room.id, room.messageSender) { mutableStateOf(false) }
-    LaunchedEffect(room.id, room.messageSender, senderDisplayName) {
+    LaunchedEffect(room.id, room.messageSender) {
         val senderId = room.messageSender
-        if (senderId != null && senderDisplayName == senderId && !requestedProfile.value) {
+        if (senderId != null && !requestedProfile.value) {
             requestedProfile.value = true
             appViewModel.requestUserProfileOnDemand(senderId, room.id)
         }
