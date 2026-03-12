@@ -695,11 +695,21 @@ class WebSocketService : Service() {
                     }
                     android.util.Log.i("WebSocketService", "Reconnecting using ViewModel: $viewModelId (primary: $primaryViewModelId, total registered: ${registeredViewModels.size})")
                     
-                    // Get last_received_id from current state (if in RECONNECTING)
-                    val lastReceivedId = serviceInstance.connectionState.getLastReceivedRequestId()
+                    // last_received_id: prefer explicit param from reconnection job, then Reconnecting state,
+                    // then prefs. Never drop to 0 after clearWebSocket() left state Disconnected or the
+                    // next connect would omit last_received_event and full resync stalls reconnect.
+                    val resolvedLastReceivedId = when {
+                        lastReceivedId != 0 -> lastReceivedId
+                        serviceInstance.connectionState.getLastReceivedRequestId() != 0 ->
+                            serviceInstance.connectionState.getLastReceivedRequestId()
+                        else -> getLastReceivedRequestId(serviceInstance.applicationContext)
+                    }
+                    if (resolvedLastReceivedId != 0 && BuildConfig.DEBUG) {
+                        android.util.Log.d("WebSocketService", "invokeReconnectionCallback: using last_received_id=$resolvedLastReceivedId for connectWebSocket")
+                    }
                     
                     // Connect - ViewModel is optional (null is fine, service handles everything)
-                    connectWebSocket(homeserverUrl, authToken, viewModelToUse, reason, lastReceivedId)
+                    connectWebSocket(homeserverUrl, authToken, viewModelToUse, reason, resolvedLastReceivedId)
                 } catch (e: Exception) {
                     android.util.Log.e("WebSocketService", "Error during service-initiated reconnection", e)
                 }
@@ -1437,9 +1447,12 @@ class WebSocketService : Service() {
             // Validate state before clearing
             detectAndRecoverStateCorruption()
             
-            // Close the WebSocket properly before clearing the reference
-            serviceInstance.webSocket?.close(1000, "Clearing connection")
+            // Close the WebSocket properly. Null out BEFORE close() so any synchronous onClosing
+            // callback sees serviceInstance.webSocket !== closingSocket and does not double-clear
+            // or cancel the reconnection job / schedule duplicate reconnections (race on network switch).
+            val wsToClose = serviceInstance.webSocket
             serviceInstance.webSocket = null
+            wsToClose?.close(1000, "Clearing connection")
             updateConnectionState(WebSocketState.Disconnected)
             serviceInstance.isCurrentlyConnected = false
             

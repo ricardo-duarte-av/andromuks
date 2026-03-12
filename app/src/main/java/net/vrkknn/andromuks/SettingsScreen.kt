@@ -483,12 +483,12 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
     val currentRequestId = remember { appViewModel.getCurrentRequestId() }
     val homeserverUrl = remember { appViewModel.homeserverUrl }
     
-    // Construct the current WebSocket URL (no longer includes last_received_id)
-    val currentWebSocketUrl = remember(homeserverUrl, runId) {
+    // Construct the WebSocket URL the same way NetworkUtils does: run_id when present;
+    // last_received_event when we have a run_id and a non-zero last received id (reconnect URL).
+    val currentWebSocketUrl = remember(homeserverUrl, runId, lastReceivedRequestId, refreshTrigger) {
         if (homeserverUrl.isBlank()) {
             "Not available"
         } else {
-            // Use the same logic as NetworkUtils.trimWebsocketHost()
             val baseUrl = if (homeserverUrl.lowercase().trim().startsWith("https://")) {
                 homeserverUrl.substringAfter("https://")
             } else if (homeserverUrl.lowercase().trim().startsWith("http://")) {
@@ -498,12 +498,14 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
             }
             val wsHost = baseUrl.split("/").firstOrNull() ?: baseUrl
             val baseWebSocketUrl = "wss://$wsHost/_gomuks/websocket"
-            
+            val params = mutableListOf<String>()
             if (runId.isNotEmpty()) {
-                "$baseWebSocketUrl?run_id=$runId"
-            } else {
-                baseWebSocketUrl
+                params.add("run_id=$runId")
+                if (lastReceivedRequestId != 0) {
+                    params.add("last_received_event=$lastReceivedRequestId")
+                }
             }
+            if (params.isEmpty()) baseWebSocketUrl else "$baseWebSocketUrl?${params.joinToString("&")}"
         }
     }
     val isRegistered = remember { fcmNotificationManager.isRegisteredWithBackend() }
