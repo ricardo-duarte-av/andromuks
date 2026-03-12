@@ -11,6 +11,40 @@ import kotlinx.coroutines.coroutineScope
 import org.json.JSONObject
 
 object SpaceRoomParser {
+
+    /**
+     * Matrix reply fallback bodies start with quoted parent lines (`> ...`); the actual reply
+     * follows after a blank line. Strip the quote block so room list shows the reply text,
+     * not the parent message. Mirrors [net.vrkknn.andromuks.utils.html] stripReplyFallback logic.
+     */
+    private fun stripMatrixReplyQuote(body: String): String {
+        if (body.isEmpty()) return body
+        val lines = body.split('\n')
+        if (lines.isEmpty() || !lines.first().startsWith(">")) return body
+        var index = 0
+        while (index < lines.size && lines[index].startsWith(">")) index++
+        if (index < lines.size && lines[index].isBlank()) index++
+        val stripped = lines.drop(index).joinToString("\n").trim()
+        return if (stripped.isNotBlank()) stripped else body
+    }
+
+    private fun contentHasInReplyTo(content: org.json.JSONObject?): Boolean {
+        val relates = content?.optJSONObject("m.relates_to") ?: return false
+        if (relates.optString("rel_type") == "m.replace") return false // edit, not reply
+        val inReplyTo = relates.optJSONObject("m.in_reply_to") ?: return false
+        return inReplyTo.optString("event_id").isNotBlank()
+    }
+
+    /** Labels for non-text room list previews (aligned with parseRoomFromJson emoji style). */
+    private fun previewFromMsgtype(msgtype: String, body: String?): String? = when (msgtype) {
+        "m.image" -> "📷 Image"
+        "m.video" -> "🎥 Video"
+        "m.audio" -> "🎵 Audio"
+        "m.file" -> "📎 File"
+        "m.location" -> "📍 Location"
+        "m.sticker" -> body?.takeIf { it.isNotBlank() }?.let { "🎨 $it" } ?: "🎨 Sticker"
+        else -> null
+    }
     /**
      * Parses the sync JSON and returns a list of all non-space rooms.
      * Ignores spaces for now and just shows a flat list of rooms.
@@ -68,35 +102,81 @@ object SpaceRoomParser {
                         when (eventType) {
                             "m.room.message" -> {
                                 val content = event.optJSONObject("content")
-                                val body = content?.optString("body")?.takeIf { it.isNotBlank() }
+                                val relatesTo = content?.optJSONObject("m.relates_to")
+                                val isEdit = relatesTo?.optString("rel_type") == "m.replace"
+                                var body = if (isEdit) {
+                                    content?.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }
+                                } else {
+                                    content?.optString("body")?.takeIf { it.isNotBlank() }
+                                }
+                                if (body != null && !isEdit && contentHasInReplyTo(content)) {
+                                    body = stripMatrixReplyQuote(body).takeIf { it.isNotBlank() } ?: body
+                                }
                                 if (body != null) {
                                     messagePreview = body
-                                    // Extract sender user ID (use full Matrix ID for profile lookup)
                                     val sender = event.optString("sender")?.takeIf { it.isNotBlank() }
-                                    // Extract event_id for mark_read
                                     latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
-                                    //android.util.Log.d("Andromuks", "SpaceRoomParser: Message event sender: '$sender' for room $roomId")
                                     messageSender = sender
-                                    break // Found the last message, stop looking
+                                    break
+                                }
+                                // Non-text / empty body: still show sender + media label
+                                if (!isEdit) {
+                                    val msgtype = content?.optString("msgtype", "") ?: ""
+                                    val label = previewFromMsgtype(msgtype, content?.optString("body"))
+                                    if (label != null) {
+                                        messagePreview = label
+                                        messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                        latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
+                                        break
+                                    }
                                 }
                             }
                             "m.room.encrypted" -> {
-                                // Check if it's a decrypted message
                                 val decryptedType = event.optString("decrypted_type")
-                                if (decryptedType == "m.room.message") {
-                                    val decrypted = event.optJSONObject("decrypted")
-                                    val body = decrypted?.optString("body")?.takeIf { it.isNotBlank() }
+                                val decrypted = event.optJSONObject("decrypted")
+                                if (decryptedType == "m.room.message" || decryptedType == "m.text") {
+                                    val relatesTo = decrypted?.optJSONObject("m.relates_to")
+                                    val isEdit = relatesTo?.optString("rel_type") == "m.replace"
+                                    var body = if (isEdit) {
+                                        decrypted?.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }
+                                    } else {
+                                        decrypted?.optString("body")?.takeIf { it.isNotBlank() }
+                                    }
+                                    if (body != null && !isEdit && contentHasInReplyTo(decrypted)) {
+                                        body = stripMatrixReplyQuote(body).takeIf { it.isNotBlank() } ?: body
+                                    }
                                     if (body != null) {
                                         messagePreview = body
-                                        // Extract sender user ID (use full Matrix ID for profile lookup)
-                                        val sender = event.optString("sender")?.takeIf { it.isNotBlank() }
-                                        // Extract event_id for mark_read
+                                        messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
                                         latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
-                                        //android.util.Log.d("Andromuks", "SpaceRoomParser: Encrypted message event sender: '$sender' for room $roomId")
-                                        messageSender = sender
-                                        break // Found the last message, stop looking
+                                        break
+                                    }
+                                    if (!isEdit && decrypted != null) {
+                                        val msgtype = decrypted.optString("msgtype", "")
+                                        val label = previewFromMsgtype(msgtype, decrypted.optString("body"))
+                                        if (label != null) {
+                                            messagePreview = label
+                                            messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                            latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
+                                            break
+                                        }
+                                    }
+                                } else if (decryptedType == "m.sticker" && decrypted != null) {
+                                    val label = previewFromMsgtype("m.sticker", decrypted.optString("body"))
+                                    if (label != null) {
+                                        messagePreview = label
+                                        messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                        latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
+                                        break
                                     }
                                 }
+                            }
+                            "m.sticker" -> {
+                                val content = event.optJSONObject("content")
+                                messagePreview = previewFromMsgtype("m.sticker", content?.optString("body"))
+                                messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
+                                break
                             }
                             // Skip other event types like:
                             // - "typing" (typing indicators)
@@ -360,74 +440,85 @@ object SpaceRoomParser {
                         when (eventType) {
                             "m.room.message" -> {
                                 val content = event.optJSONObject("content")
-                                
-                                // Check if this is an edit event (m.replace)
                                 val relatesTo = content?.optJSONObject("m.relates_to")
                                 val isEdit = relatesTo?.optString("rel_type") == "m.replace"
-                                
-                                val body = if (isEdit) {
-                                    // Edit event - get body from m.new_content
-                                    val newContent = content?.optJSONObject("m.new_content")
-                                    newContent?.optString("body")?.takeIf { it.isNotBlank() }
+                                var body = if (isEdit) {
+                                    content?.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }
                                 } else {
-                                    // Regular message - get body from content
                                     content?.optString("body")?.takeIf { it.isNotBlank() }
                                 }
-                                
+                                // Reply fallback: body often starts with quoted parent; show actual reply only
+                                if (body != null && !isEdit && contentHasInReplyTo(content)) {
+                                    val stripped = stripMatrixReplyQuote(body).trim()
+                                    if (stripped.isNotBlank()) body = stripped
+                                }
                                 if (body != null) {
                                     messagePreview = body
                                     messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
-                                    // Extract event_id for mark_read
                                     latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
-                                    break // Found the last message, stop looking
+                                    break
                                 }
-                                
-                                // Handle non-text messages (images, files, etc.) if no body
-                                if (messagePreview == null && !isEdit) {
-                                    val msgtype = content?.optString("msgtype", "")
-                                    messagePreview = when {
-                                        msgtype == "m.image" -> "📷 Image"
-                                        msgtype == "m.video" -> "🎥 Video"
-                                        msgtype == "m.audio" -> "🎵 Audio"
-                                        msgtype == "m.file" -> "📎 File"
-                                        msgtype == "m.location" -> "📍 Location"
-                                        else -> null
-                                    }
-                                    if (messagePreview != null) {
+                                // Non-text or empty body after strip: still set preview from msgtype
+                                if (!isEdit) {
+                                    val msgtype = content?.optString("msgtype", "") ?: ""
+                                    val label = previewFromMsgtype(msgtype, content?.optString("body"))
+                                    if (label != null) {
+                                        messagePreview = label
                                         messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
-                                        // Extract event_id for mark_read
                                         latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
                                         break
                                     }
                                 }
                             }
                             "m.room.encrypted" -> {
-                                // Check if it's a decrypted message
                                 val decryptedType = event.optString("decrypted_type")
+                                val decrypted = event.optJSONObject("decrypted")
                                 if (decryptedType == "m.room.message" || decryptedType == "m.text") {
-                                    val decrypted = event.optJSONObject("decrypted")
-                                    
-                                    // Check if this is an edit (show new content instead of original)
                                     val relatesTo = decrypted?.optJSONObject("m.relates_to")
                                     val isEdit = relatesTo?.optString("rel_type") == "m.replace"
-                                    
-                                    val body = if (isEdit) {
-                                        // Edit event - get body from m.new_content
-                                        val newContent = decrypted?.optJSONObject("m.new_content")
-                                        newContent?.optString("body")?.takeIf { it.isNotBlank() }
+                                    var body = if (isEdit) {
+                                        decrypted?.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }
                                     } else {
-                                        // Regular encrypted message - get body from decrypted
                                         decrypted?.optString("body")?.takeIf { it.isNotBlank() }
                                     }
-                                    
+                                    if (body != null && !isEdit && contentHasInReplyTo(decrypted)) {
+                                        val stripped = stripMatrixReplyQuote(body).trim()
+                                        if (stripped.isNotBlank()) body = stripped
+                                    }
                                     if (body != null) {
                                         messagePreview = body
                                         messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
-                                        // Extract event_id for mark_read
                                         latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
-                                        break // Found the last message, stop looking
+                                        break
+                                    }
+                                    // Encrypted image/video/sticker with no text body
+                                    if (!isEdit && decrypted != null) {
+                                        val msgtype = decrypted.optString("msgtype", "")
+                                        val label = previewFromMsgtype(msgtype, decrypted.optString("body"))
+                                        if (label != null) {
+                                            messagePreview = label
+                                            messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                            latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
+                                            break
+                                        }
+                                    }
+                                } else if (decryptedType == "m.sticker" && decrypted != null) {
+                                    val label = previewFromMsgtype("m.sticker", decrypted.optString("body"))
+                                    if (label != null) {
+                                        messagePreview = label
+                                        messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                        latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
+                                        break
                                     }
                                 }
+                            }
+                            "m.sticker" -> {
+                                val content = event.optJSONObject("content")
+                                val label = previewFromMsgtype("m.sticker", content?.optString("body"))
+                                messagePreview = label
+                                messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
+                                break
                             }
                             // Skip other event types like typing, member changes, state events, etc.
                         }
