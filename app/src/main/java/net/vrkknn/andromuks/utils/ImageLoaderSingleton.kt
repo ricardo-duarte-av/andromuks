@@ -48,23 +48,17 @@ object ImageLoaderSingleton {
     }
     
     private fun createImageLoader(context: Context): ImageLoader {
-        // PERFORMANCE FIX: Limit concurrent image loads to prevent crashes during fast scrolling
-        // This queues requests instead of loading them all simultaneously
-        // CRITICAL FIX: All MXC URLs are converted to the same host (gomuks backend)
-        // Example: mxc://example.com/media -> https://gomuks-backend/_gomuks/media/example.com/media
-        // This means ALL media requests (avatars, inline images, thumbnails) go to the same host
-        // Therefore maxRequestsPerHost is the real bottleneck, not maxRequests
+        // PERFORMANCE: Cap concurrent image loads to avoid runaway parallelism; queue the rest.
+        // All MXC URLs map to the same host (backend/_gomuks/media/...), so maxRequestsPerHost
+        // would otherwise cap effective concurrency at the per-host limit only.
+        // Relaxed to 100 so avatars + inline images + full media can proceed in parallel
+        // without artificial queuing when everything hits one host.
         val dispatcher = Dispatcher().apply {
-            maxRequests = 20 // Increased to handle more concurrent requests overall
-            maxRequestsPerHost = 20 // CRITICAL: Set equal to maxRequests since all requests go to same host
-            // This allows 20 concurrent requests to the gomuks backend, which handles:
-            // - Avatars (many per room)
-            // - Inline images/custom emojis (many per message)
-            // - Media thumbnails (many per room)
-            // All competing for the same host slots
+            maxRequests = 100
+            maxRequestsPerHost = 100 // Same as maxRequests: single backend host for all media
         }
         
-        // Create custom OkHttpClient with Andromuks User-Agent and limited concurrency
+        // Create custom OkHttpClient with Andromuks User-Agent and dispatcher concurrency above
         val okHttpClient = OkHttpClient.Builder()
             .dispatcher(dispatcher)
             .addInterceptor { chain ->
