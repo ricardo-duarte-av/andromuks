@@ -7557,8 +7557,24 @@ class AppViewModel : ViewModel() {
     
     /**
      * Log an activity event (app started, websocket connected, disconnected, etc.)
+     *
+     * This is also used as the "WebSocket activity" log in Settings. To keep that
+     * view focused on connection / network state (rather than every WebSocket
+     * command), we intentionally ignore low‑level command/ack events here.
      */
     fun logActivity(event: String, networkType: String? = null) {
+        // Filter out verbose command-level noise – we only want status / network /
+        // connect / disconnect level events in the activity log UI.
+        val lower = event.lowercase()
+        val isCommandNoise =
+            lower.startsWith("command ") ||
+            lower.startsWith("command acknowledged") ||
+            lower.startsWith("matrix server error") ||
+            lower.startsWith("matrix server confirmed")
+        if (isCommandNoise) {
+            return
+        }
+        
         val entry = ActivityLogEntry(
             timestamp = System.currentTimeMillis(),
             event = event,
@@ -7574,7 +7590,6 @@ class AppViewModel : ViewModel() {
         
         // Persist to storage
         saveActivityLogToStorage()
-        
     }
     
     /**
