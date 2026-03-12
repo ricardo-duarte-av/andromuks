@@ -1918,7 +1918,11 @@ fun BubbleTimelineScreen(
     // When app foregrounds, if we were attached to bottom, verify we're still at bottom and scroll if needed
     LaunchedEffect(appViewModel.isAppVisible, roomId) {
         val appJustBecameVisible = !previousAppVisibleState && appViewModel.isAppVisible
-        
+
+        if (appJustBecameVisible) {
+            appViewModel.markTimelineForeground(roomId)
+        }
+
         if (appJustBecameVisible && isAttachedToBottom) {
             // App was foregrounded AND we're marked as attached - animate scroll to bottom smoothly
             // With reverseLayout, index 0 is bottom
@@ -2313,6 +2317,9 @@ fun BubbleTimelineScreen(
             Log.w("Andromuks", "BubbleTimelineScreen: Readiness timeout while opening $roomId - continuing with partial data")
         }
         if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Loading timeline for room: $roomId")
+        if (appViewModel.isAppVisible) {
+            appViewModel.markTimelineForeground(roomId)
+        }
         // Reset state for new room
         isLoadingMore = false
         pendingScrollRestoration = false

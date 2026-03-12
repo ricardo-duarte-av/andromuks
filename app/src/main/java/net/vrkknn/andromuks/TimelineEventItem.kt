@@ -3370,12 +3370,14 @@ fun TimelineEventItem(
         (absDrag / swipeThreshold).coerceIn(0f, 1f)
     }
     
-    // Entrance only for messages newer than room open, or flagged as new (sound/animation map)
+    // Entrance for flagged new only, or timestamp after last timeline foreground (not room open)
+    val timelineForegroundTs = appViewModel?.getTimelineForegroundTimestamp(event.roomId)
     val roomOpenTs = appViewModel?.getRoomOpenTimestamp(event.roomId)
+    val cutoverTs = timelineForegroundTs ?: roomOpenTs
     val isFlaggedNew = appViewModel?.getNewMessageAnimations()?.containsKey(event.eventId) == true
     val eligibleForEntrance =
         !isNarratorEvent &&
-            (isFlaggedNew || (roomOpenTs != null && event.timestamp > roomOpenTs))
+            (isFlaggedNew || (cutoverTs != null && event.timestamp > cutoverTs))
     // Run entrance only once per eventId — LazyColumn disposes off-screen items; without this,
     // scrolling back would recompose and replay animation every time.
     val alreadyPlayed = appViewModel?.hasTimelineEntrancePlayed(event.eventId) == true

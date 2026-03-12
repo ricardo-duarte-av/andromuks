@@ -1655,6 +1655,21 @@ class AppViewModel : ViewModel() {
      * Used to animate only messages newer than open time, not paginated history.
      */
     fun getRoomOpenTimestamp(roomId: String): Long? = roomOpenTimestamps[roomId]
+
+    /**
+     * Last time the timeline UI (RoomTimelineScreen / BubbleTimelineScreen) was in the
+     * foreground for this room. Used as cutover for bubble entrance + newMessageAnimations
+     * so batched sync_completes after app resume do not animate every message — only
+     * events with server timestamp after this (i.e. truly received while user is looking).
+     */
+    private var timelineForegroundTimestamps = mutableMapOf<String, Long>() // roomId -> wall clock ms
+
+    fun getTimelineForegroundTimestamp(roomId: String): Long? = timelineForegroundTimestamps[roomId]
+
+    /** Call when timeline screen is shown or app returns to foreground on that screen. */
+    fun markTimelineForeground(roomId: String) {
+        timelineForegroundTimestamps[roomId] = System.currentTimeMillis()
+    }
     
     /**
      * Update cached room sections to avoid expensive filtering on every recomposition.
@@ -9751,6 +9766,7 @@ class AppViewModel : ViewModel() {
         newMessageAnimations.clear()
         timelineEntrancePlayed.clear()
         roomOpenTimestamps.remove(roomId)
+        timelineForegroundTimestamps.remove(roomId)
         
         // Reset member update counter to avoid stale diffs
         memberUpdateCounter = 0
@@ -15017,23 +15033,29 @@ class AppViewModel : ViewModel() {
             // Check if this is initial room loading (when previous timeline was empty)
             val isInitialRoomLoad = this@AppViewModel.timelineEvents.isEmpty() && sortedTimelineEvents.isNotEmpty()
             
-            // Track new messages for sound notifications (animations removed for performance)
-            val roomOpenTimestamp = roomOpenTimestamps[currentRoomId] // Get timestamp when room was opened
-            
-            if (actuallyNewMessages.isNotEmpty() && !isInitialRoomLoad && roomOpenTimestamp != null) {
+            // Track new messages for sound notifications / entrance animation.
+            // Prefer timeline-foreground cutover so batched sync after app resume does not
+            // flag every message; only events with timestamp after user was actually
+            // looking at the timeline animate.
+            val roomOpenTimestamp = roomOpenTimestamps[currentRoomId]
+            val timelineForegroundAt = timelineForegroundTimestamps[currentRoomId]
+            val animationCutoverTimestamp = timelineForegroundAt ?: roomOpenTimestamp
+
+            if (actuallyNewMessages.isNotEmpty() && !isInitialRoomLoad && animationCutoverTimestamp != null) {
                 val currentTime = System.currentTimeMillis()
-                
+
                 // Check if any of the new messages are from other users (not our own messages)
                 var shouldPlaySound = false
                 var hasMessageForCurrentRoom = false
                 var newMessageRoomId: String? = null
-                
+
                 actuallyNewMessages.forEach { eventId ->
                     val newEvent = sortedTimelineEvents.find { it.eventId == eventId }
-                    
-                    // Track new messages for sound notification (only messages newer than room open)
+
+                    // Only flag for animation/sound when event is newer than when user was
+                    // last looking at timeline (or room open if foreground never marked).
                     val isNewMessage = newEvent?.let { event ->
-                        event.timestamp > roomOpenTimestamp
+                        event.timestamp > animationCutoverTimestamp
                     } ?: false
                     
                     if (isNewMessage) {

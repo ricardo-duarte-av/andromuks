@@ -1953,7 +1953,13 @@ fun RoomTimelineScreen(
     // When app foregrounds, if we were attached to bottom, verify we're still at bottom and scroll if needed
     LaunchedEffect(appViewModel.isAppVisible, roomId) {
         val appJustBecameVisible = !previousAppVisibleState && appViewModel.isAppVisible
-        
+
+        // Reset animation cutover so only messages received *after* user is looking animate
+        // (batched sync_completes on resume use older event timestamps and won't match).
+        if (appJustBecameVisible) {
+            appViewModel.markTimelineForeground(roomId)
+        }
+
         if (appJustBecameVisible && isAttachedToBottom) {
             // App was foregrounded AND we're marked as attached - animate scroll to bottom smoothly
             // With reverseLayout, index 0 is bottom
@@ -2384,6 +2390,10 @@ fun RoomTimelineScreen(
         // CRITICAL FIX: Set currentRoomId immediately when screen opens (for all navigation paths)
         // This ensures state is consistent whether opening from RoomListScreen, notification, or shortcut
         appViewModel.setCurrentRoomIdForTimeline(roomId)
+        // Cutover for entrance animation: only messages after user is on this screen (or last resume)
+        if (appViewModel.isAppVisible) {
+            appViewModel.markTimelineForeground(roomId)
+        }
         // CRITICAL: Add room to opened rooms (exempt from cache clearing on WebSocket reconnect)
         // This is also done in setCurrentRoomIdForTimeline, but we ensure it here too
         RoomTimelineCache.addOpenedRoom(roomId)
