@@ -708,8 +708,8 @@ class WebSocketService : Service() {
                         android.util.Log.d("WebSocketService", "invokeReconnectionCallback: using last_received_id=$resolvedLastReceivedId for connectWebSocket")
                     }
                     
-                    // Connect - ViewModel is optional (null is fine, service handles everything)
-                    connectWebSocket(homeserverUrl, authToken, viewModelToUse, reason, resolvedLastReceivedId)
+                    // Reconnection: pass run_id and last_received_event in URL
+                    connectWebSocket(homeserverUrl, authToken, viewModelToUse, reason, resolvedLastReceivedId, isReconnection = true)
                 } catch (e: Exception) {
                     android.util.Log.e("WebSocketService", "Error during service-initiated reconnection", e)
                 }
@@ -1938,8 +1938,8 @@ class WebSocketService : Service() {
          * This method will eventually own the WebSocket connection lifecycle
          * For now, it delegates to AppViewModel but the service will own the WebSocket reference
          */
-        fun connectWebSocket(homeserverUrl: String, token: String, appViewModel: AppViewModel? = null, reason: String = "Service-initiated connection", lastReceivedId: Int = 0) {
-            android.util.Log.i("WebSocketService", "connectWebSocket() called - initiating connection (reason: $reason)")
+        fun connectWebSocket(homeserverUrl: String, token: String, appViewModel: AppViewModel? = null, reason: String = "Service-initiated connection", lastReceivedId: Int = 0, isReconnection: Boolean = false) {
+            android.util.Log.i("WebSocketService", "connectWebSocket() called - reason: $reason, isReconnection: $isReconnection")
             
             // For now, delegate to NetworkUtils.connectToWebsocket() which will call setWebSocket()
             // Eventually, we'll move the connection logic here
@@ -1988,8 +1988,7 @@ class WebSocketService : Service() {
                     // REFACTORING: Connect websocket - no ViewModel needed, service handles everything
                     if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Calling NetworkUtils.connectToWebsocket()")
                     val client = okhttp3.OkHttpClient.Builder().build()
-                    // Pass context and optional ViewModel (for message routing only)
-                    net.vrkknn.andromuks.utils.connectToWebsocket(homeserverUrl, client, token, serviceInstance.applicationContext, appViewModel, reason = reason)
+                    net.vrkknn.andromuks.utils.connectToWebsocket(homeserverUrl, client, token, serviceInstance.applicationContext, appViewModel, reason = reason, isReconnection = isReconnection)
                     if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "NetworkUtils.connectToWebsocket() call completed")
                 } catch (e: Exception) {
                     android.util.Log.e("WebSocketService", "Error in connectWebSocket()", e)

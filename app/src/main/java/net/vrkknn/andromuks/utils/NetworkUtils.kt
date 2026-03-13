@@ -222,9 +222,10 @@ fun connectToWebsocket(
     token: String,
     context: android.content.Context,
     appViewModel: AppViewModel? = null, // Optional - only needed for message routing callbacks
-    reason: String = "Initial connection"
+    reason: String = "Initial connection",
+    isReconnection: Boolean = false
 ) {
-    if (BuildConfig.DEBUG) Log.d("NetworkUtils", "connectToWebsocket: Initializing... Reason: $reason")
+    if (BuildConfig.DEBUG) Log.d("NetworkUtils", "connectToWebsocket: Initializing... Reason: $reason, isReconnection: $isReconnection")
     
     // Add startup progress message
     appViewModel?.addStartupProgressMessage("Opening WebSocket connection...")
@@ -233,56 +234,32 @@ fun connectToWebsocket(
 
     val webSocketUrl = trimWebsocketHost(url)
     
-    // Build WebSocket URL with reconnection parameters
-    // run_id is always read from SharedPreferences directly (no ViewModel needed)
-    // last_received_event is read from RAM (only on reconnections, not initial connections)
+    // Cold start: no run_id or last_received_event in URL; backend will send run_id in a message.
+    // Reconnection only: we pass run_id and last_received_event so backend can resume.
     val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-    val runId = prefs.getString("ws_run_id", "") ?: ""
-    
-    // CRITICAL: Detect true reconnection vs cold start using allRooms as source of truth
-    // A reconnection means:
-    // 1. run_id exists in SharedPreferences (from previous session)
-    // 2. AND allRooms is populated (app has data from previous session)
-    // 
-    // A cold start means:
-    // 1. App process was killed and restarted
-    // 2. allRooms is empty (no data from previous session)
-    // 3. Even if run_id exists in SharedPreferences, it's from a previous session
-    //
-    // We check if allRooms is populated to distinguish:
-    // - If allRooms is populated, it's a reconnection → use last_received_request_id
-    // - If allRooms is empty, it's a cold start → don't use last_received_request_id
-    val hasPopulatedRooms = appViewModel?.allRooms?.isNotEmpty() ?: false
-    
-    val isTrueReconnection = runId.isNotEmpty() && hasPopulatedRooms
-    
-    val lastReceivedRequestId = if (isTrueReconnection) {
-        // True reconnection: app has data from previous session, use last_received_request_id
+    val runId = if (isReconnection) {
+        prefs.getString("ws_run_id", "") ?: ""
+    } else {
+        ""
+    }
+    val lastReceivedRequestId = if (isReconnection) {
         net.vrkknn.andromuks.WebSocketService.getLastReceivedRequestId(context)
     } else {
-        // Cold start or first connection: don't use last_received_request_id
-        // (MainActivity.onCreate already cleared it, but be safe)
-        if (runId.isEmpty()) {
-            // First connection ever - clear just to be safe
-            net.vrkknn.andromuks.WebSocketService.clearLastReceivedRequestId(context)
-        }
-        0 // Don't pass last_received_event
+        0
     }
     
     if (BuildConfig.DEBUG) {
         Log.d(
             "NetworkUtils",
-            "WebSocket URL params - runId: '$runId', reason: $reason, isTrueReconnection: $isTrueReconnection (hasPopulatedRooms: $hasPopulatedRooms), last_received_request_id: $lastReceivedRequestId"
+            "WebSocket URL params - isReconnection: $isReconnection, runId: '$runId', last_received_request_id: $lastReceivedRequestId"
         )
     }
     
-    // TEMPORARY FIX: If runId is JSON-encoded, extract the actual run_id
+    // If runId is JSON-encoded, extract the actual run_id
     val actualRunId = if (runId.startsWith("{")) {
         try {
             val jsonObject = org.json.JSONObject(runId)
-            val extractedRunId = jsonObject.optString("run_id", "")
-            Log.w("NetworkUtils", "TEMPORARY FIX: Extracted run_id from JSON: '$extractedRunId'")
-            extractedRunId
+            jsonObject.optString("run_id", "")
         } catch (e: Exception) {
             Log.e("NetworkUtils", "Failed to extract run_id from JSON: $runId", e)
             runId
@@ -324,37 +301,25 @@ fun connectToWebsocket(
     }
     
     val queryParams = mutableListOf<String>()
-    if (actualRunId.isNotEmpty()) {
+    if (isReconnection && actualRunId.isNotEmpty()) {
         queryParams.add("run_id=$actualRunId")
         if (BuildConfig.DEBUG) {
-            Log.d(
-                "NetworkUtils",
-                "Connecting with run_id: $actualRunId, compression: $compressionEnabled"
-            )
+            Log.d("NetworkUtils", "Reconnection: run_id=$actualRunId, compression: $compressionEnabled")
         }
-        
-        // CRITICAL: Only include last_received_event on reconnections (when run_id exists)
-        // This makes reconnections snappier by telling the backend where we left off
-        // Note: request_id can be negative (and usually is), so check != 0 instead of > 0
         if (lastReceivedRequestId != 0) {
             queryParams.add("last_received_event=$lastReceivedRequestId")
-            // CRITICAL: Mark that we're reconnecting with last_received_event
-            // Backend won't send init_complete in this case - first sync_complete acts as init_complete
             WebSocketService.setReconnectingWithLastReceivedEvent(true)
             if (BuildConfig.DEBUG) {
-                Log.d("NetworkUtils", "Added last_received_event=$lastReceivedRequestId to query parameters (reconnection - backend will skip init_complete)")
+                Log.d("NetworkUtils", "Reconnection: last_received_event=$lastReceivedRequestId (backend will skip init_complete)")
             }
         } else {
             WebSocketService.setReconnectingWithLastReceivedEvent(false)
-            if (BuildConfig.DEBUG) {
-                Log.d("NetworkUtils", "No last_received_request_id available - reconnecting without last_received_event parameter")
-            }
         }
     } else {
-        if (BuildConfig.DEBUG) Log.d(
-            "NetworkUtils",
-            "First connection to websocket (no run_id yet), compression: $compressionEnabled"
-        )
+        WebSocketService.setReconnectingWithLastReceivedEvent(false)
+        if (BuildConfig.DEBUG) {
+            Log.d("NetworkUtils", "Cold start: no run_id or last_received_event in URL, compression: $compressionEnabled")
+        }
     }
     if (compressionEnabled) {
         queryParams.add("compress=1")
