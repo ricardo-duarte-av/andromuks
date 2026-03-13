@@ -173,9 +173,9 @@ class AppViewModel : ViewModel() {
         
         // Initial paginate limit when opening a room to fetch events from server
         // Used when cache is empty or to fetch newer events when cache has data
-        // Default: 100 events
+        // Default: 50 events
         @JvmStatic
-        var INITIAL_ROOM_PAGINATE_LIMIT = 100
+        var INITIAL_ROOM_PAGINATE_LIMIT = 50
         
         // FCM registration debounce window to prevent duplicate registrations
         private const val FCM_REGISTRATION_DEBOUNCE_MS = 5000L // 5 seconds debounce window
@@ -9413,7 +9413,7 @@ class AppViewModel : ViewModel() {
      * Ensure timeline cache is fresh (cache-only approach, no DB loading)
      * If cache is empty or room is not actively cached, triggers paginate request
      */
-    suspend fun ensureTimelineCacheIsFresh(roomId: String, limit: Int = 100, isBackground: Boolean = false) {
+    suspend fun ensureTimelineCacheIsFresh(roomId: String, limit: Int = INITIAL_ROOM_PAGINATE_LIMIT, isBackground: Boolean = false) {
         val cachedEvents = RoomTimelineCache.getCachedEvents(roomId)
         val isActivelyCached = RoomTimelineCache.isRoomActivelyCached(roomId)
         
@@ -9651,12 +9651,12 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        // CRITICAL FIX: When cache is insufficient (< 50 events, which is half of paginate limit), always paginate when opening a room
+        // CRITICAL FIX: When cache is insufficient (< half of paginate limit), always paginate when opening a room
         // This ensures rooms with evicted cache or minimal cache still get populated
         // AUTO_PAGINATION_ENABLED only controls automatic pagination for loading more history, not initial pagination
-        // We request 100 events via paginate, so if we have less than half (50), we should paginate
         val currentCachedCount = RoomTimelineCache.getCachedEventCount(roomId)
-        val cacheInsufficient = currentCachedCount < 50
+        val cacheInsufficientThreshold = INITIAL_ROOM_PAGINATE_LIMIT / 2
+        val cacheInsufficient = currentCachedCount < cacheInsufficientThreshold
         
         if (cacheInsufficient && !isRefreshingSameRoom) {
             // Cache is insufficient - send paginate request to populate it
@@ -9672,7 +9672,7 @@ class AppViewModel : ViewModel() {
             
             val paginateRequestId = requestIdCounter++
             timelineRequests[paginateRequestId] = roomId
-            android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: Cache insufficient ($currentCachedCount < 50) - sending paginate - roomId=$roomId, requestId=$paginateRequestId, limit=$INITIAL_ROOM_PAGINATE_LIMIT")
+            android.util.Log.d("Andromuks", "🟢 requestRoomTimeline: Cache insufficient ($currentCachedCount < $cacheInsufficientThreshold) - sending paginate - roomId=$roomId, requestId=$paginateRequestId, limit=$INITIAL_ROOM_PAGINATE_LIMIT")
             
             // Set loading state BEFORE sending command
             timelineEvents = emptyList()
@@ -9745,7 +9745,7 @@ class AppViewModel : ViewModel() {
      * 2. Clears all RAM caches and timeline bookkeeping for the room
      * 3. Resets pagination flags
      * 4. Requests fresh room state
-     * 5. Sends a paginate command for up to 100 events (ingest pipeline updates cache)
+     * 5. Sends a paginate command for up to INITIAL_ROOM_PAGINATE_LIMIT events (ingest pipeline updates cache)
      */
     fun fullRefreshRoomTimeline(roomId: String) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Full refresh for room: $roomId (resetting caches and requesting fresh snapshot)")
@@ -9795,7 +9795,7 @@ class AppViewModel : ViewModel() {
         // 4. Request fresh room state
         requestRoomState(roomId)
         
-        // 5. Request up to 100 events from the backend; ingest path will update the cache
+        // 5. Request up to INITIAL_ROOM_PAGINATE_LIMIT events from the backend; ingest path will update the cache
         val paginateRequestId = requestIdCounter++
         timelineRequests[paginateRequestId] = roomId
         val result = sendWebSocketCommand(
@@ -9804,12 +9804,12 @@ class AppViewModel : ViewModel() {
             mapOf(
             "room_id" to roomId,
             "max_timeline_id" to 0,
-            "limit" to 100,
+            "limit" to INITIAL_ROOM_PAGINATE_LIMIT,
             "reset" to false
             )
         )
         
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent paginate request for room: $roomId (100 events) - awaiting response to rebuild timeline")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent paginate request for room: $roomId (${INITIAL_ROOM_PAGINATE_LIMIT} events) - awaiting response to rebuild timeline")
         if (result == WebSocketResult.SUCCESS) {
             markInitialPaginate(roomId, "full_refresh")
         } else {
@@ -9820,7 +9820,7 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    suspend fun prefetchRoomSnapshot(roomId: String, limit: Int = 100, timeoutMs: Long = 6000L): Boolean {
+    suspend fun prefetchRoomSnapshot(roomId: String, limit: Int = INITIAL_ROOM_PAGINATE_LIMIT, timeoutMs: Long = 6000L): Boolean {
         if (!AUTO_PAGINATION_ENABLED) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Prefetch snapshot disabled (AUTO_PAGINATION_ENABLED=false) for $roomId")
             return false
@@ -9980,9 +9980,9 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Cache check - roomId=$roomId, cachedEventCount=$cachedEventCount, isActivelyCached=${RoomTimelineCache.isRoomActivelyCached(roomId)}")
             
             // OPTIMIZATION #4: Use the exact same logic as requestRoomTimeline for consistency
-            // We request 100 events via paginate, so if we have >= 50 (half), use cache
-            if (cachedEventCount >= 50) {
-                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Using cache (>=50 events) - roomId=$roomId, cachedEventCount=$cachedEventCount")
+            val cacheSufficientThreshold = INITIAL_ROOM_PAGINATE_LIMIT / 2
+            if (cachedEventCount >= cacheSufficientThreshold) {
+                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Using cache (>=${cacheSufficientThreshold} events) - roomId=$roomId, cachedEventCount=$cachedEventCount")
                 // OPTIMIZATION #4: Use cached data immediately (same threshold as requestRoomTimeline)
                 val cachedEvents = RoomTimelineCache.getCachedEvents(roomId)
                 
@@ -10097,7 +10097,7 @@ class AppViewModel : ViewModel() {
             mapOf(
                 "room_id" to roomId,
                 "max_timeline_id" to effectiveMaxTimelineId,
-                "limit" to 100,
+                "limit" to INITIAL_ROOM_PAGINATE_LIMIT,
                 "reset" to false
             )
         )
@@ -12342,7 +12342,7 @@ class AppViewModel : ViewModel() {
                         val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
                             "room_id" to roomId,
                             "max_timeline_id" to ourLatestRowId,
-                            "limit" to 100,
+                            "limit" to INITIAL_ROOM_PAGINATE_LIMIT,
                             "reset" to false
                         ))
                         
@@ -15142,7 +15142,7 @@ class AppViewModel : ViewModel() {
         // CACHE-ONLY APPROACH: Use backend pagination instead of DB loading
         // requestPaginationWithSmallestRowId() handles backend pagination using cache-only
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: loadOlderMessages($roomId) - using backend pagination")
-        requestPaginationWithSmallestRowId(roomId, limit = 100)
+        requestPaginationWithSmallestRowId(roomId, limit = INITIAL_ROOM_PAGINATE_LIMIT)
     }
     
     /**
@@ -15150,9 +15150,9 @@ class AppViewModel : ViewModel() {
      * Used for pull-to-refresh to load older events.
      * 
      * @param roomId The room ID to paginate
-     * @param limit Number of events to fetch (default 100)
+     * @param limit Number of events to fetch (default INITIAL_ROOM_PAGINATE_LIMIT)
      */
-    fun requestPaginationWithSmallestRowId(roomId: String, limit: Int = 100) {
+    fun requestPaginationWithSmallestRowId(roomId: String, limit: Int = INITIAL_ROOM_PAGINATE_LIMIT) {
         if (isPaginating) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Already paginating, skipping request for $roomId")
             return
