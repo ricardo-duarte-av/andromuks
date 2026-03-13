@@ -31,6 +31,16 @@ import java.util.concurrent.TimeUnit
 import net.vrkknn.andromuks.TimelineEvent
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.*
+import java.util.concurrent.Executors
+
+/**
+ * Single-threaded dispatcher for WebSocket message parsing.
+ * - Avoids blocking the OkHttp WebSocket callback (so the next frame can be received immediately).
+ * - Enforces strict order: sync_complete N+1 depends on data from sync_complete N, so we process
+ *   one message at a time in receipt order. Any future parallel parsing must feed an ordered
+ *   dispatch (e.g. sequence numbers + single consumer that dispatches only when next expected seq is ready).
+ */
+private val wsMessageParserDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 
 /**
  * Get the device identifier string (manufacturer and model)
@@ -470,18 +480,14 @@ fun connectToWebsocket(
 
         override fun onMessage(webSocket: WebSocket, text: String) {
             WebSocketService.onMessageReceived() // Reset 60s message timeout on any message
-            val jsonObject = try { JSONObject(text) } catch (e: Exception) { 
-                Log.e("Andromuks", "NetworkUtils: Failed to parse JSON message: ${text.take(200)}", e)
-                null 
-            }
-            if (jsonObject != null) {
-                // Debug: Check if this message contains backend request ID
-                val backendRequestId = jsonObject.optString("backend_request_id").takeIf { it.isNotEmpty() }
-                // Track last received request_id for ping purposes
-                // REFACTORING: Request ID tracking can be handled by service if needed
-                // For now, we'll skip it as it's not critical for connection
-                val command = jsonObject.optString("command")
-                when (command) {
+            // Copy payload and parse off the WebSocket thread so we don't block receiving the next frame.
+            // Large sync_complete (200–400KB) can take ~1s to parse with org.json on Android; blocking here caused ~9s run_id→init_complete vs ~1s on Windows.
+            val payloadCopy = String(text.toCharArray())
+            WebSocketService.getServiceScope().launch(wsMessageParserDispatcher) {
+                try {
+                    val jsonObject = JSONObject(payloadCopy)
+                    val command = jsonObject.optString("command")
+                    when (command) {
                     "pong" -> {
                         val requestId = jsonObject.optInt("request_id")
                         Log.i("Andromuks", "PONG JSON: $text")
@@ -514,6 +520,7 @@ fun connectToWebsocket(
                         }
                     }
                     "sync_complete" -> {
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: sync_complete (payload size=${text.length})")
                         // CRITICAL: On reconnections with last_received_event, backend doesn't send init_complete
                         // The first sync_complete acts as init_complete - clear caches and notify ViewModels
                         val isReconnectingWithLastReceivedEvent = WebSocketService.isReconnectingWithLastReceivedEvent()
@@ -555,6 +562,7 @@ fun connectToWebsocket(
                         }
                     }
                     "init_complete" -> {
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: init_complete")
                         // Mark connection as healthy in WebSocketService
                         WebSocketService.onInitCompleteReceived()
                         
@@ -566,6 +574,7 @@ fun connectToWebsocket(
                         }
                     }
                     "client_state" -> {
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: client_state")
                         val data = jsonObject.optJSONObject("data")
                         val userId = data?.optString("user_id")
                         val deviceId = data?.optString("device_id")
@@ -578,6 +587,7 @@ fun connectToWebsocket(
                         }
                     }
                     "image_auth_token" -> {
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: image_auth_token")
                         val token = jsonObject.optString("data", "")
                         // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
@@ -665,31 +675,32 @@ fun connectToWebsocket(
                         }
                     }
                 }
+                } catch (e: Exception) {
+                    Log.e("Andromuks", "NetworkUtils: Failed to parse JSON message: ${payloadCopy.take(200)}", e)
+                }
             }
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
             WebSocketService.onMessageReceived() // Reset 60s message timeout on any message
-            if (BuildConfig.DEBUG) {
-                Log.d("Andromuks", "NetworkUtils: onMessage received (bytes, length=${bytes.size})")
-            }
-            try {
-                if (streamingDecompressor != null) {
-                    // Use streaming decompressor for stateful DEFLATE decompression
-                    streamingDecompressor!!.write(bytes.toByteArray())
-                    val decompressedText = streamingDecompressor!!.readAvailable()
-                    
-                    if (decompressedText != null) {
-                        if (BuildConfig.DEBUG) {
-                            Log.d("Andromuks", "NetworkUtils: Decompressed message (length=${decompressedText.length})")
-                        }
-                        // Handle multiple JSON objects that may be concatenated in one frame
-                        val jsonObjects = parseMultipleJsonObjects(decompressedText)
-                        if (BuildConfig.DEBUG) {
-                            Log.d("Andromuks", "NetworkUtils: Parsed ${jsonObjects.size} JSON objects from compressed message")
-                        }
+            // Copy and process off the WebSocket thread (same reason as text path: avoid blocking next frame).
+            val bytesCopy = bytes.toByteArray()
+            WebSocketService.getServiceScope().launch(wsMessageParserDispatcher) {
+                try {
+                    if (streamingDecompressor != null) {
+                        streamingDecompressor!!.write(bytesCopy)
+                        val decompressedText = streamingDecompressor!!.readAvailable()
                         
-                        for (jsonObject in jsonObjects) {
+                        if (decompressedText != null) {
+                            if (BuildConfig.DEBUG) {
+                                Log.d("Andromuks", "NetworkUtils: Decompressed message (length=${decompressedText.length})")
+                            }
+                            val jsonObjects = parseMultipleJsonObjects(decompressedText)
+                            if (BuildConfig.DEBUG) {
+                                Log.d("Andromuks", "NetworkUtils: Parsed ${jsonObjects.size} JSON objects from compressed message")
+                            }
+                            
+                            for (jsonObject in jsonObjects) {
                             // Debug: Check if this message contains backend request ID
                             val backendRequestId = jsonObject.optString("backend_request_id").takeIf { it.isNotEmpty() }
                             
@@ -735,6 +746,7 @@ fun connectToWebsocket(
                                     }
                                 }
                                 "sync_complete" -> {
+                                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: sync_complete (decompressed frame length=${decompressedText.length})")
                                     // CRITICAL: On reconnections with last_received_event, backend doesn't send init_complete
                                     val isReconnectingWithLastReceivedEvent = WebSocketService.isReconnectingWithLastReceivedEvent()
                                     if (isReconnectingWithLastReceivedEvent) {
@@ -774,6 +786,7 @@ fun connectToWebsocket(
                                     }
                                 }
                                 "init_complete" -> {
+                                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: init_complete")
                                     // Mark connection as healthy in WebSocketService
                                     WebSocketService.onInitCompleteReceived()
                                     
@@ -786,6 +799,7 @@ fun connectToWebsocket(
                                     }
                                 }
                                 "client_state" -> {
+                                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: client_state")
                                     val data = jsonObject.optJSONObject("data")
                                     val userId = data?.optString("user_id")
                                     val deviceId = data?.optString("device_id")
@@ -798,6 +812,7 @@ fun connectToWebsocket(
                                     }
                                 }
                                 "image_auth_token" -> {
+                                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: image_auth_token")
                                     val token = jsonObject.optString("data", "")
                                     // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
@@ -875,10 +890,11 @@ fun connectToWebsocket(
                                 }
                              }
                          }
+                        }
                     }
+                } catch (e: Exception) {
+                    Log.e("Andromuks", "NetworkUtils: Failed to decompress WebSocket message", e)
                 }
-            } catch (e: Exception) {
-                Log.e("Andromuks", "NetworkUtils: Failed to decompress WebSocket message", e)
             }
         }
 

@@ -5001,6 +5001,12 @@ class AppViewModel : ViewModel() {
         MessageVersionsCache.clear()
         RoomMemberCache.clear()
         
+        // CRITICAL: Clear timeline caches only when server sends clear_state=true (base set of data).
+        // Do not clear on init_complete or resume (last_received_event); only when clear_state is present.
+        RoomTimelineCache.clearAll()
+        oldestRowIdPerRoom.clear()
+        roomsWithPendingPaginate.clear()
+        
         // Force room list refresh to reflect cleared state until new data arrives
         needsRoomListUpdate = true
         scheduleUIUpdate("roomList")
