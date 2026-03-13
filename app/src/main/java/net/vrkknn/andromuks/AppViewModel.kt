@@ -7400,6 +7400,12 @@ class AppViewModel : ViewModel() {
         val roomId: String
     )
     private val profileRequestMetadata = mutableMapOf<String, ProfileRequestMetadata>() // "roomId:userId" -> metadata
+
+    // BATCH: Queue on-demand profile requests and send one get_specific_room_state per room with multiple keys
+    private val pendingProfileBatch = mutableMapOf<String, MutableSet<String>>() // roomId -> set of userIds
+    private val batchProfileRequestKeys = mutableMapOf<Int, List<String>>() // requestId -> list of "roomId:userId" for cleanup
+    private var profileBatchFlushJob: kotlinx.coroutines.Job? = null
+    private val PROFILE_BATCH_DELAY_MS = 80L
     
     // Local echoes removed: status/error helpers no longer used.
 
@@ -10224,6 +10230,11 @@ class AppViewModel : ViewModel() {
         }
         staleRequests.forEach { key ->
             pendingProfileRequests.remove(key)
+            // Remove from batch so we don't send it on flush (key is "roomId:userId", userId starts with @)
+            val sep = key.indexOf(":@")
+            if (sep > 0) synchronized(pendingProfileBatch) {
+                pendingProfileBatch[key.substring(0, sep)]?.remove(key.substring(sep + 1))
+            }
             if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Cleaned up stale profile request for $key (older than 30s)")
         }
         
@@ -10235,37 +10246,55 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        val requestId = requestIdCounter++
-        
-        // Track this request to prevent duplicates
+        // BATCH: Queue (roomId, userId) and send one get_specific_room_state per room after a short delay
         pendingProfileRequests.add(requestKey)
-        recentProfileRequestTimes[requestKey] = currentTime // Record request time for throttling
-        roomSpecificStateRequests[requestId] = roomId  // Use roomSpecificStateRequests for get_specific_room_state responses
-        
-        // CRITICAL FIX: Store request metadata for timeout handling
-        synchronized(profileRequestMetadata) {
-            profileRequestMetadata[requestKey] = ProfileRequestMetadata(
-                requestId = requestId,
-                timestamp = currentTime,
-                userId = userId,
-                roomId = roomId
-            )
+        recentProfileRequestTimes[requestKey] = currentTime
+        synchronized(pendingProfileBatch) {
+            pendingProfileBatch.getOrPut(roomId) { mutableSetOf() }.add(userId)
+        }
+        scheduleProfileBatchFlush()
         }
         
-        // Request specific room state for this user
-        sendWebSocketCommand("get_specific_room_state", requestId, mapOf(
-            "keys" to listOf(mapOf(
-                "room_id" to roomId,
-                "type" to "m.room.member",
-                "state_key" to userId
-            ))
-        ))
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent on-demand profile request with ID $requestId for $userId")
-        }
-        
-        // Call the network request function
         enqueueNetworkRequest()
+    }
+
+    /**
+     * Sends one get_specific_room_state per room with all queued (roomId, userId) keys.
+     * Called after PROFILE_BATCH_DELAY_MS so multiple on-demand requests are coalesced.
+     */
+    private fun scheduleProfileBatchFlush() {
+        profileBatchFlushJob?.cancel()
+        profileBatchFlushJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(PROFILE_BATCH_DELAY_MS)
+            flushProfileBatch()
+        }
+    }
+
+    private fun flushProfileBatch() {
+        profileBatchFlushJob = null
+        if (!isWebSocketConnected()) return
+        val toSend: List<Pair<String, List<String>>> = synchronized(pendingProfileBatch) {
+            val list = pendingProfileBatch.mapNotNull { (roomId, userIds) ->
+                if (userIds.isEmpty()) null else Pair(roomId, userIds.toList()).also { userIds.clear() }
+            }
+            pendingProfileBatch.entries.removeAll { (_, set) -> set.isEmpty() }
+            list
+        }
+        for ((roomId, userIds) in toSend) {
+            if (userIds.isEmpty()) continue
+            val keysList = userIds.map { userId ->
+                mapOf(
+                    "room_id" to roomId,
+                    "type" to "m.room.member",
+                    "state_key" to userId
+                )
+            }
+            val requestId = requestIdCounter++
+            roomSpecificStateRequests[requestId] = roomId
+            batchProfileRequestKeys[requestId] = userIds.map { "$roomId:$it" }
+            sendWebSocketCommand("get_specific_room_state", requestId, mapOf("keys" to keysList))
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent batched profile request with ID $requestId for $roomId (${userIds.size} users)")
+        }
     }
     /**
      * Request room-specific user profile from backend using get_specific_room_state.
@@ -10357,55 +10386,58 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Requests updated profile information for users in a room using get_specific_room_state.
-     * This is used to refresh stale profile cache data when opening a room.
-     * The room will render immediately with cached data, then update as fresh data arrives.
+     * Requests updated profile information for users in a room using a single get_specific_room_state.
+     * Called after paginate response: gathers all senders, m.mentions.user_ids, and reply-target senders
+     * from the timeline and sends one batched request so the backend returns all profiles in one response.
      */
     fun requestUpdatedRoomProfiles(roomId: String, timelineEvents: List<TimelineEvent>) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting updated room profiles for room: $roomId")
         
-        // Check if WebSocket is connected
         if (!isWebSocketConnected()) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, skipping profile refresh")
             return
         }
         
-        // Extract unique user IDs from timeline events
-        val userIds = timelineEvents
-            .map { it.sender }
-            .distinct()
-            .filter { !it.isBlank() && it != currentUserId } // Exclude current user and blanks
+        val userIds = mutableSetOf<String>()
+        val eventById = timelineEvents.associateBy { it.eventId }
         
-        if (userIds.isEmpty()) {
+        for (event in timelineEvents) {
+            if (!event.sender.isBlank() && event.sender != currentUserId) userIds.add(event.sender)
+            val content = event.content ?: event.decrypted
+            content?.optJSONObject("m.mentions")?.optJSONArray("user_ids")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    arr.optString(i)?.takeIf { it.isNotBlank() }?.let { if (it != currentUserId) userIds.add(it) }
+                }
+            }
+            event.getReplyInfo()?.eventId?.let { repliedToId ->
+                eventById[repliedToId]?.sender?.takeIf { it.isNotBlank() && it != currentUserId }?.let { userIds.add(it) }
+            }
+        }
+        
+        val userIdList = userIds.toList()
+        if (userIdList.isEmpty()) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No users found in timeline events, skipping profile refresh")
             return
         }
         
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting profile updates for ${userIds.size} users: $userIds")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting profile updates for ${userIdList.size} users (senders + mentions + reply targets)")
         
-        // Build the keys array for get_specific_room_state
-        val keys = userIds.map { userId ->
+        val keysList = userIdList.map { userId ->
             mapOf(
                 "room_id" to roomId,
                 "type" to "m.room.member",
                 "state_key" to userId
             )
         }
-        
         val requestId = requestIdCounter++
         roomSpecificStateRequests[requestId] = roomId
+        val batchKeys = userIdList.map { "$roomId:$it" }
+        batchProfileRequestKeys[requestId] = batchKeys
+        batchKeys.forEach { pendingProfileRequests.add(it) }
+        synchronized(pendingProfileBatch) { pendingProfileBatch[roomId]?.removeAll(userIdList) }
         
-        // REFACTORING: Use sendWebSocketCommand() instead of direct ws.send()
-        val keysList = keys.map { key ->
-            mapOf(
-                "room_id" to (key["room_id"] as? String ?: ""),
-                "type" to (key["type"] as? String ?: ""),
-                "state_key" to (key["state_key"] as? String ?: "")
-            )
-        }
         sendWebSocketCommand("get_specific_room_state", requestId, mapOf("keys" to keysList))
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent get_specific_room_state request with ID $requestId for ${keys.size} members")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent get_specific_room_state request with ID $requestId for ${userIdList.size} members")
     }
     
     /**
@@ -13724,6 +13756,14 @@ class AppViewModel : ViewModel() {
     
     private fun handleRoomSpecificStateResponse(requestId: Int, data: Any) {
         val roomId = roomSpecificStateRequests.remove(requestId) ?: return
+        // BATCH: Clean up all pending keys for this request (batched profile request)
+        batchProfileRequestKeys.remove(requestId)?.let { keys ->
+            keys.forEach { key ->
+                pendingProfileRequests.remove(key)
+                synchronized(profileRequestMetadata) { profileRequestMetadata.remove(key) }
+            }
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleaned up ${keys.size} batched profile request keys for requestId=$requestId")
+        }
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling room specific state response for room: $roomId, requestId: $requestId")
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room specific state response data type: ${data::class.java.simpleName}")
         
