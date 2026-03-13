@@ -481,33 +481,13 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
     val vapidKey = remember { appViewModel.getVapidKey() }
     val runId = remember { appViewModel.getCurrentRunId() }
     val currentRequestId = remember { appViewModel.getCurrentRequestId() }
-    val homeserverUrl = remember { appViewModel.homeserverUrl }
     
-    // Construct the WebSocket URL the same way NetworkUtils does: run_id when present;
-    // last_received_event when we have a run_id and a non-zero last received id (reconnect URL).
-    val currentWebSocketUrl = remember(homeserverUrl, runId, lastReceivedRequestId, refreshTrigger) {
-        if (homeserverUrl.isBlank()) {
-            "Not available"
-        } else {
-            val baseUrl = if (homeserverUrl.lowercase().trim().startsWith("https://")) {
-                homeserverUrl.substringAfter("https://")
-            } else if (homeserverUrl.lowercase().trim().startsWith("http://")) {
-                homeserverUrl.substringAfter("http://")
-            } else {
-                homeserverUrl
-            }
-            val wsHost = baseUrl.split("/").firstOrNull() ?: baseUrl
-            val baseWebSocketUrl = "wss://$wsHost/_gomuks/websocket"
-            val params = mutableListOf<String>()
-            if (runId.isNotEmpty()) {
-                params.add("run_id=$runId")
-                if (lastReceivedRequestId != 0) {
-                    params.add("last_received_event=$lastReceivedRequestId")
-                }
-            }
-            if (params.isEmpty()) baseWebSocketUrl else "$baseWebSocketUrl?${params.joinToString("&")}"
-        }
+    // Show the exact URL used on the last (re)connection; saved when we connect in NetworkUtils.
+    var lastConnectionUrl by remember { mutableStateOf("") }
+    LaunchedEffect(Unit, refreshTrigger) {
+        lastConnectionUrl = WebSocketService.getLastConnectionUrl(context)
     }
+    val currentWebSocketUrl = if (lastConnectionUrl.isNotBlank()) lastConnectionUrl else "No connection made yet"
     val isRegistered = remember { fcmNotificationManager.isRegisteredWithBackend() }
     
     // Helper function to copy to clipboard
@@ -658,7 +638,7 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
             FCMInfoItem(
                 label = "WebSocket URL",
                 value = currentWebSocketUrl,
-                onCopy = if (currentWebSocketUrl != "Not available") {
+                onCopy = if (currentWebSocketUrl != "No connection made yet") {
                     { copyToClipboard("WebSocket URL", currentWebSocketUrl) }
                 } else null
             )

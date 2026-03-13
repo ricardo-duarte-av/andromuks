@@ -1896,6 +1896,19 @@ class WebSocketService : Service() {
         }
         
         /**
+         * Last WebSocket URL actually used for a (re)connection.
+         * Persisted when we connect in NetworkUtils; used by Settings to show the real URL.
+         */
+        fun getLastConnectionUrl(context: Context): String {
+            return try {
+                context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                    .getString("last_websocket_connection_url", "") ?: ""
+            } catch (e: Exception) {
+                ""
+            }
+        }
+        
+        /**
          * Wait for service instance to be ready (with timeout)
          * This prevents race conditions where methods are called before onCreate()
          */

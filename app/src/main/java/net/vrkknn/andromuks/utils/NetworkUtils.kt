@@ -370,6 +370,16 @@ fun connectToWebsocket(
     }
     if (BuildConfig.DEBUG) Log.d("NetworkUtils", "DEBUG: Final URL: $finalWebSocketUrl")
 
+    // Persist the exact URL used for this (re)connection so Settings can show "last connection URL"
+    try {
+        context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .putString("last_websocket_connection_url", finalWebSocketUrl)
+            .apply()
+    } catch (e: Exception) {
+        Log.w("NetworkUtils", "Failed to save last WebSocket URL for settings", e)
+    }
+
     val request = Request.Builder()
         .url(finalWebSocketUrl)
         .addHeader("Cookie", "gomuks_auth=$token")
