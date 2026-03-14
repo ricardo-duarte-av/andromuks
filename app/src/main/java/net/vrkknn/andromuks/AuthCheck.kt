@@ -317,6 +317,15 @@ fun AuthCheckScreen(
                 // Register FCM notifications after successful auth
                 appViewModel.registerFCMNotifications()
                 
+                // When user shared media (single or multiple) without picking a room, go to room picker first.
+                // This must run before direct room so multi-file share doesn't land on RoomTimelineScreen and crash.
+                if (appViewModel.pendingShare != null && appViewModel.pendingShareNavigationRequested) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Pending share needs room selection, navigating to simple_room_list")
+                    navController.navigate("simple_room_list") { launchSingleTop = true }
+                    appViewModel.markPendingShareNavigationHandled()
+                    return@setNavigationCallback
+                }
+                
                 // Check for direct room navigation first (from notifications)
                 val directRoomId = appViewModel.getDirectRoomNavigation()
                 if (directRoomId != null) {
@@ -416,6 +425,12 @@ fun AuthCheckScreen(
                 // Small delay to ensure state updates are processed before navigation
                 kotlinx.coroutines.delay(50)
                 
+                // When user shared media without picking a room, go to room picker first (same as in callback)
+                if (appViewModel.pendingShare != null && appViewModel.pendingShareNavigationRequested) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheckScreen: WebSocket already connected, pending share needs room selection, navigating to simple_room_list")
+                    navController.navigate("simple_room_list") { launchSingleTop = true }
+                    appViewModel.markPendingShareNavigationHandled()
+                } else {
                 // If we have direct room navigation (from notification), navigate immediately
                 // The websocket is already connected, so we don't need to wait for navigation callback
                 val directRoomId = appViewModel.getDirectRoomNavigation()
@@ -451,6 +466,7 @@ fun AuthCheckScreen(
                             android.util.Log.e("Andromuks", "AuthCheckScreen: Error in fallback navigation", e2)
                         }
                     }
+                }
                 }
                 // Don't call connectToWebsocket - we're already connected
             } else if (isPrimary) {

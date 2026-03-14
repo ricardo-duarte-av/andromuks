@@ -470,6 +470,10 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        // When user must pick a room (no target), clear any stale direct room so we don't land on RoomTimelineScreen
+        if (targetRoomId.isNullOrBlank()) {
+            appViewModel.clearDirectRoomNavigation()
+        }
         appViewModel.setPendingShare(shareItems, sharedText, targetRoomId)
         if (BuildConfig.DEBUG) Log.d(
             "Andromuks",
@@ -506,10 +510,14 @@ class MainActivity : ComponentActivity() {
                     for (index in 0 until clipData.itemCount) {
                         val clipItem = clipData.getItemAt(index)
                         val uri = clipItem.uri ?: continue
-                        val mimeType =
-                            clipData.description?.getMimeType(index)
-                                ?: contentResolver.getType(uri)
-                                ?: intent.type
+                        val mimeType = run {
+                            try {
+                                clipData.description?.getMimeType(index)
+                            } catch (e: IndexOutOfBoundsException) {
+                                // ClipDescription can have fewer MIME entries than clip items (e.g. 2 items, 1 type)
+                                null
+                            }
+                        } ?: contentResolver.getType(uri) ?: intent.type
                         grantUriPermissions(uri, intent)
                         items.add(SharedMediaItem(uri, mimeType))
                     }

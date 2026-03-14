@@ -3,10 +3,13 @@ package net.vrkknn.andromuks.utils
 import android.media.MediaPlayer
 import android.net.Uri
 import android.widget.VideoView
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,7 +34,161 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import net.vrkknn.andromuks.SharedMediaItem
 import net.vrkknn.andromuks.ui.components.ContainedExpressiveLoadingIndicator
+
+/**
+ * Per-item state when sending multiple media (caption and compress option for images).
+ */
+data class MediaPreviewItemSendState(
+    val item: SharedMediaItem,
+    val caption: String,
+    val compressOriginal: Boolean
+)
+
+/**
+ * Dialog to preview multiple selected media: swipe left/right, caption per item, then send all in queue.
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+fun MediaPreviewDialogMultiple(
+    items: List<SharedMediaItem>,
+    onDismiss: () -> Unit,
+    onSendAll: (List<MediaPreviewItemSendState>) -> Unit
+) {
+    val context = LocalContext.current
+    val pagerState = rememberPagerState(pageCount = { items.size })
+    var captionsByIndex by remember { mutableStateOf<Map<Int, String>>(emptyMap()) }
+    var compressByIndex by remember { mutableStateOf<Map<Int, Boolean>>(emptyMap()) }
+    val currentPage = pagerState.currentPage
+
+    fun classifyMime(mime: String?): String {
+        val m = mime?.lowercase() ?: return "file"
+        return when {
+            m.startsWith("image/") -> "image"
+            m.startsWith("video/") -> "video"
+            m.startsWith("audio/") -> "audio"
+            else -> "file"
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.9f),
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Send ${items.size} items",
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Filled.Close, contentDescription = "Close")
+                    }
+                }
+                Text(
+                    text = "${currentPage + 1} of ${items.size}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page ->
+                    val item = items[page]
+                    val mime = item.mimeType ?: context.contentResolver.getType(item.uri)
+                    val kind = classifyMime(mime)
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            when (kind) {
+                                "video" -> VideoPlayerPreview(uri = item.uri)
+                                "image" -> AsyncImage(
+                                    model = ImageRequest.Builder(context).data(item.uri).crossfade(true).build(),
+                                    contentDescription = "Image ${page + 1}",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Fit
+                                )
+                                else -> AsyncImage(
+                                    model = ImageRequest.Builder(context).data(item.uri).build(),
+                                    contentDescription = "File ${page + 1}",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Fit
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        if (kind == "image") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = compressByIndex[page] ?: false,
+                                    onCheckedChange = { compressByIndex = compressByIndex + (page to it) }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Compress image", style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                        OutlinedTextField(
+                            value = captionsByIndex[page] ?: "",
+                            onValueChange = { captionsByIndex = captionsByIndex + (page to it) },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Caption (optional)") },
+                            placeholder = { Text("Write a caption...") },
+                            maxLines = 2
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = {
+                        val list = items.mapIndexed { index, item ->
+                            val kind = classifyMime(item.mimeType ?: context.contentResolver.getType(item.uri))
+                            MediaPreviewItemSendState(
+                                item = item,
+                                caption = captionsByIndex[index] ?: "",
+                                compressOriginal = kind == "image" && (compressByIndex[index] ?: false)
+                            )
+                        }
+                        onSendAll(list)
+                    },
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(28.dp)
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.Send, contentDescription = "Send", modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Send all (${items.size})")
+                    }
+                }
+            }
+        }
+    }
+}
 
 /**
  * Dialog to preview selected media and add an optional caption before sending

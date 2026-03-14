@@ -174,6 +174,8 @@ import net.vrkknn.andromuks.utils.AnimatedInlineReadReceiptAvatars
 import net.vrkknn.andromuks.utils.navigateToUserInfo
 import net.vrkknn.andromuks.utils.MediaMessage
 import net.vrkknn.andromuks.utils.MediaPreviewDialog
+import net.vrkknn.andromuks.utils.MediaPreviewDialogMultiple
+import net.vrkknn.andromuks.utils.MediaPreviewItemSendState
 import net.vrkknn.andromuks.utils.MediaUploadUtils
 import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
 import net.vrkknn.andromuks.utils.MessageMenuBar
@@ -692,6 +694,9 @@ fun RoomTimelineScreen(
     var showMediaPreview by remember { mutableStateOf(false) }
     var isUploading by remember { mutableStateOf(false) }
     
+    // Multiple media items (e.g. from share) for batch preview and send
+    var selectedMediaItems by remember { mutableStateOf<List<SharedMediaItem>?>(null) }
+    
     // Attachment menu state
     var showAttachmentMenu by remember { mutableStateOf(false) }
     var selectedAudioUri by remember { mutableStateOf<Uri?>(null) }
@@ -741,41 +746,48 @@ fun RoomTimelineScreen(
                 draft = sharePayload.text
             }
 
-            val shareItem = sharePayload.items.firstOrNull()
-            if (shareItem != null) {
-                val uri = shareItem.uri
-                val resolvedMime =
-                    shareItem.mimeType ?: context.contentResolver.getType(uri) ?: ""
+            // Reset previous selections
+            selectedMediaUri = null
+            selectedAudioUri = null
+            selectedFileUri = null
+            selectedMediaIsVideo = false
+            showAttachmentMenu = false
 
-                // Reset previous selections
-                selectedMediaUri = null
-                selectedAudioUri = null
-                selectedFileUri = null
-                selectedMediaIsVideo = false
+            if (sharePayload.items.size > 1) {
+                selectedMediaItems = sharePayload.items
+            } else {
+                val shareItem = sharePayload.items.firstOrNull()
+                if (shareItem != null) {
+                    try {
+                        val uri = shareItem.uri
+                        val resolvedMime =
+                            shareItem.mimeType ?: context.contentResolver.getType(uri) ?: ""
 
-                when {
-                    resolvedMime.startsWith("image/") -> {
-                        selectedMediaUri = uri
-                        selectedMediaIsVideo = false
-                        showMediaPreview = true
-                    }
-                    resolvedMime.startsWith("video/") -> {
-                        selectedMediaUri = uri
-                        selectedMediaIsVideo = true
-                        showMediaPreview = true
-                    }
-                    resolvedMime.startsWith("audio/") -> {
-                        selectedAudioUri = uri
-                        showMediaPreview = true
-                    }
-                    else -> {
-                        selectedFileUri = uri
-                        selectedMediaIsVideo = resolvedMime.startsWith("video/")
-                        showMediaPreview = true
+                        when {
+                            resolvedMime.startsWith("image/") -> {
+                                selectedMediaUri = uri
+                                selectedMediaIsVideo = false
+                                showMediaPreview = true
+                            }
+                            resolvedMime.startsWith("video/") -> {
+                                selectedMediaUri = uri
+                                selectedMediaIsVideo = true
+                                showMediaPreview = true
+                            }
+                            resolvedMime.startsWith("audio/") -> {
+                                selectedAudioUri = uri
+                                showMediaPreview = true
+                            }
+                            else -> {
+                                selectedFileUri = uri
+                                selectedMediaIsVideo = resolvedMime.startsWith("video/")
+                                showMediaPreview = true
+                            }
+                        }
+                    } catch (e: Exception) {
+                        if (BuildConfig.DEBUG) Log.w("Andromuks", "RoomTimelineScreen: Failed to resolve shared media URI", e)
                     }
                 }
-
-                showAttachmentMenu = false
             }
         }
     }
@@ -4562,6 +4574,140 @@ fun RoomTimelineScreen(
                             showStickerPickerForText = false
                         },
                         stickerPacks = appViewModel.stickerPacks
+                    )
+                }
+                
+                // Multiple media preview dialog (from share with 2+ items): swipe through, caption each, send all
+                val multiItems = selectedMediaItems
+                if (multiItems != null && multiItems.isNotEmpty()) {
+                    MediaPreviewDialogMultiple(
+                        items = multiItems,
+                        onDismiss = { selectedMediaItems = null },
+                        onSendAll = { list ->
+                            selectedMediaItems = null
+                            coroutineScope.launch {
+                                for ((index, sendState) in list.withIndex()) {
+                                    val uri = sendState.item.uri
+                                    val mime = sendState.item.mimeType ?: context.contentResolver.getType(uri) ?: ""
+                                    val caption = sendState.caption.takeIf { it.isNotBlank() }
+                                    try {
+                                        when {
+                                            mime.startsWith("video/") -> {
+                                                appViewModel.beginUpload(roomId, "video")
+                                                try {
+                                                    val videoResult = VideoUploadUtils.uploadVideo(
+                                                        context = context,
+                                                        uri = uri,
+                                                        homeserverUrl = homeserverUrl,
+                                                        authToken = authToken,
+                                                        isEncrypted = false
+                                                    )
+                                                    if (videoResult != null) {
+                                                        appViewModel.sendVideoMessage(
+                                                            roomId = roomId,
+                                                            videoMxcUrl = videoResult.videoMxcUrl,
+                                                            thumbnailMxcUrl = videoResult.thumbnailMxcUrl,
+                                                            width = videoResult.width,
+                                                            height = videoResult.height,
+                                                            duration = videoResult.duration,
+                                                            size = videoResult.size,
+                                                            mimeType = videoResult.mimeType,
+                                                            thumbnailBlurHash = videoResult.thumbnailBlurHash,
+                                                            thumbnailWidth = videoResult.thumbnailWidth,
+                                                            thumbnailHeight = videoResult.thumbnailHeight,
+                                                            thumbnailSize = videoResult.thumbnailSize,
+                                                            caption = caption
+                                                        )
+                                                    }
+                                                } finally { appViewModel.endUpload(roomId, "video") }
+                                            }
+                                            mime.startsWith("audio/") -> {
+                                                appViewModel.beginUpload(roomId, "audio")
+                                                try {
+                                                    val audioResult = MediaUploadUtils.uploadAudio(
+                                                        context = context,
+                                                        uri = uri,
+                                                        homeserverUrl = homeserverUrl,
+                                                        authToken = authToken,
+                                                        isEncrypted = false
+                                                    )
+                                                    if (audioResult != null) {
+                                                        appViewModel.sendAudioMessage(
+                                                            roomId = roomId,
+                                                            mxcUrl = audioResult.mxcUrl,
+                                                            filename = audioResult.filename,
+                                                            duration = audioResult.duration,
+                                                            size = audioResult.size,
+                                                            mimeType = audioResult.mimeType,
+                                                            caption = caption
+                                                        )
+                                                    }
+                                                } finally { appViewModel.endUpload(roomId, "audio") }
+                                            }
+                                            mime.startsWith("image/") -> {
+                                                appViewModel.beginUpload(roomId, "image")
+                                                try {
+                                                    val uploadResult = MediaUploadUtils.uploadMedia(
+                                                        context = context,
+                                                        uri = uri,
+                                                        homeserverUrl = homeserverUrl,
+                                                        authToken = authToken,
+                                                        isEncrypted = false,
+                                                        compressOriginal = sendState.compressOriginal
+                                                    )
+                                                    if (uploadResult != null) {
+                                                        appViewModel.sendImageMessage(
+                                                            roomId = roomId,
+                                                            mxcUrl = uploadResult.mxcUrl,
+                                                            width = uploadResult.width,
+                                                            height = uploadResult.height,
+                                                            size = uploadResult.size,
+                                                            mimeType = uploadResult.mimeType,
+                                                            blurHash = uploadResult.blurHash,
+                                                            caption = caption,
+                                                            thumbnailUrl = uploadResult.thumbnailUrl,
+                                                            thumbnailWidth = uploadResult.thumbnailWidth,
+                                                            thumbnailHeight = uploadResult.thumbnailHeight,
+                                                            thumbnailMimeType = uploadResult.thumbnailMimeType,
+                                                            thumbnailSize = uploadResult.thumbnailSize
+                                                        )
+                                                    }
+                                                } finally { appViewModel.endUpload(roomId, "image") }
+                                            }
+                                            else -> {
+                                                appViewModel.beginUpload(roomId, "file")
+                                                try {
+                                                    val fileResult = MediaUploadUtils.uploadFile(
+                                                        context = context,
+                                                        uri = uri,
+                                                        homeserverUrl = homeserverUrl,
+                                                        authToken = authToken,
+                                                        isEncrypted = false
+                                                    )
+                                                    if (fileResult != null) {
+                                                        appViewModel.sendFileMessage(
+                                                            roomId = roomId,
+                                                            mxcUrl = fileResult.mxcUrl,
+                                                            filename = fileResult.filename,
+                                                            size = fileResult.size,
+                                                            mimeType = fileResult.mimeType,
+                                                            caption = caption
+                                                        )
+                                                    }
+                                                } finally { appViewModel.endUpload(roomId, "file") }
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e("Andromuks", "RoomTimelineScreen: Multi-send item ${index + 1} failed", e)
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Failed to send item ${index + 1}: ${e.message}",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                            }
+                        }
                     )
                 }
                 
