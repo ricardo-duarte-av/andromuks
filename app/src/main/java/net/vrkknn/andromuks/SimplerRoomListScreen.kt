@@ -3,25 +3,32 @@ package net.vrkknn.andromuks
 import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,6 +38,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,6 +55,7 @@ import net.vrkknn.andromuks.ui.theme.AndromuksTheme
  * This screen reuses the existing [RoomItem] data exposed by [AppViewModel.allRooms], avoiding the
  * complex filtering / animation logic in [RoomListScreen].
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SimplerRoomListScreen(
     navController: NavController,
@@ -110,47 +119,68 @@ fun SimplerRoomListScreen(
                     appViewModel.clearPendingShare()
                 }
             } else {
-                Column(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .navigationBarsPadding()
+                ) {
                     var searchQuery by rememberSaveable { mutableStateOf("") }
 
+                    Text(
+                        text = "Select a room to share this media",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                    )
+                    Text(
+                        text = "Media will be uploaded after you confirm in the preview.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 0.dp)
+                    )
+
+                    // Material 3 Expressive-style search bar (expressive shape, theme colors)
                     Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = MaterialTheme.shapes.extraLarge,
+                        tonalElevation = 1.dp,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        tonalElevation = 3.dp,
-                        shape = MaterialTheme.shapes.large,
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
                     ) {
-                        OutlinedTextField(
+                        TextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            placeholder = { Text("Search rooms") },
+                            placeholder = {
+                                Text(
+                                    "Search rooms…",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            },
                             leadingIcon = {
                                 androidx.compose.material3.Icon(
                                     imageVector = Icons.Filled.Search,
                                     contentDescription = "Search rooms"
                                 )
                             },
-                            singleLine = true
+                            colors = TextFieldDefaults.colors(
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+                                unfocusedIndicatorColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                focusedIndicatorColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            ),
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
 
-                    Text(
-                        text = "Select a room to share this media",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Media will be uploaded after you confirm in the preview.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
 
                     // Show loading state while waiting for rooms to sync
                     if (!showRooms) {
@@ -192,29 +222,58 @@ fun SimplerRoomListScreen(
                                 message = "Try a different room name or identifier."
                             )
                         } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(vertical = 8.dp)
+                            // Material 3 Expressive list container (rounded top, elevated)
+                            val listShape = RoundedCornerShape(
+                                topStart = 24.dp,
+                                topEnd = 24.dp,
+                                bottomStart = 0.dp,
+                                bottomEnd = 0.dp
+                            )
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(top = 4.dp)
+                                    .clip(listShape),
+                                color = MaterialTheme.colorScheme.surface,
+                                shape = listShape,
+                                tonalElevation = 2.dp
                             ) {
-                                items(
-                                    items = filteredRooms,
-                                    key = { room -> room.id }
-                                ) { room ->
-                                    RoomListRow(
-                                        room = room,
-                                        homeserverUrl = homeserverUrl,
-                                        authToken = imageToken
-                                    ) {
-                                        appViewModel.selectPendingShareRoom(room.id)
-                                        appViewModel.navigateToRoomWithCache(room.id)
-                                        navController.navigate("room_timeline/${room.id}") {
-                                            popUpTo("simple_room_list") { inclusive = true }
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentPadding = PaddingValues(
+                                        top = 12.dp,
+                                        bottom = 12.dp,
+                                        start = 12.dp,
+                                        end = 12.dp
+                                    ),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    items(
+                                        items = filteredRooms,
+                                        key = { room -> room.id }
+                                    ) { room ->
+                                        Surface(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    appViewModel.selectPendingShareRoom(room.id)
+                                                    appViewModel.navigateToRoomWithCache(room.id)
+                                                    navController.navigate("room_timeline/${room.id}") {
+                                                        popUpTo("simple_room_list") { inclusive = true }
+                                                    }
+                                                },
+                                            shape = MaterialTheme.shapes.medium,
+                                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                            tonalElevation = 1.dp
+                                        ) {
+                                            RoomListRow(
+                                                room = room,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = imageToken,
+                                                onClick = null
+                                            )
                                         }
                                     }
-                                    HorizontalDivider(
-                                        modifier = Modifier.padding(horizontal = 16.dp),
-                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                                    )
                                 }
                             }
                         }
@@ -231,13 +290,20 @@ private fun RoomListRow(
     homeserverUrl: String,
     authToken: String,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit
+    onClick: (() -> Unit)? = {}
 ) {
-    Row(
-        modifier = modifier
+    val rowModifier = if (onClick != null) {
+        modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    } else {
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    }
+    Row(
+        modifier = rowModifier,
         verticalAlignment = Alignment.CenterVertically
     ) {
         AvatarImage(
