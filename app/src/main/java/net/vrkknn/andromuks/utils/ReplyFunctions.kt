@@ -161,13 +161,23 @@ fun ReplyPreview(
         } else {
             // Latest version is still available - show its content
             when {
-                event.type == "m.room.message" -> event.content?.optString("body", "")
+                event.type == "m.room.message" -> {
+                    // For edits (m.replace), new body is in m.new_content; fallback to top-level body
+                    val isEdit = event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                    if (isEdit) {
+                        event.content?.optJSONObject("m.new_content")?.optString("body", "")
+                            ?: event.content?.optString("body", "")
+                    } else {
+                        event.content?.optString("body", "")
+                    }
+                }
                 event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> {
                     // For encrypted messages, check if it's an edit
                     val isEdit = event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
                     if (isEdit) {
                         // This is an edit, show the new content
                         event.decrypted?.optJSONObject("m.new_content")?.optString("body", "")
+                            ?: event.decrypted?.optString("body", "")
                     } else {
                         // Regular encrypted message
                         event.decrypted?.optString("body", "")
@@ -180,7 +190,21 @@ fun ReplyPreview(
                 }
             }
         }
-    } ?: "Reply to unknown event"
+    }
+    // Fallback: if we resolved to a version (e.g. edit) but body is empty, use the passed-in event (e.g. merged timeline event)
+    val originalBodyResolved = originalBody?.takeIf { it.isNotBlank() }
+        ?: originalEvent?.let { fallback ->
+            val payload = fallback.getMessagePayload()
+            if (fallback.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace") {
+                payload?.optJSONObject("m.new_content")?.optString("body", "") ?: payload?.optString("body", "")
+            } else if (fallback.type == "m.room.encrypted" && fallback.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace") {
+                fallback.decrypted?.optJSONObject("m.new_content")?.optString("body", "") ?: fallback.decrypted?.optString("body", "")
+            } else {
+                payload?.optString("body", "")
+            }
+        }?.takeIf { it.isNotBlank() }
+        ?: originalBody
+        ?: "Reply to unknown event"
     
     val memberProfile = userProfileCache[originalSender]
     val baseSenderName = memberProfile?.displayName ?: originalSender
@@ -241,7 +265,7 @@ fun ReplyPreview(
                     )
                 } else {
                     Text(
-                        text = originalBody,
+                        text = originalBodyResolved,
                         style = MaterialTheme.typography.bodyMedium,
                         color = previewColors.content,
                         maxLines = 2,
