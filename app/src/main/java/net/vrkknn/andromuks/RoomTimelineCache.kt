@@ -8,22 +8,17 @@ import org.json.JSONObject
 import net.vrkknn.andromuks.BuildConfig
 
 /**
- * RoomTimelineCache - Singleton cache for timeline events from sync_complete messages
- * 
- * This singleton stores timeline events received via sync_complete for all rooms.
- * All rooms have unlimited events (no per-room limits) and LRU eviction removes
- * entire rooms when RAM usage exceeds MAX_CACHE_MEMORY_MB.
- * 
+ * RoomTimelineCache - Singleton cache for timeline events from sync_complete and paginate.
+ *
+ * Rooms get cached when: (1) opened in RoomTimelineScreen or BubbleTimelineScreen, or
+ * (2) FCM notification triggers a paginate for that room.
+ *
  * Cache Management:
- * - Currently opened rooms: unlimited events, exempt from eviction
- * - All other rooms: unlimited events, subject to LRU eviction when RAM threshold exceeded
- * - When a room is evicted, all its events are cleared (we can paginate again if needed)
- * 
- * Benefits:
- * - No artificial event limits - cache as much as RAM allows
- * - LRU-based eviction prevents OOM while preserving active rooms
- * - Better UX with always-on WebSocket
- * - Persistent across AppViewModel instances (crucial for shortcut navigation)
+ * - Opened rooms (RoomTimelineScreen current room + any BubbleTimelineScreen bubbles):
+ *   unlimited events, exempt from trim and from LRU eviction.
+ * - Other rooms: trimmed to MAX_EVENTS_PER_ROOM (50) newest events after each add/merge.
+ *   Sync_complete and paginate both go through addEventsToCache, which trims when over limit.
+ * - LRU eviction removes entire rooms when RAM usage exceeds MAX_CACHE_MEMORY_MB.
  */
 object RoomTimelineCache {
     private const val TAG = "RoomTimelineCache"
@@ -38,10 +33,9 @@ object RoomTimelineCache {
     private var MAX_CACHE_MEMORY_MB = 100L // Configurable variable
     
     // Event-level cache management: Maximum events per room (except currently opened rooms)
-    // Periodically trim rooms to keep only the newest N events to prevent memory bloat
-    // Currently opened rooms have no limit (unbounded)
-    // Default: 100 events per room (keeps recent history while controlling memory)
-    private const val MAX_EVENTS_PER_ROOM = 100
+    // Matches initial paginate limit (AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT = 50).
+    // Opened rooms (RoomTimelineScreen + BubbleTimelineScreen bubbles) have no limit.
+    private const val MAX_EVENTS_PER_ROOM = 50
     
     // Application context for debug-only toasts and diagnostics (optional)
     private var appContext: Context? = null
@@ -493,9 +487,18 @@ object RoomTimelineCache {
                 cache.processedState.eventChainMap.remove(eventId)
                 cache.processedState.editEventsMap.remove(eventId)
                 cache.processedState.redactionEventsMap.remove(eventId)
-                // Remove from redaction mapping if this was a redaction event
-                cache.processedState.redactionMapping.values.remove(eventId)
+                cache.processedState.redactionMapping.remove(eventId) // originalEventId -> redactionEventId: remove if removed event was an original
+                cache.processedState.redactionMapping.entries.removeAll { it.value == eventId } // remove entry if removed event was the redaction event
             }
+        }
+        // Remove redaction events that target a trimmed original (keep list consistent with main events)
+        cache.redactionEvents.removeAll { redaction ->
+            val redactsId = when {
+                redaction.type == "m.room.encrypted" && redaction.decryptedType == "m.room.redaction" ->
+                    redaction.decrypted?.optString("redacts")?.takeIf { it.isNotBlank() }
+                else -> redaction.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+            }
+            redactsId != null && redactsId in removedEventIds
         }
         
         if (BuildConfig.DEBUG) {
