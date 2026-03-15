@@ -22,6 +22,10 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LoadingIndicatorDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -93,7 +97,8 @@ fun ExpressiveStatusRow(
     indicatorSize: Dp = 32.dp,
     containerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
     indicatorColor: Color = MaterialTheme.colorScheme.primary,
-    shape: Shape = CircleShape
+    shape: Shape = CircleShape,
+    progress: Map<String, Float> = emptyMap()
 ) {
     Row(
         modifier = modifier,
@@ -107,11 +112,51 @@ fun ExpressiveStatusRow(
             indicatorColor = indicatorColor,
             contentPadding = indicatorSize.coerceAtLeast(8.dp) / 4
         )
-        Text(
-            text = text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            
+            if (progress.isNotEmpty()) {
+                if (net.vrkknn.andromuks.BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "ExpressiveStatusRow: Rendering ${progress.size} progress bars: $progress")
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                progress.entries.forEachIndexed { index, entry ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = if (entry.key == "thumbnail") "THUMB" else "MAIN",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.width(42.dp)
+                        )
+                        LinearWavyProgressIndicator(
+                            progress = { entry.value },
+                            modifier = Modifier.weight(1f).height(6.dp),
+                            color = indicatorColor,
+                            trackColor = indicatorColor.copy(alpha = 0.2f)
+                        )
+                        Text(
+                            text = "${(entry.value * 100).toInt()}%",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.width(32.dp)
+                        )
+                    }
+                    if (index < progress.size - 1) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                }
+            }
+        }
     }
 }
 

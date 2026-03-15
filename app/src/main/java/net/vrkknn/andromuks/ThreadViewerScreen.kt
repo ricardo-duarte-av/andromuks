@@ -1196,13 +1196,15 @@ fun ThreadViewerScreen(
                             "image" -> "Uploading image$retrySuffix..."
                             else -> "Uploading media$retrySuffix..."
                         }
+                        val uploadProgress = appViewModel.getUploadProgress(roomId)
                         ExpressiveStatusRow(
                             text = statusText,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                             indicatorColor = MaterialTheme.colorScheme.primary,
-                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
+                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+                            progress = uploadProgress
                         )
                     }
 
@@ -2542,7 +2544,10 @@ fun ThreadViewerScreen(
                                                     uri = mediaUriToUpload,
                                                     homeserverUrl = homeserverUrl,
                                                     authToken = authToken,
-                                                    isEncrypted = false
+                                                    isEncrypted = false,
+                                                    onProgress = { key, p ->
+                                                        appViewModel.setUploadProgress(roomId, key, p)
+                                                    }
                                                 )
                                             }
                                             if (videoResult != null) {
@@ -2578,7 +2583,10 @@ fun ThreadViewerScreen(
                                                     uri = audioUriToUpload,
                                                     homeserverUrl = homeserverUrl,
                                                     authToken = authToken,
-                                                    isEncrypted = false
+                                                    isEncrypted = false,
+                                                    onProgress = { key, p ->
+                                                        appViewModel.setUploadProgress(roomId, key, p)
+                                                    }
                                                 )
                                             }
                                             if (audioResult != null) {
@@ -2608,7 +2616,10 @@ fun ThreadViewerScreen(
                                                     uri = fileUriToUpload,
                                                     homeserverUrl = homeserverUrl,
                                                     authToken = authToken,
-                                                    isEncrypted = false
+                                                    isEncrypted = false,
+                                                    onProgress = { key, p ->
+                                                        appViewModel.setUploadProgress(roomId, key, p)
+                                                    }
                                                 )
                                             }
                                             if (fileResult != null) {
@@ -2638,7 +2649,10 @@ fun ThreadViewerScreen(
                                                     homeserverUrl = homeserverUrl,
                                                     authToken = authToken,
                                                     isEncrypted = false,
-                                                    compressOriginal = compressOriginal
+                                                    compressOriginal = compressOriginal,
+                                                    onProgress = { key, p ->
+                                                        appViewModel.setUploadProgress(roomId, key, p)
+                                                    }
                                                 )
                                             }
                                             if (uploadResult != null) {

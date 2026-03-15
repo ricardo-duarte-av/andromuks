@@ -1,6 +1,6 @@
 package net.vrkknn.andromuks.utils
 
-
+import okio.source
 
 import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
@@ -9,13 +9,12 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody
+import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import okio.BufferedSink
-import okio.buffer
-import okio.source
 import java.io.ByteArrayOutputStream
 import net.vrkknn.andromuks.utils.getUserAgent
 
@@ -49,8 +48,12 @@ object VideoUploadUtils {
         uri: Uri,
         homeserverUrl: String,
         authToken: String,
-        isEncrypted: Boolean = false
+        isEncrypted: Boolean = false,
+        onProgress: ((String, Float) -> Unit)? = null
     ): VideoUploadResult? = withContext(Dispatchers.IO) {
+        onProgress?.invoke("thumbnail", 0.01f)
+        onProgress?.invoke("original", 0.01f)
+        
         try {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Starting video upload for URI: $uri")
             
@@ -58,226 +61,105 @@ object VideoUploadUtils {
             val retriever = MediaMetadataRetriever()
             retriever.setDataSource(context, uri)
             
-            // Get video dimensions
+            // Get video dimensions and duration
             val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
             val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
-            
-            // Get video duration in milliseconds
             val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toIntOrNull() ?: 0
             
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Video dimensions: ${width}x${height}, duration: ${duration}ms")
-            
-            // Extract frame at 10% of video duration for thumbnail
-            val thumbnailTimeUs = (duration * 1000L * 0.1).toLong() // Convert to microseconds and get 10%
+            // Extract frame at 10% for thumbnail
+            val thumbnailTimeUs = (duration * 1000L * 0.1).toLong()
             var thumbnailFrame = retriever.getFrameAtTime(thumbnailTimeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-            
-            // Fallback to first frame if extraction fails
-            if (thumbnailFrame == null) {
-                Log.w("Andromuks", "VideoUploadUtils: Failed to extract frame at 10%, trying first frame")
-                thumbnailFrame = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST)
-            }
+                ?: retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST)
             
             if (thumbnailFrame == null) {
-                Log.e("Andromuks", "VideoUploadUtils: Failed to extract any frame from video")
+                Log.e("Andromuks", "VideoUploadUtils: Failed to extract frame")
                 retriever.release()
                 return@withContext null
             }
             
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Extracted thumbnail frame: ${thumbnailFrame.width}x${thumbnailFrame.height}")
-            
-            // Use the frame dimensions for video dimensions (they're already correctly oriented)
-            // This handles cases where the video has rotation metadata
             val displayWidth = thumbnailFrame.width
             val displayHeight = thumbnailFrame.height
             
-            // Thumbnail the frame to max 800px (same as images) while maintaining aspect ratio
-            val maxThumbnailDimension = 800
-            val thumbnailBitmap = if (displayWidth > maxThumbnailDimension || displayHeight > maxThumbnailDimension) {
-                // Calculate scale based on the greater dimension
-                val scale = if (displayWidth > displayHeight) {
-                    maxThumbnailDimension.toFloat() / displayWidth
-                } else {
-                    maxThumbnailDimension.toFloat() / displayHeight
+            // Create high-quality thumbnail
+            val maxThumbDim = 800
+            val thumbnailBitmap = if (displayWidth > maxThumbDim || displayHeight > maxThumbDim) {
+                val scale = maxThumbDim.toFloat() / maxOf(displayWidth, displayHeight)
+                MediaUploadUtils.createHighQualityThumbnail(thumbnailFrame, (displayWidth * scale).toInt(), (displayHeight * scale).toInt()).also {
+                    if (it != thumbnailFrame) thumbnailFrame.recycle()
                 }
-                val thumbnailWidth = (displayWidth * scale).toInt()
-                val thumbnailHeight = (displayHeight * scale).toInt()
-                
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Scaling thumbnail to ${thumbnailWidth}x${thumbnailHeight}")
-                // Use high-quality thumbnail creation with subtle blur to reduce pixelation
-                MediaUploadUtils.createHighQualityThumbnail(thumbnailFrame, thumbnailWidth, thumbnailHeight, blurRadius = 1.5f).also {
-                    if (it != thumbnailFrame) {
-                        thumbnailFrame.recycle()
-                    }
-                }
-            } else {
-                thumbnailFrame
+            } else thumbnailFrame
+            
+            val thumbBytes = ByteArrayOutputStream().use { 
+                thumbnailBitmap.compress(Bitmap.CompressFormat.JPEG, 85, it)
+                it.toByteArray()
             }
             
-            // Compress thumbnail to JPEG (quality 85, same as images) to keep file size reasonable
-            val thumbnailOutputStream = ByteArrayOutputStream()
-            thumbnailBitmap.compress(Bitmap.CompressFormat.JPEG, 85, thumbnailOutputStream)
-            val thumbnailBytes = thumbnailOutputStream.toByteArray()
-            val thumbnailSize = thumbnailBytes.size.toLong()
-            
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Thumbnail JPEG size: $thumbnailSize bytes")
-            
-            // Calculate blurhash from thumbnail (use smaller version for speed)
-            val blurHashSize = 400
-            val blurHashScale = minOf(blurHashSize.toFloat() / thumbnailBitmap.width, blurHashSize.toFloat() / thumbnailBitmap.height)
-            val blurHashWidth = (thumbnailBitmap.width * blurHashScale).toInt()
-            val blurHashHeight = (thumbnailBitmap.height * blurHashScale).toInt()
-            val blurHashBitmap = Bitmap.createScaledBitmap(thumbnailBitmap, blurHashWidth, blurHashHeight, true)
-            
-            val thumbnailBlurHash = MediaUploadUtils.encodeBlurHash(blurHashBitmap)
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Thumbnail BlurHash calculated: $thumbnailBlurHash")
-            
-            if (blurHashBitmap != thumbnailBitmap) {
-                blurHashBitmap.recycle()
-            }
-            
-            // Upload thumbnail first
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Uploading thumbnail...")
-            val thumbnailFilename = "video_thumbnail_${System.currentTimeMillis()}.jpg"
-            val thumbnailMxcUrl = uploadBytes(
-                bytes = thumbnailBytes,
-                filename = thumbnailFilename,
-                mimeType = "image/jpeg",
-                homeserverUrl = homeserverUrl,
-                authToken = authToken,
-                isEncrypted = isEncrypted
-            )
-            
-            if (thumbnailMxcUrl == null) {
-                Log.e("Andromuks", "VideoUploadUtils: Failed to upload thumbnail")
-                thumbnailBitmap.recycle()
-                retriever.release()
-                return@withContext null
-            }
-            
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Thumbnail uploaded: $thumbnailMxcUrl")
-            
-            // Save thumbnail dimensions before recycling
-            val thumbnailWidth = thumbnailBitmap.width
-            val thumbnailHeight = thumbnailBitmap.height
-            
-            // Clean up thumbnail bitmap
+            // OPTIMIZATION: Scale down for BlurHash calculation
+            val blurHashInput = Bitmap.createScaledBitmap(thumbnailBitmap, 64, 64, true)
+            val thumbnailBlurHash = MediaUploadUtils.encodeBlurHash(blurHashInput)
+            if (blurHashInput != thumbnailBitmap) blurHashInput.recycle()
+
+            val thumbWidth = thumbnailBitmap.width
+            val thumbHeight = thumbnailBitmap.height
             thumbnailBitmap.recycle()
             retriever.release()
-            
+
             val mimeType = context.contentResolver.getType(uri) ?: "video/mp4"
             val videoFilename = getFileNameFromUri(context, uri) ?: "video_${System.currentTimeMillis()}.mp4"
             val contentLength = getContentLength(context, uri)
-            val (videoMxcUrlResult, videoSizeForResult) = if (contentLength >= 0) {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Video size: $contentLength bytes, uploading (streaming)...")
-                val mxc = uploadStream(
-                    context = context,
-                    uri = uri,
-                    contentLength = contentLength,
-                    filename = videoFilename,
-                    mimeType = mimeType,
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    isEncrypted = isEncrypted
-                )
-                mxc to contentLength
-            } else {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Content length unknown, reading into memory...")
-                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                if (bytes == null) {
-                    thumbnailBitmap.recycle()
-                    retriever.release()
-                    return@withContext null
-                }
-                val mxc = uploadBytes(
-                    bytes = bytes,
-                    filename = videoFilename,
-                    mimeType = mimeType,
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    isEncrypted = isEncrypted
-                )
-                mxc to bytes.size.toLong()
+
+            // Prepare requests
+            val thumbRequest = Request.Builder()
+                .url(MediaUploadUtils.buildUploadUrl(homeserverUrl, "thumb_$videoFilename", isEncrypted))
+                .post(thumbBytes.toRequestBody("image/jpeg".toMediaType()))
+                .addHeader("Cookie", "gomuks_auth=$authToken")
+                .addHeader("User-Agent", getUserAgent())
+                .build()
+
+            val videoRequestBody = ProgressRequestBody(
+                mimeType.toMediaType(),
+                contentLength,
+                context.contentResolver.openInputStream(uri)!!.source()
+            ) { written ->
+                onProgress?.invoke("original", written.toFloat() / contentLength)
             }
-            val videoMxcUrl = videoMxcUrlResult
-            val videoSize = videoSizeForResult
-            
-            if (videoMxcUrl == null) {
-                Log.e("Andromuks", "VideoUploadUtils: Failed to upload video")
-                return@withContext null
+
+            val videoRequest = Request.Builder()
+                .url(MediaUploadUtils.buildUploadUrl(homeserverUrl, videoFilename, isEncrypted))
+                .post(videoRequestBody)
+                .addHeader("Cookie", "gomuks_auth=$authToken")
+                .addHeader("User-Agent", getUserAgent())
+                .build()
+
+            // Execute in parallel
+            coroutineScope {
+                val thumbDeferred = async { MediaUploadUtils.executeAndParseProgress(thumbRequest) { p -> onProgress?.invoke("thumbnail", p) } }
+                val videoDeferred = async { MediaUploadUtils.executeAndParseProgress(videoRequest) { _ -> /* Already handled by local progress */ } }
+                
+                val thumbMxc = thumbDeferred.await()
+                val videoMxc = videoDeferred.await() ?: return@coroutineScope null
+
+                VideoUploadResult(
+                    videoMxcUrl = videoMxc,
+                    thumbnailMxcUrl = thumbMxc ?: "",
+                    width = displayWidth,
+                    height = displayHeight,
+                    duration = duration,
+                    size = contentLength,
+                    mimeType = mimeType,
+                    thumbnailBlurHash = thumbnailBlurHash,
+                    thumbnailWidth = thumbWidth,
+                    thumbnailHeight = thumbHeight,
+                    thumbnailSize = thumbBytes.size.toLong()
+                )
             }
-            
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Video uploaded: $videoMxcUrl")
-            
-            VideoUploadResult(
-                videoMxcUrl = videoMxcUrl,
-                thumbnailMxcUrl = thumbnailMxcUrl,
-                width = displayWidth,  // Use display dimensions from frame (correctly oriented)
-                height = displayHeight, // Use display dimensions from frame (correctly oriented)
-                duration = duration,
-                size = videoSize,
-                mimeType = mimeType,
-                thumbnailBlurHash = thumbnailBlurHash,
-                thumbnailWidth = thumbnailWidth,
-                thumbnailHeight = thumbnailHeight,
-                thumbnailSize = thumbnailSize
-            )
-            
         } catch (e: Exception) {
             Log.e("Andromuks", "VideoUploadUtils: Video upload failed", e)
             null
         }
     }
     
-    /**
-     * Upload raw bytes to the server
-     */
-    private suspend fun uploadBytes(
-        bytes: ByteArray,
-        filename: String,
-        mimeType: String,
-        homeserverUrl: String,
-        authToken: String,
-        isEncrypted: Boolean
-    ): String? = withContext(Dispatchers.IO) {
-        try {
-            val encodedFilename = java.net.URLEncoder.encode(filename, "UTF-8")
-            val uploadUrl = "$homeserverUrl/_gomuks/upload?encrypt=$isEncrypted&progress=false&filename=$encodedFilename&resize_percent=100"
-            
-            val requestBody = bytes.toRequestBody(mimeType.toMediaType())
-            val request = okhttp3.Request.Builder()
-                .url(uploadUrl)
-                .post(requestBody)
-                .addHeader("Cookie", "gomuks_auth=$authToken")
-                .addHeader("Content-Type", mimeType)
-                .addHeader("User-Agent", getUserAgent())
-                .build()
-            val response = MediaUploadUtils.sharedUploadClient.newCall(request).execute()
-            
-            if (!response.isSuccessful) {
-                Log.e("Andromuks", "VideoUploadUtils: Upload failed with code: ${response.code}")
-                Log.e("Andromuks", "VideoUploadUtils: Response body: ${response.body?.string()}")
-                return@withContext null
-            }
-            
-            val responseBody = response.body?.string()
-            
-            // Parse mxc URL from response
-            val json = org.json.JSONObject(responseBody ?: "")
-            val mxcUrl = json.optString("url").takeIf { it.isNotEmpty() }
-            
-            if (mxcUrl != null && mxcUrl.startsWith("mxc://")) {
-                mxcUrl
-            } else {
-                json.optString("mxc").takeIf { it.isNotEmpty() }
-            }
-            
-        } catch (e: Exception) {
-            Log.e("Andromuks", "VideoUploadUtils: Upload bytes failed", e)
-            null
-        }
-    }
-
-    private fun getContentLength(context: Context, uri: android.net.Uri): Long {
+    private fun getContentLength(context: Context, uri: Uri): Long {
         return try {
             context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
         } catch (e: Exception) {
@@ -285,71 +167,14 @@ object VideoUploadUtils {
         }
     }
 
-    /**
-     * Upload from URI by streaming (no full load into memory).
-     */
-    private suspend fun uploadStream(
-        context: Context,
-        uri: android.net.Uri,
-        contentLength: Long,
-        filename: String,
-        mimeType: String,
-        homeserverUrl: String,
-        authToken: String,
-        isEncrypted: Boolean
-    ): String? = withContext(Dispatchers.IO) {
-        try {
-            val encodedFilename = java.net.URLEncoder.encode(filename, "UTF-8")
-            val uploadUrl = "$homeserverUrl/_gomuks/upload?encrypt=$isEncrypted&progress=false&filename=$encodedFilename&resize_percent=100"
-            val mediaType = mimeType.toMediaType()
-            val requestBody = object : RequestBody() {
-                override fun contentType() = mediaType
-                override fun contentLength() = contentLength
-                override fun writeTo(sink: BufferedSink) {
-                    context.contentResolver.openInputStream(uri)!!.use { it.source().buffer().readAll(sink) }
-                }
-            }
-            val request = okhttp3.Request.Builder()
-                .url(uploadUrl)
-                .post(requestBody)
-                .addHeader("Cookie", "gomuks_auth=$authToken")
-                .addHeader("Content-Type", mimeType)
-                .addHeader("User-Agent", getUserAgent())
-                .build()
-            val response = MediaUploadUtils.sharedUploadClient.newCall(request).execute()
-            if (!response.isSuccessful) {
-                Log.e("Andromuks", "VideoUploadUtils: Stream upload failed with code: ${response.code}")
-                return@withContext null
-            }
-            val responseBody = response.body?.string()
-            val json = org.json.JSONObject(responseBody ?: "")
-            val mxcUrl = json.optString("url").takeIf { it.isNotEmpty() }
-                ?: json.optString("mxc").takeIf { it.isNotEmpty() }
-            if (mxcUrl != null && mxcUrl.startsWith("mxc://")) mxcUrl else null
-        } catch (e: Exception) {
-            Log.e("Andromuks", "VideoUploadUtils: Upload stream failed", e)
-            null
-        }
-    }
-    
-    /**
-     * Get filename from URI
-     */
     private fun getFileNameFromUri(context: Context, uri: Uri): String? {
         var fileName: String? = null
-        
         context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
             val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
             if (nameIndex != -1 && cursor.moveToFirst()) {
                 fileName = cursor.getString(nameIndex)
             }
         }
-        
-        if (fileName == null) {
-            fileName = uri.lastPathSegment
-        }
-        
-        return fileName
+        return fileName ?: uri.lastPathSegment
     }
 }
-

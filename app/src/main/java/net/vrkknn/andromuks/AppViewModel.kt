@@ -797,6 +797,8 @@ class AppViewModel : ViewModel() {
     private val uploadTypesPerRoom = mutableStateMapOf<String, MutableSet<String>>()
     // Track upload retry count per room (roomId -> count)
     private val uploadRetryCounts = mutableStateMapOf<String, Int>()
+    // Track upload progress per room (roomId -> Map<String, Float>) where key is "original" or "thumbnail"
+    private val uploadProgressPerRoom = mutableStateMapOf<String, Map<String, Float>>()
     
     /**
      * Check if there are uploads in progress for a room
@@ -837,6 +839,28 @@ class AppViewModel : ViewModel() {
             uploadRetryCounts.remove(roomId)
         }
     }
+
+    /**
+     * Set the upload progress for a room
+     * @param roomId The room ID
+     * @param key The progress key ("original" or "thumbnail")
+     * @param progress The progress value (0f to 1f)
+     */
+    fun setUploadProgress(roomId: String, key: String, progress: Float) {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: setUploadProgress for room $roomId: $key = $progress")
+        val currentProgress = uploadProgressPerRoom[roomId]?.toMutableMap() ?: mutableMapOf()
+        currentProgress[key] = progress
+        uploadProgressPerRoom[roomId] = currentProgress
+    }
+
+    /**
+     * Get the upload progress for a room
+     * @param roomId The room ID
+     * @return A map of progress keys and values
+     */
+    fun getUploadProgress(roomId: String): Map<String, Float> {
+        return uploadProgressPerRoom[roomId] ?: emptyMap()
+    }
     
     /**
      * Start tracking an upload for a room
@@ -866,6 +890,7 @@ class AppViewModel : ViewModel() {
                 uploadInProgressCount.remove(roomId)
                 uploadTypesPerRoom.remove(roomId)
                 uploadRetryCounts.remove(roomId)
+                uploadProgressPerRoom.remove(roomId)
             } else {
                 uploadInProgressCount[roomId] = newCount
                 // Note: We keep all types in the set until count reaches 0

@@ -2952,13 +2952,15 @@ fun RoomTimelineScreen(
                             "image" -> "Uploading image$retrySuffix..."
                             else -> "Uploading media$retrySuffix..."
                         }
+                        val uploadProgress = appViewModel.getUploadProgress(roomId)
                         ExpressiveStatusRow(
                             text = statusText,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                             indicatorColor = MaterialTheme.colorScheme.primary,
-                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
+                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+                            progress = uploadProgress
                         )
                     }
 
@@ -4625,7 +4627,10 @@ fun RoomTimelineScreen(
                                                         uri = uri,
                                                         homeserverUrl = homeserverUrl,
                                                         authToken = authToken,
-                                                        isEncrypted = false
+                                                        isEncrypted = false,
+                                                        onProgress = { key, p ->
+                                                            appViewModel.setUploadProgress(roomId, key, p)
+                                                        }
                                                     )
                                                 }
                                                 if (videoResult != null) {
@@ -4653,7 +4658,10 @@ fun RoomTimelineScreen(
                                                         uri = uri,
                                                         homeserverUrl = homeserverUrl,
                                                         authToken = authToken,
-                                                        isEncrypted = false
+                                                        isEncrypted = false,
+                                                        onProgress = { key, p ->
+                                                            appViewModel.setUploadProgress(roomId, key, p)
+                                                        }
                                                     )
                                                 }
                                                 if (audioResult != null) {
@@ -4676,7 +4684,10 @@ fun RoomTimelineScreen(
                                                         homeserverUrl = homeserverUrl,
                                                         authToken = authToken,
                                                         isEncrypted = false,
-                                                        compressOriginal = sendState.compressOriginal
+                                                        compressOriginal = sendState.compressOriginal,
+                                                        onProgress = { key, p ->
+                                                            appViewModel.setUploadProgress(roomId, key, p)
+                                                        }
                                                     )
                                                 }
                                                 if (uploadResult != null) {
@@ -4704,7 +4715,10 @@ fun RoomTimelineScreen(
                                                         uri = uri,
                                                         homeserverUrl = homeserverUrl,
                                                         authToken = authToken,
-                                                        isEncrypted = false
+                                                        isEncrypted = false,
+                                                        onProgress = { key, p ->
+                                                            appViewModel.setUploadProgress(roomId, key, p)
+                                                        }
                                                     )
                                                 }
                                                 if (fileResult != null) {
@@ -4803,7 +4817,10 @@ fun RoomTimelineScreen(
                                                     uri = mediaUriToUpload,
                                                     homeserverUrl = homeserverUrl,
                                                     authToken = authToken,
-                                                    isEncrypted = false
+                                                    isEncrypted = false,
+                                                    onProgress = { key, p ->
+                                                        appViewModel.setUploadProgress(roomId, key, p)
+                                                    }
                                                 )
                                             }
                                             
@@ -4842,7 +4859,10 @@ fun RoomTimelineScreen(
                                                     uri = audioUriToUpload,
                                                     homeserverUrl = homeserverUrl,
                                                     authToken = authToken,
-                                                    isEncrypted = false
+                                                    isEncrypted = false,
+                                                    onProgress = { key, p ->
+                                                        appViewModel.setUploadProgress(roomId, key, p)
+                                                    }
                                                 )
                                             }
                                             
@@ -4875,7 +4895,10 @@ fun RoomTimelineScreen(
                                                     uri = fileUriToUpload,
                                                     homeserverUrl = homeserverUrl,
                                                     authToken = authToken,
-                                                    isEncrypted = false
+                                                    isEncrypted = false,
+                                                    onProgress = { key, p ->
+                                                        appViewModel.setUploadProgress(roomId, key, p)
+                                                    }
                                                 )
                                             }
                                             
@@ -4908,7 +4931,10 @@ fun RoomTimelineScreen(
                                                     homeserverUrl = homeserverUrl,
                                                     authToken = authToken,
                                                     isEncrypted = false,
-                                                    compressOriginal = compressOriginal
+                                                    compressOriginal = compressOriginal,
+                                                    onProgress = { key, p ->
+                                                        appViewModel.setUploadProgress(roomId, key, p)
+                                                    }
                                                 )
                                             }
                                             

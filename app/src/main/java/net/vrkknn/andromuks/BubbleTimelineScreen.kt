@@ -2578,13 +2578,15 @@ fun BubbleTimelineScreen(
                             "image" -> "Uploading image$retrySuffix..."
                             else -> "Uploading media$retrySuffix..."
                         }
+                        val uploadProgress = appViewModel.getUploadProgress(roomId)
                         ExpressiveStatusRow(
                             text = statusText,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                             indicatorColor = MaterialTheme.colorScheme.primary,
-                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
+                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+                            progress = uploadProgress
                         )
                     }
 
@@ -4256,7 +4258,10 @@ onShowMenu = { menuConfig ->
                                                     uri = mediaUriToUpload,
                                                     homeserverUrl = homeserverUrl,
                                                     authToken = authToken,
-                                                    isEncrypted = false
+                                                    isEncrypted = false,
+                                                    onProgress = { key, p ->
+                                                        appViewModel.setUploadProgress(roomId, key, p)
+                                                    }
                                                 )
                                             }
                                             
@@ -4295,7 +4300,10 @@ onShowMenu = { menuConfig ->
                                                     uri = audioUriToUpload,
                                                     homeserverUrl = homeserverUrl,
                                                     authToken = authToken,
-                                                    isEncrypted = false
+                                                    isEncrypted = false,
+                                                    onProgress = { key, p ->
+                                                        appViewModel.setUploadProgress(roomId, key, p)
+                                                    }
                                                 )
                                             }
                                             
@@ -4328,7 +4336,10 @@ onShowMenu = { menuConfig ->
                                                     uri = fileUriToUpload,
                                                     homeserverUrl = homeserverUrl,
                                                     authToken = authToken,
-                                                    isEncrypted = false
+                                                    isEncrypted = false,
+                                                    onProgress = { key, p ->
+                                                        appViewModel.setUploadProgress(roomId, key, p)
+                                                    }
                                                 )
                                             }
                                             
@@ -4361,7 +4372,10 @@ onShowMenu = { menuConfig ->
                                                     homeserverUrl = homeserverUrl,
                                                     authToken = authToken,
                                                     isEncrypted = false,
-                                                    compressOriginal = compressOriginal
+                                                    compressOriginal = compressOriginal,
+                                                    onProgress = { key, p ->
+                                                        appViewModel.setUploadProgress(roomId, key, p)
+                                                    }
                                                 )
                                             }
                                             
