@@ -893,15 +893,18 @@ fun RoomListScreen(
     }
     
     // Function to perform the actual refresh
-    fun performRefresh() {
+    fun performRefresh(isFull: Boolean = true) {
         refreshing = true
-        // CRITICAL FIX: Use performFullRefresh() to properly clear all state and reset lastReceivedRequestId
-        // This ensures we reconnect without last_received_id to get a full payload (like cold start)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Pull-to-refresh confirmed - performing full refresh")
-        // Clear lastReceivedRequestId from SharedPreferences so reconnect doesn't use it
-        net.vrkknn.andromuks.WebSocketService.clearLastReceivedRequestId(context)
-        // Perform full refresh which clears all state and triggers reconnection
-        appViewModel.performFullRefresh()
+        if (isFull) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Pull-to-refresh confirmed - performing full refresh")
+            // Perform full refresh which clears all state and triggers reconnection
+            appViewModel.performFullRefresh()
+        } else {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Pull-to-refresh confirmed - performing quick refresh (resume)")
+            // Perform quick refresh which keeps local caches and resumes session
+            appViewModel.performQuickRefresh()
+        }
+        
         // Navigate to auth_check which will handle WebSocket reconnection and show StartupLoadingScreen
         navController.navigate("auth_check") {
             // Clear back stack so user doesn't go back to stale room_list
@@ -1646,40 +1649,48 @@ fun RoomListScreen(
                         
                         // Message
                         Text(
-                            text = "This will disconnect and reconnect to the server, refreshing all room data. Continue?",
+                            text = "Choose reconnection type:\n• Full: Resets all data and syncs everything from scratch.\n• Quick: Resumes current session and only fetches missing events.",
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(bottom = 24.dp)
                         )
                         
-                        // Buttons row: OK on left, Cancel on right
-                        Row(
+                        // Buttons: Full, Quick, Cancel
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            // OK button on the left
                             Button(
                                 onClick = {
                                     showRefreshConfirmation = false
-                                    performRefresh()
+                                    performRefresh(isFull = true)
                                 },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("Full")
+                            }
+                            
+                            Button(
+                                onClick = {
+                                    showRefreshConfirmation = false
+                                    performRefresh(isFull = false)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary
+                                    containerColor = MaterialTheme.colorScheme.secondary
                                 )
                             ) {
-                                Text("OK")
+                                Text("Quick")
                             }
-                            // Cancel button on the right
-                            Button(
+                            
+                            TextButton(
                                 onClick = { 
                                     showRefreshConfirmation = false
                                 },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary
-                                )
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("Cancel")
+                                Text("Cancel", color = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }

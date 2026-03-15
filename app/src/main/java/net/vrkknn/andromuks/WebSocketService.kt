@@ -1983,15 +1983,9 @@ class WebSocketService : Service() {
                     }
                     
                     // STATE A: First step - wait for NET_CAPABILITY_VALIDATED before any DNS/connect.
-                    // On cold start, currentNetworkType may still be NONE (NetworkMonitor hasn't fired yet); only abort on NONE when reconnecting.
-                    if (isReconnection && serviceInstance.currentNetworkType == NetworkType.NONE) {
-                        android.util.Log.w("WebSocketService", "connectWebSocket: Reconnection but no network (NONE) - aborting")
-                        serviceInstance.showWebSocketToast("No network")
-                        synchronized(serviceInstance.reconnectionLock) { serviceInstance.isConnecting = false }
-                        return@launch
-                    }
-                    // Reconnection path already validated in the reconnection job before calling us; skip duplicate check.
-                    val validated = if (isReconnection) {
+                    // On cold start, currentNetworkType may still be NONE (NetworkMonitor hasn't fired yet).
+                    // We must wait for validation if network is NONE, even for reconnection attempts.
+                    val validated = if (isReconnection && serviceInstance.currentNetworkType != NetworkType.NONE) {
                         true
                     } else {
                         serviceInstance.waitForNetworkValidation(NETWORK_VALIDATION_TIMEOUT_MS)

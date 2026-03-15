@@ -791,6 +791,10 @@ class AppViewModel : ViewModel() {
     var pendingSendCount by mutableStateOf(0)
         private set
     
+    // Flag to force the next connection to be a resume (true) or cold start (false). 
+    // Null means follow the default logic (resume if cache exists).
+    private var reconnectWithResume: Boolean? = null
+
     // Track uploads in progress per room (roomId -> count)
     private val uploadInProgressCount = mutableStateMapOf<String, Int>()
     // Track upload types per room (roomId -> set of upload types: "image", "video", "audio", "file")
@@ -1454,9 +1458,49 @@ class AppViewModel : ViewModel() {
      * 4. Reset last_received_sync_id to 0
      * 5. Reconnect with run_id but WITHOUT last_received_id (full payload)
      */
+    /**
+     * Reconnects to the server with session resume (run_id + last_received_id).
+     * This keeps all local caches (room list, timeline, etc.) and only fetches deltas.
+     */
+    fun performQuickRefresh() {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Performing quick refresh (resume)")
+        logActivity("Quick Refresh - Reconnecting with Resume", null)
+        
+        // Mark that the next connection should attempt to resume
+        reconnectWithResume = true
+        
+        // RESET NAVIGATION STATE: Ensure navigation callback fires after reconnection
+        navigationCallbackTriggered = false
+        initialSyncComplete = false
+        
+        // Drop WebSocket connection to trigger reconnection
+        clearWebSocket("Quick refresh")
+        
+        // We do NOT clear any state here. 
+        // SyncIngestor will handle the resume payload and only update changed items.
+    }
+
+    /**
+     * Performs a full refresh of all app data.
+     * This is useful when the state is corrupted or the user wants to force a clean sync.
+     * 
+     * Steps:
+     * 1. Drop WebSocket connection
+     * 2. Clear all room data
+     * 3. Reset requestIdCounter to 1
+     * 4. Reset last_received_sync_id to 0
+     * 5. Reconnect cold (no run_id/last_received_id) for full sync
+     */
     fun performFullRefresh() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Performing full refresh - resetting state")
         logActivity("Full Refresh - Resetting State", null)
+        
+        // Mark that the next connection should NOT attempt to resume (cold start)
+        reconnectWithResume = false
+        
+        // RESET NAVIGATION STATE: Ensure navigation callback fires after reconnection
+        navigationCallbackTriggered = false
+        initialSyncComplete = false
         
         // 1. Drop WebSocket connection
         clearWebSocket("Full refresh")
@@ -6932,7 +6976,9 @@ class AppViewModel : ViewModel() {
             if (saveToCacheForRoomTimeline && currentRoomId.isNotEmpty()) {
                 saveToLruCache(currentRoomId)
             }
-            clearTimelineCache()
+            if (previousRoomId.isNotEmpty()) {
+                clearTimelineCache()
+            }
             // Remove from opened rooms (no longer exempt from cache clearing)
             if (previousRoomId.isNotEmpty()) {
                 RoomTimelineCache.removeOpenedRoom(previousRoomId)
@@ -17226,8 +17272,10 @@ class AppViewModel : ViewModel() {
      * PHASE 1.4 FIX: Initialize WebSocket connection using viewModelScope
      * This ensures the connection attempt survives activity recreation
      * Called from AuthCheckScreen when primary instance is ready to connect
+     * 
+     * @param isReconnection Whether to attempt to resume the previous session (run_id + last_received_event)
      */
-    fun initializeWebSocketConnection(homeserverUrl: String, token: String) {
+    fun initializeWebSocketConnection(homeserverUrl: String, token: String, isReconnection: Boolean? = null) {
         // Only primary instance should connect
         if (instanceRole != InstanceRole.PRIMARY) {
             if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: initializeWebSocketConnection called on non-primary instance ($viewModelId), ignoring")
@@ -17249,10 +17297,26 @@ class AppViewModel : ViewModel() {
         // Set app as visible since we're starting the app
         WebSocketService.setAppVisibility(true)
         
+        // Determine whether to resume. 
+        // Priority: 1. Manual override (reconnectWithResume), 2. Parameter, 3. Default (false)
+        val finalIsReconnection = when (reconnectWithResume) {
+            true -> {
+                reconnectWithResume = null // Consume
+                true
+            }
+            false -> {
+                reconnectWithResume = null // Consume
+                false
+            }
+            null -> isReconnection ?: false
+        }
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: initializeWebSocketConnection - isReconnection: $finalIsReconnection")
+
         // REFACTORING: Delegate connection to service
         // The service now owns the WebSocket connection lifecycle
         // Pass this ViewModel for message routing (optional - service can work without it)
-        WebSocketService.connectWebSocket(homeserverUrl, token, this@AppViewModel, reason = "Initial connection from AppViewModel")
+        WebSocketService.connectWebSocket(homeserverUrl, token, this@AppViewModel, reason = "Initial connection from AppViewModel", isReconnection = finalIsReconnection)
     }
 
     // User Info Functions
