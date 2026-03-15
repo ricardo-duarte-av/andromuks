@@ -19,12 +19,19 @@ import android.webkit.MimeTypeMap
 import java.io.File
 import java.io.FileOutputStream
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSink
+import okio.buffer
+import okio.source
 import org.json.JSONObject
+import android.os.Build
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import kotlin.math.absoluteValue
@@ -77,7 +84,21 @@ data class FileUploadResult(
  * Utilities for uploading media files and calculating blurhash
  */
 object MediaUploadUtils {
-    
+
+    /** Shared OkHttpClient for all uploads to reuse connections (faster than creating one per request). */
+    internal val sharedUploadClient by lazy { OkHttpClient.Builder().build() }
+
+    /**
+     * Get content length from URI without loading into memory. Returns -1 if unknown.
+     */
+    private fun getContentLength(context: Context, uri: Uri): Long {
+        return try {
+            context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
+        } catch (e: Exception) {
+            -1L
+        }
+    }
+
     /**
      * Create a high-quality thumbnail with subtle blur to reduce pixelation
      * Uses better scaling algorithm and applies a subtle Gaussian blur
@@ -218,15 +239,21 @@ object MediaUploadUtils {
             
             if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: File size: $size bytes, mimeType: $mimeType, filename: $filename")
             
-            // Read EXIF orientation to handle rotated images
+            // Read EXIF orientation: use file descriptor on API 24+ (no temp file); fallback to temp file on older APIs
             var exifOrientation = ExifInterface.ORIENTATION_NORMAL
             try {
-                // Create a temporary file to read EXIF data (ExifInterface needs a file path)
-                val tempFile = File.createTempFile("exif_", ".jpg", context.cacheDir)
-                tempFile.outputStream().use { it.write(fileBytes) }
-                val exif = ExifInterface(tempFile.absolutePath)
-                exifOrientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-                tempFile.delete()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                        val exif = ExifInterface(pfd.fileDescriptor)
+                        exifOrientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+                    }
+                } else {
+                    val tempFile = File.createTempFile("exif_", ".jpg", context.cacheDir)
+                    tempFile.outputStream().use { it.write(fileBytes) }
+                    val exif = ExifInterface(tempFile.absolutePath)
+                    exifOrientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+                    tempFile.delete()
+                }
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: EXIF orientation: $exifOrientation")
             } catch (e: Exception) {
                 Log.w("Andromuks", "MediaUploadUtils: Failed to read EXIF orientation", e)
@@ -314,9 +341,10 @@ object MediaUploadUtils {
             val thumbnail: Bitmap?
             val thumbnailWidth: Int?
             val thumbnailHeight: Int?
-            val thumbnailMxcUrl: String?
+            var thumbnailMxcUrl: String? = null
             val thumbnailMimeType: String?
             val thumbnailSize: Long?
+            var thumbnailRequestOrNull: Request? = null
             
             if (needsThumbnail) {
                 // Find the greater dimension (width or height) - use finalBitmap dimensions
@@ -356,16 +384,12 @@ object MediaUploadUtils {
                 
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Thumbnail size: $thumbSize bytes, mimeType: $thumbMimeType")
                 
-                val client = OkHttpClient.Builder()
-                    .build()
-                
-                // Upload thumbnail first
                 val thumbnailFilename = "thumb_${filename}"
                 val thumbnailUploadUrl = buildUploadUrl(homeserverUrl, thumbnailFilename, isEncrypted)
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Uploading thumbnail to: $thumbnailUploadUrl")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Prepared thumbnail upload to: $thumbnailUploadUrl")
                 
                 val thumbnailRequestBody = thumbnailBytes.toRequestBody(thumbMimeType.toMediaType())
-                val thumbnailRequest = Request.Builder()
+                thumbnailRequestOrNull = Request.Builder()
                     .url(thumbnailUploadUrl)
                     .post(thumbnailRequestBody)
                     .addHeader("Cookie", "gomuks_auth=$authToken")
@@ -373,33 +397,11 @@ object MediaUploadUtils {
                     .addHeader("User-Agent", getUserAgent())
                     .build()
                 
-                val thumbnailResponse = client.newCall(thumbnailRequest).execute()
-                if (!thumbnailResponse.isSuccessful) {
-                    Log.e("Andromuks", "MediaUploadUtils: Thumbnail upload failed with code: ${thumbnailResponse.code}")
-                    Log.e("Andromuks", "MediaUploadUtils: Response body: ${thumbnailResponse.body?.string()}")
-                    // Continue with original upload even if thumbnail fails
-                }
-                
-                val thumbnailResponseBody = thumbnailResponse.body?.string()
-                thumbnailMxcUrl = if (thumbnailResponse.isSuccessful) {
-                    parseMxcUrlFromResponse(thumbnailResponseBody)
-                } else {
-                    null
-                }
-                
                 // Use actual bitmap dimensions, not calculated ones (in case they differ)
                 thumbnailWidth = actualThumbWidth
                 thumbnailHeight = actualThumbHeight
                 thumbnailMimeType = thumbMimeType
                 thumbnailSize = thumbSize
-                
-                if (BuildConfig.DEBUG) {
-                    if (thumbnailMxcUrl != null) {
-                        Log.d("Andromuks", "MediaUploadUtils: Thumbnail upload successful, mxc URL: $thumbnailMxcUrl")
-                    } else {
-                        Log.w("Andromuks", "MediaUploadUtils: Thumbnail upload failed, continuing without thumbnail")
-                    }
-                }
             } else {
                 // Image is already small, no thumbnail needed
                 thumbnail = null
@@ -421,9 +423,6 @@ object MediaUploadUtils {
             if (needsThumbnail && thumbnail != null && thumbnail != finalBitmap) {
                 thumbnail.recycle()
             }
-            
-            val client = OkHttpClient.Builder()
-                .build()
             
             // Compress original image if requested
             val finalImageBytes: ByteArray
@@ -474,23 +473,37 @@ object MediaUploadUtils {
                 finalImageHeight = finalBitmapHeight
             }
             
-            // Upload original image (compressed or not)
+            // Build main image request
             val uploadUrl = buildUploadUrl(homeserverUrl, filename, isEncrypted)
             if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Upload URL: $uploadUrl")
             
-            val requestBody = finalImageBytes.toRequestBody(mimeType.toMediaType())
-            
-            val request = Request.Builder()
+            val mainRequestBody = finalImageBytes.toRequestBody(mimeType.toMediaType())
+            val mainRequest = Request.Builder()
                 .url(uploadUrl)
-                .post(requestBody)
+                .post(mainRequestBody)
                 .addHeader("Cookie", "gomuks_auth=$authToken")
                 .addHeader("Content-Type", mimeType)
                 .addHeader("User-Agent", getUserAgent())
                 .build()
             
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Sending upload request...")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Sending upload request(s)...")
             
-            val response = client.newCall(request).execute()
+            val response = coroutineScope {
+                val thumbReq = thumbnailRequestOrNull
+                if (thumbReq != null) {
+                    val thumbDeferred = async { sharedUploadClient.newCall(thumbReq).execute() }
+                    val mainDeferred = async { sharedUploadClient.newCall(mainRequest).execute() }
+                    val thumbResp = thumbDeferred.await()
+                    thumbnailMxcUrl = if (thumbResp.isSuccessful) parseMxcUrlFromResponse(thumbResp.body?.string()) else null
+                    if (BuildConfig.DEBUG) {
+                        if (thumbnailMxcUrl != null) Log.d("Andromuks", "MediaUploadUtils: Thumbnail upload successful")
+                        else Log.w("Andromuks", "MediaUploadUtils: Thumbnail upload failed")
+                    }
+                    mainDeferred.await()
+                } else {
+                    sharedUploadClient.newCall(mainRequest).execute()
+                }
+            }
             
             if (!response.isSuccessful) {
                 Log.e("Andromuks", "MediaUploadUtils: Upload failed with code: ${response.code}")
@@ -731,38 +744,35 @@ object MediaUploadUtils {
         try {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Starting audio upload for URI: $uri")
             
-            // Get file metadata
-            val inputStream = context.contentResolver.openInputStream(uri)
-            if (inputStream == null) {
-                Log.e("Andromuks", "MediaUploadUtils: Failed to open audio input stream")
-                return@withContext null
+            val mimeType = context.contentResolver.getType(uri) ?: "audio/mpeg"
+            val filename = getFileNameFromUri(context, uri) ?: "audio_${System.currentTimeMillis()}.mp3"
+            var size = getContentLength(context, uri)
+            val duration = getAudioDuration(context, uri)
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Audio size: $size bytes, duration: ${duration}ms, mimeType: $mimeType")
+            
+            val requestBody = if (size >= 0) {
+                val mediaType = mimeType.toMediaType()
+                val contentLength = size
+                object : RequestBody() {
+                    override fun contentType() = mediaType
+                    override fun contentLength() = contentLength
+                    override fun writeTo(sink: BufferedSink) {
+                        context.contentResolver.openInputStream(uri)!!.use { it.source().buffer().readAll(sink) }
+                    }
+                }
+            } else {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    val bytes = stream.readBytes()
+                    size = bytes.size.toLong()
+                    bytes.toRequestBody(mimeType.toMediaType())
+                } ?: run {
+                    Log.e("Andromuks", "MediaUploadUtils: Cannot open audio stream")
+                    return@withContext null
+                }
             }
             
-            val fileBytes = inputStream.readBytes()
-            inputStream.close()
-            
-            val size = fileBytes.size.toLong()
-            
-            // Get mime type
-            val mimeType = context.contentResolver.getType(uri) ?: "audio/mpeg"
-            
-            // Get filename
-            val filename = getFileNameFromUri(context, uri) ?: "audio_${System.currentTimeMillis()}.mp3"
-            
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Audio file size: $size bytes, mimeType: $mimeType, filename: $filename")
-            
-            // Get audio duration
-            val duration = getAudioDuration(context, uri)
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Audio duration: ${duration}ms")
-            
-            // Upload to server
             val uploadUrl = buildUploadUrl(homeserverUrl, filename, isEncrypted)
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Upload URL: $uploadUrl")
-            
-            val client = OkHttpClient.Builder()
-                .build()
-            
-            val requestBody = fileBytes.toRequestBody(mimeType.toMediaType())
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Sending audio upload...")
             
             val request = Request.Builder()
                 .url(uploadUrl)
@@ -772,9 +782,7 @@ object MediaUploadUtils {
                 .addHeader("User-Agent", getUserAgent())
                 .build()
             
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Sending audio upload request...")
-            
-            val response = client.newCall(request).execute()
+            val response = sharedUploadClient.newCall(request).execute()
             
             if (!response.isSuccessful) {
                 Log.e("Andromuks", "MediaUploadUtils: Audio upload failed with code: ${response.code}")
@@ -821,45 +829,44 @@ object MediaUploadUtils {
         try {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Starting file upload for URI: $uri")
             
-            // Get file metadata
-            val inputStream = context.contentResolver.openInputStream(uri)
-            if (inputStream == null) {
-                Log.e("Andromuks", "MediaUploadUtils: Failed to open file input stream")
-                return@withContext null
+            val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+            val filename = getFileNameFromUri(context, uri) ?: "file_${System.currentTimeMillis()}"
+            var size = getContentLength(context, uri)
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: File size: $size bytes, mimeType: $mimeType")
+            
+            val requestBody = if (size >= 0) {
+                val mediaType = mimeType.toMediaType()
+                val contentLength = size
+                object : RequestBody() {
+                    override fun contentType() = mediaType
+                    override fun contentLength() = contentLength
+                    override fun writeTo(sink: BufferedSink) {
+                        context.contentResolver.openInputStream(uri)!!.use { it.source().buffer().readAll(sink) }
+                    }
+                }
+            } else {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    val bytes = stream.readBytes()
+                    size = bytes.size.toLong()
+                    bytes.toRequestBody(mimeType.toMediaType())
+                } ?: run {
+                    Log.e("Andromuks", "MediaUploadUtils: Cannot open file stream")
+                    return@withContext null
+                }
             }
             
-            val fileBytes = inputStream.readBytes()
-            inputStream.close()
-            
-            val size = fileBytes.size.toLong()
-            
-            // Get mime type
-            val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
-            
-            // Get filename
-            val filename = getFileNameFromUri(context, uri) ?: "file_${System.currentTimeMillis()}"
-            
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: File size: $size bytes, mimeType: $mimeType, filename: $filename")
-            
-            // Upload to server
             val uploadUrl = buildUploadUrl(homeserverUrl, filename, isEncrypted)
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Upload URL: $uploadUrl")
-            
-            val client = OkHttpClient.Builder()
-                .build()
-            
-            val requestBody = fileBytes.toRequestBody(mimeType.toMediaType())
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Sending file upload...")
             
             val request = Request.Builder()
                 .url(uploadUrl)
                 .post(requestBody)
                 .addHeader("Cookie", "gomuks_auth=$authToken")
                 .addHeader("Content-Type", mimeType)
+                .addHeader("User-Agent", getUserAgent())
                 .build()
             
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "MediaUploadUtils: Sending file upload request...")
-            
-            val response = client.newCall(request).execute()
+            val response = sharedUploadClient.newCall(request).execute()
             
             if (!response.isSuccessful) {
                 Log.e("Andromuks", "MediaUploadUtils: File upload failed with code: ${response.code}")

@@ -11,7 +11,11 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSink
+import okio.buffer
+import okio.source
 import java.io.ByteArrayOutputStream
 import net.vrkknn.andromuks.utils.getUserAgent
 
@@ -160,35 +164,42 @@ object VideoUploadUtils {
             thumbnailBitmap.recycle()
             retriever.release()
             
-            // Get video file bytes and metadata
-            val inputStream = context.contentResolver.openInputStream(uri)
-            if (inputStream == null) {
-                Log.e("Andromuks", "VideoUploadUtils: Failed to open video input stream")
-                return@withContext null
-            }
-            
-            val videoBytes = inputStream.readBytes()
-            inputStream.close()
-            val videoSize = videoBytes.size.toLong()
-            
-            // Get mime type
             val mimeType = context.contentResolver.getType(uri) ?: "video/mp4"
-            
-            // Get filename
             val videoFilename = getFileNameFromUri(context, uri) ?: "video_${System.currentTimeMillis()}.mp4"
-            
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Video size: $videoSize bytes, mimeType: $mimeType, filename: $videoFilename")
-            
-            // Upload video
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Uploading video...")
-            val videoMxcUrl = uploadBytes(
-                bytes = videoBytes,
-                filename = videoFilename,
-                mimeType = mimeType,
-                homeserverUrl = homeserverUrl,
-                authToken = authToken,
-                isEncrypted = isEncrypted
-            )
+            val contentLength = getContentLength(context, uri)
+            val (videoMxcUrlResult, videoSizeForResult) = if (contentLength >= 0) {
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Video size: $contentLength bytes, uploading (streaming)...")
+                val mxc = uploadStream(
+                    context = context,
+                    uri = uri,
+                    contentLength = contentLength,
+                    filename = videoFilename,
+                    mimeType = mimeType,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    isEncrypted = isEncrypted
+                )
+                mxc to contentLength
+            } else {
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Content length unknown, reading into memory...")
+                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                if (bytes == null) {
+                    thumbnailBitmap.recycle()
+                    retriever.release()
+                    return@withContext null
+                }
+                val mxc = uploadBytes(
+                    bytes = bytes,
+                    filename = videoFilename,
+                    mimeType = mimeType,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    isEncrypted = isEncrypted
+                )
+                mxc to bytes.size.toLong()
+            }
+            val videoMxcUrl = videoMxcUrlResult
+            val videoSize = videoSizeForResult
             
             if (videoMxcUrl == null) {
                 Log.e("Andromuks", "VideoUploadUtils: Failed to upload video")
@@ -232,10 +243,7 @@ object VideoUploadUtils {
             val encodedFilename = java.net.URLEncoder.encode(filename, "UTF-8")
             val uploadUrl = "$homeserverUrl/_gomuks/upload?encrypt=$isEncrypted&progress=false&filename=$encodedFilename&resize_percent=100"
             
-            val client = okhttp3.OkHttpClient.Builder().build()
-            
             val requestBody = bytes.toRequestBody(mimeType.toMediaType())
-            
             val request = okhttp3.Request.Builder()
                 .url(uploadUrl)
                 .post(requestBody)
@@ -243,8 +251,7 @@ object VideoUploadUtils {
                 .addHeader("Content-Type", mimeType)
                 .addHeader("User-Agent", getUserAgent())
                 .build()
-            
-            val response = client.newCall(request).execute()
+            val response = MediaUploadUtils.sharedUploadClient.newCall(request).execute()
             
             if (!response.isSuccessful) {
                 Log.e("Andromuks", "VideoUploadUtils: Upload failed with code: ${response.code}")
@@ -266,6 +273,61 @@ object VideoUploadUtils {
             
         } catch (e: Exception) {
             Log.e("Andromuks", "VideoUploadUtils: Upload bytes failed", e)
+            null
+        }
+    }
+
+    private fun getContentLength(context: Context, uri: android.net.Uri): Long {
+        return try {
+            context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
+        } catch (e: Exception) {
+            -1L
+        }
+    }
+
+    /**
+     * Upload from URI by streaming (no full load into memory).
+     */
+    private suspend fun uploadStream(
+        context: Context,
+        uri: android.net.Uri,
+        contentLength: Long,
+        filename: String,
+        mimeType: String,
+        homeserverUrl: String,
+        authToken: String,
+        isEncrypted: Boolean
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            val encodedFilename = java.net.URLEncoder.encode(filename, "UTF-8")
+            val uploadUrl = "$homeserverUrl/_gomuks/upload?encrypt=$isEncrypted&progress=false&filename=$encodedFilename&resize_percent=100"
+            val mediaType = mimeType.toMediaType()
+            val requestBody = object : RequestBody() {
+                override fun contentType() = mediaType
+                override fun contentLength() = contentLength
+                override fun writeTo(sink: BufferedSink) {
+                    context.contentResolver.openInputStream(uri)!!.use { it.source().buffer().readAll(sink) }
+                }
+            }
+            val request = okhttp3.Request.Builder()
+                .url(uploadUrl)
+                .post(requestBody)
+                .addHeader("Cookie", "gomuks_auth=$authToken")
+                .addHeader("Content-Type", mimeType)
+                .addHeader("User-Agent", getUserAgent())
+                .build()
+            val response = MediaUploadUtils.sharedUploadClient.newCall(request).execute()
+            if (!response.isSuccessful) {
+                Log.e("Andromuks", "VideoUploadUtils: Stream upload failed with code: ${response.code}")
+                return@withContext null
+            }
+            val responseBody = response.body?.string()
+            val json = org.json.JSONObject(responseBody ?: "")
+            val mxcUrl = json.optString("url").takeIf { it.isNotEmpty() }
+                ?: json.optString("mxc").takeIf { it.isNotEmpty() }
+            if (mxcUrl != null && mxcUrl.startsWith("mxc://")) mxcUrl else null
+        } catch (e: Exception) {
+            Log.e("Andromuks", "VideoUploadUtils: Upload stream failed", e)
             null
         }
     }
