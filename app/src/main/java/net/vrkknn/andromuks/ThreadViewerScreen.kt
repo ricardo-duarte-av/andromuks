@@ -1187,12 +1187,14 @@ fun ThreadViewerScreen(
                     // Show upload status when uploads are in progress
                     if (appViewModel.hasUploadInProgress(roomId)) {
                         val uploadType = appViewModel.getUploadType(roomId)
+                        val retryCount = appViewModel.getUploadRetryCount(roomId)
+                        val retrySuffix = if (retryCount > 0) " (Retrying $retryCount/3)" else ""
                         val statusText = when (uploadType) {
-                            "video" -> "Uploading video..."
-                            "audio" -> "Uploading audio..."
-                            "file" -> "Uploading file..."
-                            "image" -> "Uploading image..."
-                            else -> "Uploading media..."
+                            "video" -> "Uploading video$retrySuffix..."
+                            "audio" -> "Uploading audio$retrySuffix..."
+                            "file" -> "Uploading file$retrySuffix..."
+                            "image" -> "Uploading image$retrySuffix..."
+                            else -> "Uploading media$retrySuffix..."
                         }
                         ExpressiveStatusRow(
                             text = statusText,
@@ -2507,116 +2509,130 @@ fun ThreadViewerScreen(
                             replyingToEvent = null
                             
                             coroutineScope.launch {
+                                // Local helper for uploads with retry
+                                suspend fun <T> performUpload(
+                                    type: String,
+                                    uploadBlock: suspend () -> T?
+                                ): T? {
+                                    appViewModel.beginUpload(roomId, type)
+                                    try {
+                                        var result: T? = null
+                                        for (attempt in 0..3) {
+                                            if (attempt > 0) {
+                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "ThreadViewerScreen: Retrying $type upload (attempt $attempt/3)")
+                                                appViewModel.setUploadRetryCount(roomId, attempt)
+                                                kotlinx.coroutines.delay(1000L * attempt)
+                                            }
+                                            result = uploadBlock()
+                                            if (result != null) break
+                                        }
+                                        appViewModel.setUploadRetryCount(roomId, 0)
+                                        return result
+                                    } finally {
+                                        appViewModel.endUpload(roomId, type)
+                                    }
+                                }
+
                                 try {
                                     when {
                                         isVideoToUpload && mediaUriToUpload != null -> {
-                                            appViewModel.beginUpload(roomId, "video")
-                                            try {
-                                                val videoResult = VideoUploadUtils.uploadVideo(
+                                            val videoResult = performUpload("video") {
+                                                VideoUploadUtils.uploadVideo(
                                                     context = context,
                                                     uri = mediaUriToUpload,
                                                     homeserverUrl = homeserverUrl,
                                                     authToken = authToken,
                                                     isEncrypted = false
                                                 )
-                                                if (videoResult != null) {
-                                                    val replyTarget = replyToEventToUpload?.eventId ?: sortedEvents.lastOrNull()?.eventId
-                                                    val mentions = replyToEventToUpload?.sender?.let { listOf(it) } ?: emptyList()
-                                                    appViewModel.sendVideoMessage(
-                                                        roomId = roomId,
-                                                        videoMxcUrl = videoResult.videoMxcUrl,
-                                                        thumbnailMxcUrl = videoResult.thumbnailMxcUrl,
-                                                        width = videoResult.width,
-                                                        height = videoResult.height,
-                                                        duration = videoResult.duration,
-                                                        size = videoResult.size,
-                                                        mimeType = videoResult.mimeType,
-                                                        thumbnailBlurHash = videoResult.thumbnailBlurHash,
-                                                        thumbnailWidth = videoResult.thumbnailWidth,
-                                                        thumbnailHeight = videoResult.thumbnailHeight,
-                                                        thumbnailSize = videoResult.thumbnailSize,
-                                                        caption = caption.takeIf { it.isNotBlank() },
-                                                        threadRootEventId = threadRootEventId,
-                                                        replyToEventId = replyTarget,
-                                                        isThreadFallback = replyToEventToUpload == null,
-                                                        mentions = mentions
-                                                    )
-                                                } else {
-                                                    Toast.makeText(context, "Failed to upload video", Toast.LENGTH_SHORT).show()
-                                                }
-                                            } finally {
-                                                appViewModel.endUpload(roomId, "video")
+                                            }
+                                            if (videoResult != null) {
+                                                val replyTarget = replyToEventToUpload?.eventId ?: sortedEvents.lastOrNull()?.eventId
+                                                val mentions = replyToEventToUpload?.sender?.let { listOf(it) } ?: emptyList()
+                                                appViewModel.sendVideoMessage(
+                                                    roomId = roomId,
+                                                    videoMxcUrl = videoResult.videoMxcUrl,
+                                                    thumbnailMxcUrl = videoResult.thumbnailMxcUrl,
+                                                    width = videoResult.width,
+                                                    height = videoResult.height,
+                                                    duration = videoResult.duration,
+                                                    size = videoResult.size,
+                                                    mimeType = videoResult.mimeType,
+                                                    thumbnailBlurHash = videoResult.thumbnailBlurHash,
+                                                    thumbnailWidth = videoResult.thumbnailWidth,
+                                                    thumbnailHeight = videoResult.thumbnailHeight,
+                                                    thumbnailSize = videoResult.thumbnailSize,
+                                                    caption = caption.takeIf { it.isNotBlank() },
+                                                    threadRootEventId = threadRootEventId,
+                                                    replyToEventId = replyTarget,
+                                                    isThreadFallback = replyToEventToUpload == null,
+                                                    mentions = mentions
+                                                )
+                                            } else {
+                                                Toast.makeText(context, "Failed to upload video after 3 attempts", Toast.LENGTH_SHORT).show()
                                             }
                                         }
                                         audioUriToUpload != null -> {
-                                            appViewModel.beginUpload(roomId, "audio")
-                                            try {
-                                                val audioResult = MediaUploadUtils.uploadAudio(
+                                            val audioResult = performUpload("audio") {
+                                                MediaUploadUtils.uploadAudio(
                                                     context = context,
                                                     uri = audioUriToUpload,
                                                     homeserverUrl = homeserverUrl,
                                                     authToken = authToken,
                                                     isEncrypted = false
                                                 )
-                                                if (audioResult != null) {
-                                                    val replyTarget = replyToEventToUpload?.eventId ?: sortedEvents.lastOrNull()?.eventId
-                                                    val mentions = replyToEventToUpload?.sender?.let { listOf(it) } ?: emptyList()
-                                                    appViewModel.sendAudioMessage(
-                                                        roomId = roomId,
-                                                        mxcUrl = audioResult.mxcUrl,
-                                                        filename = audioResult.filename,
-                                                        duration = audioResult.duration,
-                                                        size = audioResult.size,
-                                                        mimeType = audioResult.mimeType,
-                                                        caption = caption.takeIf { it.isNotBlank() },
-                                                        threadRootEventId = threadRootEventId,
-                                                        replyToEventId = replyTarget,
-                                                        isThreadFallback = replyToEventToUpload == null,
-                                                        mentions = mentions
-                                                    )
-                                                } else {
-                                                    Toast.makeText(context, "Failed to upload audio", Toast.LENGTH_SHORT).show()
-                                                }
-                                            } finally {
-                                                appViewModel.endUpload(roomId, "audio")
+                                            }
+                                            if (audioResult != null) {
+                                                val replyTarget = replyToEventToUpload?.eventId ?: sortedEvents.lastOrNull()?.eventId
+                                                val mentions = replyToEventToUpload?.sender?.let { listOf(it) } ?: emptyList()
+                                                appViewModel.sendAudioMessage(
+                                                    roomId = roomId,
+                                                    mxcUrl = audioResult.mxcUrl,
+                                                    filename = audioResult.filename,
+                                                    duration = audioResult.duration,
+                                                    size = audioResult.size,
+                                                    mimeType = audioResult.mimeType,
+                                                    caption = caption.takeIf { it.isNotBlank() },
+                                                    threadRootEventId = threadRootEventId,
+                                                    replyToEventId = replyTarget,
+                                                    isThreadFallback = replyToEventToUpload == null,
+                                                    mentions = mentions
+                                                )
+                                            } else {
+                                                Toast.makeText(context, "Failed to upload audio after 3 attempts", Toast.LENGTH_SHORT).show()
                                             }
                                         }
                                         fileUriToUpload != null -> {
-                                            appViewModel.beginUpload(roomId, "file")
-                                            try {
-                                                val fileResult = MediaUploadUtils.uploadFile(
+                                            val fileResult = performUpload("file") {
+                                                MediaUploadUtils.uploadFile(
                                                     context = context,
                                                     uri = fileUriToUpload,
                                                     homeserverUrl = homeserverUrl,
                                                     authToken = authToken,
                                                     isEncrypted = false
                                                 )
-                                                if (fileResult != null) {
-                                                    val replyTarget = replyToEventToUpload?.eventId ?: sortedEvents.lastOrNull()?.eventId
-                                                    val mentions = replyToEventToUpload?.sender?.let { listOf(it) } ?: emptyList()
-                                                    appViewModel.sendFileMessage(
-                                                        roomId = roomId,
-                                                        mxcUrl = fileResult.mxcUrl,
-                                                        filename = fileResult.filename,
-                                                        size = fileResult.size,
-                                                        mimeType = fileResult.mimeType,
-                                                        caption = caption.takeIf { it.isNotBlank() },
-                                                        threadRootEventId = threadRootEventId,
-                                                        replyToEventId = replyTarget,
-                                                        isThreadFallback = replyToEventToUpload == null,
-                                                        mentions = mentions
-                                                    )
-                                                } else {
-                                                    Toast.makeText(context, "Failed to upload file", Toast.LENGTH_SHORT).show()
-                                                }
-                                            } finally {
-                                                appViewModel.endUpload(roomId, "file")
+                                            }
+                                            if (fileResult != null) {
+                                                val replyTarget = replyToEventToUpload?.eventId ?: sortedEvents.lastOrNull()?.eventId
+                                                val mentions = replyToEventToUpload?.sender?.let { listOf(it) } ?: emptyList()
+                                                appViewModel.sendFileMessage(
+                                                    roomId = roomId,
+                                                    mxcUrl = fileResult.mxcUrl,
+                                                    filename = fileResult.filename,
+                                                    size = fileResult.size,
+                                                    mimeType = fileResult.mimeType,
+                                                    caption = caption.takeIf { it.isNotBlank() },
+                                                    threadRootEventId = threadRootEventId,
+                                                    replyToEventId = replyTarget,
+                                                    isThreadFallback = replyToEventToUpload == null,
+                                                    mentions = mentions
+                                                )
+                                            } else {
+                                                Toast.makeText(context, "Failed to upload file after 3 attempts", Toast.LENGTH_SHORT).show()
                                             }
                                         }
                                         mediaUriToUpload != null -> {
-                                            appViewModel.beginUpload(roomId, "image")
-                                            try {
-                                                val uploadResult = MediaUploadUtils.uploadMedia(
+                                            val uploadResult = performUpload("image") {
+                                                MediaUploadUtils.uploadMedia(
                                                     context = context,
                                                     uri = mediaUriToUpload,
                                                     homeserverUrl = homeserverUrl,
@@ -2624,47 +2640,38 @@ fun ThreadViewerScreen(
                                                     isEncrypted = false,
                                                     compressOriginal = compressOriginal
                                                 )
-                                                if (uploadResult != null) {
-                                                    val replyTarget = replyToEventToUpload?.eventId ?: sortedEvents.lastOrNull()?.eventId
-                                                    val mentions = replyToEventToUpload?.sender?.let { listOf(it) } ?: emptyList()
-                                                    appViewModel.sendImageMessage(
-                                                        roomId = roomId,
-                                                        mxcUrl = uploadResult.mxcUrl,
-                                                        width = uploadResult.width,
-                                                        height = uploadResult.height,
-                                                        size = uploadResult.size,
-                                                        mimeType = uploadResult.mimeType,
-                                                        blurHash = uploadResult.blurHash,
-                                                        caption = caption.takeIf { it.isNotBlank() },
-                                                        threadRootEventId = threadRootEventId,
-                                                        replyToEventId = replyTarget,
-                                                        isThreadFallback = replyToEventToUpload == null,
-                                                        mentions = mentions,
-                                                        thumbnailUrl = uploadResult.thumbnailUrl,
-                                                        thumbnailWidth = uploadResult.thumbnailWidth,
-                                                        thumbnailHeight = uploadResult.thumbnailHeight,
-                                                        thumbnailMimeType = uploadResult.thumbnailMimeType,
-                                                        thumbnailSize = uploadResult.thumbnailSize
-                                                    )
-                                                } else {
-                                                    Toast.makeText(context, "Failed to upload image", Toast.LENGTH_SHORT).show()
-                                                }
-                                            } finally {
-                                                appViewModel.endUpload(roomId, "image")
+                                            }
+                                            if (uploadResult != null) {
+                                                val replyTarget = replyToEventToUpload?.eventId ?: sortedEvents.lastOrNull()?.eventId
+                                                val mentions = replyToEventToUpload?.sender?.let { listOf(it) } ?: emptyList()
+                                                appViewModel.sendImageMessage(
+                                                    roomId = roomId,
+                                                    mxcUrl = uploadResult.mxcUrl,
+                                                    width = uploadResult.width,
+                                                    height = uploadResult.height,
+                                                    size = uploadResult.size,
+                                                    mimeType = uploadResult.mimeType,
+                                                    blurHash = uploadResult.blurHash,
+                                                    caption = caption.takeIf { it.isNotBlank() },
+                                                    threadRootEventId = threadRootEventId,
+                                                    replyToEventId = replyTarget,
+                                                    isThreadFallback = replyToEventToUpload == null,
+                                                    mentions = mentions,
+                                                    thumbnailUrl = uploadResult.thumbnailUrl,
+                                                    thumbnailWidth = uploadResult.thumbnailWidth,
+                                                    thumbnailHeight = uploadResult.thumbnailHeight,
+                                                    thumbnailMimeType = uploadResult.thumbnailMimeType,
+                                                    thumbnailSize = uploadResult.thumbnailSize
+                                                )
+                                            } else {
+                                                Toast.makeText(context, "Failed to upload image after 3 attempts", Toast.LENGTH_SHORT).show()
                                             }
                                         }
                                     }
                                 } catch (e: Exception) {
                                     Log.e("Andromuks", "ThreadViewerScreen: Upload error", e)
-                                    // Try to clean up upload state - determine type from what was being uploaded
-                                    when {
-                                        isVideoToUpload && mediaUriToUpload != null -> appViewModel.endUpload(roomId, "video")
-                                        audioUriToUpload != null -> appViewModel.endUpload(roomId, "audio")
-                                        fileUriToUpload != null -> appViewModel.endUpload(roomId, "file")
-                                        mediaUriToUpload != null -> appViewModel.endUpload(roomId, "image")
-                                        else -> appViewModel.endUpload(roomId, "image")
-                                    }
-                                    Toast.makeText(context, "Upload failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    // Try to clean up upload state
+                                    appViewModel.setUploadRetryCount(roomId, 0)
                                 }
                             }
                         }

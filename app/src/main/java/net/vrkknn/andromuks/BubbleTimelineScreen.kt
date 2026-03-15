@@ -2569,12 +2569,14 @@ fun BubbleTimelineScreen(
                     // Show upload status when uploads are in progress
                     if (appViewModel.hasUploadInProgress(roomId)) {
                         val uploadType = appViewModel.getUploadType(roomId)
+                        val retryCount = appViewModel.getUploadRetryCount(roomId)
+                        val retrySuffix = if (retryCount > 0) " (Retrying $retryCount/3)" else ""
                         val statusText = when (uploadType) {
-                            "video" -> "Uploading video..."
-                            "audio" -> "Uploading audio..."
-                            "file" -> "Uploading file..."
-                            "image" -> "Uploading image..."
-                            else -> "Uploading media..."
+                            "video" -> "Uploading video$retrySuffix..."
+                            "audio" -> "Uploading audio$retrySuffix..."
+                            "file" -> "Uploading file$retrySuffix..."
+                            "image" -> "Uploading image$retrySuffix..."
+                            else -> "Uploading media$retrySuffix..."
                         }
                         ExpressiveStatusRow(
                             text = statusText,
@@ -4220,130 +4222,140 @@ onShowMenu = { menuConfig ->
                             
                             // Upload and send in background
                             coroutineScope.launch {
+                                // Local helper for uploads with retry
+                                suspend fun <T> performUpload(
+                                    type: String,
+                                    uploadBlock: suspend () -> T?
+                                ): T? {
+                                    appViewModel.beginUpload(roomId, type)
+                                    try {
+                                        var result: T? = null
+                                        for (attempt in 0..3) {
+                                            if (attempt > 0) {
+                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Retrying $type upload (attempt $attempt/3)")
+                                                appViewModel.setUploadRetryCount(roomId, attempt)
+                                                kotlinx.coroutines.delay(1000L * attempt)
+                                            }
+                                            result = uploadBlock()
+                                            if (result != null) break
+                                        }
+                                        appViewModel.setUploadRetryCount(roomId, 0)
+                                        return result
+                                    } finally {
+                                        appViewModel.endUpload(roomId, type)
+                                    }
+                                }
+
                                 try {
                                     when {
                                         isVideoToUpload && mediaUriToUpload != null -> {
                                             // Upload video with thumbnail
-                                            appViewModel.beginUpload(roomId, "video")
-                                            try {
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Starting video upload")
-                                                val videoResult = VideoUploadUtils.uploadVideo(
+                                            val videoResult = performUpload("video") {
+                                                VideoUploadUtils.uploadVideo(
                                                     context = context,
                                                     uri = mediaUriToUpload,
                                                     homeserverUrl = homeserverUrl,
                                                     authToken = authToken,
                                                     isEncrypted = false
                                                 )
-                                                
-                                                if (videoResult != null) {
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Video upload successful, sending message")
-                                                    // Send video message with metadata
-                                                    appViewModel.sendVideoMessage(
-                                                        roomId = roomId,
-                                                        videoMxcUrl = videoResult.videoMxcUrl,
-                                                        thumbnailMxcUrl = videoResult.thumbnailMxcUrl,
-                                                        width = videoResult.width,
-                                                        height = videoResult.height,
-                                                        duration = videoResult.duration,
-                                                        size = videoResult.size,
-                                                        mimeType = videoResult.mimeType,
-                                                        thumbnailBlurHash = videoResult.thumbnailBlurHash,
-                                                        thumbnailWidth = videoResult.thumbnailWidth,
-                                                        thumbnailHeight = videoResult.thumbnailHeight,
-                                                        thumbnailSize = videoResult.thumbnailSize,
-                                                        caption = caption.takeIf { it.isNotBlank() }
-                                                    )
-                                                } else {
-                                                    Log.e("Andromuks", "BubbleTimelineScreen: Video upload failed")
-                                                    android.widget.Toast.makeText(
-                                                        context,
-                                                        "Failed to upload video",
-                                                        android.widget.Toast.LENGTH_SHORT
-                                                    ).show()
-                                                }
-                                            } finally {
-                                                appViewModel.endUpload(roomId, "video")
+                                            }
+                                            
+                                            if (videoResult != null) {
+                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Video upload successful, sending message")
+                                                // Send video message with metadata
+                                                appViewModel.sendVideoMessage(
+                                                    roomId = roomId,
+                                                    videoMxcUrl = videoResult.videoMxcUrl,
+                                                    thumbnailMxcUrl = videoResult.thumbnailMxcUrl,
+                                                    width = videoResult.width,
+                                                    height = videoResult.height,
+                                                    duration = videoResult.duration,
+                                                    size = videoResult.size,
+                                                    mimeType = videoResult.mimeType,
+                                                    thumbnailBlurHash = videoResult.thumbnailBlurHash,
+                                                    thumbnailWidth = videoResult.thumbnailWidth,
+                                                    thumbnailHeight = videoResult.thumbnailHeight,
+                                                    thumbnailSize = videoResult.thumbnailSize,
+                                                    caption = caption.takeIf { it.isNotBlank() }
+                                                )
+                                            } else {
+                                                Log.e("Andromuks", "BubbleTimelineScreen: Video upload failed after retries")
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    "Failed to upload video after 3 attempts",
+                                                    android.widget.Toast.LENGTH_SHORT
+                                                ).show()
                                             }
                                         }
                                         audioUriToUpload != null -> {
                                             // Upload audio
-                                            appViewModel.beginUpload(roomId, "audio")
-                                            try {
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Starting audio upload")
-                                                val audioResult = MediaUploadUtils.uploadAudio(
+                                            val audioResult = performUpload("audio") {
+                                                MediaUploadUtils.uploadAudio(
                                                     context = context,
                                                     uri = audioUriToUpload,
                                                     homeserverUrl = homeserverUrl,
                                                     authToken = authToken,
                                                     isEncrypted = false
                                                 )
-                                                
-                                                if (audioResult != null) {
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Audio upload successful, sending message")
-                                                    // Send audio message with metadata
-                                                    appViewModel.sendAudioMessage(
-                                                        roomId = roomId,
-                                                        mxcUrl = audioResult.mxcUrl,
-                                                        filename = audioResult.filename,
-                                                        duration = audioResult.duration,
-                                                        size = audioResult.size,
-                                                        mimeType = audioResult.mimeType,
-                                                        caption = caption.takeIf { it.isNotBlank() }
-                                                    )
-                                                } else {
-                                                    Log.e("Andromuks", "BubbleTimelineScreen: Audio upload failed")
-                                                    android.widget.Toast.makeText(
-                                                        context,
-                                                        "Failed to upload audio",
-                                                        android.widget.Toast.LENGTH_SHORT
-                                                    ).show()
-                                                }
-                                            } finally {
-                                                appViewModel.endUpload(roomId, "audio")
+                                            }
+                                            
+                                            if (audioResult != null) {
+                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Audio upload successful, sending message")
+                                                // Send audio message with metadata
+                                                appViewModel.sendAudioMessage(
+                                                    roomId = roomId,
+                                                    mxcUrl = audioResult.mxcUrl,
+                                                    filename = audioResult.filename,
+                                                    duration = audioResult.duration,
+                                                    size = audioResult.size,
+                                                    mimeType = audioResult.mimeType,
+                                                    caption = caption.takeIf { it.isNotBlank() }
+                                                )
+                                            } else {
+                                                Log.e("Andromuks", "BubbleTimelineScreen: Audio upload failed after retries")
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    "Failed to upload audio after 3 attempts",
+                                                    android.widget.Toast.LENGTH_SHORT
+                                                ).show()
                                             }
                                         }
                                         fileUriToUpload != null -> {
                                             // Upload file
-                                            appViewModel.beginUpload(roomId, "file")
-                                            try {
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Starting file upload")
-                                                val fileResult = MediaUploadUtils.uploadFile(
+                                            val fileResult = performUpload("file") {
+                                                MediaUploadUtils.uploadFile(
                                                     context = context,
                                                     uri = fileUriToUpload,
                                                     homeserverUrl = homeserverUrl,
                                                     authToken = authToken,
                                                     isEncrypted = false
                                                 )
-                                                
-                                                if (fileResult != null) {
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: File upload successful, sending message")
-                                                    // Send file message with metadata
-                                                    appViewModel.sendFileMessage(
-                                                        roomId = roomId,
-                                                        mxcUrl = fileResult.mxcUrl,
-                                                        filename = fileResult.filename,
-                                                        size = fileResult.size,
-                                                        mimeType = fileResult.mimeType,
-                                                        caption = caption.takeIf { it.isNotBlank() }
-                                                    )
-                                                } else {
-                                                    Log.e("Andromuks", "BubbleTimelineScreen: File upload failed")
-                                                    android.widget.Toast.makeText(
-                                                        context,
-                                                        "Failed to upload file",
-                                                        android.widget.Toast.LENGTH_SHORT
-                                                    ).show()
-                                                }
-                                            } finally {
-                                                appViewModel.endUpload(roomId, "file")
+                                            }
+                                            
+                                            if (fileResult != null) {
+                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: File upload successful, sending message")
+                                                // Send file message with metadata
+                                                appViewModel.sendFileMessage(
+                                                    roomId = roomId,
+                                                    mxcUrl = fileResult.mxcUrl,
+                                                    filename = fileResult.filename,
+                                                    size = fileResult.size,
+                                                    mimeType = fileResult.mimeType,
+                                                    caption = caption.takeIf { it.isNotBlank() }
+                                                )
+                                            } else {
+                                                Log.e("Andromuks", "BubbleTimelineScreen: File upload failed after retries")
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    "Failed to upload file after 3 attempts",
+                                                    android.widget.Toast.LENGTH_SHORT
+                                                ).show()
                                             }
                                         }
                                         mediaUriToUpload != null -> {
                                             // Upload image
-                                            appViewModel.beginUpload(roomId, "image")
-                                            try {
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Starting image upload (compressOriginal: $compressOriginal)")
-                                                val uploadResult = MediaUploadUtils.uploadMedia(
+                                            val uploadResult = performUpload("image") {
+                                                MediaUploadUtils.uploadMedia(
                                                     context = context,
                                                     uri = mediaUriToUpload,
                                                     homeserverUrl = homeserverUrl,
@@ -4351,48 +4363,40 @@ onShowMenu = { menuConfig ->
                                                     isEncrypted = false,
                                                     compressOriginal = compressOriginal
                                                 )
-                                                
-                                                if (uploadResult != null) {
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Image upload successful, sending message")
-                                                    // Send image message with metadata
-                                                    appViewModel.sendImageMessage(
-                                                        roomId = roomId,
-                                                        mxcUrl = uploadResult.mxcUrl,
-                                                        width = uploadResult.width,
-                                                        height = uploadResult.height,
-                                                        size = uploadResult.size,
-                                                        mimeType = uploadResult.mimeType,
-                                                        blurHash = uploadResult.blurHash,
-                                                        caption = caption.takeIf { it.isNotBlank() },
-                                                        thumbnailUrl = uploadResult.thumbnailUrl,
-                                                        thumbnailWidth = uploadResult.thumbnailWidth,
-                                                        thumbnailHeight = uploadResult.thumbnailHeight,
-                                                        thumbnailMimeType = uploadResult.thumbnailMimeType,
-                                                        thumbnailSize = uploadResult.thumbnailSize
-                                                    )
-                                                } else {
-                                                    Log.e("Andromuks", "BubbleTimelineScreen: Image upload failed")
-                                                    android.widget.Toast.makeText(
-                                                        context,
-                                                        "Failed to upload image",
-                                                        android.widget.Toast.LENGTH_SHORT
-                                                    ).show()
-                                                }
-                                            } finally {
-                                                appViewModel.endUpload(roomId, "image")
+                                            }
+                                            
+                                            if (uploadResult != null) {
+                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Image upload successful, sending message")
+                                                // Send image message with metadata
+                                                appViewModel.sendImageMessage(
+                                                    roomId = roomId,
+                                                    mxcUrl = uploadResult.mxcUrl,
+                                                    width = uploadResult.width,
+                                                    height = uploadResult.height,
+                                                    size = uploadResult.size,
+                                                    mimeType = uploadResult.mimeType,
+                                                    blurHash = uploadResult.blurHash,
+                                                    caption = caption.takeIf { it.isNotBlank() },
+                                                    thumbnailUrl = uploadResult.thumbnailUrl,
+                                                    thumbnailWidth = uploadResult.thumbnailWidth,
+                                                    thumbnailHeight = uploadResult.thumbnailHeight,
+                                                    thumbnailMimeType = uploadResult.thumbnailMimeType,
+                                                    thumbnailSize = uploadResult.thumbnailSize
+                                                )
+                                            } else {
+                                                Log.e("Andromuks", "BubbleTimelineScreen: Image upload failed after retries")
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    "Failed to upload image after 3 attempts",
+                                                    android.widget.Toast.LENGTH_SHORT
+                                                ).show()
                                             }
                                         }
                                     }
                                 } catch (e: Exception) {
                                     Log.e("Andromuks", "BubbleTimelineScreen: Upload error", e)
-                                    // Try to clean up upload state - determine type from what was being uploaded
-                                    when {
-                                        isVideoToUpload && mediaUriToUpload != null -> appViewModel.endUpload(roomId, "video")
-                                        audioUriToUpload != null -> appViewModel.endUpload(roomId, "audio")
-                                        fileUriToUpload != null -> appViewModel.endUpload(roomId, "file")
-                                        mediaUriToUpload != null -> appViewModel.endUpload(roomId, "image")
-                                        else -> appViewModel.endUpload(roomId, "image")
-                                    }
+                                    // Try to clean up upload state
+                                    appViewModel.setUploadRetryCount(roomId, 0)
                                     android.widget.Toast.makeText(
                                         context,
                                         "Error uploading media: ${e.message}",

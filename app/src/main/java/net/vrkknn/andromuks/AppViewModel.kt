@@ -795,6 +795,8 @@ class AppViewModel : ViewModel() {
     private val uploadInProgressCount = mutableStateMapOf<String, Int>()
     // Track upload types per room (roomId -> set of upload types: "image", "video", "audio", "file")
     private val uploadTypesPerRoom = mutableStateMapOf<String, MutableSet<String>>()
+    // Track upload retry count per room (roomId -> count)
+    private val uploadRetryCounts = mutableStateMapOf<String, Int>()
     
     /**
      * Check if there are uploads in progress for a room
@@ -815,6 +817,24 @@ class AppViewModel : ViewModel() {
             types.contains("audio") -> "audio"
             types.contains("file") -> "file"
             else -> "media"
+        }
+    }
+    
+    /**
+     * Get the upload retry count for a room
+     */
+    fun getUploadRetryCount(roomId: String): Int {
+        return uploadRetryCounts[roomId] ?: 0
+    }
+    
+    /**
+     * Set the upload retry count for a room
+     */
+    fun setUploadRetryCount(roomId: String, count: Int) {
+        if (count > 0) {
+            uploadRetryCounts[roomId] = count
+        } else {
+            uploadRetryCounts.remove(roomId)
         }
     }
     
@@ -845,6 +865,7 @@ class AppViewModel : ViewModel() {
             if (newCount == 0) {
                 uploadInProgressCount.remove(roomId)
                 uploadTypesPerRoom.remove(roomId)
+                uploadRetryCounts.remove(roomId)
             } else {
                 uploadInProgressCount[roomId] = newCount
                 // Note: We keep all types in the set until count reaches 0
