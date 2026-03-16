@@ -828,6 +828,8 @@ fun RoomTimelineScreen(
     // Message menu state (for bottom menu bar)
     var messageMenuConfig by remember { mutableStateOf<MessageMenuConfig?>(null) }
     var retainedMessageMenuConfig by remember { mutableStateOf<MessageMenuConfig?>(null) }
+    var showReactionsDialog by remember { mutableStateOf(false) }
+    var reactionsEventId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(messageMenuConfig) {
         if (messageMenuConfig != null) {
             retainedMessageMenuConfig = messageMenuConfig
@@ -1525,7 +1527,6 @@ fun RoomTimelineScreen(
             val markdownStart = match.range.first
             val markdownEnd = match.range.last + 1
             
-            // Check if cursor is strictly within the markdown range (user is deleting from within the markdown)
             // Only trigger if cursor is inside the markdown, not at the boundary
             if (cursor >= markdownStart && cursor < markdownEnd && deletedLength == 1) {
                 // User is deleting the custom emoji, remove the entire markdown
@@ -2132,9 +2133,9 @@ fun RoomTimelineScreen(
             
             if (highestIndex != null && oldSize != null && newSize > oldSize) {
                 // With reverseLayout, new events are added at higher indices (older messages at top)
-                // We want to scroll so that the old highest index is at the bottom of the view
+                // We want to scroll so that the old highest index is at the TOP of the view
                 // Since new events were added, the old highest index is still valid
-                // We scroll to it so it appears at the bottom of the viewport
+                // We scroll to it so it appears at the top of the viewport
                 
                 if (BuildConfig.DEBUG) Log.d(
                     "Andromuks",
@@ -3240,10 +3241,20 @@ fun RoomTimelineScreen(
                                                 onShowMenu = { menuConfig ->
                                                 // Close attach menu if open
                                                 showAttachmentMenu = false
-                                                messageMenuConfig = menuConfig.copy(onViewSource = { code ->
-                                                    codeViewerContent = code
-                                                    showCodeViewer = true
-                                                })
+                                                messageMenuConfig = menuConfig.copy(
+                                                    onViewSource = { code ->
+                                                        codeViewerContent = code
+                                                        showCodeViewer = true
+                                                    },
+                                                    onShowReactions = {
+                                                        reactionsEventId = menuConfig.event.eventId
+                                                        showReactionsDialog = true
+                                                    }
+                                                )
+                                                },
+                                                onShowReactions = {
+                                                    reactionsEventId = event.eventId
+                                                    showReactionsDialog = true
                                                 }
                                             )
                                         }
@@ -5010,6 +5021,18 @@ fun RoomTimelineScreen(
                             showCodeViewer = false
                             codeViewerContent = ""
                         }
+                    )
+                }
+
+                if (showReactionsDialog && reactionsEventId != null) {
+                    val reactions = reactionsEventId?.let { appViewModel.messageReactions[it] } ?: emptyList()
+                    net.vrkknn.andromuks.utils.ReactionDetailsDialog(
+                        reactions = reactions,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        onDismiss = { showReactionsDialog = false },
+                        appViewModel = appViewModel,
+                        roomId = roomId
                     )
                 }
                 }

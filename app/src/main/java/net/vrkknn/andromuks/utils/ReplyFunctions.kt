@@ -809,6 +809,7 @@ fun MessageBubbleWithMenu(
     mentionBorder: androidx.compose.ui.graphics.Color? = null, // Optional accent border for mentions (Google Messages style)
     threadBorder: androidx.compose.ui.graphics.Color? = null, // Optional accent border for thread messages
     onShowMenu: ((MessageMenuConfig) -> Unit)? = null, // Callback to show menu at screen level
+    onShowReactions: (() -> Unit)? = null, // Callback to show reactions dialog
     dragOffset: Float = 0f, // Drag offset for visual feedback (not used, kept for API compatibility)
     replyIconOpacity: Float = 0f, // Opacity for reply icon (not used, kept for API compatibility)
     content: @Composable RowScope.() -> Unit
@@ -961,7 +962,8 @@ fun MessageBubbleWithMenu(
                     appViewModel?.pinUnpinEvent(roomId, event.eventId, pin = false)
                 },
                 onShowEditHistory = onShowEditHistory,
-                appViewModel = appViewModel
+                appViewModel = appViewModel,
+                onShowReactions = onShowReactions
             )
             onShowMenu?.invoke(menuConfig)
         }
@@ -1080,7 +1082,8 @@ fun MessageBubbleWithMenu(
                                 appViewModel?.pinUnpinEvent(roomId, event.eventId, pin = false)
                             },
                             onShowEditHistory = onShowEditHistory,
-                            appViewModel = appViewModel
+                            appViewModel = appViewModel,
+                            onShowReactions = onShowReactions
                         )
                         onShowMenu?.invoke(menuConfig)
                         if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Menu callback triggered")

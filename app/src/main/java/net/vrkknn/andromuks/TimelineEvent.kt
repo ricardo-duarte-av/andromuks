@@ -182,10 +182,17 @@ data class TimelineEvent(
 }
 
 @Immutable
+data class UserReaction(
+    val userId: String,
+    val timestamp: Long
+)
+
+@Immutable
 data class MessageReaction(
     val emoji: String,
     val count: Int,
-    val users: List<String>
+    val users: List<String>,
+    val userReactions: List<UserReaction> = emptyList()
 )
 
 @Immutable

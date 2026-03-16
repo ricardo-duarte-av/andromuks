@@ -187,7 +187,9 @@ fun StickerMessage(
     myUserId: String? = null,
     powerLevels: net.vrkknn.andromuks.PowerLevelsInfo? = null,
     appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
-    onBubbleClick: (() -> Unit)? = null
+    onBubbleClick: (() -> Unit)? = null,
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
+    onShowReactions: (() -> Unit)? = null
 ) {
     var showImageViewer by remember { mutableStateOf(false) }
     var imageViewerSourceBounds by remember { mutableStateOf<Rect?>(null) }
@@ -272,7 +274,9 @@ fun StickerMessage(
             onBubbleClick = onBubbleClick,
             externalMenuTrigger = triggerMenuFromSticker,
             mentionBorder = stickerBubbleColors.mentionBorder,
-            threadBorder = stickerBubbleColors.threadBorder
+            threadBorder = stickerBubbleColors.threadBorder,
+            onShowMenu = onShowMenu,
+            onShowReactions = onShowReactions
         ) {
             Column {
                 // Sticker content (similar to MediaContent for images)

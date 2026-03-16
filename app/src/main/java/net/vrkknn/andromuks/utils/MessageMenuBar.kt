@@ -77,7 +77,8 @@ data class MessageMenuConfig(
     val onUnpin: () -> Unit,
     val onShowEditHistory: (() -> Unit)?,
     val appViewModel: net.vrkknn.andromuks.AppViewModel?,
-    val onViewSource: ((String) -> Unit)? = null
+    val onViewSource: ((String) -> Unit)? = null,
+    val onShowReactions: (() -> Unit)? = null
 )
 
 /**
@@ -316,6 +317,22 @@ fun MessageMenuBar(
                                     Icon(Icons.Filled.PushPin, contentDescription = null)
                                 },
                                 enabled = menuConfig.canPin
+                            )
+                            // Reactions option
+                            val hasReactions = remember(event.eventId, menuConfig.appViewModel?.reactionUpdateCounter) {
+                                menuConfig.appViewModel?.messageReactions?.get(event.eventId)?.isNotEmpty() == true
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Reactions") },
+                                onClick = {
+                                    moreExpanded = false
+                                    onDismiss()
+                                    menuConfig.onShowReactions?.invoke()
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.TagFaces, contentDescription = null)
+                                },
+                                enabled = hasReactions && menuConfig.onShowReactions != null
                             )
                             DropdownMenuItem(
                                 text = { Text("Source") },

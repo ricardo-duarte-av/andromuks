@@ -444,6 +444,7 @@ private fun MediaMessageItem(
     onBubbleClick: (() -> Unit)? = null,
     onShowEditHistory: (() -> Unit)? = null,
     onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
+    onShowReactions: (() -> Unit)? = null,
     precomputedHasBeenEdited: Boolean? = null
 ) {
     // Check if this is a thread message
@@ -515,6 +516,7 @@ private fun MediaMessageItem(
                     onBubbleClick = onBubbleClick,
                     onShowEditHistory = onShowEditHistory,
                     onShowMenu = onShowMenu,
+                    onShowReactions = onShowReactions,
                     bubbleColorOverride = mediaBubbleColor,
                     hasBeenEditedOverride = mediaHasBeenEdited
                 )
@@ -542,6 +544,7 @@ private fun MediaMessageItem(
                 appViewModel = appViewModel,
                 onBubbleClick = onBubbleClick,
                 onShowMenu = onShowMenu,
+                onShowReactions = onShowReactions,
                 bubbleColorOverride = mediaBubbleColor,
                 hasBeenEditedOverride = mediaHasBeenEdited
             )
@@ -575,7 +578,8 @@ private fun MessageTypeContent(
     onThreadClick: (TimelineEvent) -> Unit,
     onShowEditHistory: (() -> Unit)? = null,
     onCodeBlockClick: (String) -> Unit = {},
-    onShowMenu: ((MessageMenuConfig) -> Unit)? = null
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
+    onShowReactions: (() -> Unit)? = null
 ) {
     when (event.type) {
         "m.room.redaction" -> {
@@ -612,7 +616,8 @@ private fun MessageTypeContent(
                 onThreadClick = onThreadClick,
                 onShowEditHistory = onShowEditHistory,
                 onCodeBlockClick = onCodeBlockClick,
-                onShowMenu = onShowMenu
+                onShowMenu = onShowMenu,
+                onShowReactions = onShowReactions
             )
         }
         "m.room.encrypted" -> {
@@ -641,7 +646,8 @@ private fun MessageTypeContent(
                 onThreadClick = onThreadClick,
                 onShowEditHistory = onShowEditHistory,
                 onCodeBlockClick = onCodeBlockClick,
-                onShowMenu = onShowMenu
+                onShowMenu = onShowMenu,
+                onShowReactions = onShowReactions
             )
         }
         "m.sticker" -> {
@@ -661,7 +667,8 @@ private fun MessageTypeContent(
                 myUserId = myUserId,
                 isConsecutive = isConsecutive,
                 onThreadClick = onThreadClick,
-                onShowMenu = onShowMenu
+                onShowMenu = onShowMenu,
+                onShowReactions = onShowReactions
             )
         }
         "m.reaction" -> {
@@ -706,7 +713,8 @@ private fun RoomMessageContent(
     onThreadClick: (TimelineEvent) -> Unit,
     onShowEditHistory: (() -> Unit)? = null,
     onCodeBlockClick: (String) -> Unit = {},
-    onShowMenu: ((MessageMenuConfig) -> Unit)? = null
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
+    onShowReactions: (() -> Unit)? = null
 ) {
     // Check if this is an edit event (m.replace relationship)
     val isEditEvent =
@@ -948,7 +956,8 @@ private fun RoomMessageContent(
                     onShowEditHistory = null,
                 onShowMenu = onShowMenu,
                     mentionBorder = deletionColors.mentionBorder,
-                threadBorder = deletionColors.threadBorder
+                threadBorder = deletionColors.threadBorder,
+                onShowReactions = onShowReactions
                 ) {
                     Text(
                         text = deletionMessage,
@@ -979,7 +988,9 @@ private fun RoomMessageContent(
                 onDelete = onDelete,
                 myUserId = myUserId,
                 isConsecutive = isConsecutive,
-                onThreadClick = onThreadClick
+                onThreadClick = onThreadClick,
+                onShowMenu = onShowMenu,
+                onShowReactions = onShowReactions
             )
         } else {
             // Fallback: show as text if sticker extraction fails
@@ -1017,7 +1028,8 @@ private fun RoomMessageContent(
             onUserClick = onUserClick,
             onThreadClick = onThreadClick,
             onShowEditHistory = onShowEditHistory,
-            onShowMenu = onShowMenu
+            onShowMenu = onShowMenu,
+            onShowReactions = onShowReactions
         )
     } else {
         RoomTextMessageContent(
@@ -1048,7 +1060,8 @@ private fun RoomMessageContent(
             onThreadClick = onThreadClick,
             onShowEditHistory = onShowEditHistory,
             onCodeBlockClick = onCodeBlockClick,
-            onShowMenu = onShowMenu
+            onShowMenu = onShowMenu,
+            onShowReactions = onShowReactions
         )
     }
 }
@@ -1081,7 +1094,8 @@ private fun RoomMediaMessageContent(
     onUserClick: (String) -> Unit,
     onThreadClick: (TimelineEvent) -> Unit,
     onShowEditHistory: (() -> Unit)? = null,
-    onShowMenu: ((MessageMenuConfig) -> Unit)? = null
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
+    onShowReactions: (() -> Unit)? = null
 ) {
 
     val colorScheme = MaterialTheme.colorScheme
@@ -1154,7 +1168,8 @@ private fun RoomMediaMessageContent(
                 onShowEditHistory = null,
                 onShowMenu = onShowMenu,
                 mentionBorder = deletionColors.mentionBorder,
-                threadBorder = deletionColors.threadBorder
+                threadBorder = deletionColors.threadBorder,
+                onShowReactions = onShowReactions
             ) {
                 Text(
                     text = deletionMessage,
@@ -1300,6 +1315,7 @@ private fun RoomMediaMessageContent(
             },
             onShowEditHistory = onShowEditHistory,
             onShowMenu = onShowMenu,
+            onShowReactions = onShowReactions,
             precomputedHasBeenEdited = mediaHasBeenEdited
         )
 
@@ -1417,6 +1433,7 @@ private fun RoomTextMessageContent(
     onShowEditHistory: (() -> Unit)? = null,
     onCodeBlockClick: (String) -> Unit = {},
     onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
+    onShowReactions: (() -> Unit)? = null,
     dragOffset: Float = 0f,
     replyIconOpacity: Float = 0f
 ) {
@@ -1496,6 +1513,7 @@ private fun RoomTextMessageContent(
                 mentionBorder = bubbleColors.mentionBorder,
                 threadBorder = bubbleColors.threadBorder,
                 onShowMenu = onShowMenu,
+                onShowReactions = onShowReactions,
                 dragOffset = dragOffset,
                 replyIconOpacity = replyIconOpacity
             ) {
@@ -1628,6 +1646,7 @@ private fun RoomTextMessageContent(
                 mentionBorder = bubbleColors.mentionBorder,
                 threadBorder = bubbleColors.threadBorder,
                 onShowMenu = onShowMenu,
+                onShowReactions = onShowReactions,
                 dragOffset = dragOffset,
                 replyIconOpacity = replyIconOpacity
             ) {
@@ -1800,14 +1819,6 @@ private fun RoomTextMessageContent(
     }
 }
 
-/**
- * Finds the reply target event by checking:
- * 1. timelineEvents (currently displayed events)
- * 2. RoomTimelineCache (all cached events for the room) - checked reactively
- * 3. Fetching via get_event if not found
- * 
- * Returns null if the event cannot be found or fetched.
- */
 @Composable
 private fun rememberReplyTargetEvent(
     replyInfo: ReplyInfo?,
@@ -1947,7 +1958,8 @@ private fun EncryptedMessageContent(
     onThreadClick: (TimelineEvent) -> Unit,
     onShowEditHistory: (() -> Unit)? = null,
     onCodeBlockClick: (String) -> Unit = {},
-    onShowMenu: ((MessageMenuConfig) -> Unit)? = null
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
+    onShowReactions: (() -> Unit)? = null
 ) {
     // Check if this is an edit event (m.replace relationship) - don't display edit events
     val isEditEvent =
@@ -2156,7 +2168,8 @@ private fun EncryptedMessageContent(
                     onShowEditHistory = null,
                 onShowMenu = onShowMenu,
                     mentionBorder = deletionColors.mentionBorder,
-                threadBorder = deletionColors.threadBorder
+                threadBorder = deletionColors.threadBorder,
+                onShowReactions = onShowReactions
                 ) {
                     Text(
                         text = deletionMessage,
@@ -2348,6 +2361,7 @@ private fun EncryptedMessageContent(
                     },
                     onShowEditHistory = onShowEditHistory,
                     onShowMenu = onShowMenu,
+                    onShowReactions = onShowReactions,
                     precomputedHasBeenEdited = encryptedMediaHasBeenEdited
                 )
 
@@ -2429,7 +2443,8 @@ private fun EncryptedMessageContent(
                         onBubbleClick = null,
                         mentionBorder = fallbackColors.mentionBorder,
                         threadBorder = fallbackColors.threadBorder,
-                        onShowMenu = onShowMenu
+                        onShowMenu = onShowMenu,
+                        onShowReactions = onShowReactions
                     ) {
                         Text(
                             text = body,
@@ -2566,7 +2581,8 @@ private fun EncryptedMessageContent(
                         },
                         onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null,
                         mentionBorder = bubbleColors.mentionBorder,
-                        onShowMenu = onShowMenu
+                        onShowMenu = onShowMenu,
+                        onShowReactions = onShowReactions
                     ) {
                         Column(
                             modifier = Modifier.padding(8.dp),
@@ -2667,7 +2683,8 @@ private fun EncryptedMessageContent(
                         },
                         onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null,
                         mentionBorder = bubbleColors.mentionBorder,
-                        onShowMenu = onShowMenu
+                        onShowMenu = onShowMenu,
+                        onShowReactions = onShowReactions
                     ) {
                         Box(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
@@ -2787,7 +2804,9 @@ private fun EncryptedMessageContent(
                 onDelete = onDelete,
                 myUserId = myUserId,
                 isConsecutive = isConsecutive,
-                onThreadClick = onThreadClick
+                onThreadClick = onThreadClick,
+                onShowMenu = onShowMenu,
+                onShowReactions = onShowReactions
             )
         } else {
             Log.w(
@@ -2821,7 +2840,8 @@ private fun StickerMessageContent(
     myUserId: String?,
     isConsecutive: Boolean,
     onThreadClick: (TimelineEvent) -> Unit,
-    onShowMenu: ((MessageMenuConfig) -> Unit)? = null
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
+    onShowReactions: (() -> Unit)? = null
 ) {
     if (BuildConfig.DEBUG) Log.d(
         "Andromuks",
@@ -2915,7 +2935,8 @@ private fun StickerMessageContent(
                 onShowEditHistory = null,
                 onShowMenu = onShowMenu,
                 mentionBorder = deletionColors.mentionBorder,
-                threadBorder = deletionColors.threadBorder
+                threadBorder = deletionColors.threadBorder,
+                onShowReactions = onShowReactions
             ) {
                 Text(
                     text = deletionMessage,
@@ -2987,7 +3008,9 @@ private fun StickerMessageContent(
                     { onThreadClick(event) }
                 } else {
                     null
-                }
+                },
+                onShowMenu = onShowMenu,
+                onShowReactions = onShowReactions
             )
 
             // For other users' messages, show read receipts on the right
@@ -3069,7 +3092,8 @@ fun TimelineEventItem(
     onThreadClick: (TimelineEvent) -> Unit = {},
     onNewBubbleAnimationStart: (() -> Unit)? = null,
     onCodeBlockClick: (String) -> Unit = {},
-    onShowMenu: ((MessageMenuConfig) -> Unit)? = null
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
+    onShowReactions: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
 
@@ -3182,7 +3206,7 @@ fun TimelineEventItem(
     // Try getMessageVersions first (most reliable), then fallback to searching timelineEvents
     // This ensures we get the latest edit even if edit events are filtered from display
     val editedBy = remember(event.eventId, appViewModel?.timelineUpdateCounter, timelineEvents) {
-        // First try getMessageVersions (uses cached version data)
+        // First try getMessageVersions (most reliable, uses cached version data)
         val versioned = appViewModel?.getMessageVersions(event.eventId)
         // Find the first version that is NOT the original (i.e., an edit)
         // Versions are sorted by timestamp (newest first), so the first non-original is the latest edit
@@ -3710,7 +3734,8 @@ fun TimelineEventItem(
                 onThreadClick = onThreadClick,
                 onShowEditHistory = if (appViewModel != null) openEditHistory else null,
                 onCodeBlockClick = onCodeBlockClick,
-                onShowMenu = onShowMenu
+                onShowMenu = onShowMenu,
+                onShowReactions = onShowReactions
             )
         }
 

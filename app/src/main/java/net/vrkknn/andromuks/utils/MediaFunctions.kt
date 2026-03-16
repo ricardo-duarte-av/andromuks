@@ -407,6 +407,7 @@ fun MediaMessage(
     onBubbleClick: (() -> Unit)? = null,
     onShowEditHistory: (() -> Unit)? = null,
     onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
+    onShowReactions: (() -> Unit)? = null,
     bubbleColorOverride: Color? = null,
     hasBeenEditedOverride: Boolean? = null
 ) {
@@ -535,7 +536,8 @@ fun MediaMessage(
                 externalMenuTrigger = triggerMenuFromImage,
                 mentionBorder = mediaBubbleColors.mentionBorder,
                 threadBorder = mediaBubbleColors.threadBorder,
-                onShowMenu = onShowMenu
+                onShowMenu = onShowMenu,
+                onShowReactions = onShowReactions
             ) {
                 Column {
                     // Image content inside the caption bubble
@@ -701,7 +703,8 @@ fun MediaMessage(
                 externalMenuTrigger = triggerMenuFromImage,
                 mentionBorder = mediaBubbleColors.mentionBorder,
                 threadBorder = mediaBubbleColors.threadBorder,
-                onShowMenu = onShowMenu
+                onShowMenu = onShowMenu,
+                onShowReactions = onShowReactions
             ) {
                 Column {
                     MediaContent(

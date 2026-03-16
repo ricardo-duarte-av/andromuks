@@ -623,6 +623,8 @@ fun BubbleTimelineScreen(
     // Message menu state (for bottom menu bar)
     var messageMenuConfig by remember { mutableStateOf<MessageMenuConfig?>(null) }
     var retainedMessageMenuConfig by remember { mutableStateOf<MessageMenuConfig?>(null) }
+    var showReactionsDialog by remember { mutableStateOf(false) }
+    var reactionsEventId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(messageMenuConfig) {
         if (messageMenuConfig != null) {
             retainedMessageMenuConfig = messageMenuConfig
@@ -2820,15 +2822,25 @@ fun BubbleTimelineScreen(
                                                 codeViewerContent = code
                                                 showCodeViewer = true
                                             },
-onShowMenu = { menuConfig ->
+                                            onShowMenu = { menuConfig ->
                                                 // Close attach menu if open
                                                 showAttachmentMenu = false
-                                                messageMenuConfig = menuConfig.copy(onViewSource = { code ->
-                                                    codeViewerContent = code
-                                                    showCodeViewer = true
-                                                })
-                                                }
-                                            )
+                                                messageMenuConfig = menuConfig.copy(
+                                                    onViewSource = { code ->
+                                                        codeViewerContent = code
+                                                        showCodeViewer = true
+                                                    },
+                                                    onShowReactions = {
+                                                        reactionsEventId = menuConfig.event.eventId
+                                                        showReactionsDialog = true
+                                                    }
+                                                )
+                                            },
+                                            onShowReactions = {
+                                                reactionsEventId = event.eventId
+                                                showReactionsDialog = true
+                                            }
+                                        )
                                         }
                                     }
                                 }
@@ -4432,6 +4444,18 @@ onShowMenu = { menuConfig ->
                             showCodeViewer = false
                             codeViewerContent = ""
                         }
+                    )
+                }
+
+                if (showReactionsDialog && reactionsEventId != null) {
+                    val reactions = reactionsEventId?.let { appViewModel.messageReactions[it] } ?: emptyList()
+                    net.vrkknn.andromuks.utils.ReactionDetailsDialog(
+                        reactions = reactions,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        onDismiss = { showReactionsDialog = false },
+                        appViewModel = appViewModel,
+                        roomId = roomId
                     )
                 }
                 }
