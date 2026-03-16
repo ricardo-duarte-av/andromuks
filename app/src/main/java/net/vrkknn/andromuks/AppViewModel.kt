@@ -1240,6 +1240,7 @@ class AppViewModel : ViewModel() {
     
     // CRASH FIX: Expose batch processing state to UI to prevent animations during flush
     val isProcessingSyncBatch = syncBatchProcessor.isProcessingBatch
+    val processingBatchSize = syncBatchProcessor.processingBatchSize
     // CRITICAL FIX: Expose flag to bypass timeline rebuilds during batch processing
     private val shouldSkipTimelineRebuild = syncBatchProcessor.shouldSkipTimelineRebuild
     

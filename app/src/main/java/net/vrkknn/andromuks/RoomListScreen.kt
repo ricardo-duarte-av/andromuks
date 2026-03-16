@@ -193,6 +193,7 @@ fun RoomListScreen(
     val uiState by appViewModel.rememberRoomListUiState()
     // CRASH FIX: Observe "rush" / batch flush state once and reuse everywhere (TabBar + header indicator).
     val isProcessingBatch by appViewModel.isProcessingSyncBatch.collectAsState()
+    val processingBatchSize by appViewModel.processingBatchSize.collectAsState()
     val imageToken = uiState.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     var coldStartRefreshing by remember { mutableStateOf(false) }
     var initialLoadComplete by remember { mutableStateOf(false) }
@@ -1146,9 +1147,9 @@ fun RoomListScreen(
                             // "RUSH" text indicator for batch processing (error color, next to sync pill)
                             // No animation - appears instantly since batch processing is brief
                             if (isProcessingBatch) {
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: RUSH indicator visible - isProcessingBatch=true")
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: RUSH indicator visible - isProcessingBatch=true, count=$processingBatchSize")
                                 Text(
-                                    text = "RUSH",
+                                    text = if (processingBatchSize > 0) "$processingBatchSize RUSH" else "RUSH",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.error,
                                     modifier = Modifier.padding(start = 6.dp)

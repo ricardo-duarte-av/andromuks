@@ -45,6 +45,10 @@ class SyncBatchProcessor(
     private var _shouldSkipTimelineRebuild = MutableStateFlow(false)
     val shouldSkipTimelineRebuild = _shouldSkipTimelineRebuild.asStateFlow()
     
+    // Track the size of the batch being processed
+    private var _processingBatchSize = MutableStateFlow(0)
+    val processingBatchSize = _processingBatchSize.asStateFlow()
+    
     // ── Configurable knobs (updated from AppViewModel.loadSettings) ──────────
     @Volatile var batchIntervalMs: Long = DEFAULT_BATCH_INTERVAL_MS
     @Volatile var maxBatchSize: Int = DEFAULT_MAX_BATCH_SIZE
@@ -154,11 +158,12 @@ class SyncBatchProcessor(
         // BATTERY OPTIMIZATION: Only update UI state when foregrounded
         if (isAppVisible) {
             // Set synchronously (StateFlow is thread-safe) before processing starts
+            _processingBatchSize.value = batchSize
             _isProcessingBatch.value = true
             _shouldSkipTimelineRebuild.value = true // CRITICAL: Skip timeline rebuilds during batch processing
-            Log.i(TAG, "Batch processing STARTED - isProcessingBatch set to true, shouldSkipTimelineRebuild set to true (foreground)")
+            Log.i(TAG, "Batch processing STARTED ($batchSize messages) - isProcessingBatch set to true, shouldSkipTimelineRebuild set to true (foreground)")
         } else {
-            Log.i(TAG, "Batch processing STARTED (background - skipping UI state updates)")
+            Log.i(TAG, "Batch processing STARTED ($batchSize messages) (background - skipping UI state updates)")
         }
         
         try {
@@ -216,8 +221,9 @@ class SyncBatchProcessor(
             // StateFlow is thread-safe, so we can set it from any thread
             if (isAppVisible) {
                 _isProcessingBatch.value = false
+                _processingBatchSize.value = 0
                 _shouldSkipTimelineRebuild.value = false // CRITICAL: Re-enable timeline rebuilds after batch completes
-                Log.i(TAG, "Batch processing COMPLETED - isProcessingBatch set to false, shouldSkipTimelineRebuild set to false (foreground)")
+                Log.i(TAG, "Batch processing COMPLETED - isProcessingBatch set to false, processingBatchSize reset, shouldSkipTimelineRebuild set to false (foreground)")
             } else {
                 Log.i(TAG, "Batch processing COMPLETED (background - skipped UI state updates)")
             }
