@@ -6351,30 +6351,8 @@ class AppViewModel : ViewModel() {
         
         // BATTERY OPTIMIZATION: Notify batch processor to flush pending messages and process immediately
         // CRITICAL: Wait for batches to flush BEFORE refreshing UI, so UI shows up-to-date data
-        val (pendingCount, batchFlushJob) = syncBatchProcessor.onAppVisibilityChanged(true)
+        val (_, batchFlushJob) = syncBatchProcessor.onAppVisibilityChanged(true)
 
-        if (pendingCount > 0) {
-            appContext?.let { ctx ->
-                if (BuildConfig.DEBUG) {
-                    // DEBUG: Show a Toast so the developer knows why the app is momentarily unresponsive
-                    viewModelScope.launch(Dispatchers.Main) {
-                        android.widget.Toast.makeText(
-                            ctx,
-                            "Processing $pendingCount buffered messages…",
-                            android.widget.Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                } else {
-                    // RELEASE: Surface the same information via the permanent foreground notification
-                    try {
-                        net.vrkknn.andromuks.WebSocketService.showBatchProcessingStatus(pendingCount)
-                    } catch (_: Exception) {
-                        // Best-effort only; don't crash if service/notification isn't available
-                    }
-                }
-            }
-        }
-        
         // Notify service of app visibility change
         WebSocketService.setAppVisibility(true)
 
@@ -6404,36 +6382,14 @@ class AppViewModel : ViewModel() {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Batch flush completed, refreshing UI")
                     // Refresh UI with up-to-date state after batches are processed
                     refreshUIState()
-                    if (pendingCount > 0) {
-                        try {
-                            net.vrkknn.andromuks.WebSocketService.clearBatchProcessingStatus()
-                        } catch (_: Exception) {
-                            // Best-effort only; don't crash if service/notification isn't available
-                        }
-                    }
                 } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Error waiting for batch flush: ${e.message}", e)
                     // Still refresh UI even if batch flush failed
                     refreshUIState()
-                    if (pendingCount > 0) {
-                        try {
-                            net.vrkknn.andromuks.WebSocketService.clearBatchProcessingStatus()
-                        } catch (_: Exception) {
-                            // Best-effort only; don't crash if service/notification isn't available
-                        }
-                    }
                 }
             }
         } else {
             // No batches to flush, refresh UI immediately
             refreshUIState()
-            if (pendingCount > 0) {
-                try {
-                    net.vrkknn.andromuks.WebSocketService.clearBatchProcessingStatus()
-                } catch (_: Exception) {
-                    // Best-effort only; don't crash if service/notification isn't available
-                }
-            }
         }
         
         // CRITICAL FIX: Ensure current user profile is loaded when app becomes visible

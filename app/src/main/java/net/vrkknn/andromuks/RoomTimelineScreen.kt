@@ -584,8 +584,12 @@ fun RoomTimelineScreen(
         }
     }
     
-    // Combined input enabled state (permission AND websocket connection)
-    val isInputEnabled = canSendMessage && websocketConnected
+    // Track batch processing state (Catching up)
+    val isProcessingBatch by appViewModel.isProcessingSyncBatch.collectAsState()
+    val processingBatchSize by appViewModel.processingBatchSize.collectAsState()
+    
+    // Combined input enabled state (permission, websocket connection, AND not rushing)
+    val isInputEnabled = canSendMessage && websocketConnected && !isProcessingBatch
 
     // Log timeline events count only when it actually changes (not on every recomposition)
     // This prevents excessive logging during scroll
@@ -3583,6 +3587,7 @@ fun RoomTimelineScreen(
                                         Text(
                                             text = when {
                                                 !canSendMessage -> "You don't have permission to send messages"
+                                                isProcessingBatch -> if (processingBatchSize > 0) "Rushing $processingBatchSize messages..." else "Rushing messages..."
                                                 !websocketConnected -> "Waiting for connection..."
                                                 else -> {
                                                     val networkName = currentRoomState?.bridgeInfo?.displayName
@@ -3653,9 +3658,13 @@ fun RoomTimelineScreen(
                                         onSend = {
                                             if (!isInputEnabled) {
                                                 android.widget.Toast.makeText(
-                                                    context,
-                                                    if (!websocketConnected) "Waiting for connection..." else "You don't have permission to send messages",
-                                                    android.widget.Toast.LENGTH_SHORT
+                                                context,
+                                                when {
+                                                    !websocketConnected -> "Waiting for connection..."
+                                                    isProcessingBatch -> "Catching up on messages..."
+                                                    else -> "You don't have permission to send messages"
+                                                },
+                                                android.widget.Toast.LENGTH_SHORT
                                                 ).show()
                                                 return@KeyboardActions
                                             }
@@ -3766,7 +3775,11 @@ fun RoomTimelineScreen(
                                 if (!isInputEnabled) {
                                     android.widget.Toast.makeText(
                                         context,
-                                        if (!websocketConnected) "Waiting for connection..." else "You don't have permission to send messages",
+                                        when {
+                                            !websocketConnected -> "Waiting for connection..."
+                                            isProcessingBatch -> "Catching up on messages..."
+                                            else -> "You don't have permission to send messages"
+                                        },
                                         android.widget.Toast.LENGTH_SHORT
                                     ).show()
                                     return@Button

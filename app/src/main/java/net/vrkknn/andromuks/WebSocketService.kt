@@ -778,27 +778,6 @@ class WebSocketService : Service() {
             instance?.updateNotificationText(lag, lastSyncTime)
         }
         
-        /**
-         * Show a short-lived foreground notification message indicating that
-         * buffered sync_complete messages are being processed on resume.
-         *
-         * Only used in release builds; debug builds already show a Toast.
-         */
-        fun showBatchProcessingStatus(pendingCount: Int) {
-            if (BuildConfig.DEBUG) return
-            instance?.let { serviceInstance ->
-                serviceInstance.showBatchProcessingStatus(pendingCount)
-            }
-        }
-
-        /**
-         * Clear any temporary batch-processing notification text and restore
-         * the normal connection-status foreground notification in release builds.
-         */
-        fun clearBatchProcessingStatus() {
-            if (BuildConfig.DEBUG) return
-            instance?.clearBatchProcessingStatus()
-        }
         
         /**
          * Update notification with connection status
@@ -4807,65 +4786,6 @@ class WebSocketService : Service() {
         if (BuildConfig.DEBUG) Log.d("WebSocketService", "Connection status updated: $notificationText")
     }
     
-    /**
-     * Instance-level helper for release builds to show that buffered messages
-     * are being processed when the app returns to foreground.
-     *
-     * This reuses the existing foreground notification channel and ID.
-     */
-    private fun showBatchProcessingStatus(pendingCount: Int) {
-        if (BuildConfig.DEBUG) return
-        
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra("from_service_notification", true)
-        }
-        
-        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        } else {
-            PendingIntent.FLAG_UPDATE_CURRENT
-        }
-        
-        val pendingIntent = PendingIntent.getActivity(
-            this, 0, intent, pendingIntentFlags
-        )
-        
-        val notificationText = "Processing $pendingCount buffered messages…"
-        
-        lastNotificationText = notificationText
-        lastNotificationUpdateTime = System.currentTimeMillis()
-        
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getNotificationTitle())
-            .setContentText(notificationText)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .setSilent(true)
-            .setPriority(NotificationCompat.PRIORITY_MIN)
-            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
-            .build()
-        
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(NOTIFICATION_ID, notification)
-    }
-
-    /**
-     * Restore normal connection status after temporary "Processing X buffered messages…"
-     * text was shown in release foreground notification.
-     */
-    private fun clearBatchProcessingStatus() {
-        if (BuildConfig.DEBUG) return
-        // Force next status render even when connection state didn't change.
-        lastConnectionStateForNotification = null
-        lastNotificationText = null
-        updateConnectionStatus(
-            isConnected = connectionState.isReady(),
-            lagMs = lastKnownLagMs,
-            lastSyncTimestamp = lastSyncTimestamp
-        )
-    }
     
     /**
      * Get display name for network type
