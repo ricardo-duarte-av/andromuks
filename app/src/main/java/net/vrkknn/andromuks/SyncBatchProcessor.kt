@@ -141,6 +141,9 @@ class SyncBatchProcessor(
     private suspend fun flushBatchLocked(recursionDepth: Int = 0) {
         if (batchQueue.isEmpty()) return
         
+        // PERFORMANCE: Apply dynamic thread priority (niceness) based on app/screen state
+        android.os.Process.setThreadPriority(WebSocketService.getRecommendedNiceness())
+        
         // Safety guard: prevent infinite recursion if messages keep arriving
         if (recursionDepth > 10) {
             Log.w(TAG, "Batch flush recursion depth limit reached ($recursionDepth) - stopping to prevent infinite loop")

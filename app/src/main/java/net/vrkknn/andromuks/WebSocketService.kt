@@ -143,6 +143,54 @@ class WebSocketService : Service() {
         private var offlineModeCallback: ((Boolean) -> Unit)? = null
         
         /**
+         * CPU Weight levels for dynamic performance management
+         */
+        enum class CPUWeight {
+            RUSH,       // Foreground: High priority, high parallelism
+            EFFICIENT,  // Background (Screen OFF): Normal priority, normal parallelism (race to sleep)
+            POLITE      // Background (Screen ON): Low priority, low parallelism (don't lag other apps)
+        }
+        
+        /**
+         * Get the current CPU weight based on app visibility and screen state.
+         */
+        fun getCPUWeight(): CPUWeight {
+            val service = instance ?: return CPUWeight.EFFICIENT
+            if (service.isAppVisible) return CPUWeight.RUSH
+            return if (service.isScreenOn) CPUWeight.POLITE else CPUWeight.EFFICIENT
+        }
+        
+        /**
+         * Get the recommended Linux thread priority (niceness) based on current app/device state.
+         * Values:
+         * - THREAD_PRIORITY_MORE_FAVORABLE (-2): RUSH (Foreground)
+         * - THREAD_PRIORITY_DEFAULT (0): EFFICIENT (Background, Screen OFF) - Race to sleep
+         * - THREAD_PRIORITY_BACKGROUND (10): POLITE (Background, Screen ON) - Don't lag UI
+         */
+        fun getRecommendedNiceness(): Int {
+            return when (getCPUWeight()) {
+                CPUWeight.RUSH -> android.os.Process.THREAD_PRIORITY_MORE_FAVORABLE // -2
+                CPUWeight.EFFICIENT -> android.os.Process.THREAD_PRIORITY_DEFAULT // 0
+                CPUWeight.POLITE -> android.os.Process.THREAD_PRIORITY_BACKGROUND // 10
+            }
+        }
+        
+        /**
+         * Get the recommended parallelism for CPU-bound tasks (like JSON parsing).
+         * - RUSH: coreCount * 2 (max 8)
+         * - EFFICIENT: coreCount (max 4)
+         * - POLITE: 1 (minimum)
+         */
+        fun getRecommendedParallelism(): Int {
+            val cores = Runtime.getRuntime().availableProcessors()
+            return when (getCPUWeight()) {
+                CPUWeight.RUSH -> minOf(cores * 2, 8)
+                CPUWeight.EFFICIENT -> minOf(cores, 4)
+                CPUWeight.POLITE -> 1
+            }
+        }
+        
+        /**
          * Get the service-scoped coroutine scope for background processing
          * This scope continues running even when the app is backgrounded
          */
@@ -2677,6 +2725,23 @@ class WebSocketService : Service() {
     private var lastPingTimestamp: Long = 0
     private var pingInFlight: Boolean = false // Guard to prevent concurrent pings
     private var isAppVisible = false
+    private var isScreenOn = true
+    
+    // Receiver for screen state changes
+    private val screenStateReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_ON -> {
+                    isScreenOn = true
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Screen turned ON")
+                }
+                Intent.ACTION_SCREEN_OFF -> {
+                    isScreenOn = false
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Screen turned OFF")
+                }
+            }
+        }
+    }
     private var initCompleteRetryCount: Int = 0 // Track retry count for exponential backoff
     private var waitingForInitComplete: Boolean = false // Track if we're waiting for init_complete
     private var isReconnectingWithLastReceivedEvent: Boolean = false // Track if we're reconnecting with last_received_event (backend won't send init_complete)
@@ -4169,6 +4234,17 @@ class WebSocketService : Service() {
         // BATTERY OPTIMIZATION: Wake lock removed - foreground service is sufficient
         // The foreground service notification prevents Android from killing the process
         // Wake locks were causing 50-70% of battery drain by keeping CPU awake continuously
+        
+        // PERFORMANCE: Register screen state receiver for dynamic priority management
+        val filter = android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        registerReceiver(screenStateReceiver, filter)
+        
+        // Initialize isScreenOn state using PowerManager
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        isScreenOn = pm.isInteractive
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -4342,10 +4418,6 @@ class WebSocketService : Service() {
                         if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service restarted but AppViewModel not available - waiting for app to connect WebSocket properly")
                         logActivity("Service Restarted - Waiting for AppViewModel", currentNetworkType.name)
                     }
-                } else {
-                    // Fresh service start - don't trigger reconnection, let app handle it
-                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service started fresh - waiting for app to establish initial connection")
-                    logActivity("Service Started - Waiting for Initial Connection", currentNetworkType.name)
                 }
             } else if (isConnected) {
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service restarted and WebSocket already connected")
@@ -4358,6 +4430,13 @@ class WebSocketService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onDestroy() {
+        // PERFORMANCE: Unregister screen state receiver
+        try {
+            unregisterReceiver(screenStateReceiver)
+        } catch (e: Exception) {
+            android.util.Log.w("WebSocketService", "Failed to unregister screenStateReceiver", e)
+        }
+        
         super.onDestroy()
         
         if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service onDestroy() called - cleaning up resources")

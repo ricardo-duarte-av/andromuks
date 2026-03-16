@@ -21,6 +21,7 @@ import okio.IOException
 import org.json.JSONObject
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.WebSocketService
+import net.vrkknn.andromuks.WebSocketService.Companion.CPUWeight
 
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -43,8 +44,6 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 import org.json.JSONArray
 
-/** Number of parallel parser workers (CPU-bound). */
-private const val WS_PARSE_PARALLELISM = 4
 
 /**
  * Converts kotlinx.serialization.json.JsonElement to org.json equivalent (JSONObject or JSONArray).
@@ -609,10 +608,19 @@ fun connectToWebsocket(
     val resultQueue = Channel<Pair<Int, JSONObject>>(Channel.UNLIMITED)
     val seqCounter = AtomicInteger(0)
 
-    repeat(WS_PARSE_PARALLELISM) {
+    // PERFORMANCE: Use dynamic parallelism (launched once, but pull frequency adjusted)
+    repeat(8) { workerIndex ->
         WebSocketService.getServiceScope().launch(Dispatchers.Default) {
             try {
                 for ((seq, payload) in parseQueue) {
+                    // Apply dynamic thread priority (niceness)
+                    android.os.Process.setThreadPriority(WebSocketService.getRecommendedNiceness())
+                    
+                    // If we're in POLITE mode and not the first worker, yield to keep parallelism low
+                    if (workerIndex > 0 && WebSocketService.getCPUWeight() == CPUWeight.POLITE) {
+                        yield()
+                    }
+                    
                     try {
                         val json = parseWebSocketMessageWithKotlinx(payload)
                         resultQueue.send(seq to json)
@@ -768,6 +776,9 @@ fun connectToWebsocket(
             WebSocketService.onMessageReceived()
             val bytesCopy = bytes.toByteArray()
             WebSocketService.getServiceScope().launch(wsDecompressDispatcher) {
+                // Apply dynamic thread priority (niceness)
+                android.os.Process.setThreadPriority(WebSocketService.getRecommendedNiceness())
+                
                 try {
                     if (streamingDecompressor != null) {
                         streamingDecompressor!!.write(bytesCopy)
