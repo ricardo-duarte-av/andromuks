@@ -8,16 +8,30 @@ import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.util.Log
+import android.view.OrientationEventListener
+import android.view.Surface
+import java.io.File
 import androidx.core.content.ContextCompat
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.AspectRatio
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.Preview
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,9 +43,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
@@ -66,9 +83,15 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FlashOff
+import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.FlashAuto
+import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -88,11 +111,21 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.animation.core.updateTransition
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.key
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
@@ -203,6 +236,102 @@ import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import net.vrkknn.andromuks.BuildConfig
 
+// Simple flash mode enum for camera overlay
+enum class CameraFlashMode { OFF, AUTO, ON }
+
+@Composable
+private fun InAppCameraPreview(
+    modifier: Modifier = Modifier,
+    useFrontCamera: Boolean,
+    onImageCaptureReady: (ImageCapture) -> Unit
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    AndroidView(
+        factory = { ctx ->
+            val previewView = PreviewView(ctx).apply {
+                // Fit center keeps full 4:3 frame visible and letterboxed as needed
+                scaleType = PreviewView.ScaleType.FIT_CENTER
+            }
+
+            val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+            cameraProviderFuture.addListener(
+                {
+                    val cameraProvider = cameraProviderFuture.get()
+                    val preview = Preview.Builder()
+                        // Hint that we want a 4:3 stream to match common photo sensors
+                        .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+                        .build()
+                        .also { p ->
+                            p.setSurfaceProvider(previewView.surfaceProvider)
+                        }
+                    val imageCapture = ImageCapture.Builder()
+                        .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+                        .build()
+                    val cameraSelector =
+                        if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA
+                        else CameraSelector.DEFAULT_BACK_CAMERA
+
+                    try {
+                        cameraProvider.unbindAll()
+                        cameraProvider.bindToLifecycle(
+                            lifecycleOwner,
+                            cameraSelector,
+                            preview,
+                            imageCapture
+                        )
+                        onImageCaptureReady(imageCapture)
+                    } catch (e: Exception) {
+                        Log.e("Andromuks", "Failed to bind CameraX preview", e)
+                    }
+                },
+                ContextCompat.getMainExecutor(ctx)
+            )
+
+            previewView
+        },
+        modifier = modifier
+    )
+}
+
+private data class CameraOrientation(val surfaceRotation: Int, val iconAngle: Float)
+
+@Composable
+private fun rememberCameraOrientation(): CameraOrientation {
+    val context = LocalContext.current
+    var surfaceRotation by rememberSaveable { mutableStateOf(Surface.ROTATION_0) }
+    var iconAngle by rememberSaveable { mutableStateOf(0f) }
+
+    DisposableEffect(context) {
+        val listener = object : OrientationEventListener(context) {
+            override fun onOrientationChanged(orientation: Int) {
+                if (orientation == OrientationEventListener.ORIENTATION_UNKNOWN) return
+
+                val (newSurfaceRotation, newIconAngle) = when {
+                    orientation <= 45 || orientation > 315 ->
+                        Surface.ROTATION_0 to 0f              // Portrait
+                    orientation in 46..135 ->
+                        Surface.ROTATION_270 to -90f          // Landscape right (swap 90/270, icons rotate right)
+                    orientation in 136..225 ->
+                        Surface.ROTATION_180 to 180f          // Upside down
+                    orientation in 226..315 ->
+                        Surface.ROTATION_90 to 90f            // Landscape left (swap 90/270, icons rotate left)
+                    else -> return
+                }
+
+                if (newSurfaceRotation != surfaceRotation || newIconAngle != iconAngle) {
+                    surfaceRotation = newSurfaceRotation
+                    iconAngle = newIconAngle
+                }
+            }
+        }
+        listener.enable()
+        onDispose { listener.disable() }
+    }
+
+    return CameraOrientation(surfaceRotation = surfaceRotation, iconAngle = iconAngle)
+}
 
 /** Sealed class for timeline items (events and date dividers) */
 sealed class TimelineItem {
@@ -703,6 +832,14 @@ fun RoomTimelineScreen(
     
     // Attachment menu state
     var showAttachmentMenu by remember { mutableStateOf(false) }
+    // In-app camera snapping overlay (rememberSaveable so it survives rotation/config changes)
+    var showCameraOverlay by rememberSaveable { mutableStateOf(false) }
+    // Simple flash mode cycling for CameraX integration
+    var cameraFlashMode by rememberSaveable { mutableStateOf(CameraFlashMode.OFF) }
+    // Camera selection: back or front
+    var useFrontCamera by rememberSaveable { mutableStateOf(false) }
+    // CameraX ImageCapture instance, provided by preview when ready
+    var cameraImageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var selectedAudioUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
     
@@ -3931,6 +4068,223 @@ fun RoomTimelineScreen(
                 }
                 }
                 
+                // In-app camera snapping overlay (full-frame between header and message box)
+                AnimatedVisibility(
+                    visible = showCameraOverlay,
+                    enter =
+                        fadeIn(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            )
+                        ) +
+                            scaleIn(
+                                initialScale = 0.88f,
+                                transformOrigin = TransformOrigin(0.5f, 1f),
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMedium
+                                )
+                            ),
+                    exit =
+                        fadeOut(
+                            animationSpec = tween(160, easing = FastOutSlowInEasing)
+                        ) +
+                            scaleOut(
+                                targetScale = 0.88f,
+                                transformOrigin = TransformOrigin(0.5f, 1f),
+                                animationSpec = tween(180, easing = FastOutSlowInEasing)
+                            )
+                ) {
+                    // Track physical device orientation and rotate only camera controls (not preview container)
+                    val cameraOrientation = rememberCameraOrientation()
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black)
+                            .zIndex(12f)
+                    ) {
+                        // Letterboxed CameraX preview with fixed 3:4 portrait aspect.
+                        // We keep the preview itself unrotated to avoid stretching/compressing;
+                        // only the overlay controls rotate with device orientation.
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .offset(y = (-24).dp)
+                                .fillMaxHeight()
+                                .aspectRatio(3f / 4f)
+                        ) {
+                            key(useFrontCamera) {
+                                InAppCameraPreview(
+                                    modifier = Modifier.fillMaxSize(),
+                                    useFrontCamera = useFrontCamera,
+                                    onImageCaptureReady = { imageCapture ->
+                                        cameraImageCapture = imageCapture
+                                    }
+                                )
+                            }
+                        }
+                        // Top-left: close (cancel) button
+                        val animatedRotation by animateFloatAsState(
+                            targetValue = cameraOrientation.iconAngle,
+                            animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
+                            label = "cameraControlsRotation"
+                        )
+
+                        IconButton(
+                            onClick = { showCameraOverlay = false },
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(start = 16.dp, top = 32.dp)
+                                .size(44.dp)
+                                .graphicsLayer {
+                                    rotationZ = animatedRotation
+                                }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "Close camera",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+
+                        // Top-right: flash mode toggle (OFF → AUTO → ON → OFF ...)
+                        IconButton(
+                            onClick = {
+                                cameraFlashMode =
+                                    when (cameraFlashMode) {
+                                        CameraFlashMode.OFF -> CameraFlashMode.AUTO
+                                        CameraFlashMode.AUTO -> CameraFlashMode.ON
+                                        CameraFlashMode.ON -> CameraFlashMode.OFF
+                                    }
+                            },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(end = 16.dp, top = 32.dp)
+                                .size(44.dp)
+                                .graphicsLayer {
+                                    rotationZ = animatedRotation
+                                }
+                        ) {
+                            val flashIcon = when (cameraFlashMode) {
+                                CameraFlashMode.OFF -> Icons.Filled.FlashOff
+                                CameraFlashMode.AUTO -> Icons.Filled.FlashAuto
+                                CameraFlashMode.ON -> Icons.Filled.FlashOn
+                            }
+                            val flashLabel = when (cameraFlashMode) {
+                                CameraFlashMode.OFF -> "Flash off"
+                                CameraFlashMode.AUTO -> "Flash auto"
+                                CameraFlashMode.ON -> "Flash on"
+                            }
+                            Icon(
+                                imageVector = flashIcon,
+                                contentDescription = flashLabel,
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+
+                        // Center-bottom: snap button (camera icon only), just above message box
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                // Keep above message box; adjust if footer height changes
+                                .padding(bottom = 80.dp)
+                                .size(72.dp)
+                                .graphicsLayer {
+                                    rotationZ = animatedRotation
+                                },
+                            tonalElevation = 4.dp
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    val imageCapture = cameraImageCapture
+                                    if (imageCapture == null) {
+                                        Log.w("Andromuks", "CameraX ImageCapture not ready yet")
+                                        return@IconButton
+                                    }
+
+                                    // Align capture orientation with device rotation so saved image matches preview
+                                    // Keep CameraX's targetRotation in sync with physical orientation
+                                    imageCapture.targetRotation = cameraOrientation.surfaceRotation
+
+                                    // Map our UI flash mode to CameraX flash mode
+                                    imageCapture.flashMode =
+                                        when (cameraFlashMode) {
+                                            CameraFlashMode.OFF -> ImageCapture.FLASH_MODE_OFF
+                                            CameraFlashMode.AUTO -> ImageCapture.FLASH_MODE_AUTO
+                                            CameraFlashMode.ON -> ImageCapture.FLASH_MODE_ON
+                                        }
+
+                                    // Create a temporary file for the captured photo
+                                    val photoFile = File(
+                                        context.cacheDir,
+                                        "andromuks_snap_${System.currentTimeMillis()}.jpg"
+                                    )
+
+                                    val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+
+                                    imageCapture.takePicture(
+                                        outputOptions,
+                                        ContextCompat.getMainExecutor(context),
+                                        object : ImageCapture.OnImageSavedCallback {
+                                            override fun onError(exc: ImageCaptureException) {
+                                                Log.e("Andromuks", "CameraX capture failed", exc)
+                                            }
+
+                                            override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                                                val savedUri = output.savedUri ?: photoFile.toUri()
+                                                // Feed into existing media preview pipeline
+                                                selectedMediaUri = savedUri
+                                                selectedMediaIsVideo = false
+                                                showMediaPreview = true
+                                                showCameraOverlay = false
+                                            }
+                                        }
+                                    )
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.CameraAlt,
+                                    contentDescription = "Snap photo",
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                        }
+
+                        // Bottom-right: camera switch button (back/selfie)
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp),
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = 24.dp, bottom = 90.dp)
+                                .size(48.dp)
+                                .graphicsLayer {
+                                    rotationZ = animatedRotation
+                                },
+                            tonalElevation = 4.dp
+                        ) {
+                            IconButton(
+                                onClick = { useFrontCamera = !useFrontCamera },
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Cameraswitch,
+                                    contentDescription = "Switch camera",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+                
                 // Floating action button to scroll to bottom (only shown when detached)
                 // Keep this in the Box so it can overlay the content
                 if (!isAttachedToBottom) {
@@ -4192,27 +4546,37 @@ fun RoomTimelineScreen(
                                 )
                             }
                             
-                            // Photo option
+                            // Photo option (opens in-app snapping overlay) with expressive shape morph
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier.weight(1f)
                             ) {
+                                val photoInteractionSource = remember { MutableInteractionSource() }
+                                val photoPressed by photoInteractionSource.collectIsPressedAsState()
+
+                                val photoShapePercent by animateFloatAsState(
+                                    targetValue = if (photoPressed) 35f else 50f, // 50 = circle, 35 ~ squircle
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMedium
+                                    ),
+                                    label = "photoShapeMorph"
+                                )
+
                                 Surface(
                                     color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                    shape = RoundedCornerShape(16.dp),
+                                    shape = RoundedCornerShape(percent = photoShapePercent.toInt()),
                                     tonalElevation = 1.dp,
                                     modifier = Modifier
                                         .size(56.dp)
                                 ) {
                                     IconButton(
                                         onClick = {
+                                            // Close attach menu and open in-app camera overlay
                                             showAttachmentMenu = false
-                                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                                                launchCamera(false) // Photo
-                                            } else {
-                                                cameraPhotoPermissionLauncher.launch(Manifest.permission.CAMERA)
-                                            }
+                                            showCameraOverlay = true
                                         },
+                                        interactionSource = photoInteractionSource,
                                         modifier = Modifier.fillMaxSize()
                                     ) {
                                         Icon(
