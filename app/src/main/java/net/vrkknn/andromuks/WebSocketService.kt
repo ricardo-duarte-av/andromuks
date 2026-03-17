@@ -2020,10 +2020,13 @@ class WebSocketService : Service() {
                     var useColdConnect = false
                     if (!validated) {
                         val disconnectedMs = if (serviceInstance.connectionLostAt > 0) System.currentTimeMillis() - serviceInstance.connectionLostAt else 0L
-                        if (serviceInstance.connectionLostAt > 0 && disconnectedMs > 60_000L) {
-                            android.util.Log.i("WebSocketService", "connectWebSocket: Validation timeout but disconnected >1 min (${disconnectedMs}ms) - connecting cold (no run_id/last_received_event)")
-                            logActivity("Validation Timeout - Connecting Cold (>1 min offline)", serviceInstance.currentNetworkType.name)
-                            serviceInstance.showWebSocketToast("Connecting without resume (offline >1 min)")
+                        // If we've been disconnected for more than 60 minutes, fall back to a cold connect
+                        // (no run_id/last_received_event) instead of attempting a resume.
+                        val offlineThresholdMs = 60L * 60_000L // 60 minutes
+                        if (serviceInstance.connectionLostAt > 0 && disconnectedMs > offlineThresholdMs) {
+                            android.util.Log.i("WebSocketService", "connectWebSocket: Validation timeout but disconnected >60 min (${disconnectedMs}ms) - connecting cold (no run_id/last_received_event)")
+                            logActivity("Validation Timeout - Connecting Cold (>60 min offline)", serviceInstance.currentNetworkType.name)
+                            serviceInstance.showWebSocketToast("Connecting without resume (offline >60 min)")
                             useColdConnect = true
                         } else {
                             android.util.Log.w("WebSocketService", "connectWebSocket: Network not validated within ${NETWORK_VALIDATION_TIMEOUT_MS}ms - aborting (will retry on next trigger)")
