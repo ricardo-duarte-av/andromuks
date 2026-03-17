@@ -2683,6 +2683,25 @@ class AppViewModel : ViewModel() {
         }
         
         val previousReactions = messageReactions[reactionEvent.relatesToEventId] ?: emptyList()
+
+        // For historical reactions (loaded from pagination / get_related_events), make processing idempotent:
+        // - If we already have this sender+emoji recorded for the target event, do NOT toggle it off.
+        //   This prevents backfill responses from "undoing" live reactions or double-processing the same
+        //   m.reaction event and effectively removing it.
+        if (isHistorical) {
+            val existingForEmoji = previousReactions.find { it.emoji == reactionEvent.emoji }
+            val alreadyHasUser = existingForEmoji?.userReactions?.any { it.userId == reactionEvent.sender } == true
+            if (alreadyHasUser) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Skipping historical duplicate reaction (idempotent) for ${reactionEvent.sender} ${reactionEvent.emoji} on ${reactionEvent.relatesToEventId}"
+                    )
+                }
+                return
+            }
+        }
+
         val updatedReactionsMap = net.vrkknn.andromuks.utils.processReactionEvent(reactionEvent, currentRoomId, messageReactions)
         messageReactions = updatedReactionsMap // This will update both cache and state
         val updatedReactions = updatedReactionsMap[reactionEvent.relatesToEventId] ?: emptyList()
@@ -7363,6 +7382,9 @@ class AppViewModel : ViewModel() {
     // PERFORMANCE: Track pending room state requests to prevent duplicate WebSocket commands
     private val pendingRoomStateRequests = mutableSetOf<String>() // roomId that have pending state requests
     private val reactionRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    // Track requests for get_related_events used to backfill detailed reactions (user + timestamp) for a specific event.
+    // Key: requestId, Value: Pair(roomId, targetEventId)
+    private val relatedEventsRequests = mutableMapOf<Int, Pair<String, String>>()
     private val markReadRequests = mutableMapOf<Int, String>() // requestId -> roomId
     // Track last sent mark_read command per room to prevent duplicates
     // Key: roomId, Value: eventId that was last sent
@@ -10101,6 +10123,47 @@ class AppViewModel : ViewModel() {
             android.util.Log.w("Andromuks", "AppViewModel: Reaction request for $roomId (requestId: $reactionRequestId) could not be sent immediately (result=$result)")
         }
     }
+
+    /**
+     * Request related events for a specific message to backfill detailed reactions via get_related_events.
+     *
+     * This is used by the Reactions menu when opening the reaction details dialog so that
+     * messageReactions[eventId] has per-user reaction data (including timestamps), even when the
+     * room was loaded primarily via paginate responses.
+     */
+    fun requestReactionDetails(roomId: String, eventId: String) {
+        if (!isWebSocketConnected()) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping requestReactionDetails - WebSocket not connected (roomId=$roomId, eventId=$eventId)")
+            return
+        }
+
+        val requestId = requestIdCounter++
+        relatedEventsRequests[requestId] = roomId to eventId
+
+        val commandData = mapOf(
+            "room_id" to roomId,
+            "event_id" to eventId,
+            "relation_type" to "m.annotation"
+        )
+
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: requestReactionDetails - sending get_related_events for roomId=$roomId, eventId=$eventId, requestId=$requestId"
+            )
+        }
+
+        val result = sendWebSocketCommand("get_related_events", requestId, commandData)
+        if (result != WebSocketResult.SUCCESS) {
+            relatedEventsRequests.remove(requestId)
+            if (BuildConfig.DEBUG) {
+                android.util.Log.w(
+                    "Andromuks",
+                    "AppViewModel: requestReactionDetails - get_related_events failed to send for roomId=$roomId, eventId=$eventId, requestId=$requestId, result=$result"
+                )
+            }
+        }
+    }
     
     fun requestRoomState(roomId: String) {
         // PERFORMANCE: Prevent duplicate room state requests for the same room
@@ -11538,6 +11601,7 @@ class AppViewModel : ViewModel() {
                     synchronized(roomStateRequests) { roomStateRequests.containsKey(requestId) } ||
                     messageRequests.containsKey(requestId) ||
                     reactionRequests.containsKey(requestId) ||
+                    relatedEventsRequests.containsKey(requestId) ||
                     markReadRequests.containsKey(requestId) ||
                     roomSummaryRequests.containsKey(requestId) ||
                     joinRoomRequests.containsKey(requestId) ||
@@ -11590,6 +11654,8 @@ class AppViewModel : ViewModel() {
             handleMessageResponse(requestId, data)
         } else if (reactionRequests.containsKey(requestId)) {
             handleReactionResponse(requestId, data)
+        } else if (relatedEventsRequests.containsKey(requestId)) {
+            handleRelatedEventsResponse(requestId, data)
         } else if (markReadRequests.containsKey(requestId)) {
             // Handle mark_read response - data should be a boolean
             val success = data as? Boolean ?: false
@@ -13572,6 +13638,68 @@ class AppViewModel : ViewModel() {
             else -> {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleReactionResponse: ${data::class.java.simpleName}")
             }
+        }
+    }
+
+    /**
+     * Handle response from get_related_events used for reaction details backfill.
+     *
+     * The backend returns a list of events (database.Event[]). We:
+     * - Parse them into TimelineEvent objects
+     * - Feed any m.reaction events through processReactionFromTimeline so messageReactions[eventId]
+     *   is populated with per-user reactions (including timestamp) for the target message.
+     * - Optionally apply aggregated reactions from these events to keep counts in sync.
+     */
+    private fun handleRelatedEventsResponse(requestId: Int, data: Any) {
+        val (roomId, targetEventId) = relatedEventsRequests.remove(requestId) ?: return
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling related_events response for room: $roomId, targetEventId=$targetEventId, dataType=${data::class.java.simpleName}")
+
+        val eventsArray: JSONArray? = when (data) {
+            is JSONArray -> data
+            is JSONObject -> {
+                // Some endpoints wrap events in an "events" array; fall back to treating the object as a single event.
+                data.optJSONArray("events") ?: JSONArray().apply { put(data) }
+            }
+            else -> null
+        }
+
+        if (eventsArray == null || eventsArray.length() == 0) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: related_events response empty for $targetEventId in $roomId")
+            return
+        }
+
+        val timelineEvents = mutableListOf<TimelineEvent>()
+        var reactionsProcessed = 0
+
+        for (i in 0 until eventsArray.length()) {
+            val eventJson = eventsArray.optJSONObject(i) ?: continue
+            try {
+                val event = TimelineEvent.fromJson(eventJson)
+                timelineEvents.add(event)
+
+                // Only process reactions that belong to this room; processReactionFromTimeline
+                // already filters by type == "m.reaction" and redaction status.
+                if (event.type == "m.reaction" && event.roomId == roomId) {
+                    if (processReactionFromTimeline(event)) {
+                        reactionsProcessed++
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Error parsing related_event at index $i for $targetEventId in $roomId: ${e.message}", e)
+            }
+        }
+
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Processed $reactionsProcessed reaction events from related_events for target=$targetEventId in room=$roomId (total related events=${timelineEvents.size})"
+            )
+        }
+
+        // Also merge any aggregated reactions present on the target event (or others in the set)
+        // so counts are authoritative even if only some individual reaction events are returned.
+        if (timelineEvents.isNotEmpty()) {
+            applyAggregatedReactionsFromEvents(timelineEvents, source = "related_events")
         }
     }
     

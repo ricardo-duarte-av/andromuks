@@ -3247,12 +3247,16 @@ fun RoomTimelineScreen(
                                                         showCodeViewer = true
                                                     },
                                                     onShowReactions = {
+                                                        // Backfill detailed reactions for this event (user + timestamp) via get_related_events.
+                                                        appViewModel.requestReactionDetails(roomId, menuConfig.event.eventId)
                                                         reactionsEventId = menuConfig.event.eventId
                                                         showReactionsDialog = true
                                                     }
                                                 )
                                                 },
                                                 onShowReactions = {
+                                                    // Direct reactions button (without opening the full menu)
+                                                    appViewModel.requestReactionDetails(roomId, event.eventId)
                                                     reactionsEventId = event.eventId
                                                     showReactionsDialog = true
                                                 }
