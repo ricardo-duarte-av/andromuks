@@ -492,45 +492,53 @@ private fun ReactionListItem(
             userId = reaction.userId,
             displayName = userProfile?.displayName
         )
-        
+
+        // Main text area: name + timestamp on first row, reaction content on second row.
         Column(
             modifier = Modifier
                 .padding(start = 12.dp)
                 .weight(1f)
         ) {
-            Text(
-                text = userProfile?.displayName ?: reaction.userId,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-            )
-            
-            Text(
-                text = formatReactionTime(reaction.timestamp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp
-            )
-        }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = userProfile?.displayName ?: reaction.userId,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
 
-        // Display the emoji/reaction at the end
-        if (reaction.emoji.startsWith("mxc://")) {
-            ImageReaction(
-                mxcUrl = reaction.emoji, 
-                homeserverUrl = homeserverUrl, 
-                authToken = authToken,
-                modifier = Modifier
-                    .padding(start = 8.dp)
-                    .size(24.dp)
-                    .clip(RoundedCornerShape(4.dp))
-            )
-        } else {
-            Text(
-                text = reaction.emoji,
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(start = 8.dp)
-            )
+                Text(
+                    text = formatReactionTime(reaction.timestamp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+            }
+
+            // Second row: reaction content on its own line (text or image)
+            if (reaction.emoji.startsWith("mxc://")) {
+                ImageReaction(
+                    mxcUrl = reaction.emoji,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .size(24.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                )
+            } else {
+                Text(
+                    text = reaction.emoji,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
         }
     }
 }
