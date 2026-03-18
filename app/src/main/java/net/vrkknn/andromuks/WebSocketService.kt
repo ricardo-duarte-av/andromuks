@@ -716,6 +716,7 @@ class WebSocketService : Service() {
                     
                     if (homeserverUrl.isEmpty() || authToken.isEmpty()) {
                         android.util.Log.w("WebSocketService", "Cannot reconnect - missing credentials in SharedPreferences")
+                        logActivity("Reconnection aborted: missing credentials", serviceInstance.currentNetworkType.name)
                         return@launch
                     }
                     
@@ -742,6 +743,10 @@ class WebSocketService : Service() {
                         } ?: if (viewModelToUse == headlessViewModel) "headless" else "unknown"
                     } else {
                         "none"
+                    }
+                    if (viewModelToUse == null) {
+                        logActivity("Reconnection aborted: no ViewModel available", serviceInstance.currentNetworkType.name)
+                        return@launch
                     }
                     android.util.Log.i("WebSocketService", "Reconnecting using ViewModel: $viewModelId (primary: $primaryViewModelId, total registered: ${registeredViewModels.size})")
                     
@@ -1267,6 +1272,7 @@ class WebSocketService : Service() {
             // PHASE 1.2: Check active callback (primary or legacy)
             if (getActiveReconnectionCallback() == null) {
                 android.util.Log.w("WebSocketService", "Reconnection callback not set (AppViewModel not available) - cannot reconnect. Waiting for app to connect WebSocket properly.")
+                logActivity("Reconnection deferred: activity callback not set", getCurrentNetworkType().name)
                 return
             }
             
@@ -1647,7 +1653,9 @@ class WebSocketService : Service() {
         fun isReconnectingOrConnecting(): Boolean {
             val serviceInstance = instance ?: return false
             val state = serviceInstance.connectionState
-            return state.isReconnecting() || state.isConnecting() || serviceInstance.isReconnecting
+            val reconnectJobActive = serviceInstance.reconnectionJob?.isActive == true
+            // Health checks should only skip when we have an actual reconnection attempt running.
+            return state.isConnecting() || (reconnectJobActive && (state.isReconnecting() || serviceInstance.isReconnecting))
         }
         
         /**
@@ -2466,6 +2474,8 @@ class WebSocketService : Service() {
                 serviceInstance.showWebSocketToast("Reconnecting: $reason")
                 
                 serviceInstance.reconnectionJob = serviceScope.launch {
+                    val currentJob = coroutineContext[Job]
+                    var invokedReconnectionCallback = false
                     try {
                         // Get backoff delay from current state
                         val currentState = serviceInstance.connectionState
@@ -2513,6 +2523,7 @@ class WebSocketService : Service() {
                                 android.util.Log.i("WebSocketService", "Reconnection job: Validation timeout but disconnected >1 min (${disconnectedMs}ms) - connecting cold")
                                 logActivity("Validation Timeout - Connecting Cold (>1 min offline)", serviceInstance.currentNetworkType.name)
                                 serviceInstance.showWebSocketToast("Connecting without resume (offline >1 min)")
+                                invokedReconnectionCallback = true
                                 invokeReconnectionCallback(reason, lastReceivedId = 0, forceColdConnect = true)
                                 return@launch
                             }
@@ -2520,6 +2531,11 @@ class WebSocketService : Service() {
                             logActivity("Network Not Validated - Will Retry", serviceInstance.currentNetworkType.name)
                             serviceInstance.showWebSocketToast("Network not validated - retrying")
                             serviceInstance.isReconnecting = false
+                            // Prevent leaving the service in a stale RECONNECTING state.
+                            // Without this, health checks can skip future reconnection attempts.
+                            updateConnectionState(WebSocketState.Disconnected)
+                            serviceInstance.isCurrentlyConnected = false
+                            updateConnectionStatus(false, null, serviceInstance.lastSyncTimestamp)
                             return@launch
                         }
                         if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Reconnection job: Network validated - proceeding")
@@ -2568,6 +2584,7 @@ class WebSocketService : Service() {
                             
                             // PHASE 1.4: Use safe invocation helper with error handling
                             // Pass last_received_id to reconnection callback
+                            invokedReconnectionCallback = true
                             invokeReconnectionCallback(reason, lastReceivedId)
                         } else {
                             // Job was cancelled (e.g., because a separate successful connection
@@ -2590,9 +2607,30 @@ class WebSocketService : Service() {
                         // Update notification to show error
                         updateConnectionStatus(false, null, serviceInstance.lastSyncTimestamp)
                     } finally {
-                        // CRITICAL FIX: Always reset reconnecting flag when job completes
+                        // Ensure reconnection can't leave the service stuck in a stale RECONNECTING state.
                         synchronized(serviceInstance.reconnectionLock) {
                             serviceInstance.isReconnecting = false
+                            
+                            // If this finished job is still the active reconnectionJob, clear it.
+                            if (serviceInstance.reconnectionJob === currentJob) {
+                                serviceInstance.reconnectionJob = null
+                            }
+                            
+                            // If we never actually started a real connection attempt,
+                            // transition back to DISCONNECTED so health checks can recover.
+                            if (serviceInstance.connectionState.isReconnecting() &&
+                                serviceInstance.webSocket == null &&
+                                !serviceInstance.isConnecting &&
+                                !invokedReconnectionCallback
+                            ) {
+                                logActivity(
+                                    "Reconnection Recovery: forced DISCONNECTED (callback not invoked)",
+                                    serviceInstance.currentNetworkType.name
+                                )
+                                updateConnectionState(WebSocketState.Disconnected)
+                                serviceInstance.isCurrentlyConnected = false
+                                updateConnectionStatus(false, null, serviceInstance.lastSyncTimestamp)
+                            }
                         }
                     }
                 }
