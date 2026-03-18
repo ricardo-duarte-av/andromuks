@@ -289,12 +289,14 @@ fun StickerImage(
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "StickerImage: Converted HTTP URL: $httpUrl")
     
     if (httpUrl != null) {
+        // If Coil fails to decode from its caches, retry once with Coil caches disabled.
+        var bypassCoilCache by remember(mxcUrl) { mutableStateOf(false) }
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(httpUrl)
                 .addHeader("Cookie", "gomuks_auth=$authToken")
-                .memoryCachePolicy(CachePolicy.ENABLED)
-                .diskCachePolicy(CachePolicy.ENABLED)
+                .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                .diskCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
                 .build(),
             imageLoader = imageLoader,
             contentDescription = "Sticker",
@@ -303,7 +305,9 @@ fun StickerImage(
             onSuccess = {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "StickerImage: Successfully loaded sticker for $mxcUrl")
             },
-            onError = { }
+            onError = {
+                bypassCoilCache = true
+            }
         )
     } else {
         android.util.Log.e("Andromuks", "StickerImage: Failed to convert MXC URL to HTTP URL: $mxcUrl")

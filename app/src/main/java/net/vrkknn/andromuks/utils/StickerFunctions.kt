@@ -532,12 +532,15 @@ private fun StickerViewerDialog(
         ) {
             // Sticker with zoom and pan
             val context = LocalContext.current
+            val coroutineScope = rememberCoroutineScope()
             
             // Use shared ImageLoader singleton with custom User-Agent
             val imageLoader = remember { ImageLoaderSingleton.get(context) }
             
             // Check if we have a cached version first
             var cachedFile by remember { mutableStateOf<File?>(null) }
+            // If cached decoding fails, retry once with Coil caches disabled (forces backend fetch).
+            var bypassCoilCache by remember(stickerMessage.url) { mutableStateOf(false) }
             LaunchedEffect(stickerMessage.url) {
                 cachedFile = IntelligentMediaCache.getCachedFile(context, stickerMessage.url)
             }
@@ -577,8 +580,8 @@ private fun StickerViewerDialog(
                             addHeader("Cookie", "gomuks_auth=$authToken")
                         }
                     }
-                    .memoryCachePolicy(CachePolicy.ENABLED)
-                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                    .diskCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
                     .build(),
                 imageLoader = imageLoader,
                 contentDescription = stickerMessage.body,
@@ -595,7 +598,18 @@ private fun StickerViewerDialog(
                 onSuccess = {
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ StickerViewer: Sticker loaded successfully: $imageUrl")
                 },
-                onError = { }
+                onError = {
+                    // If we were decoding from our cached file and it fails (partial/corrupt/evicted),
+                    // evict and retry from HTTP.
+                    if (cachedFile != null) {
+                        val badMxcUrl = stickerMessage.url
+                        cachedFile = null
+                        coroutineScope.launch {
+                            IntelligentMediaCache.evictCachedFile(context, badMxcUrl)
+                        }
+                    }
+                    bypassCoilCache = true
+                }
             )
         }
     }

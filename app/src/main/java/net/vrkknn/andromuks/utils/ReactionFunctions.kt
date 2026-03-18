@@ -157,12 +157,14 @@ fun ImageReaction(
     
     
     if (httpUrl != null) {
+        // If Coil fails to decode from its caches, retry once with Coil caches disabled.
+        var bypassCoilCache by remember(mxcUrl) { mutableStateOf(false) }
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(httpUrl)
                 .addHeader("Cookie", "gomuks_auth=$authToken")
-                .memoryCachePolicy(CachePolicy.ENABLED)
-                .diskCachePolicy(CachePolicy.ENABLED)
+                .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                .diskCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
                 .build(),
             imageLoader = imageLoader,
             contentDescription = "Reaction",
@@ -171,7 +173,9 @@ fun ImageReaction(
             onSuccess = {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ImageReaction: Successfully loaded image for $mxcUrl")
             },
-            onError = { }
+            onError = {
+                bypassCoilCache = true
+            }
         )
     } else {
         android.util.Log.e("Andromuks", "ImageReaction: Failed to convert MXC URL to HTTP URL: $mxcUrl")

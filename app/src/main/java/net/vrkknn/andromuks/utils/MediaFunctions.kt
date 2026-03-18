@@ -1038,6 +1038,8 @@ private fun MediaContent(
                     val displayMxcUrl = remember(mediaMessage.url, mediaMessage.info.thumbnailUrl, useThumbnail) {
                         if (useThumbnail) mediaMessage.info.thumbnailUrl!! else mediaMessage.url
                     }
+                    // If cache-based decode fails, retry once with Coil caches disabled (forces backend fetch).
+                    var bypassCoilCache by remember(displayMxcUrl) { mutableStateOf(false) }
                     val displayIsEncrypted = if (useThumbnail) {
                         mediaMessage.info.thumbnailIsEncrypted
                     } else {
@@ -1264,8 +1266,8 @@ private fun MediaContent(
                                         addHeader("Cookie", "gomuks_auth=$authToken")
                                     }
                                 }
-                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                                .diskCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
                                 .size(600, 600) // QUALITY IMPROVEMENT: Larger size for better quality
                                 .build(),
                             imageLoader = imageLoader,
@@ -1307,7 +1309,22 @@ private fun MediaContent(
                                             TimelineMediaLayoutCallback.notifyAfterLayoutSettled()
                                         }
                             },
-                            onError = { },
+                            onError = {
+                                // If we attempted to decode a cached file and it fails (partial/corrupt/evicted),
+                                // evict it and fall back to HTTP on the next recomposition.
+                                if (cachedFile != null) {
+                                    val badMxcUrl = displayMxcUrl
+                                    if (BuildConfig.DEBUG) {
+                                        Log.w("Andromuks", "MediaFunctions: onError decoding cached file. Evicting mxc=$badMxcUrl path=${cachedFile?.absolutePath}")
+                                    }
+                                    cachedFile = null
+                                    coroutineScope.launch {
+                                        IntelligentMediaCache.evictCachedFile(context, badMxcUrl)
+                                    }
+                                }
+                                // Retry from backend (avoid Coil disk/memory caches that might still be corrupted).
+                                bypassCoilCache = true
+                            },
                             onLoading = { state ->
                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "⏳ Image loading: $imageUrl, state: $state")
                             }
@@ -1496,6 +1513,9 @@ private fun MediaContent(
                                         thumbnailHttpUrl
                                     }
 
+                                // One-time retry with Coil caches disabled if thumbnail decode fails.
+                                var bypassCoilCacheForVideoThumb by remember(thumbnailFinalUrl) { mutableStateOf(false) }
+
                                 // PERFORMANCE FIX: Decode video BlurHash asynchronously
                                 var decodedVideoBlurHash by remember(mediaMessage.info.thumbnailBlurHash) {
                                     mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
@@ -1529,8 +1549,8 @@ private fun MediaContent(
                                         ImageRequest.Builder(context)
                                             .data(thumbnailFinalUrl)
                                             .addHeader("Cookie", "gomuks_auth=$authToken")
-                                            .memoryCachePolicy(CachePolicy.ENABLED)
-                                            .diskCachePolicy(CachePolicy.ENABLED)
+                                            .memoryCachePolicy(if (bypassCoilCacheForVideoThumb) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                                            .diskCachePolicy(if (bypassCoilCacheForVideoThumb) CachePolicy.DISABLED else CachePolicy.ENABLED)
                                             .size(600, 600) // QUALITY IMPROVEMENT: Larger size for better quality
                                             .build(),
                                     imageLoader = imageLoader,
@@ -1573,7 +1593,10 @@ private fun MediaContent(
                                             }
                                         }
                                     },
-                                    onError = { }
+                                    onError = {
+                                        // Force Coil to fetch fresh bytes from backend on next recomposition.
+                                        bypassCoilCacheForVideoThumb = true
+                                    }
                                 )
 
                                 // Play icon overlay (centered, only shown when video is not playing)
@@ -2645,6 +2668,8 @@ internal fun ImageViewerDialog(
     LaunchedEffect(mediaMessage.url) {
         cachedFile = IntelligentMediaCache.getCachedFile(context, mediaMessage.url)
     }
+    // If cache-based decode fails, retry once with Coil caches disabled (forces backend fetch).
+    var bypassCoilCache by remember(mediaMessage.url) { mutableStateOf(false) }
     val imageUrl = remember(mediaMessage.url, isEncrypted, cachedFile) {
         val file = cachedFile
         if (file != null) {
@@ -2865,8 +2890,8 @@ internal fun ImageViewerDialog(
                                 }
                                 .size(Size.ORIGINAL)
                                 .precision(Precision.EXACT)
-                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                .diskCachePolicy(CachePolicy.ENABLED)
+                            .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                            .diskCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
                                 .build(),
                             imageLoader = imageLoader,
                             contentDescription = mediaMessage.filename,
@@ -2878,7 +2903,22 @@ internal fun ImageViewerDialog(
                                 fullImageLoaded = true
                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ ImageViewer: Full image loaded: $imageUrl")
                             },
-                            onError = { }
+                            onError = {
+                                // Same idea as inline timeline:
+                                // if decoding fails for a cached local file, evict and fall back to HTTP.
+                                if (cachedFile != null) {
+                                    val badMxcUrl = mediaMessage.url
+                                    if (BuildConfig.DEBUG) {
+                                        Log.w("Andromuks", "ImageViewer: onError decoding cached file. Evicting mxc=$badMxcUrl path=${cachedFile?.absolutePath}")
+                                    }
+                                    cachedFile = null
+                                    coroutineScope.launch {
+                                        IntelligentMediaCache.evictCachedFile(context, badMxcUrl)
+                                    }
+                                }
+                                // Retry from backend (avoid Coil disk/memory caches that might still be corrupted).
+                                bypassCoilCache = true
+                            }
                         )
                     }
                 }

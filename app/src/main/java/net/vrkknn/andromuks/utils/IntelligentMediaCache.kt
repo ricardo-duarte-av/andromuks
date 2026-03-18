@@ -133,7 +133,7 @@ object IntelligentMediaCache {
      */
     suspend fun getCachedFile(context: Context, mxcUrl: String): File? = cacheMutex.withLock {
         val entry = cacheEntries[mxcUrl]
-        if (entry != null && entry.file.exists()) {
+        if (entry != null && entry.file.exists() && entry.file.length() > 0L) {
             // Update access statistics
             val updatedEntry = entry.copy(
                 lastAccessed = System.currentTimeMillis(),
@@ -150,10 +150,33 @@ object IntelligentMediaCache {
             return@withLock entry.file
         }
         
-        // PERFORMANCE: Only log misses in debug builds, and reduce frequency
-        if (BuildConfig.DEBUG) {
-            Log.d(TAG, "Cache miss for $mxcUrl")
+        // RAM<->Disk mismatch recovery:
+        // - We keep an in-memory index in `cacheEntries`.
+        // - `AndromuksApplication` clears that index on memory pressure via clearInMemoryCache().
+        // - After being idle/trimmed, disk files may still exist, but the index is gone.
+        // So, fall back to checking the expected on-disk cache location.
+        val diskFile = getCacheFile(context, mxcUrl)
+        if (diskFile.exists() && diskFile.length() > 0L) {
+            val isVisible = visibleMedia.containsKey(mxcUrl)
+            val now = System.currentTimeMillis()
+            val baseEntry = CacheEntry(
+                file = diskFile,
+                mxcUrl = mxcUrl,
+                size = diskFile.length(),
+                lastAccessed = now,
+                isVisible = isVisible,
+                accessCount = 1,
+                priority = 0L,
+                fileType = entry?.fileType ?: "unknown"
+            )
+            val diskEntry = baseEntry.copy(priority = calculatePriority(baseEntry, isVisible))
+            cacheEntries[mxcUrl] = diskEntry
+            return@withLock diskFile
         }
+
+        // PERFORMANCE: Only log misses in debug builds, and reduce frequency
+        if (BuildConfig.DEBUG) Log.d(TAG, "Cache miss for $mxcUrl")
+
         return@withLock null
     }
     
@@ -461,6 +484,28 @@ object IntelligentMediaCache {
         
         if (BuildConfig.DEBUG) {
             Log.d(TAG, "Cleared in-memory cache entries (disk files preserved)")
+        }
+    }
+
+    /**
+     * Evict a single cache entry.
+     *
+     * Used when a cached file is known-bad (decode fails, read fails, etc).
+     * Deletes the on-disk file and removes the in-memory index entry.
+     */
+    suspend fun evictCachedFile(context: Context, mxcUrl: String) = cacheMutex.withLock {
+        try {
+            // Remove RAM index first
+            cacheEntries.remove(mxcUrl)
+            visibleMedia.remove(mxcUrl)
+
+            // Remove disk file if present (even if RAM index was already cleared)
+            val diskFile = getCacheFile(context, mxcUrl)
+            if (diskFile.exists()) {
+                diskFile.delete()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to evict cached file for $mxcUrl", e)
         }
     }
 }
