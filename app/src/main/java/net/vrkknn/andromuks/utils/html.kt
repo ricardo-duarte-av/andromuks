@@ -786,6 +786,9 @@ private fun AnnotatedString.Builder.appendBlock(
         previousWasLineBreak = child is HtmlNode.LineBreak
         i++
     }
+    // Keep normal <p>/<div> separation as a single newline.
+    // Extra blank lines between consecutive paragraphs are handled in HtmlMessageText
+    // (so we don't accidentally insert blanks before other block elements like <blockquote>).
     append("\n")
 }
 
@@ -1708,6 +1711,25 @@ fun HtmlMessageText(
                         inlineCodeBlocks = inlineCodeBlocks
                     )
                     previousWasLineBreak = node is HtmlNode.LineBreak
+
+                    // Add an extra blank line between consecutive paragraphs (<p>/<div>),
+                    // but do not insert it before other block elements (like <blockquote>).
+                    if (node is HtmlNode.Tag && node.name in setOf("p", "div")) {
+                        var j = i + 1
+                        while (j < nodes.size) {
+                            val nextNode = nodes[j]
+                            if (nextNode is HtmlNode.Text && nextNode.content.trim().isEmpty()) {
+                                j++
+                                continue
+                            }
+                            break
+                        }
+                        val nextNonWhitespace = nodes.getOrNull(j)
+                        if (nextNonWhitespace is HtmlNode.Tag && nextNonWhitespace.name in setOf("p", "div")) {
+                            append("\n")
+                        }
+                    }
+
                     i++
                 }
             }
@@ -1718,11 +1740,17 @@ fun HtmlMessageText(
             spoilerContext.cleanup()
         }
     }
-    val annotatedString = if (sanitizedHtml != null && renderedString.text.endsWith("\n")) {
-        renderedString.subSequence(0, renderedString.length - 1) as AnnotatedString
-    } else {
-        renderedString
-    }
+    val annotatedString =
+        if (sanitizedHtml != null && renderedString.text.endsWith("\n")) {
+            // Avoid leaving trailing blank lines caused by block-level rendering (e.g. <p>).
+            var end = renderedString.length
+            while (end > 0 && renderedString.text[end - 1] == '\n') {
+                end--
+            }
+            renderedString.subSequence(0, end) as AnnotatedString
+        } else {
+            renderedString
+        }
     val density = LocalDensity.current
     val chipTextStyle = MaterialTheme.typography.labelLarge
     val bodyTextStyle = MaterialTheme.typography.bodyMedium
