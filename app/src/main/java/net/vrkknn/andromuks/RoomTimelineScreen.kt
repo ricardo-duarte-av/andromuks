@@ -22,6 +22,11 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.camera.video.FileOutputOptions
+import androidx.camera.video.Recorder
+import androidx.camera.video.Recording
+import androidx.camera.video.VideoCapture
+import androidx.camera.video.VideoRecordEvent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.core.animateFloat
@@ -284,6 +289,57 @@ private fun InAppCameraPreview(
                         onImageCaptureReady(imageCapture)
                     } catch (e: Exception) {
                         Log.e("Andromuks", "Failed to bind CameraX preview", e)
+                    }
+                },
+                ContextCompat.getMainExecutor(ctx)
+            )
+
+            previewView
+        },
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun InAppVideoPreview(
+    modifier: Modifier = Modifier,
+    useFrontCamera: Boolean,
+    onVideoCaptureReady: (VideoCapture<Recorder>) -> Unit
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    AndroidView(
+        factory = { ctx ->
+            val previewView = PreviewView(ctx).apply {
+                scaleType = PreviewView.ScaleType.FIT_CENTER
+            }
+
+            val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+            cameraProviderFuture.addListener(
+                {
+                    val cameraProvider = cameraProviderFuture.get()
+                    val preview = Preview.Builder()
+                        .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+                        .build()
+                        .also { p -> p.setSurfaceProvider(previewView.surfaceProvider) }
+                    val recorder = Recorder.Builder().build()
+                    val videoCapture = VideoCapture.Builder(recorder).build()
+                    val cameraSelector =
+                        if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA
+                        else CameraSelector.DEFAULT_BACK_CAMERA
+
+                    try {
+                        cameraProvider.unbindAll()
+                        cameraProvider.bindToLifecycle(
+                            lifecycleOwner,
+                            cameraSelector,
+                            preview,
+                            videoCapture
+                        )
+                        onVideoCaptureReady(videoCapture)
+                    } catch (e: Exception) {
+                        Log.e("Andromuks", "Failed to bind CameraX video preview", e)
                     }
                 },
                 ContextCompat.getMainExecutor(ctx)
@@ -840,6 +896,14 @@ fun RoomTimelineScreen(
     var useFrontCamera by rememberSaveable { mutableStateOf(false) }
     // CameraX ImageCapture instance, provided by preview when ready
     var cameraImageCapture by remember { mutableStateOf<ImageCapture?>(null) }
+    // Video overlay state (parallel to photo overlay)
+    var showVideoOverlay by rememberSaveable { mutableStateOf(false) }
+    var videoFlashMode by rememberSaveable { mutableStateOf(CameraFlashMode.OFF) }
+    var videoUseFrontCamera by rememberSaveable { mutableStateOf(false) }
+    var videoCapture by remember { mutableStateOf<VideoCapture<Recorder>?>(null) }
+    var activeVideoRecording by remember { mutableStateOf<Recording?>(null) }
+    var videoRecordingStartTime by remember { mutableStateOf<Long?>(null) }
+    var videoRecordingElapsedSeconds by remember { mutableStateOf(0) }
     var selectedAudioUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
     
@@ -2781,6 +2845,13 @@ fun RoomTimelineScreen(
         if (messageMenuConfig != null) {
             // Close message menu if open
             messageMenuConfig = null
+        } else if (showCameraOverlay) {
+            showCameraOverlay = false
+        } else if (showVideoOverlay) {
+            activeVideoRecording?.stop()
+            activeVideoRecording = null
+            videoRecordingStartTime = null
+            showVideoOverlay = false
         } else if (showAttachmentMenu) {
             // Close attachment menu if open
             showAttachmentMenu = false
@@ -4284,6 +4355,229 @@ fun RoomTimelineScreen(
                         }
                     }
                 }
+
+                // Video recording overlay (parallel to photo overlay)
+                AnimatedVisibility(
+                    visible = showVideoOverlay,
+                    enter =
+                        fadeIn(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            )
+                        ) +
+                            scaleIn(
+                                initialScale = 0.88f,
+                                transformOrigin = TransformOrigin(0.5f, 1f),
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMedium
+                                )
+                            ),
+                    exit =
+                        fadeOut(
+                            animationSpec = tween(160, easing = FastOutSlowInEasing)
+                        ) +
+                            scaleOut(
+                                targetScale = 0.88f,
+                                transformOrigin = TransformOrigin(0.5f, 1f),
+                                animationSpec = tween(180, easing = FastOutSlowInEasing)
+                            )
+                ) {
+                    val videoCameraOrientation = rememberCameraOrientation()
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black)
+                            .zIndex(12f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .offset(y = (-24).dp)
+                                .fillMaxHeight()
+                                .aspectRatio(3f / 4f)
+                        ) {
+                            key(videoUseFrontCamera) {
+                                InAppVideoPreview(
+                                    modifier = Modifier.fillMaxSize(),
+                                    useFrontCamera = videoUseFrontCamera,
+                                    onVideoCaptureReady = { vc -> videoCapture = vc }
+                                )
+                            }
+                        }
+
+                        val videoAnimatedRotation by animateFloatAsState(
+                            targetValue = videoCameraOrientation.iconAngle,
+                            animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
+                            label = "videoControlsRotation"
+                        )
+
+                        // Update record elapsed time every second while recording
+                        LaunchedEffect(activeVideoRecording, videoRecordingStartTime) {
+                            if (activeVideoRecording == null || videoRecordingStartTime == null) return@LaunchedEffect
+                            val start = videoRecordingStartTime!!
+                            while (activeVideoRecording != null) {
+                                kotlinx.coroutines.delay(1000)
+                                videoRecordingElapsedSeconds = ((System.currentTimeMillis() - start) / 1000).toInt()
+                            }
+                        }
+
+                        IconButton(
+                            onClick = {
+                                activeVideoRecording?.stop()
+                                activeVideoRecording = null
+                                videoRecordingStartTime = null
+                                showVideoOverlay = false
+                            },
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(start = 16.dp, top = 32.dp)
+                                .size(44.dp)
+                                .graphicsLayer { rotationZ = videoAnimatedRotation }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "Close video camera",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                videoFlashMode = when (videoFlashMode) {
+                                    CameraFlashMode.OFF -> CameraFlashMode.AUTO
+                                    CameraFlashMode.AUTO -> CameraFlashMode.ON
+                                    CameraFlashMode.ON -> CameraFlashMode.OFF
+                                }
+                            },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(end = 16.dp, top = 32.dp)
+                                .size(44.dp)
+                                .graphicsLayer { rotationZ = videoAnimatedRotation }
+                        ) {
+                            val flashIcon = when (videoFlashMode) {
+                                CameraFlashMode.OFF -> Icons.Filled.FlashOff
+                                CameraFlashMode.AUTO -> Icons.Filled.FlashAuto
+                                CameraFlashMode.ON -> Icons.Filled.FlashOn
+                            }
+                            Icon(
+                                imageVector = flashIcon,
+                                contentDescription = when (videoFlashMode) {
+                                    CameraFlashMode.OFF -> "Flash off"
+                                    CameraFlashMode.AUTO -> "Flash auto"
+                                    CameraFlashMode.ON -> "Flash on"
+                                },
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+
+                        // Static record length (bottom-left) + Record button (bottom-center)
+                        if (activeVideoRecording != null) {
+                            Text(
+                                text = "${videoRecordingElapsedSeconds / 60}:${(videoRecordingElapsedSeconds % 60).toString().padStart(2, '0')}",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .padding(start = 24.dp, bottom = 80.dp)
+                                    .graphicsLayer { rotationZ = videoAnimatedRotation }
+                            )
+                        }
+
+                        Surface(
+                            shape = CircleShape,
+                            color = if (activeVideoRecording != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 80.dp)
+                                .size(72.dp)
+                                .graphicsLayer { rotationZ = videoAnimatedRotation },
+                            tonalElevation = 4.dp
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    val vc = videoCapture
+                                    if (vc == null) {
+                                        Log.w("Andromuks", "VideoCapture not ready yet")
+                                        return@IconButton
+                                    }
+                                    if (activeVideoRecording != null) {
+                                        activeVideoRecording?.stop()
+                                        activeVideoRecording = null
+                                        videoRecordingStartTime = null
+                                        videoRecordingElapsedSeconds = 0
+                                        return@IconButton
+                                    }
+                                    vc.targetRotation = videoCameraOrientation.surfaceRotation
+                                    val videoFile = File(
+                                        context.cacheDir,
+                                        "andromuks_video_${System.currentTimeMillis()}.mp4"
+                                    )
+                                    val fileOutputOptions = FileOutputOptions.Builder(videoFile).build()
+                                    val executor = ContextCompat.getMainExecutor(context)
+                                    val pendingRecording = vc.output.prepareRecording(context, fileOutputOptions)
+                                    val rec = if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                        pendingRecording.withAudioEnabled()
+                                    } else {
+                                        pendingRecording
+                                    }.start(executor) { event ->
+                                        when (event) {
+                                            is VideoRecordEvent.Finalize -> {
+                                                videoRecordingStartTime = null
+                                                videoRecordingElapsedSeconds = 0
+                                                // FileOutputOptions: use the file we created
+                                                selectedMediaUri = videoFile.toUri()
+                                                selectedMediaIsVideo = true
+                                                showMediaPreview = true
+                                                showVideoOverlay = false
+                                            }
+                                            else -> {}
+                                        }
+                                    }
+                                    activeVideoRecording = rec
+                                    videoRecordingStartTime = System.currentTimeMillis()
+                                    videoRecordingElapsedSeconds = 0
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Videocam,
+                                    contentDescription = if (activeVideoRecording != null) "Stop recording" else "Start recording",
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                            //}
+                        }
+
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp),
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = 24.dp, bottom = 90.dp)
+                                .size(48.dp)
+                                .graphicsLayer { rotationZ = videoAnimatedRotation },
+                            tonalElevation = 4.dp
+                        ) {
+                            IconButton(
+                                onClick = { videoUseFrontCamera = !videoUseFrontCamera },
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Cameraswitch,
+                                    contentDescription = "Switch camera",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
                 
                 // Floating action button to scroll to bottom (only shown when detached)
                 // Keep this in the Box so it can overlay the content
@@ -4595,7 +4889,7 @@ fun RoomTimelineScreen(
                                 )
                             }
                             
-                            // Video option
+                            // Video option (opens in-app video recording overlay)
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier.weight(1f)
@@ -4611,7 +4905,7 @@ fun RoomTimelineScreen(
                                         onClick = {
                                             showAttachmentMenu = false
                                             if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                                                launchCamera(true) // Video
+                                                showVideoOverlay = true
                                             } else {
                                                 cameraVideoPermissionLauncher.launch(Manifest.permission.CAMERA)
                                             }

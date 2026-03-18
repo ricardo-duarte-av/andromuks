@@ -32,7 +32,7 @@ android {
 
 
         // Update versionName for each release (e.g., 1.0, 1.1, 1.2, 2.0)
-        versionName = "1.0.60"
+        versionName = "1.0.61"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -142,7 +142,8 @@ dependencies {
     implementation("androidx.camera:camera-camera2:$cameraxVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
     implementation("androidx.camera:camera-view:$cameraxVersion")
-    
+    implementation("androidx.camera:camera-video:$cameraxVersion")
+
     // Firebase Cloud Messaging
     implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
     implementation("com.google.firebase:firebase-messaging-ktx")
