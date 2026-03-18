@@ -26,6 +26,8 @@ import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.TimelineEventItem
+import net.vrkknn.andromuks.RoomTimelineCache
+import net.vrkknn.andromuks.RoomMemberCache
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.components.FullImageDialog
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
@@ -447,6 +449,68 @@ fun RoomInfoScreen(
                         modifier = Modifier.weight(1f)
                     ) {
                         Text("Members")
+                    }
+                }
+
+                // Technical cache info (always last items)
+                run {
+                    val cachedEventCountForRoom = RoomTimelineCache.getCachedEventCount(roomId)
+
+                    // RoomMemberCache is the room-scoped member profile cache (used as the fallback by AppViewModel).
+                    // This is closer to what you see in UserInfo ("per-room profile") than ProfileCache's flattened cache,
+                    // because per-room callbacks don't necessarily populate flattened ProfileCache entries.
+                    val roomProfiles = remember(roomId, memberUpdateCounter) {
+                        RoomMemberCache.getRoomMembers(roomId)
+                    }
+                    val roomSpecificProfileCount = roomProfiles.size
+
+                    // Keep this consistent with RoomTimelineCache's estimate:
+                    // ~1.5KB per TimelineEvent.
+                    val timelineCacheKbForRoom = cachedEventCountForRoom.toDouble() * 1.5
+
+                    // Rough estimate:
+                    // Kotlin/JVM strings are UTF-16 internally (2 bytes/char) plus overhead.
+                    // We add a small fixed overhead per profile entry to avoid reporting 0KB.
+                    val bytesPerChar = 2L
+                    val overheadPerProfileBytes = 64L
+                    val roomProfilesBytes = roomProfiles.values.sumOf { profile ->
+                        val displayNameChars = profile.displayName?.length ?: 0
+                        val avatarUrlChars = profile.avatarUrl?.length ?: 0
+                        (displayNameChars + avatarUrlChars).toLong() * bytesPerChar + overheadPerProfileBytes
+                    }
+                    val roomProfilesKbForRoom = roomProfilesBytes.toDouble() / 1024.0
+
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "Technical (cache)",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            Text(
+                                text = "Room cached events: $cachedEventCountForRoom"
+                            )
+
+                            Text(
+                                text = "Room profile count: $roomSpecificProfileCount"
+                            )
+
+                            Text(
+                                text = "Timeline cache (room) est: ${"%.1f".format(timelineCacheKbForRoom)}KB"
+                            )
+
+                            Text(
+                                text = "Room profiles cache (est): ${"%.1f".format(roomProfilesKbForRoom)}KB"
+                            )
+                        }
                     }
                 }
             }
