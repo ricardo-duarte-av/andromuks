@@ -139,7 +139,9 @@ private fun dispatchParsedWebSocketMessage(jsonObject: JSONObject) {
     when (command) {
         "pong" -> {
             val requestId = jsonObject.optInt("request_id")
-            Log.i("Andromuks", "PONG JSON received")
+            if (BuildConfig.DEBUG) {
+                Log.d("Andromuks", "PONG JSON received")
+            }
             WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                 WebSocketService.handlePong(requestId)
             }

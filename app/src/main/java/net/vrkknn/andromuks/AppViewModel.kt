@@ -12452,7 +12452,7 @@ class AppViewModel : ViewModel() {
     }
     
     fun handleTimelineResponse(requestId: Int, data: Any) {
-        android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: START - requestId=$requestId, dataType=${data::class.java.simpleName}, currentRoomId=$currentRoomId, isTimelineLoading=$isTimelineLoading")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: START - requestId=$requestId, dataType=${data::class.java.simpleName}, currentRoomId=$currentRoomId, isTimelineLoading=$isTimelineLoading")
         
         // Determine request type and get room ID
         val roomId = timelineRequests[requestId] ?: paginateRequests[requestId] ?: backgroundPrefetchRequests[requestId]
@@ -12463,7 +12463,7 @@ class AppViewModel : ViewModel() {
 
         val isPaginateRequest = paginateRequests.containsKey(requestId)
         val isBackgroundPrefetchRequest = backgroundPrefetchRequests.containsKey(requestId)
-        android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: Processing - roomId=$roomId, requestId=$requestId, isPaginate=$isPaginateRequest, isBackgroundPrefetch=$isBackgroundPrefetchRequest, currentRoomId=$currentRoomId, isTimelineLoading=$isTimelineLoading")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: Processing - roomId=$roomId, requestId=$requestId, isPaginate=$isPaginateRequest, isBackgroundPrefetch=$isBackgroundPrefetchRequest, currentRoomId=$currentRoomId, isTimelineLoading=$isTimelineLoading")
 
         // CRITICAL FIX: Parse has_more field BEFORE processing events, so we have it even if events array is empty
         var hasMoreFromResponse: Boolean? = null
@@ -12477,7 +12477,7 @@ class AppViewModel : ViewModel() {
         // Process events array - main event processing logic
         fun processEventsArray(eventsArray: JSONArray): Int {
             val eventCount = eventsArray.length()
-            android.util.Log.d("Andromuks", "🟡 processEventsArray: START - roomId=$roomId, requestId=$requestId, eventCount=$eventCount, isPaginate=$isPaginateRequest, isBackgroundPrefetch=$isBackgroundPrefetchRequest, currentRoomId=$currentRoomId, isTimelineLoading=$isTimelineLoading")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟡 processEventsArray: START - roomId=$roomId, requestId=$requestId, eventCount=$eventCount, isPaginate=$isPaginateRequest, isBackgroundPrefetch=$isBackgroundPrefetchRequest, currentRoomId=$currentRoomId, isTimelineLoading=$isTimelineLoading")
             if (eventCount == 0) {
                 android.util.Log.w("Andromuks", "🟡 processEventsArray: EMPTY response - roomId=$roomId, requestId=$requestId, isPaginate=$isPaginateRequest")
             }
@@ -12689,14 +12689,14 @@ class AppViewModel : ViewModel() {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Pagination complete - roomId=$roomId, isPaginating set to ${if (roomId == currentRoomId) "FALSE" else "unchanged (background)"}")
                 } else {
                     // This is an initial paginate - build timeline from chain mapping
-                    android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: Initial paginate - roomId=$roomId, requestId=$requestId, timelineList.size=${timelineList.size}, isTimelineLoading=$isTimelineLoading")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: Initial paginate - roomId=$roomId, requestId=$requestId, timelineList.size=${timelineList.size}, isTimelineLoading=$isTimelineLoading")
                     handleInitialTimelineBuild(roomId, timelineList)
-                    android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: After handleInitialTimelineBuild - roomId=$roomId, requestId=$requestId, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: After handleInitialTimelineBuild - roomId=$roomId, requestId=$requestId, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading")
                     // Clean up pending paginate tracking when initial paginate completes
                     if (isInitialPaginate) {
                         timelineRequests.remove(requestId)
                         roomsWithPendingPaginate.remove(roomId)
-                        android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: Cleaned up tracking - roomId=$roomId, requestId=$requestId, remaining timelineRequests=${timelineRequests.size}")
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: Cleaned up tracking - roomId=$roomId, requestId=$requestId, remaining timelineRequests=${timelineRequests.size}")
                     }
                     
                     // CRITICAL FIX: After initial pagination completes, automatically request member profiles
@@ -12741,20 +12741,20 @@ class AppViewModel : ViewModel() {
                 }
             }
             
-            android.util.Log.d("Andromuks", "🟡 processEventsArray: COMPLETE - roomId=$roomId, requestId=$requestId, reactionsProcessed=$reactionProcessedCount, timelineList.size=${timelineList.size}, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟡 processEventsArray: COMPLETE - roomId=$roomId, requestId=$requestId, reactionsProcessed=$reactionProcessedCount, timelineList.size=${timelineList.size}, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading")
             return reactionProcessedCount
         }
 
         when (data) {
             is JSONArray -> {
-                android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: JSONArray response - roomId=$roomId, requestId=$requestId, array.length=${data.length()}")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: JSONArray response - roomId=$roomId, requestId=$requestId, array.length=${data.length()}")
                 totalReactionsProcessed = processEventsArray(data)
-                android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: processEventsArray completed - roomId=$roomId, requestId=$requestId, reactionsProcessed=$totalReactionsProcessed, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: processEventsArray completed - roomId=$roomId, requestId=$requestId, reactionsProcessed=$totalReactionsProcessed, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading")
             }
             is JSONObject -> {
                 val eventsArray = data.optJSONArray("events")
                 if (eventsArray != null) {
-                    android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: JSONObject with events array - roomId=$roomId, requestId=$requestId, events.length=${eventsArray.length()}")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: JSONObject with events array - roomId=$roomId, requestId=$requestId, events.length=${eventsArray.length()}")
                     
                     // CRITICAL: Process related_events FIRST before processing main events
                     // This ensures that when main events are processed and rendered, the reply targets
@@ -12773,7 +12773,7 @@ class AppViewModel : ViewModel() {
                     
                     // NOW process main events array - related_events are already in cache
                     totalReactionsProcessed = processEventsArray(eventsArray)
-                    android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: processEventsArray completed - roomId=$roomId, requestId=$requestId, reactionsProcessed=$totalReactionsProcessed, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟡 handleTimelineResponse: processEventsArray completed - roomId=$roomId, requestId=$requestId, reactionsProcessed=$totalReactionsProcessed, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading")
                     
                     // CRITICAL: Process read receipts AFTER events are fully processed
                     // This ensures that when receipts are applied, the events they reference are already in the timeline
@@ -16540,14 +16540,14 @@ class AppViewModel : ViewModel() {
         // REFACTORING: Use WebSocketService.sendCommand() API
         // Log all WebSocket commands being sent
         val roomId = data["room_id"] as? String
-        if (command == "paginate") {
+        if (command == "paginate" && BuildConfig.DEBUG) {
             android.util.Log.d("Andromuks", "🟠 sendWebSocketCommand: SENDING paginate - requestId=$requestId, roomId=$roomId, data=${org.json.JSONObject(data).toString().take(200)}")
         } else if (BuildConfig.DEBUG) {
             android.util.Log.d("Andromuks", "sendWebSocketCommand: command='$command', requestId=$requestId, data=${org.json.JSONObject(data).toString().take(200)}")
         }
         
         val sendResult = if (WebSocketService.sendCommand(command, requestId, data)) {
-            if (command == "paginate") {
+            if (command == "paginate" && BuildConfig.DEBUG) {
                 android.util.Log.d("Andromuks", "🟠 sendWebSocketCommand: paginate SENT successfully - requestId=$requestId, roomId=$roomId")
             }
             WebSocketResult.SUCCESS
@@ -18599,9 +18599,9 @@ class AppViewModel : ViewModel() {
             val timelineSizeBefore = timelineEvents.size
             isTimelineLoading = false
             val timelineSizeAfter = timelineEvents.size
-            android.util.Log.d("Andromuks", "🟡 handleInitialTimelineBuild: Timeline built - roomId=$roomId, timelineList.size=${timelineList.size}, timelineEvents.size=$timelineSizeAfter (was $timelineSizeBefore), isTimelineLoading=$isTimelineLoading")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟡 handleInitialTimelineBuild: Timeline built - roomId=$roomId, timelineList.size=${timelineList.size}, timelineEvents.size=$timelineSizeAfter (was $timelineSizeBefore), isTimelineLoading=$isTimelineLoading")
         } else {
-             android.util.Log.d("Andromuks", "🟡 handleInitialTimelineBuild: Skipping timeline build - roomId ($roomId) != currentRoomId ($currentRoomId). Cache seeded only.")
+             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟡 handleInitialTimelineBuild: Skipping timeline build - roomId ($roomId) != currentRoomId ($currentRoomId). Cache seeded only.")
         }
         
         // Persist initial paginated events to cache
