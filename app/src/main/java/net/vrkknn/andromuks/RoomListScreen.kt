@@ -138,6 +138,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.ExitToApp
@@ -1879,6 +1880,9 @@ fun RoomListItem(
             appViewModel.requestUserProfileOnDemand(senderId, room.id)
         }
     }
+
+    // Timeline cache indicator for this room (matches AppViewModel's union logic).
+    val isTimelineCached = RoomTimelineCache.isRoomOpened(room.id) || RoomTimelineCache.isRoomActivelyCached(room.id)
     
     // Wrapping box for the entire item
     Box(
@@ -2041,6 +2045,16 @@ fun RoomListItem(
                                 modifier = Modifier.size(16.dp)
                             )
                         }
+
+                    // Show timeline cache indicator when this room is actively cached.
+                    if (isTimelineCached) {
+                        Icon(
+                            imageVector = Icons.Filled.Memory,
+                            contentDescription = "Room timeline cached",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
 
                         // Always show a Box to reserve space, but make it invisible when no unreads
                         Box(
