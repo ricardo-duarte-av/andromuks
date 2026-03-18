@@ -824,56 +824,117 @@ private fun AnnotatedString.Builder.appendBlockQuote(
     inlineMatrixRooms: MutableMap<String, InlineMatrixRoomChip>,
     spoilerContext: SpoilerRenderContext?,
     hideContent: Boolean = false,
-    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null,
+    quoteDepth: Int = 1
 ) {
     if (length > 0 && !endsWithNewline()) append("\n")
-    
-    // Style for quoted text - italic and slightly muted
-    // Use a softer color that works in both light and dark modes
-    val quoteColor = if (baseStyle.color == Color.Unspecified) {
-        Color.Gray
-    } else {
-        // Blend the base color toward gray for a muted effect
-        Color(
-            red = baseStyle.color.red * 0.7f + 0.3f * 0.5f,
-            green = baseStyle.color.green * 0.7f + 0.3f * 0.5f,
-            blue = baseStyle.color.blue * 0.7f + 0.3f * 0.5f,
-            alpha = baseStyle.color.alpha
-        )
+
+    // Render quotes with a depth-based prefix:
+    // depth=1 => "| Quote"
+    // depth=2 => "|| Double Quote"
+    // ...etc
+    // The prefix is tertiary-colored; the quoted content is rendered with the same styling
+    // as normal text (so bold/italic/underline/strikethrough/spoilers keep working).
+    // Use a vertical box-drawing character so nested quotes align nicely.
+    // Depth=1 => "│ " ; Depth=2 => "││ " ; etc.
+    val prefixText = "│".repeat(quoteDepth) + " "
+    // Prefix should visually match the regular text (same color/typeface).
+    val prefixStyle = baseStyle
+
+    fun appendQuoteLineContent(children: List<HtmlNode>) {
+        // Render quoted content while prefixing after <br> as well.
+        children.forEach { child ->
+            when (child) {
+                is HtmlNode.LineBreak -> {
+                    append("\n")
+                    withStyle(prefixStyle) { append(prefixText) }
+                }
+                else -> {
+                    appendHtmlNode(
+                        node = child,
+                        baseStyle = baseStyle,
+                        inlineImages = inlineImages,
+                        inlineMatrixUsers = inlineMatrixUsers,
+                        inlineMatrixRooms = inlineMatrixRooms,
+                        spoilerContext = spoilerContext,
+                        hideContent = hideContent,
+                        previousWasLineBreak = false,
+                        inlineCodeBlocks = inlineCodeBlocks
+                    )
+                }
+            }
+        }
     }
-    val quoteStyle = baseStyle.copy(
-        fontStyle = FontStyle.Italic,
-        color = quoteColor
-    )
-    
-    // Add quote marker with styling
-    withStyle(quoteStyle) {
-        append("│ ")  // Use a vertical bar for a more elegant look
-        
-        // Collect all text from children without adding extra newlines
-        val quoteText = buildString {
-            fun collectText(node: HtmlNode) {
-                when (node) {
-                    is HtmlNode.Text -> {
-                        val normalized = node.content.replace(Regex("\\s+"), " ")
-                        append(normalized)
+
+    tag.children.forEach { child ->
+        when (child) {
+            // Most Matrix quote payloads are structured as <blockquote><p>... (nested) ...</blockquote>
+            // Render each <p> / <div> as one quoted "line".
+            is HtmlNode.Tag -> {
+                when (child.name) {
+                    "p", "div" -> {
+                        if (!endsWithNewline()) append("\n")
+                        withStyle(prefixStyle) { append(prefixText) }
+                        appendQuoteLineContent(child.children)
+                        if (!endsWithNewline()) append("\n")
                     }
-                    is HtmlNode.LineBreak -> append(" ")
-                    is HtmlNode.Tag -> {
-                        // For block elements inside blockquote, add space between them
-                        if (node.name in setOf("p", "div") && this.isNotEmpty()) {
-                            append(" ")
-                        }
-                        node.children.forEach { collectText(it) }
+                    "blockquote" -> {
+                        appendBlockQuote(
+                            tag = child,
+                            baseStyle = baseStyle,
+                            inlineImages = inlineImages,
+                            inlineMatrixUsers = inlineMatrixUsers,
+                            inlineMatrixRooms = inlineMatrixRooms,
+                            spoilerContext = spoilerContext,
+                            hideContent = hideContent,
+                            inlineCodeBlocks = inlineCodeBlocks,
+                            quoteDepth = quoteDepth + 1
+                        )
+                    }
+                    else -> {
+                        // Fallback: render unknown block children normally (without prefixing).
+                        // This keeps the formatter accurate for edge cases like nested lists.
+                        appendHtmlNode(
+                            node = child,
+                            baseStyle = baseStyle,
+                            inlineImages = inlineImages,
+                            inlineMatrixUsers = inlineMatrixUsers,
+                            inlineMatrixRooms = inlineMatrixRooms,
+                            spoilerContext = spoilerContext,
+                            hideContent = hideContent,
+                            inlineCodeBlocks = inlineCodeBlocks
+                        )
                     }
                 }
             }
-    tag.children.forEach { collectText(it) }
-        }.trim()
-        
-        append(quoteText)
+            // Rare case: text directly inside <blockquote>.
+            // Treat it as a single-line quote.
+            is HtmlNode.Text -> {
+                val trimmed = child.content.trim()
+                if (trimmed.isNotEmpty()) {
+                    if (!endsWithNewline()) append("\n")
+                    withStyle(prefixStyle) { append(prefixText) }
+                    appendHtmlNode(
+                        node = child,
+                        baseStyle = baseStyle,
+                        inlineImages = inlineImages,
+                        inlineMatrixUsers = inlineMatrixUsers,
+                        inlineMatrixRooms = inlineMatrixRooms,
+                        spoilerContext = spoilerContext,
+                        hideContent = hideContent,
+                        previousWasLineBreak = false,
+                        inlineCodeBlocks = inlineCodeBlocks
+                    )
+                    if (!endsWithNewline()) append("\n")
+                }
+            }
+            is HtmlNode.LineBreak -> {
+                // If the quote has a raw line break, mirror it with a new prefixed line.
+                append("\n")
+                withStyle(prefixStyle) { append(prefixText) }
+            }
+        }
     }
-    append("\n")
 }
 
 private fun AnnotatedString.Builder.appendUnorderedList(
