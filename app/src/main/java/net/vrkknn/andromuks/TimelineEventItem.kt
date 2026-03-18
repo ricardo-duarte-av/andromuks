@@ -1902,7 +1902,7 @@ private fun rememberReplyPreviewColors(
     appViewModel: AppViewModel?
 ): BubbleColors {
     val replySenderIsMine = replyInfo.sender == myUserId
-    val replyMentionsMe = !replySenderIsMine && isMentioningUser(originalEvent, myUserId)
+    val replyMentionsMe = isMentioningUser(originalEvent, myUserId)
     val replyHasSpoiler = originalEvent.containsSpoilerContent()
     val replyIsThread = originalEvent.isThreadMessage()
     val replyIsRedacted = originalEvent.redactedBy != null
@@ -3176,16 +3176,9 @@ fun TimelineEventItem(
             isMine
         }
 
-    // Check if the current user is mentioned in this message (calculated once for reuse)
-    // IMPORTANT: Exclude automatic mentions from replies - when someone replies to your message,
-    // Matrix automatically adds you to m.mentions, but that's not a "real" mention that should show a border
-    // Only show mention border if the message actually mentions the user AND it's not just a reply to that user
-    val replyInfoForMention = event.getReplyInfo()
-    val originalEventForMention = replyInfoForMention?.let { reply ->
-        timelineEvents.find<TimelineEvent> { it.eventId == reply.eventId }
-    }
-    val isReplyToMe = originalEventForMention?.sender == myUserId
-    val mentionsMe = !actualIsMine && isMentioningUser(event, myUserId) && !isReplyToMe
+    // Check if this message explicitly mentions the current user via m.mentions.user_ids
+    // (works for both unencrypted + encrypted messages; excludes nothing beyond "no user id").
+    val mentionsMe = isMentioningUser(event, myUserId)
 
     // Check if this is a narrator event (system event)
     val isNarratorEvent =

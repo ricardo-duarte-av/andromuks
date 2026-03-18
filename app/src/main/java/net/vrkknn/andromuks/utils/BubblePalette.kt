@@ -68,7 +68,7 @@ object BubblePalette {
                 content = content,
                 accent = accent,
                 stripe = stripe,
-                mentionBorder = null,
+                mentionBorder = null, // redactions don't render mention details
                 threadBorder = null
             )
         }
@@ -90,13 +90,17 @@ object BubblePalette {
             
             // Add subtle thread border using outlineVariant (neutral, won't conflict with mention colors)
             val threadBorder = colorScheme.outlineVariant.copy(alpha = 0.6f) // Subtle neutral border
+
+            // Mentions: add an accent border (Google Messages-style) on top of thread styling.
+            val mentionBorder =
+                if (mentionsMe) colorScheme.tertiary.copy(alpha = 0.85f) else null
             
             return BubbleColors(
                 container = container,
                 content = content,
                 accent = accent,
                 stripe = stripe,
-                mentionBorder = null,
+                mentionBorder = mentionBorder,
                 threadBorder = threadBorder
             )
         }
@@ -116,7 +120,7 @@ object BubblePalette {
                 content = colorScheme.onSurface,
                 accent = accent,
                 stripe = accent,
-                mentionBorder = null,
+                mentionBorder = if (mentionsMe) colorScheme.tertiary.copy(alpha = 0.85f) else null,
                 threadBorder = null
             )
         }
@@ -135,7 +139,8 @@ object BubblePalette {
         val othersContainer = lerp(othersBaseContainer, colorScheme.secondaryContainer, 0.25f)
         val othersContent = colorScheme.onSurface
         
-        // For mentions: Use a subtle color change instead of border (more Google Messages-like)
+        // For mentions: keep the subtle color change for non-mine messages.
+        // The *accent border* is handled via mentionBorder (see below).
         // Blend the base container with secondaryContainer to create a subtle tint
         val othersMentionContainer = if (mentionsMe && !isMine) {
             lerp(othersContainer, colorScheme.secondaryContainer, 0.4f)
@@ -158,8 +163,8 @@ object BubblePalette {
         // Accent colors: primary for mine, secondary for others
         val accent = if (isMine) colorScheme.primary else colorScheme.secondary
         
-        // No border for mentions - we use color change instead
-        val mentionBorder = null
+        // Mention accent border (same "family" of styling as menu highlight, but color = tertiary).
+        val mentionBorder = if (mentionsMe) colorScheme.tertiary.copy(alpha = 0.85f) else null
         
         // Stripe color: accent with appropriate alpha
         val stripe = accent.copy(alpha = 0.85f)

@@ -984,14 +984,40 @@ fun MessageBubbleWithMenu(
             null
         }
     
-    // Google Messages style: Mention border (accent border for mentions)
-    // Mention border takes precedence over thread border and highlight border
-    val mentionBorderStroke = mentionBorder?.let {
-        BorderStroke(
-            width = 2.dp,
-            color = it
-        )
+    // Mentions: Google Messages style accent border with a continuous slow pulse.
+    // This matches the "active bubble" vibe from long-press, but stays subtle/permanent.
+    val isMentioned = mentionBorder != null
+    val mentionPulseAnim = remember(event.eventId) { Animatable(0f) }
+    LaunchedEffect(isMentioned) {
+        if (!isMentioned) {
+            mentionPulseAnim.snapTo(0f)
+            return@LaunchedEffect
+        }
+
+        // Slow, low-frequency pulse so it doesn't feel distracting.
+        // Note: If many bubbles are mentioned at once, they will all animate.
+        // Mention occurrences are expected to be relatively sparse in practice.
+        while (true) {
+            mentionPulseAnim.snapTo(0f)
+            mentionPulseAnim.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing)
+            )
+            mentionPulseAnim.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 1100, easing = FastOutSlowInEasing)
+            )
+        }
     }
+    val mentionPulseBorder =
+        if (mentionBorder != null) {
+            BorderStroke(
+                width = 2.dp + (1.dp * mentionPulseAnim.value),
+                color = mentionBorder.copy(alpha = 0.35f + (0.45f * mentionPulseAnim.value))
+            )
+        } else {
+            null
+        }
     
     // Thread border: Subtle border indicator for thread messages
     // Thread border takes precedence over highlight border but not mention border
@@ -1033,7 +1059,7 @@ fun MessageBubbleWithMenu(
         null
     }
 
-    val combinedBorder = menuPulseBorder ?: mentionBorderStroke ?: threadBorderStroke ?: highlightBorder
+    val combinedBorder = menuPulseBorder ?: mentionPulseBorder ?: threadBorderStroke ?: highlightBorder
     
     // Adjust bubble color based on local echo state
     val bubbleColorAdjusted = when {
