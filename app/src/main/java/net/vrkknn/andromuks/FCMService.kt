@@ -69,6 +69,13 @@ class FCMService : FirebaseMessagingService() {
     }
     
     private var enhancedNotificationDisplay: EnhancedNotificationDisplay? = null
+
+    private fun buildRawResourceUri(rawResId: Int): android.net.Uri {
+        // Match the format android.resource resolver expects:
+        // android.resource://<package>/raw/<entryName>
+        val entryName = resources.getResourceEntryName(rawResId) // e.g. "bright"
+        return android.net.Uri.parse("android.resource://$packageName/raw/$entryName")
+    }
     
     // Track pending notifications to handle race conditions with dismiss notifications
     // Key: roomId, Value: timestamp when notification was queued
@@ -696,6 +703,7 @@ class FCMService : FirebaseMessagingService() {
         
         // Choose sound based on room type
         val soundResource = if (isLikelyGroupRoom) R.raw.descending else R.raw.bright
+        val soundUri = buildRawResourceUri(soundResource)
         
         // Create notification with reply action
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -708,7 +716,7 @@ class FCMService : FirebaseMessagingService() {
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
-            .setSound(android.net.Uri.parse("android.resource://" + packageName + "/" + soundResource))
+            .setSound(soundUri)
             .build()
         
         // Show notification

@@ -85,6 +85,14 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             }
         }
     )
+
+    private fun buildRawResourceUri(rawResId: Int): android.net.Uri {
+        // Android's resource URI resolver is more reliable with:
+        // android.resource://<package>/raw/<entryName>
+        // than with android.resource://<package>/<numericResId>.
+        val entryName = context.resources.getResourceEntryName(rawResId) // e.g. "bright"
+        return android.net.Uri.parse("android.resource://${context.packageName}/raw/$entryName")
+    }
     
     // Track rooms that are currently processing a reply to prevent notification updates
     // during Android's reply processing window (prevents race condition that causes duplicate sends)
@@ -115,7 +123,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 enableLights(true)
                 enableVibration(true)
                 setShowBadge(true)
-                setSound(android.net.Uri.parse("android.resource://" + context.packageName + "/" + R.raw.bright), null)
+                setSound(buildRawResourceUri(R.raw.bright), null)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     setAllowBubbles(true)
                 }
@@ -131,7 +139,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 enableLights(true)
                 enableVibration(true)
                 setShowBadge(true)
-                setSound(android.net.Uri.parse("android.resource://" + context.packageName + "/" + R.raw.descending), null)
+                setSound(buildRawResourceUri(R.raw.descending), null)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     setAllowBubbles(true)
                 }
@@ -149,7 +157,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 description = "Conversation notifications"
                 enableVibration(true)
                 enableLights(true)
-                setSound(android.net.Uri.parse("android.resource://" + context.packageName + "/" + R.raw.bright), null)
+                setSound(buildRawResourceUri(R.raw.bright), null)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     setAllowBubbles(true)
                 }
@@ -212,7 +220,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val soundResource = if (isGroupRoom) R.raw.descending else R.raw.bright
 
             // Create native Android notification channel
-            val soundUri = android.net.Uri.parse("android.resource://" + context.packageName + "/" + soundResource)
+            val soundUri = buildRawResourceUri(soundResource)
             val channel = NotificationChannel(
                 conversationChannelId,
                 roomName,
