@@ -912,7 +912,8 @@ fun CacheStatisticsSection(appViewModel: AppViewModel, navController: NavControl
                 CacheStatItem(
                     label = "User Profiles (Per-Room Memory)",
                     value = cacheStats!!["user_profiles_room_memory_cache"] ?: "N/A",
-                    description = cacheStats!!["user_profiles_room_count"] ?: ""
+                    description = cacheStats!!["user_profiles_room_count"] ?: "",
+                    onClick = { navController.navigate("cached_profiles/per_room") }
                 )
 
                 HorizontalDivider()
@@ -921,7 +922,8 @@ fun CacheStatisticsSection(appViewModel: AppViewModel, navController: NavControl
                 CacheStatItem(
                     label = "User Profiles (Global Memory)",
                     value = cacheStats!!["user_profiles_global_memory_cache"] ?: "N/A",
-                    description = cacheStats!!["user_profiles_global_count"] ?: ""
+                    description = cacheStats!!["user_profiles_global_count"] ?: "",
+                    onClick = { navController.navigate("cached_profiles/global") }
                 )
 
                 HorizontalDivider()

@@ -3508,29 +3508,39 @@ class AppViewModel : ViewModel() {
      * @return List of RoomProfileEntry with roomId and profile info, sorted by display name
      */
     suspend fun getAllMemoryCachedProfiles(): List<RoomProfileEntry> = withContext(Dispatchers.Default) {
-        val profiles = mutableListOf<RoomProfileEntry>()
+        val profilesByKey = linkedMapOf<String, RoomProfileEntry>()
         
         // Collect from flattened member cache (room-specific profiles)
-        // Keys are in format "roomId:userId" where roomId starts with '!' and userId starts with '@'
+        // Keys are in format "roomId:userId". Since Matrix userIds include ':',
+        // split on the ":@" boundary to preserve the full userId.
         for ((key, profile) in ProfileCache.getAllFlattenedProfiles()) {
-            // Find the last colon (userId starts with '@' so we need to find the separator correctly)
-            val lastColonIndex = key.lastIndexOf(':')
-            if (lastColonIndex > 0 && lastColonIndex < key.length - 1) {
-                val roomId = key.substring(0, lastColonIndex)
-                val userId = key.substring(lastColonIndex + 1)
-                // Validate that userId is a valid Matrix user ID (starts with '@' and contains ':')
-                // Also ensure it's not just a domain (like "aguiarvieira.pt")
-                if (userId.startsWith("@") && userId.contains(":") && userId.length > 2) {
-                    // Additional validation: userId should have format @name:domain
-                    val parts = userId.split(":", limit = 2)
-                    if (parts.size == 2 && parts[0].startsWith("@") && parts[0].length > 1 && parts[1].isNotEmpty()) {
-                        // Validate roomId format (should start with '!' or be a valid room ID)
-                        // Allow roomId to be present even if it doesn't start with '!' (for edge cases)
-                        profiles.add(RoomProfileEntry(
-                            roomId = roomId.takeIf { it.isNotEmpty() },
+            val separatorIndex = key.indexOf(":@")
+            if (separatorIndex > 0 && separatorIndex < key.length - 2) {
+                val roomId = key.substring(0, separatorIndex)
+                val userId = key.substring(separatorIndex + 1) // keep '@'
+                if (roomId.isNotBlank() && userId.startsWith("@") && userId.contains(":")) {
+                    val profileEntry = RoomProfileEntry(
+                        roomId = roomId,
+                        userId = userId,
+                        profile = profile
+                    )
+                    profilesByKey["$roomId|$userId"] = profileEntry
+                }
+            }
+        }
+
+        // Collect from RoomMemberCache as additional per-room source used by cache stats.
+        // This keeps the gallery consistent with "User Profiles (Per-Room Memory)" counts.
+        for ((roomId, members) in RoomMemberCache.getAllMembers()) {
+            for ((userId, profile) in members) {
+                if (roomId.isNotBlank() && userId.startsWith("@") && userId.contains(":")) {
+                    val cacheKey = "$roomId|$userId"
+                    if (!profilesByKey.containsKey(cacheKey)) {
+                        profilesByKey[cacheKey] = RoomProfileEntry(
+                            roomId = roomId,
                             userId = userId,
                             profile = profile
-                        ))
+                        )
                     }
                 }
             }
@@ -3544,17 +3554,17 @@ class AppViewModel : ViewModel() {
                 if (userId.startsWith("@") && userId.contains(":") && userId.length > 2) {
                     val parts = userId.split(":", limit = 2)
                     if (parts.size == 2 && parts[0].startsWith("@") && parts[0].length > 1 && parts[1].isNotEmpty()) {
-                        profiles.add(RoomProfileEntry(
+                        profilesByKey["global|$userId"] = RoomProfileEntry(
                             roomId = null, // Global profile, not room-specific
                             userId = userId,
                             profile = profile
-                        ))
+                        )
                 }
             }
         }
         
         // Sort by display name (nulls last), then by userId, then by roomId
-        profiles.sortedWith(compareBy(
+        profilesByKey.values.sortedWith(compareBy(
             { it.profile.displayName ?: "\uFFFF" }, // Put nulls at the end
             { it.userId },
             { it.roomId ?: "" }

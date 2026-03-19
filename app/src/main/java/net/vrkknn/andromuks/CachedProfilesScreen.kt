@@ -4,6 +4,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,7 +34,7 @@ data class CachedProfileEntry(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CachedProfilesScreen(
-    cacheType: String, // "memory" or "disk"
+    cacheType: String, // "memory" | "per_room" | "global" | "disk"(legacy)
     appViewModel: AppViewModel,
     navController: NavController
 ) {
@@ -42,9 +44,14 @@ fun CachedProfilesScreen(
     
     LaunchedEffect(cacheType) {
         isLoading = true
-        if (cacheType == "memory") {
+        if (cacheType == "memory" || cacheType == "per_room" || cacheType == "global") {
             val roomProfiles = appViewModel.getAllMemoryCachedProfiles()
-            profiles = roomProfiles.map { roomProfile ->
+            val filtered = when (cacheType) {
+                "per_room" -> roomProfiles.filter { it.roomId != null }
+                "global" -> roomProfiles.filter { it.roomId == null }
+                else -> roomProfiles
+            }
+            profiles = filtered.map { roomProfile ->
                 CachedProfileEntry(
                     userId = roomProfile.userId,
                     displayName = roomProfile.profile.displayName,
@@ -65,8 +72,18 @@ fun CachedProfilesScreen(
             TopAppBar(
                 title = { 
                     Text(
-                        text = if (cacheType == "memory") "Memory Cached Profiles" else "Disk Cached Profiles"
+                        text = when (cacheType) {
+                            "per_room" -> "Profile Gallery (Per-Room)"
+                            "global" -> "Profile Gallery (Global)"
+                            "memory" -> "Profile Gallery (Memory)"
+                            else -> "Profile Gallery"
+                        }
                     )
+                },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(imageVector = Icons.Filled.ArrowBack, contentDescription = "Back")
+                    }
                 }
             )
         }
@@ -110,6 +127,8 @@ fun CachedProfilesScreen(
                         )
                         if (cacheType == "memory") {
                             val uniqueUsers = profiles.map { it.userId }.distinct().size
+                            val perRoomCount = profiles.count { it.roomId != null }
+                            val globalCount = profiles.size - perRoomCount
                             if (uniqueUsers < profiles.size) {
                                 Text(
                                     text = "$uniqueUsers unique user${if (uniqueUsers != 1) "s" else ""} (some appear in multiple rooms)",
@@ -117,6 +136,25 @@ fun CachedProfilesScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                            Text(
+                                text = "Per-room: $perRoomCount  •  Global: $globalCount",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (cacheType == "per_room") {
+                            Text(
+                                text = "Showing room-specific profile variants only",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (cacheType == "global") {
+                            Text(
+                                text = "Showing global profile entries only",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
