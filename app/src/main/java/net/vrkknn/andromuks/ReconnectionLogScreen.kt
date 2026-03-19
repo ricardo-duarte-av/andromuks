@@ -2,6 +2,9 @@
 
 package net.vrkknn.andromuks
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -29,8 +32,17 @@ fun ReconnectionLogScreen(
 ) {
     val activityLog = remember { appViewModel.getActivityLog() }
     val context = LocalContext.current
+    val lastConnectionUrl = remember { WebSocketService.getLastConnectionUrl(context) }
+    val websocketUrl = if (lastConnectionUrl.isNotBlank()) lastConnectionUrl else "No connection made yet"
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    fun copyWebSocketUrl() {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("WebSocket URL", websocketUrl)
+        clipboard.setPrimaryClip(clip)
+        scope.launch { snackbarHostState.showSnackbar("WebSocket URL copied") }
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/plain")
@@ -111,6 +123,38 @@ fun ReconnectionLogScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "WebSocket URL",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = websocketUrl,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                if (websocketUrl != "No connection made yet") {
+                                    TextButton(
+                                        onClick = { copyWebSocketUrl() },
+                                        modifier = Modifier.align(Alignment.End)
+                                    ) {
+                                        Text("Copy")
+                                    }
+                                }
+                            }
+                        }
+                    }
                     items(activityLog.reversed()) { entry ->
                         ActivityLogEntry(entry = entry)
                     }

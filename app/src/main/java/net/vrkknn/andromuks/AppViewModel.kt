@@ -7569,6 +7569,8 @@ class AppViewModel : ViewModel() {
     private val activityLog = mutableListOf<ActivityLogEntry>()
     private val activityLogLock = Any() // Synchronization lock for activityLog access
     private val maxLogEntries = 100 // Keep last 100 entries
+    private val activityLogPrefsName = "AndromuksActivityLogPrefs"
+    private val activityLogPrefsKey = "activity_log"
     
     /**
      * Load activity log from SharedPreferences
@@ -7577,8 +7579,8 @@ class AppViewModel : ViewModel() {
         val ctx = context ?: appContext
         ctx?.let { ctx ->
             try {
-                val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-                val logJson = prefs.getString("activity_log", null)
+                val prefs = ctx.getSharedPreferences(activityLogPrefsName, android.content.Context.MODE_PRIVATE)
+                val logJson = prefs.getString(activityLogPrefsKey, null)
                 
                 if (logJson != null) {
                     val logArray = org.json.JSONArray(logJson)
@@ -7599,6 +7601,26 @@ class AppViewModel : ViewModel() {
                         
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${activityLog.size} activity log entries from storage")
                     }
+                } else {
+                    // One-time migration for users coming from old storage key/file.
+                    val legacyPrefs = ctx.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+                    val legacyLogJson = legacyPrefs.getString(activityLogPrefsKey, null)
+                    if (legacyLogJson != null) {
+                        val logArray = org.json.JSONArray(legacyLogJson)
+                        synchronized(activityLogLock) {
+                            activityLog.clear()
+                            for (i in 0 until logArray.length()) {
+                                val entryJson = logArray.getJSONObject(i)
+                                activityLog.add(ActivityLogEntry.fromJson(entryJson))
+                            }
+                            if (activityLog.size > maxLogEntries) {
+                                val entriesToKeep = activityLog.takeLast(maxLogEntries)
+                                activityLog.clear()
+                                activityLog.addAll(entriesToKeep)
+                            }
+                        }
+                        saveActivityLogToStorage()
+                    }
                 }
             } catch (e: Exception) {
                 android.util.Log.e("Andromuks", "AppViewModel: Failed to load activity log from storage", e)
@@ -7612,7 +7634,7 @@ class AppViewModel : ViewModel() {
     private fun saveActivityLogToStorage() {
         appContext?.let { context ->
             try {
-                val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+                val prefs = context.getSharedPreferences(activityLogPrefsName, android.content.Context.MODE_PRIVATE)
                 val logArray = org.json.JSONArray()
                 
                 // Take a snapshot under lock to avoid ConcurrentModificationException
@@ -7629,8 +7651,8 @@ class AppViewModel : ViewModel() {
                 }
                 
                 prefs.edit()
-                    .putString("activity_log", logArray.toString())
-                    .apply()
+                    .putString(activityLogPrefsKey, logArray.toString())
+                    .commit()
                 
             } catch (e: Exception) {
                 android.util.Log.e("Andromuks", "AppViewModel: Failed to save activity log to storage", e)
@@ -18647,8 +18669,16 @@ class AppViewModel : ViewModel() {
         val globalCount = ProfileCache.getGlobalCacheSize()
         // Estimate: MemberProfile with strings is roughly 200-500 bytes
         val estimatedProfileMemory = (flattenedCount + roomMemberCount + globalCount) * 350L // 350 bytes per profile estimate
+        val perRoomProfilesCount = flattenedCount + roomMemberCount
+        val globalProfilesCount = globalCount
+        val estimatedPerRoomProfileMemory = perRoomProfilesCount * 350L
+        val estimatedGlobalProfileMemory = globalProfilesCount * 350L
         stats["user_profiles_memory_cache"] = formatBytes(estimatedProfileMemory)
         stats["user_profiles_count"] = "${flattenedCount + roomMemberCount + globalCount} profiles"
+        stats["user_profiles_room_memory_cache"] = formatBytes(estimatedPerRoomProfileMemory)
+        stats["user_profiles_room_count"] = "$perRoomProfilesCount profiles"
+        stats["user_profiles_global_memory_cache"] = formatBytes(estimatedGlobalProfileMemory)
+        stats["user_profiles_global_count"] = "$globalProfilesCount profiles"
         
         // 4. User profile disk cache size (no disk cache)
         val profileDiskSize = 0L

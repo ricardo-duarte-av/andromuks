@@ -1490,6 +1490,18 @@ fun AppNavigation(
                 navController = navController
             )
         }
+        composable("push_notifications_debug") {
+            PushNotificationsDebugScreen(
+                appViewModel = appViewModel,
+                navController = navController
+            )
+        }
+        composable("cache_memory_stats") {
+            CacheMemoryStatsScreen(
+                appViewModel = appViewModel,
+                navController = navController
+            )
+        }
         composable("reconnection_log") {
             ReconnectionLogScreen(
                 appViewModel = appViewModel,

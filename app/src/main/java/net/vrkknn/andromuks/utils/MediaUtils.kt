@@ -78,7 +78,13 @@ object MediaUtils {
      * @param height Optional thumbnail height (default: 600)
      * @return The HTTP URL for loading the media thumbnail, or null if conversion fails
      */
-    fun mxcToThumbnailUrl(mxcUrl: String?, homeserverUrl: String, width: Int = 600, height: Int = 600): String? {
+    fun mxcToThumbnailUrl(
+        mxcUrl: String?,
+        homeserverUrl: String,
+        width: Int = 600,
+        height: Int = 600,
+        registerMapping: Boolean = true
+    ): String? {
         if (mxcUrl.isNullOrBlank()) return null
         
         try {
@@ -113,7 +119,19 @@ object MediaUtils {
                 httpUrl.lowercase()
             }
             
-            //Log.d("Andromuks", "MediaUtils: Converted MXC URL to thumbnail: $mxcUrl -> $sanitizedUrl")
+            // Register URL mapping for cache gallery display (async, non-blocking).
+            // Most timeline/media renders use thumbnail URLs, so this is critical for
+            // reverse lookup in the cache viewer.
+            if (registerMapping) {
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        CoilUrlMapper.registerMapping(sanitizedUrl, mxcUrl)
+                    } catch (_: Exception) {
+                        // Ignore mapping failures, never block media display.
+                    }
+                }
+            }
+
             return sanitizedUrl
             
         } catch (e: Exception) {

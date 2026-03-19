@@ -33,13 +33,9 @@ fun SettingsScreen(
     appViewModel: AppViewModel,
     navController: NavController
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-    ) {
-        // Top App Bar
-        TopAppBar(
+    Scaffold(
+        topBar = {
+            TopAppBar(
                 title = { Text("Settings") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
@@ -49,12 +45,14 @@ fun SettingsScreen(
                         )
                     }
                 }
-        )
-
-        // Settings Content
+            )
+        }
+    ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -354,8 +352,35 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(top = 16.dp)
             )
-            
-            FCMInfoSection(appViewModel = appViewModel)
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Push Notifications Details",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "View FCM registration state, identifiers, and debug values on a dedicated screen.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = { navController.navigate("push_notifications_debug") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Open Push Notifications")
+                    }
+                }
+            }
 
             // Cache Statistics Section
             Text(
@@ -365,8 +390,35 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(top = 16.dp)
             )
-            
-            CacheStatisticsSection(appViewModel = appViewModel, navController = navController)
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Memory & Cache Usage",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Open a dedicated view with detailed memory and cache usage information.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = { navController.navigate("cache_memory_stats") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Open Memory & Cache")
+                    }
+                }
+            }
 
             // WebSocket Debug Section
             Text(
@@ -443,6 +495,66 @@ fun SettingsScreen(
                     )
                 }
             }
+        } // Content column
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PushNotificationsDebugScreen(
+    appViewModel: AppViewModel,
+    navController: NavController
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Push Notifications") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(imageVector = Icons.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+        ) {
+            FCMInfoSection(appViewModel = appViewModel)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CacheMemoryStatsScreen(
+    appViewModel: AppViewModel,
+    navController: NavController
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Memory & Cache Usage") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(imageVector = Icons.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+        ) {
+            CacheStatisticsSection(appViewModel = appViewModel, navController = navController)
         }
     }
 }
@@ -488,12 +600,6 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
     val runId = remember { appViewModel.getCurrentRunId() }
     val currentRequestId = remember { appViewModel.getCurrentRequestId() }
     
-    // Show the exact URL used on the last (re)connection; saved when we connect in NetworkUtils.
-    var lastConnectionUrl by remember { mutableStateOf("") }
-    LaunchedEffect(Unit, refreshTrigger) {
-        lastConnectionUrl = WebSocketService.getLastConnectionUrl(context)
-    }
-    val currentWebSocketUrl = if (lastConnectionUrl.isNotBlank()) lastConnectionUrl else "No connection made yet"
     val isRegistered = remember { fcmNotificationManager.isRegisteredWithBackend() }
     
     // Helper function to copy to clipboard
@@ -635,17 +741,6 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
                 value = if (lastReceivedRequestId != 0) lastReceivedRequestId.toString() else "Not set",
                 onCopy = if (lastReceivedRequestId != 0) {
                     { copyToClipboard("Last Received Request ID", lastReceivedRequestId.toString()) }
-                } else null
-            )
-            
-            HorizontalDivider()
-            
-            // WebSocket URL
-            FCMInfoItem(
-                label = "WebSocket URL",
-                value = currentWebSocketUrl,
-                onCopy = if (currentWebSocketUrl != "No connection made yet") {
-                    { copyToClipboard("WebSocket URL", currentWebSocketUrl) }
                 } else null
             )
             
@@ -812,25 +907,23 @@ fun CacheStatisticsSection(appViewModel: AppViewModel, navController: NavControl
                 )
                 
                 HorizontalDivider()
-                
-                // User Profiles Memory Cache
+
+                // Profiles memory cache (room-specific)
                 CacheStatItem(
-                    label = "User Profiles (Memory)",
-                    value = cacheStats!!["user_profiles_memory_cache"] ?: "N/A",
-                    description = cacheStats!!["user_profiles_count"] ?: "",
-                    onClick = { navController.navigate("cached_profiles/memory") }
+                    label = "User Profiles (Per-Room Memory)",
+                    value = cacheStats!!["user_profiles_room_memory_cache"] ?: "N/A",
+                    description = cacheStats!!["user_profiles_room_count"] ?: ""
                 )
-                
+
                 HorizontalDivider()
-                
-                // User Profiles Disk Cache
+
+                // Profiles memory cache (global)
                 CacheStatItem(
-                    label = "User Profiles (Disk)",
-                    value = cacheStats!!["user_profiles_disk_cache"] ?: "N/A",
-                    description = "Stored on disk",
-                    onClick = { navController.navigate("cached_profiles/disk") }
+                    label = "User Profiles (Global Memory)",
+                    value = cacheStats!!["user_profiles_global_memory_cache"] ?: "N/A",
+                    description = cacheStats!!["user_profiles_global_count"] ?: ""
                 )
-                
+
                 HorizontalDivider()
                 
                 // Media Memory Cache
