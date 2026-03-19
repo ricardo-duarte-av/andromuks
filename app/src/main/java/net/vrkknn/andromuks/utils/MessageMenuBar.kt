@@ -1,5 +1,8 @@
 package net.vrkknn.andromuks.utils
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import net.vrkknn.andromuks.BuildConfig
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -55,6 +58,8 @@ import androidx.compose.material.icons.filled.TagFaces
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.TextFields
 import kotlin.math.max
 import kotlin.math.min
 
@@ -78,6 +83,7 @@ data class MessageMenuConfig(
     val onShowEditHistory: (() -> Unit)?,
     val appViewModel: net.vrkknn.andromuks.AppViewModel?,
     val onViewSource: ((String) -> Unit)? = null,
+    val onViewRenderedText: ((String) -> Unit)? = null,
     val onShowReactions: (() -> Unit)? = null
 )
 
@@ -95,6 +101,7 @@ fun MessageMenuBar(
     if (menuConfig == null) return
     
     val event = menuConfig.event
+    val context = androidx.compose.ui.platform.LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var showRawJsonDialog by remember { mutableStateOf(false) }
     var rawJsonToShow by remember { mutableStateOf<String?>(null) }
@@ -139,6 +146,10 @@ fun MessageMenuBar(
             deletedMsgType != null -> "Deleted content (${deletedMsgType})"
             else -> null
         }
+    }
+
+    val renderedMessageText = remember(event.eventId, event.content, event.decrypted, event.localContent) {
+        extractRenderedMessageTextForMenu(event)
     }
     
     Box(
@@ -351,6 +362,35 @@ fun MessageMenuBar(
                                     Icon(Icons.Filled.Code, contentDescription = null)
                                 }
                             )
+                            DropdownMenuItem(
+                                text = { Text("Copy") },
+                                onClick = {
+                                    moreExpanded = false
+                                    onDismiss()
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Message", renderedMessageText))
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.ContentCopy, contentDescription = null)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Text") },
+                                onClick = {
+                                    moreExpanded = false
+                                    onDismiss()
+                                    val text = renderedMessageText
+                                    if (menuConfig.onViewRenderedText != null) {
+                                        menuConfig.onViewRenderedText.invoke(text)
+                                    } else {
+                                        rawJsonToShow = text
+                                        showRawJsonDialog = true
+                                    }
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.TextFields, contentDescription = null)
+                                }
+                            )
                         }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
@@ -439,5 +479,26 @@ fun MessageMenuBar(
             }
         }
     }
+}
+
+private fun extractRenderedMessageTextForMenu(event: TimelineEvent): String {
+    val plainBody =
+        event.decrypted?.optString("body")?.takeIf { it.isNotBlank() }
+            ?: event.content?.optString("body")?.takeIf { it.isNotBlank() }
+            ?: ""
+
+    val htmlContent =
+        extractSanitizedHtml(event)
+            ?: event.decrypted?.optString("formatted_body")?.takeIf { it.isNotBlank() }
+            ?: event.content?.optString("formatted_body")?.takeIf { it.isNotBlank() }
+
+    if (htmlContent != null && supportsHtmlRendering(event)) {
+        val rendered = runCatching { htmlToNotificationText(htmlContent).toString() }.getOrNull()
+        if (!rendered.isNullOrBlank()) {
+            return rendered.trimEnd()
+        }
+    }
+
+    return decodeHtmlEntities(plainBody).trimEnd()
 }
 

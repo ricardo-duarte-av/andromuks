@@ -3454,6 +3454,10 @@ fun RoomTimelineScreen(
                                                         codeViewerContent = code
                                                         showCodeViewer = true
                                                     },
+                                                    onViewRenderedText = { text ->
+                                                        codeViewerContent = text
+                                                        showCodeViewer = true
+                                                    },
                                                     onShowReactions = {
                                                         // Backfill detailed reactions for this event (user + timestamp) via get_related_events.
                                                         appViewModel.requestReactionDetails(roomId, menuConfig.event.eventId)

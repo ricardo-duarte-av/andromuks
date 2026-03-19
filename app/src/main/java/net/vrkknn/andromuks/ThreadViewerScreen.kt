@@ -1335,6 +1335,10 @@ fun ThreadViewerScreen(
                                                         codeViewerContent = code
                                                         showCodeViewer = true
                                                     },
+                                                    onViewRenderedText = { text ->
+                                                        codeViewerContent = text
+                                                        showCodeViewer = true
+                                                    },
                                                     onShowReactions = {
                                                         reactionsEventId = menuConfig.event.eventId
                                                         showReactionsDialog = true
