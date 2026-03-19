@@ -167,7 +167,7 @@ private fun dispatchParsedWebSocketMessage(jsonObject: JSONObject) {
             val isReconnectingWithLastReceivedEvent = WebSocketService.isReconnectingWithLastReceivedEvent()
             if (isReconnectingWithLastReceivedEvent) {
                 if (BuildConfig.DEBUG) Log.i("NetworkUtils", "Reconnection with last_received_event: First sync_complete - treating as init_complete")
-                WebSocketService.onInitCompleteReceived()
+                WebSocketService.onInitCompleteReceived("sync_complete_resume")
                 WebSocketService.setReconnectingWithLastReceivedEvent(false)
                 WebSocketService.getServiceScope().launch(Dispatchers.Main) {
                     for (viewModel in WebSocketService.getRegisteredViewModels()) {
@@ -193,7 +193,7 @@ private fun dispatchParsedWebSocketMessage(jsonObject: JSONObject) {
         }
         "init_complete" -> {
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: init_complete")
-            WebSocketService.onInitCompleteReceived()
+            WebSocketService.onInitCompleteReceived("init_complete")
             WebSocketService.getServiceScope().launch(Dispatchers.Main) {
                 for (viewModel in WebSocketService.getRegisteredViewModels()) {
                     viewModel.onInitComplete()
