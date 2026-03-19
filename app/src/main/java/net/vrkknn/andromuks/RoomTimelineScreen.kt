@@ -1651,6 +1651,7 @@ fun RoomTimelineScreen(
     }
 
     // Command detection function (for '/' based autocomplete)
+    // Commands only trigger when '/' is the very first character.
     fun detectCommand(text: String, cursorPosition: Int): Pair<String, Int>? {
         if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
         
@@ -1670,14 +1671,15 @@ fun RoomTimelineScreen(
         // Also check if cursor is right after / (similar to mention detection)
         if (slashIndex == -1 && cursorPosition > 0 && cursorPosition <= text.length) {
             if (text[cursorPosition - 1] == '/') {
-                // Check if / is at beginning or preceded by space/newline
-                if (cursorPosition == 1 || (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))) {
+                // '/' must be at the very start of the input.
+                if (cursorPosition == 1) {
                     slashIndex = cursorPosition - 1
                 }
             }
         }
         
         if (slashIndex == -1) return null
+        if (slashIndex != 0) return null
         
         // Extract the query after / (only the command name, up to first space/newline or cursor)
         val queryStart = slashIndex + 1

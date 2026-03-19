@@ -122,6 +122,16 @@ object Commands {
             command = "/alias",
             description = "Manage room aliases",
             parameters = listOf("add|del|create|remove|rm|delete", "name")
+        ),
+        // Direct message (m.direct) account data
+        CommandDefinition(
+            command = "/converttodm",
+            description = "Mark the current room as a DM (m.direct)",
+            parameters = listOf("@user:server?")
+        ),
+        CommandDefinition(
+            command = "/converttoroom",
+            description = "Remove the current room from DMs (m.direct)"
         )
     )
     

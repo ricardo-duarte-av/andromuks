@@ -15892,6 +15892,85 @@ class AppViewModel : ViewModel() {
     }
     
     /**
+     * Build a mutable copy of the current m.direct map (user MXID -> room IDs).
+     * Merges [directMessageUserMap] with [AccountDataCache] so entries only present in one
+     * source (e.g. cache restored after partial sync bugs) are not lost.
+     */
+    private fun mutableDirectMapFromCurrent(): MutableMap<String, MutableList<String>> {
+        val out = mutableMapOf<String, MutableList<String>>()
+        for ((userId, roomSet) in directMessageUserMap) {
+            out[userId] = roomSet.toMutableList()
+        }
+        val mDirectWrapper = AccountDataCache.getAccountData("m.direct") ?: return out
+        val content = mDirectWrapper.optJSONObject("content") ?: return out
+        val names = content.names() ?: return out
+        for (i in 0 until names.length()) {
+            val userId = names.optString(i)
+            if (userId.isBlank()) continue
+            val arr = content.optJSONArray(userId) ?: continue
+            val list = out.getOrPut(userId) { mutableListOf() }
+            for (j in 0 until arr.length()) {
+                val id = arr.optString(j)
+                if (id.isNotBlank() && id !in list) list.add(id)
+            }
+        }
+        return out
+    }
+
+    private fun normalizeMxidForDirect(raw: String): String {
+        val t = raw.trim()
+        if (t.isEmpty()) return t
+        return if (t.startsWith("@")) t else "@$t"
+    }
+
+    /**
+     * If the room has exactly one other member (besides [currentUserId]), return their MXID; otherwise null.
+     */
+    private fun inferSingleOtherMemberMxid(roomId: String): String? {
+        if (currentUserId.isBlank()) return null
+        val others = getMemberMap(roomId).keys.filter { it.isNotBlank() && it != currentUserId }
+        return others.singleOrNull()
+    }
+
+    /**
+     * Remove [roomId] from every user's DM list in [map].
+     */
+    private fun removeRoomFromAllDirectEntries(map: MutableMap<String, MutableList<String>>, roomId: String) {
+        for (uid in map.keys.toList()) {
+            map[uid]?.remove(roomId)
+            if (map[uid].isNullOrEmpty()) map.remove(uid)
+        }
+    }
+
+    /**
+     * Commit full m.direct content to the server and apply the same state locally (optimistic).
+     */
+    private fun commitMDirectToServer(map: MutableMap<String, MutableList<String>>) {
+        val contentMap = mutableMapOf<String, Any>()
+        for ((userId, rooms) in map) {
+            if (rooms.isNotEmpty()) {
+                contentMap[userId] = ArrayList(rooms)
+            }
+        }
+        val requestId = requestIdCounter++
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: set_account_data m.direct — ${contentMap.size} user keys, ${map.values.sumOf { it.size }} room entries (local caches updated on next sync_complete)"
+            )
+        }
+        // No optimistic update: m.direct / room DM flags refresh when account_data arrives via sync_complete.
+        sendWebSocketCommand(
+            "set_account_data",
+            requestId,
+            mapOf(
+                "type" to "m.direct",
+                "content" to contentMap
+            )
+        )
+    }
+
+    /**
      * Parse and execute a command from user input
      * Returns true if the text was a command and was executed, false otherwise
      */
@@ -16134,6 +16213,60 @@ class AppViewModel : ViewModel() {
                             ))
                         }
                     }
+                }
+                true
+            }
+            command == "/converttodm" -> {
+                val arg0 = args.getOrNull(0)?.trim()?.takeIf { it.isNotBlank() }
+                val targetUserId = if (arg0 != null) {
+                    normalizeMxidForDirect(arg0)
+                } else {
+                    val inferred = inferSingleOtherMemberMxid(roomId)
+                    if (inferred == null) {
+                        android.widget.Toast.makeText(
+                            context,
+                            "Specify a user (@user:server) or use in a room with exactly one other member",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                        return true
+                    }
+                    normalizeMxidForDirect(inferred)
+                }
+                if (!targetUserId.contains(":") || targetUserId.length < 4) {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Invalid Matrix user ID",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    return true
+                }
+                val map = mutableDirectMapFromCurrent()
+                removeRoomFromAllDirectEntries(map, roomId)
+                val list = map.getOrPut(targetUserId) { mutableListOf() }
+                if (roomId !in list) list.add(roomId)
+                commitMDirectToServer(map)
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: /converttodm — room=$roomId with $targetUserId")
+                }
+                true
+            }
+            command == "/converttoroom" -> {
+                val map = mutableDirectMapFromCurrent()
+                val wasDirect = map.values.any { it.contains(roomId) }
+                if (!wasDirect) {
+                    val msg = if (roomMap[roomId]?.isDirectMessage == true) {
+                        "This room is not in your m.direct map here, so it can't be removed that way. " +
+                            "The Direct tab may be using room metadata (dm_user_id), not account m.direct."
+                    } else {
+                        "This room is not in your m.direct list."
+                    }
+                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+                    return true
+                }
+                removeRoomFromAllDirectEntries(map, roomId)
+                commitMDirectToServer(map)
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: /converttoroom — removed $roomId from m.direct")
                 }
                 true
             }

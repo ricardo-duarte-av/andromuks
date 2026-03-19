@@ -50,21 +50,30 @@ object AccountDataCache {
     }
     
     /**
-     * Set all account data (from sync_complete account_data object)
+     * Merge account data from a sync_complete `account_data` object.
+     *
+     * Most sync payloads only contain the keys that changed. Keys present here are
+     * inserted or replaced; keys **absent** from this object are left unchanged.
+     * (Previously the cache was cleared first, which dropped e.g. `m.direct` whenever
+     * a later partial sync omitted it — breaking `/converttoroom` and similar.)
      */
     fun setAllAccountData(accountData: JSONObject) {
         synchronized(cacheLock) {
-            accountDataCache.clear()
             val keys = accountData.keys()
             while (keys.hasNext()) {
                 val key = keys.next()
-                val data = accountData.optJSONObject(key)
-                if (data != null) {
-                    accountDataCache[key] = data
+                when {
+                    accountData.isNull(key) -> accountDataCache.remove(key)
+                    else -> {
+                        val data = accountData.optJSONObject(key)
+                        if (data != null) {
+                            accountDataCache[key] = data
+                        }
+                    }
                 }
             }
             if (BuildConfig.DEBUG) {
-                Log.d(TAG, "AccountDataCache: Stored ${accountDataCache.size} account_data types")
+                Log.d(TAG, "AccountDataCache: Merged account_data, ${accountDataCache.size} type(s) in cache")
             }
         }
     }
