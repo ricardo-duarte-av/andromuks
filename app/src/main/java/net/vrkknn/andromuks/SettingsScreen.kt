@@ -420,6 +420,44 @@ fun SettingsScreen(
                 }
             }
 
+            // Account data (Matrix client account_data cache)
+            Text(
+                text = "Account data",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Account data viewer",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Inspect cached account_data keys from sync (e.g. m.direct, m.push_rules, preferences). Tap a key to view its JSON.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = { navController.navigate("account_data_visualizer") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Open account data")
+                    }
+                }
+            }
+
             // WebSocket Debug Section
             Text(
                 text = "WebSocket Debug",
