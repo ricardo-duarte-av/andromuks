@@ -117,20 +117,23 @@ class NetworkMonitor(
                     Log.w("NetworkMonitor", "Network lost: $network")
                 }
                 
-                // Check if we still have other networks
+                // Capture state BEFORE updateCurrentNetworkState() — it overwrites currentNetworkType
+                // (e.g. to NONE when no active network), so comparing after update would always see NONE.
+                val previousType = currentNetworkType
+                val previousIdentity = currentNetworkIdentity
+                
+                // Refresh from ConnectivityManager to see if another network is still available
                 updateCurrentNetworkState()
                 
                 if (currentNetworkType == NetworkType.NONE) {
-                    // No networks available - we're offline
-                    val previousType = currentNetworkType
-                    currentNetworkType = NetworkType.NONE
-                    currentNetworkIdentity = null
-                    hasValidatedNetwork = false
-                    
+                    // No validated network available — fully offline
                     if (previousType != NetworkType.NONE) {
                         if (BuildConfig.DEBUG) {
-                            Log.i("NetworkMonitor", "Network lost - going offline")
+                            Log.i("NetworkMonitor", "Network lost - going offline (was $previousType, identity=$previousIdentity)")
                         }
+                        // Ensure fields match offline (updateCurrentNetworkState already set NONE for no active network)
+                        currentNetworkIdentity = null
+                        hasValidatedNetwork = false
                         onNetworkLost()
                     }
                 } else {
