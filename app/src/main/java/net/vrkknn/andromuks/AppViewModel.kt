@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.collect
 import org.json.JSONObject
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -58,6 +59,7 @@ import java.io.File
 import java.util.Collections
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.getUserAgent
+import net.vrkknn.andromuks.utils.applyIncomingWebSocketMessageForViewModel
 
 data class MemberProfile(
     val displayName: String?,
@@ -197,6 +199,42 @@ class AppViewModel : ViewModel() {
     // PHASE 4: Unique ID for this ViewModel instance (for WebSocket callback registration)
     private val viewModelId: String = "AppViewModel_${viewModelCounter++}"
     
+    init {
+        SyncRepository.attachViewModel(viewModelId, this)
+        viewModelScope.launch {
+            SyncRepository.events.collect { event ->
+                when (event) {
+                    is SyncEvent.OfflineModeChanged -> {
+                        if (event.isOffline) {
+                            android.util.Log.w("Andromuks", "AppViewModel: Offline mode (SyncRepository): entering offline")
+                            logActivity("Entering Offline Mode", null)
+                            setOfflineMode(true)
+                        } else {
+                            android.util.Log.i("Andromuks", "AppViewModel: Offline mode (SyncRepository): online")
+                            logActivity("Exiting Offline Mode", null)
+                            setOfflineMode(false)
+                            WebSocketService.resetReconnectionState()
+                        }
+                    }
+                    is SyncEvent.ActivityLog -> {
+                        logActivity(event.event, event.networkType)
+                    }
+                    is SyncEvent.ClearTimelineCachesRequested -> {
+                        clearAllTimelineCaches()
+                    }
+                    is SyncEvent.IncomingWebSocketMessage -> {
+                        try {
+                            val json = JSONObject(event.jsonString)
+                            applyIncomingWebSocketMessageForViewModel(json, this@AppViewModel, event.hint)
+                        } catch (e: Exception) {
+                            android.util.Log.e("Andromuks", "AppViewModel: IncomingWebSocketMessage apply failed", e)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
     private enum class InstanceRole {
         PRIMARY,
         BUBBLE,
@@ -212,9 +250,6 @@ class AppViewModel : ViewModel() {
         // STEP 2.1: Register/update this ViewModel with service (as primary)
         // This updates the registration if it was already registered as secondary
         WebSocketService.registerViewModel(viewModelId, isPrimary = true)
-        
-        // CRITICAL: Register to receive WebSocket messages
-        WebSocketService.registerReceiveCallback(viewModelId, this)
         
         // PHASE 1.4 FIX: Register primary callbacks immediately when marked as primary
         // This ensures callbacks are available before WebSocket connection is established
@@ -291,143 +326,24 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * PHASE 1.4 FIX: Register primary callbacks with WebSocketService
-     * This should be called when the instance is marked as primary, before WebSocket connection
-     * This ensures the service knows the AppViewModel is available even before connection is established
-     */
-    /**
-     * STEP 1.2: Register primary callbacks with service
-     * Callbacks are stored in service and don't capture AppViewModel instance
-     * This allows callbacks to work even if AppViewModel is destroyed
+     * Registers this instance as primary with [WebSocketService] (id only).
+     * Offline / activity / connection events use [SyncRepository] flows — see [init] collector.
      */
     private fun registerPrimaryCallbacks() {
         if (instanceRole != InstanceRole.PRIMARY) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping primary callback registration - instance is not PRIMARY")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping primary registration - not PRIMARY")
             return
         }
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: STEP 1.2 - Registering primary callbacks for $viewModelId (callbacks don't capture AppViewModel)")
-        
-        // STEP 1.2: Store current credentials in service for callbacks to use
-        // This allows callbacks to work even if this AppViewModel is destroyed
-        val currentHomeserverUrl = homeserverUrl
-        val currentAuthToken = authToken
-        
-        // CRITICAL FIX: Capture viewModelId and this instance for use in callback
-        // This ensures the callback can use this instance directly if it's primary
-        val callbackViewModelId = viewModelId
-        val callbackViewModelInstance = this
-        
-        // Register reconnection callback - this will set this instance as primary
-        // STEP 1.2: Callback reads from SharedPreferences and uses registered ViewModels (doesn't capture AppViewModel)
-        // Register clear cache callback for WebSocket connect/reconnect
-        val clearCacheRegistered = WebSocketService.setPrimaryClearCacheCallback(viewModelId) {
-            clearAllTimelineCaches()
+        WebSocketService.setPrimaryClearCacheCallback(viewModelId) {
+            SyncRepository.requestClearTimelineCaches()
         }
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Clear cache callback registered: $clearCacheRegistered")
-        
-        val reconnectionRegistered = WebSocketService.setReconnectionCallback(callbackViewModelId) { reason ->
-            android.util.Log.i("Andromuks", "AppViewModel: STEP 1.2 - Reconnection callback triggered (reason: $reason)")
-            
-            // STEP 1.2: Read credentials from SharedPreferences (not from captured AppViewModel)
-            val context = callbackViewModelInstance.appContext
-            if (context == null) {
-                android.util.Log.e("Andromuks", "AppViewModel: STEP 1.2 - Reconnection callback: appContext is null, cannot reconnect")
-                return@setReconnectionCallback
-            }
-            
-            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-            val storedHomeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
-            val storedAuthToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
-            
-            if (storedHomeserverUrl.isNotEmpty() && storedAuthToken.isNotEmpty()) {
-                // STEP 1.2: Find primary ViewModel from registered ViewModels (may be different instance)
-                // CRITICAL FIX: Use this AppViewModel instance directly if we're primary, otherwise search
-                // This handles the case where headless ViewModel callback is invoked before it's fully registered
-                val isThisPrimary = WebSocketService.isPrimaryInstance(callbackViewModelId)
-                
-                val primaryViewModel = if (isThisPrimary && callbackViewModelInstance.appContext != null) {
-                    // This is the primary instance - use it directly (handles headless ViewModel case)
-                    callbackViewModelInstance
-                } else {
-                    // Search for primary in registered ViewModels
-                    val registeredViewModels = WebSocketService.getRegisteredViewModels()
-                    registeredViewModels.firstOrNull { 
-                        WebSocketService.isPrimaryInstance(it.viewModelId) 
-                    }
-                }
-                
-                if (primaryViewModel != null) {
-                    android.util.Log.i("Andromuks", "AppViewModel: STEP 1.2 - Reconnection callback: Found primary ViewModel (${if (isThisPrimary) "this instance" else "from registry"}), initializing WebSocket connection")
-                    // Clear WebSocket first
-                    WebSocketService.clearWebSocket(reason)
-                    // Then trigger reconnection directly on the primary ViewModel
-                    primaryViewModel.initializeWebSocketConnection(storedHomeserverUrl, storedAuthToken)
-                } else {
-                    android.util.Log.w("Andromuks", "AppViewModel: STEP 1.2 - Reconnection callback: No primary ViewModel found (this instance isPrimary=$isThisPrimary), will be handled by promotion in Step 2")
-                    // For now, just clear WebSocket - promotion will handle reconnection in Step 2
-                    WebSocketService.clearWebSocket(reason)
-                }
-            } else {
-                android.util.Log.w("Andromuks", "AppViewModel: STEP 1.2 - Reconnection callback: No credentials in SharedPreferences")
-            }
+        val ok = WebSocketService.setReconnectionCallback(viewModelId) { }
+        if (!ok) {
+            android.util.Log.w("Andromuks", "AppViewModel: setReconnectionCallback failed for $viewModelId")
         }
-        if (!reconnectionRegistered) {
-            val existingPrimary = WebSocketService.getPrimaryViewModelId()
-            android.util.Log.w("Andromuks", "AppViewModel: Failed to register as primary instance for reconnection callback. Current primary: $existingPrimary, This instance: $viewModelId")
-        } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Successfully registered reconnection callback for $viewModelId")
-        }
-        
-        // Register offline mode callback - only if reconnection callback was registered successfully
-        // STEP 1.2: Callback broadcasts to all registered ViewModels (doesn't capture AppViewModel)
-        if (reconnectionRegistered) {
-            val offlineModeRegistered = WebSocketService.setOfflineModeCallback(viewModelId) { isOffline ->
-                android.util.Log.i("Andromuks", "AppViewModel: STEP 1.2 - Offline mode callback triggered: isOffline=$isOffline")
-                
-                // STEP 1.2: Broadcast to all registered ViewModels (not just this instance)
-                val registeredViewModels = WebSocketService.getRegisteredViewModels()
-                for (viewModel in registeredViewModels) {
-                    try {
-                        if (isOffline) {
-                            android.util.Log.w("Andromuks", "AppViewModel: STEP 1.2 - Broadcasting offline mode to ViewModel ${viewModel.viewModelId}")
-                            viewModel.logActivity("Entering Offline Mode", null)
-                            viewModel.setOfflineMode(true)
-                        } else {
-                            android.util.Log.i("Andromuks", "AppViewModel: STEP 1.2 - Broadcasting online mode to ViewModel ${viewModel.viewModelId}")
-                            viewModel.logActivity("Exiting Offline Mode", null)
-                            viewModel.setOfflineMode(false)
-                            // Reset reconnection state on network restoration
-                            WebSocketService.resetReconnectionState()
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.e("Andromuks", "AppViewModel: STEP 1.2 - Error broadcasting offline mode to ViewModel ${viewModel.viewModelId}", e)
-                    }
-                }
-            }
-            if (!offlineModeRegistered) {
-                android.util.Log.w("Andromuks", "AppViewModel: Failed to register offline mode callback. This should not happen if reconnection callback was registered.")
-            }
-            
-            // Register activity log callback - only if reconnection callback was registered successfully
-            // STEP 1.2: Callback broadcasts to all registered ViewModels (doesn't capture AppViewModel)
-            val activityLogRegistered = WebSocketService.setActivityLogCallback(viewModelId) { event, networkType ->
-                android.util.Log.d("Andromuks", "AppViewModel: STEP 1.2 - Activity log callback triggered: event=$event, networkType=$networkType")
-                
-                // STEP 1.2: Broadcast to all registered ViewModels (not just this instance)
-                val registeredViewModels = WebSocketService.getRegisteredViewModels()
-                for (viewModel in registeredViewModels) {
-                    try {
-                        viewModel.logActivity(event, networkType)
-                    } catch (e: Exception) {
-                        android.util.Log.e("Andromuks", "AppViewModel: STEP 1.2 - Error broadcasting activity log to ViewModel ${viewModel.viewModelId}", e)
-                    }
-                }
-            }
-            if (!activityLogRegistered) {
-                android.util.Log.w("Andromuks", "AppViewModel: Failed to register activity log callback. This should not happen if reconnection callback was registered.")
-            }
-        }
+        WebSocketService.setOfflineModeCallback(viewModelId) { }
+        WebSocketService.setActivityLogCallback(viewModelId) { _, _ -> }
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Primary registered (SyncRepository flows); viewModelId=$viewModelId")
     }
     
     fun markAsBubbleInstance() {
@@ -6773,11 +6689,8 @@ class AppViewModel : ViewModel() {
         super.onCleared()
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: onCleared - cleaning up resources for $viewModelId")
         
-        // STEP 2.1: Unregister this ViewModel from service lifecycle tracking
-        WebSocketService.unregisterViewModel(viewModelId)
-        
-        // PHASE 4: Unregister this ViewModel from receiving WebSocket messages
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unregistering $viewModelId from WebSocket callbacks")
+        // Detach from SyncRepository (single registry: lifecycle + receive; primary promotion on detach)
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unregistering $viewModelId from WebSocket / SyncRepository")
         WebSocketService.unregisterReceiveCallback(viewModelId)
         
         // PHASE 1.3: Clear primary callbacks if this is the primary instance
