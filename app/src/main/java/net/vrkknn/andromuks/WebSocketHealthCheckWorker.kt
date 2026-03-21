@@ -10,6 +10,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.ExistingWorkPolicy
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.ForegroundInfo
 import android.app.Notification
@@ -142,6 +143,8 @@ class WebSocketHealthCheckWorker(
     
     companion object {
         private const val WORK_NAME = "websocket_health_check"
+        /** One-off recovery; unique name so flapping reconnects don't stack workers. */
+        private const val RECOVERY_UNIQUE_WORK_NAME = "health_check_recovery"
         private const val REPEAT_INTERVAL_MINUTES = 15L // Minimum allowed by WorkManager
         private const val FLEX_INTERVAL_MINUTES = 5L // Flex window for execution
         
@@ -194,7 +197,11 @@ class WebSocketHealthCheckWorker(
                 .addTag("health_check_recovery")
                 .build()
             
-            WorkManager.getInstance(context).enqueue(recoveryWork)
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                RECOVERY_UNIQUE_WORK_NAME,
+                ExistingWorkPolicy.REPLACE,
+                recoveryWork
+            )
             if (BuildConfig.DEBUG) Log.d("WebSocketHealthCheckWorker", "Enqueued one-off recovery check: $reason")
         }
         
