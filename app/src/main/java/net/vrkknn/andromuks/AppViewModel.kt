@@ -1357,10 +1357,10 @@ class AppViewModel : ViewModel() {
     }
     
     
-    fun restartWebSocketConnection(reason: String = "Manual reconnection") {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restarting WebSocket connection - Reason: $reason")
-        logActivity("Manual Reconnection - $reason", null)
-        restartWebSocket(reason)
+    fun restartWebSocketConnection(trigger: ReconnectTrigger = ReconnectTrigger.UserRequested) {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restarting WebSocket connection - $trigger")
+        logActivity("Manual Reconnection - ${trigger.toLogString()}", null)
+        restartWebSocket(trigger)
     }
     /**
      * Performs a full refresh by resetting all state and reconnecting for a complete payload.
@@ -1463,7 +1463,7 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Full refresh completed - room/space data will come from sync_complete on reconnect")
         
         // 5. Trigger reconnection (will use run_id but not last_received_id since it's 0)
-        onRestartWebSocket?.invoke("Full refresh")
+        onRestartWebSocket?.invoke(ReconnectTrigger.UserRequested)
     }
     
     
@@ -6149,7 +6149,7 @@ class AppViewModel : ViewModel() {
     private val pendingHighlightEvents = ConcurrentHashMap<String, String>()
     
     // Websocket restart callback
-    var onRestartWebSocket: ((String) -> Unit)? = null
+    var onRestartWebSocket: ((ReconnectTrigger) -> Unit)? = null
     
     // App lifecycle state
     var isAppVisible by mutableStateOf(true)
@@ -7757,9 +7757,9 @@ class AppViewModel : ViewModel() {
      * This method implements exponential backoff to avoid overwhelming the server
      * during outages and to be more battery efficient.
      * 
-     * @param reason Human-readable reason for reconnection (for logging)
+     * @param trigger Typed reason for reconnection (for logging and routing)
      */
-    fun scheduleReconnection(reason: String) {
+    fun scheduleReconnection(trigger: ReconnectTrigger) {
         // PHASE 4.3: Don't reconnect if there's a certificate error (security issue)
         if (getCertificateErrorState()) {
             android.util.Log.w("Andromuks", "AppViewModel: Blocking reconnection attempt - certificate error state is active")
@@ -7767,9 +7767,9 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Delegating reconnection scheduling to service")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Delegating reconnection scheduling to service ($trigger)")
         // Delegate to service
-        WebSocketService.scheduleReconnection(reason)
+        WebSocketService.scheduleReconnection(trigger)
     }
     
     fun isWebSocketConnected(): Boolean {
@@ -7833,31 +7833,31 @@ class AppViewModel : ViewModel() {
                 android.util.Log.w("Andromuks", "AppViewModel: Server going away (1001) - scheduling reconnection with delay")
                 viewModelScope.launch {
                     delay(2000L) // 2 second delay for server restart
-                    scheduleReconnection("Server going away (1001)")
+                    scheduleReconnection(ReconnectTrigger.WebSocketClosed(1001, reason))
                 }
             }
             1006 -> {
                 // Abnormal closure (no close frame) - connection lost, reconnect immediately
                 android.util.Log.e("Andromuks", "AppViewModel: Abnormal WebSocket closure (1006) - reconnecting immediately")
-                scheduleReconnection("Abnormal closure (1006)")
+                scheduleReconnection(ReconnectTrigger.WebSocketClosed(1006, reason))
             }
             1012 -> {
                 // Service Restart - backend restarting, reconnect with delay
                 android.util.Log.w("Andromuks", "AppViewModel: Service restart (1012) - scheduling reconnection with delay")
                 viewModelScope.launch {
                     delay(3000L) // 3 second delay for backend restart
-                    scheduleReconnection("Service restart (1012)")
+                    scheduleReconnection(ReconnectTrigger.WebSocketClosed(1012, reason))
                 }
             }
             in 4000..4999 -> {
                 // Application-specific codes - log and reconnect
                 android.util.Log.w("Andromuks", "AppViewModel: Application close code $code - reconnecting")
-                scheduleReconnection("Application close code $code: $reason")
+                scheduleReconnection(ReconnectTrigger.WebSocketClosed(code, reason))
             }
             else -> {
                 // Other close codes - reconnect with standard strategy
                 android.util.Log.w("Andromuks", "AppViewModel: WebSocket closed with code $code - reconnecting")
-                scheduleReconnection("Close code $code: $reason")
+                scheduleReconnection(ReconnectTrigger.WebSocketClosed(code, reason))
             }
         }
     }
@@ -7909,7 +7909,7 @@ class AppViewModel : ViewModel() {
                     }
                     // Reset DNS failure count on successful reconnection attempt
                     // (will be reset when connection succeeds)
-                    scheduleReconnection("DNS resolution failure (attempt $nextDnsFailureCount)")
+                    scheduleReconnection(ReconnectTrigger.DnsFailure(nextDnsFailureCount))
                 }
             }
             "NETWORK_UNREACHABLE" -> {
@@ -7933,14 +7933,14 @@ class AppViewModel : ViewModel() {
                     // Only schedule if still disconnected (NetworkMonitor may have already reconnected)
                     if (!isWebSocketConnected()) {
                         android.util.Log.i("Andromuks", "AppViewModel: Network available after 10s - scheduling fallback reconnection")
-                        scheduleReconnection("Network unreachable (fallback retry)")
+                        scheduleReconnection(ReconnectTrigger.NetworkUnreachableFallback)
                     }
                 }
             }
             else -> {
                 // Generic error - use standard reconnection strategy
                 android.util.Log.w("Andromuks", "AppViewModel: Generic connection error - using standard reconnection")
-                scheduleReconnection(reason)
+                scheduleReconnection(ReconnectTrigger.Unclassified(reason))
             }
         }
     }
@@ -8027,12 +8027,12 @@ class AppViewModel : ViewModel() {
                 viewModelScope.launch {
                     delay(delayMs)
                     // Reset TLS failure count on successful reconnection attempt
-                    scheduleReconnection("TLS error (attempt $nextTlsFailureCount)")
+                    scheduleReconnection(ReconnectTrigger.TlsFailure(nextTlsFailureCount))
                 }
             }
             else -> {
                 android.util.Log.w("Andromuks", "AppViewModel: Unknown TLS error type: $errorType - using standard reconnection")
-                scheduleReconnection(reason)
+                scheduleReconnection(ReconnectTrigger.Unclassified(reason))
             }
         }
     }
@@ -8652,33 +8652,37 @@ class AppViewModel : ViewModel() {
     }
 
     
-    private fun restartWebSocket(reason: String = "Unknown reason") {
+    private fun restartWebSocket(trigger: ReconnectTrigger = ReconnectTrigger.Unclassified("Unknown reason")) {
         // INFINITE LOOP FIX: Prevent rapid-fire restarts
         val currentTime = System.currentTimeMillis()
         val timeSinceLastRestart = currentTime - lastRestartTime
+        val reasonLabel = trigger.toLogString()
         
         if (isRestarting) {
-            android.util.Log.w("Andromuks", "AppViewModel: restartWebSocket already in progress - ignoring duplicate call (reason: $reason)")
+            android.util.Log.w("Andromuks", "AppViewModel: restartWebSocket already in progress - ignoring duplicate call (trigger: $trigger)")
             return
         }
         
         if (timeSinceLastRestart < RESTART_COOLDOWN_MS) {
-            android.util.Log.w("Andromuks", "AppViewModel: restartWebSocket called too soon (${timeSinceLastRestart}ms ago, cooldown: ${RESTART_COOLDOWN_MS}ms) - ignoring (reason: $reason)")
+            android.util.Log.w("Andromuks", "AppViewModel: restartWebSocket called too soon (${timeSinceLastRestart}ms ago, cooldown: ${RESTART_COOLDOWN_MS}ms) - ignoring (trigger: $trigger)")
             return
         }
         
         isRestarting = true
         lastRestartTime = currentTime
         
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: restartWebSocket invoked - reason: $reason")
-        logActivity("Restarting WebSocket - $reason", null)
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: restartWebSocket invoked - $trigger")
+        logActivity("Restarting WebSocket - $reasonLabel", null)
         
         // Only show toast for important reconnection reasons, not every attempt
-        val shouldShowToast = when {
-            reason.contains("Manual reconnection") -> true
-            reason.contains("Full refresh") -> true
-            reason.contains("attempt #1") && reason.contains("Network type changed") -> true // Only first network change attempt
-            else -> false // Hide "Network restored" and other spam
+        val shouldShowToast = when (trigger) {
+            is ReconnectTrigger.UserRequested -> true
+            is ReconnectTrigger.NetworkTypeChanged -> true
+            is ReconnectTrigger.Unclassified -> {
+                val d = trigger.detail
+                d.contains("Full refresh", ignoreCase = true) || d.contains("Manual reconnection", ignoreCase = true)
+            }
+            else -> false
         }
 
         // Only show toasts in debug builds to avoid UX disruption in production
@@ -8687,7 +8691,7 @@ class AppViewModel : ViewModel() {
                 viewModelScope.launch(Dispatchers.Main) {
                     android.widget.Toast.makeText(
                         context,
-                        "WS: $reason",
+                        "WS: $reasonLabel",
                         android.widget.Toast.LENGTH_SHORT
                     ).show()
                 }
@@ -8697,16 +8701,16 @@ class AppViewModel : ViewModel() {
         val restartCallback = onRestartWebSocket
         
         if (restartCallback != null) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Using direct reconnect callback for reason: $reason")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Using direct reconnect callback for reason: $reasonLabel")
             // Cancel any pending reconnection jobs in the service to avoid duplicate attempts
             WebSocketService.cancelReconnection()
             // Ensure the service state is reset before establishing a new connection
-            WebSocketService.clearWebSocket(reason)
+            WebSocketService.clearWebSocket(reasonLabel)
             
             // INFINITE LOOP FIX: Clear restart flag after a delay to allow connection to complete
             viewModelScope.launch {
                 try {
-                    restartCallback.invoke(reason)
+                    restartCallback.invoke(trigger)
                     // Wait a bit before clearing the flag to prevent immediate re-triggers
                     delay(2000L)
                 } finally {
@@ -8732,13 +8736,13 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: restartWebSocket fallback - using initializeWebSocketConnection (reason: $reason)"
+                    "AppViewModel: restartWebSocket fallback - using initializeWebSocketConnection (trigger: $trigger)"
                 )
             }
             // Make sure the service isn't trying to reconnect in parallel
             WebSocketService.cancelReconnection()
             // Clear any existing WebSocket connection before starting a fresh one
-            WebSocketService.clearWebSocket(reason)
+            WebSocketService.clearWebSocket(reasonLabel)
             
             // Delegate connection to the standard initialization path
             initializeWebSocketConnection(homeserverUrl, authToken)
@@ -8751,16 +8755,10 @@ class AppViewModel : ViewModel() {
             return
         }
 
-        // PHASE 1.4 FIX: When called from reconnection callback (e.g., "Service restarted - reconnecting"),
-        // we should actually connect to WebSocket, not call WebSocketService.restartWebSocket() which would create a loop
-        // Check if we're being called from the service's reconnection callback
-        if (reason.contains("Service restarted")) {
-            android.util.Log.w("Andromuks", "AppViewModel: restartWebSocket called from service callback - connecting WebSocket directly to avoid loop")
-            // Clear the WebSocket first
-            WebSocketService.clearWebSocket(reason)
-            // Then trigger actual connection via the normal flow
-            // This should be handled by the code that normally connects (e.g., AuthCheckScreen)
-            // For now, just log and return - the service restart check will handle it properly
+        // Service was restarted upstream; avoid callback loop
+        if (trigger is ReconnectTrigger.ServiceRestarted) {
+            android.util.Log.w("Andromuks", "AppViewModel: restartWebSocket(ServiceRestarted) — connecting WebSocket directly to avoid loop")
+            WebSocketService.clearWebSocket(reasonLabel)
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Service restart reconnection - connection should be handled by app startup flow")
             isRestarting = false
             return
@@ -17201,7 +17199,7 @@ class AppViewModel : ViewModel() {
                 // Restart WebSocket with new compression setting
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restarting WebSocket due to compression setting change (value: $enableCompression)")
                 logActivity("Compression Setting Changed - Restarting", null)
-                restartWebSocket("Compression setting changed")
+                restartWebSocket(ReconnectTrigger.Unclassified("Compression setting changed"))
             }
         } ?: run {
             // No context - can't save or reconnect
@@ -17479,7 +17477,13 @@ class AppViewModel : ViewModel() {
         // REFACTORING: Delegate connection to service
         // The service now owns the WebSocket connection lifecycle
         // Pass this ViewModel for message routing (optional - service can work without it)
-        WebSocketService.connectWebSocket(homeserverUrl, token, this@AppViewModel, reason = "Initial connection from AppViewModel", isReconnection = finalIsReconnection)
+        WebSocketService.connectWebSocket(
+            homeserverUrl,
+            token,
+            this@AppViewModel,
+            trigger = ReconnectTrigger.Unclassified("Initial connection from AppViewModel"),
+            isReconnection = finalIsReconnection
+        )
     }
 
     // User Info Functions

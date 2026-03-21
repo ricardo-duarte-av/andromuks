@@ -502,7 +502,12 @@ fun AuthCheckScreen(
                     // This is a fallback scenario when opening via notification/shortcut with app closed
                     android.util.Log.w("Andromuks", "AuthCheckScreen: Primary instance did not connect within timeout - using fallback: non-primary will create connection")
                     // REFACTORING: Delegate connection to service (service handles backend health check)
-                    WebSocketService.connectWebSocket(homeserverUrl, token, appViewModel, reason = "AuthCheck fallback connection")
+                    WebSocketService.connectWebSocket(
+                        homeserverUrl,
+                        token,
+                        appViewModel,
+                        trigger = ReconnectTrigger.Unclassified("AuthCheck fallback connection")
+                    )
                 }
             }
         } else {

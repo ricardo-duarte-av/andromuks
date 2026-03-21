@@ -118,7 +118,7 @@ class WebSocketHealthCheckWorker(
                 WebSocketService.logActivity("Health Check: WebSocket Disconnected - Reconnecting", null)
                 
                 // Use safe reconnection which has fallback logic if AppViewModel is not available
-                WebSocketService.triggerReconnectionSafely("WorkManager health check - connection lost")
+                WebSocketService.triggerReconnectionSafely(ReconnectTrigger.WorkManagerHealthCheck)
                 
                 // Proactive scaling: Schedule a recovery check in 1 minute
                 enqueueRecoveryCheck(applicationContext, "WebSocket reconnection check")

@@ -223,7 +223,12 @@ fun ChatBubbleLoadingScreen(
                 appViewModel.startWebSocketService()
                 WebSocketService.setAppVisibility(true)
                 // REFACTORING: Delegate connection to service
-                WebSocketService.connectWebSocket(homeserverUrl, token, appViewModel, reason = "chat_bubble_launch")
+                WebSocketService.connectWebSocket(
+                    homeserverUrl,
+                    token,
+                    appViewModel,
+                    trigger = ReconnectTrigger.Unclassified("chat_bubble_launch")
+                )
                 
                 // Wait for WebSocket to connect (with timeout)
                 var pollCount = 0
