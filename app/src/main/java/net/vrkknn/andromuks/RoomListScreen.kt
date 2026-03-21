@@ -178,6 +178,17 @@ private const val STARTUP_SHARED_AVATAR_KEY = "startup-current-user-avatar"
 private fun usernameFromMatrixId(userId: String): String =
     userId.removePrefix("@").substringBefore(":")
 
+/**
+ * Opens a room while [RoomListScreen] is already shown (shortcut, notification, pending room, etc.).
+ * Pops [auth_check] and the list off the stack so Back leaves the task instead of returning to the list.
+ * User-initiated opens from the list use plain [NavController.navigate] to keep room_list under the timeline.
+ */
+private fun NavController.navigateToRoomTimelineForExternalEntry(roomId: String) {
+    navigate("room_timeline/$roomId") {
+        popUpTo("auth_check") { inclusive = true }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun RoomListScreen(
@@ -650,12 +661,12 @@ fun RoomListScreen(
                             } else {
                                 appViewModel.navigateToRoomWithCache(directRoomId)
                             }
-                            navController.navigate("room_timeline/$directRoomId")
+                            navController.navigateToRoomTimelineForExternalEntry(directRoomId)
                         } else if (pendingRoomId != null) {
                             appViewModel.clearPendingRoomNavigation()
                             appViewModel.flushSyncBatchForRoom(pendingRoomId)
                             appViewModel.navigateToRoomWithCache(pendingRoomId)
-                            navController.navigate("room_timeline/$pendingRoomId")
+                            navController.navigateToRoomTimelineForExternalEntry(pendingRoomId)
                         }
                     }
                 } else {
@@ -681,13 +692,13 @@ fun RoomListScreen(
                                 } else {
                                     appViewModel.navigateToRoomWithCache(directRoomId)
                                 }
-                                navController.navigate("room_timeline/$directRoomId")
+                                navController.navigateToRoomTimelineForExternalEntry(directRoomId)
                             } else if (pendingRoomId != null) {
                                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: CRITICAL FIX #2 - WebSocket connected and spaces loaded, navigating to pending room: $pendingRoomId")
                                 appViewModel.clearPendingRoomNavigation()
                                 appViewModel.flushSyncBatchForRoom(pendingRoomId)
                                 appViewModel.navigateToRoomWithCache(pendingRoomId)
-                                navController.navigate("room_timeline/$pendingRoomId")
+                                navController.navigateToRoomTimelineForExternalEntry(pendingRoomId)
                             }
                         }
                     }
@@ -721,12 +732,12 @@ fun RoomListScreen(
                         } else {
                             appViewModel.navigateToRoomWithCache(directRoomId)
                         }
-                        navController.navigate("room_timeline/$directRoomId")
+                        navController.navigateToRoomTimelineForExternalEntry(directRoomId)
                     } else if (pendingRoomId != null) {
                         appViewModel.clearPendingRoomNavigation()
                         appViewModel.flushSyncBatchForRoom(pendingRoomId)
                         appViewModel.navigateToRoomWithCache(pendingRoomId)
-                        navController.navigate("room_timeline/$pendingRoomId")
+                        navController.navigateToRoomTimelineForExternalEntry(pendingRoomId)
                     }
                 } else {
                     // Room not cached - wait for WebSocket connection
@@ -751,13 +762,13 @@ fun RoomListScreen(
                             } else {
                                 appViewModel.navigateToRoomWithCache(directRoomId)
                             }
-                            navController.navigate("room_timeline/$directRoomId")
+                            navController.navigateToRoomTimelineForExternalEntry(directRoomId)
                         } else if (pendingRoomId != null) {
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: CRITICAL FIX #2 - WebSocket connected and spaces loaded, navigating to pending room: $pendingRoomId")
                             appViewModel.clearPendingRoomNavigation()
                             appViewModel.flushSyncBatchForRoom(pendingRoomId)
                             appViewModel.navigateToRoomWithCache(pendingRoomId)
-                            navController.navigate("room_timeline/$pendingRoomId")
+                            navController.navigateToRoomTimelineForExternalEntry(pendingRoomId)
                         }
                     }
                 }
@@ -788,13 +799,13 @@ fun RoomListScreen(
                 } else {
                     appViewModel.navigateToRoomWithCache(stillDirectRoomId)
                 }
-                navController.navigate("room_timeline/$stillDirectRoomId")
+                navController.navigateToRoomTimelineForExternalEntry(stillDirectRoomId)
             } else if (stillPendingRoomId != null) {
                 android.util.Log.w("Andromuks", "RoomListScreen: CRITICAL FIX #2 - Navigation timeout (10s) for pending room $stillPendingRoomId - WebSocket may not be connected, navigating anyway")
                 appViewModel.clearPendingRoomNavigation()
                 appViewModel.flushSyncBatchForRoom(stillPendingRoomId)
                 appViewModel.navigateToRoomWithCache(stillPendingRoomId)
-                navController.navigate("room_timeline/$stillPendingRoomId")
+                navController.navigateToRoomTimelineForExternalEntry(stillPendingRoomId)
             }
         }
     }
@@ -820,7 +831,7 @@ fun RoomListScreen(
         } else {
             appViewModel.navigateToRoomWithCache(directRoomId)
         }
-        navController.navigate("room_timeline/$directRoomId")
+        navController.navigateToRoomTimelineForExternalEntry(directRoomId)
     }
     
     // Determine update interval based on the newest message in the current section

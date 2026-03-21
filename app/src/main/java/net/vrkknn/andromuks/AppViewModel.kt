@@ -3113,13 +3113,13 @@ class AppViewModel : ViewModel() {
                         android.util.Log.d("Andromuks", "🟣 Initial sync processing: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null}, isStartupComplete=$isStartupComplete - Room list can now be shown")
                         }
                     }
+                    
+                    // CRITICAL FIX: Load all room states AFTER all sync processing is complete
+                    // Runs in this coroutine after try/catch/finally so roomMap is populated
+                    // Request get_room_state for ALL rooms after sync_complete processing
+                    // This ensures bridge badges are loaded
+                    loadAllRoomStatesAfterInitComplete()
                 }
-                
-                // CRITICAL FIX: Load all room states AFTER all sync processing is complete
-                // This must be inside the coroutine to ensure roomMap is fully populated
-                // Request get_room_state for ALL rooms after sync_complete processing
-                // This ensures bridge badges are loaded
-                loadAllRoomStatesAfterInitComplete()
         
         // CRITICAL FIX: Don't allow commands yet - wait for all room states to load first
         // canSendCommandsToBackend will be set after all room states are loaded in loadAllRoomStatesAfterInitComplete()
@@ -8967,10 +8967,8 @@ class AppViewModel : ViewModel() {
         }
         
         viewModelScope.launch(Dispatchers.Default) {
-            // CRITICAL FIX: Get all rooms from roomMap IMMEDIATELY (no delay)
-            // By the time this function is called, all sync_complete messages have been processed
-            // and roomMap is fully populated with all rooms
-            delay(2000) // Wait a moment for sync_complete processing to finish
+            // Grace period so roomMap / follow-up work from sync can settle before snapshotting (was 2000ms).
+            delay(1000)
             val allRoomIds = synchronized(roomMap) {
                 roomMap.keys.toList()
             }

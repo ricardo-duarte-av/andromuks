@@ -36,8 +36,11 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Path
@@ -195,21 +198,11 @@ fun AuthCheckScreen(
 
     LaunchedEffect(Unit) {
         appViewModel.isLoading = true
-        appViewModel.addStartupProgressMessage("Starting...")
-        appViewModel.addStartupProgressMessage("Checking stored auth....")
         val token = sharedPreferences.getString("gomuks_auth_token", null)
         val homeserverUrl = sharedPreferences.getString("homeserver_url", null)
 
         if (token != null && homeserverUrl != null) {
             if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Token and server URL found.")
-            
-            // CRITICAL FIX: Check if WebSocket is already connected BEFORE adding "Connecting..." message
-            val isAlreadyConnected = WebSocketService.isWebSocketConnected()
-            if (!isAlreadyConnected) {
-                appViewModel.addStartupProgressMessage("Connecting to WebSocket...")
-            } else {
-                appViewModel.addStartupProgressMessage("Attaching to existing WebSocket...")
-            }
             
             // Check if permissions are granted
             val hasNotificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -254,6 +247,15 @@ fun AuthCheckScreen(
             appViewModel.updateHomeserverUrl(homeserverUrl)
             appViewModel.updateAuthToken(token)
             fun navigateToRoomListIfNeeded(reason: String) {
+                if (appViewModel.getDirectRoomNavigation() != null) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "AuthCheckScreen",
+                            "navigateToRoomListIfNeeded skipped ($reason): direct room navigation will open room_timeline from WebSocket callback",
+                        )
+                    }
+                    return
+                }
                 val currentRoute = navController.currentBackStackEntry?.destination?.route
                 if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "navigateToRoomListIfNeeded called with reason: $reason, currentRoute: $currentRoute")
                 
@@ -344,7 +346,11 @@ fun AuthCheckScreen(
                         appViewModel.navigateToRoomWithCache(directRoomId)
                     }
                     
-                    navController.navigate("room_timeline/$encodedRoomId")
+                    // Remove auth_check from the stack so Back returns to the previous app screen
+                    // (or finishes) instead of landing on a synthetic room_list.
+                    navController.navigate("room_timeline/$encodedRoomId") {
+                        popUpTo("auth_check") { inclusive = true }
+                    }
                     return@setNavigationCallback
                 }
                 
@@ -405,9 +411,68 @@ fun AuthCheckScreen(
             }
             if (BuildConfig.DEBUG) Log.d("Andromuks", "AuthCheckScreen: appViewModel instance: $appViewModel")
 
+            val isAlreadyConnected = WebSocketService.isWebSocketConnected()
+            val directForFastPath = appViewModel.getDirectRoomNavigation()
+            if (directForFastPath != null && isAlreadyConnected) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "AuthCheckScreen",
+                        "Fast path: WebSocket already up — skipping verbose startup checklist (deep link / shortcut)",
+                    )
+                }
+                appViewModel.clearStartupProgressMessages()
+                appViewModel.attachToExistingWebSocketIfAvailable()
+                appViewModel.isLoading = false
+                appViewModel.registerFCMNotifications()
+                kotlinx.coroutines.delay(50)
+                if (appViewModel.pendingShare != null && appViewModel.pendingShareNavigationRequested) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "AuthCheckScreen",
+                            "Fast path: pending share — navigating to simple_room_list",
+                        )
+                    }
+                    navController.navigate("simple_room_list") { launchSingleTop = true }
+                    appViewModel.markPendingShareNavigationHandled()
+                    return@LaunchedEffect
+                }
+                val directRoomId = appViewModel.getDirectRoomNavigation()
+                if (directRoomId != null) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "AuthCheckScreen",
+                            "Fast path: navigating directly to room_timeline: $directRoomId",
+                        )
+                    }
+                    val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
+                    val encodedRoomId = java.net.URLEncoder.encode(directRoomId, "UTF-8")
+                    appViewModel.setCurrentRoomIdForTimeline(directRoomId)
+                    if (notificationTimestamp != null) {
+                        appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
+                    } else {
+                        appViewModel.navigateToRoomWithCache(directRoomId)
+                    }
+                    navController.navigate("room_timeline/$encodedRoomId") {
+                        popUpTo("auth_check") { inclusive = true }
+                    }
+                    appViewModel.clearDirectRoomNavigation()
+                } else {
+                    navigateToRoomListIfNeeded("websocket already connected")
+                }
+                return@LaunchedEffect
+            }
+
+            // Verbose cold-start checklist (WebSocket not connected yet, or no deep link while connected)
+            appViewModel.addStartupProgressMessage("Starting...")
+            appViewModel.addStartupProgressMessage("Checking stored auth....")
+            if (!isAlreadyConnected) {
+                appViewModel.addStartupProgressMessage("Connecting to WebSocket...")
+            } else {
+                appViewModel.addStartupProgressMessage("Attaching to existing WebSocket...")
+            }
+
             // CRITICAL FIX: Only primary AppViewModel instance should create WebSocket connections
             // Non-primary instances should attach to existing connection or wait for primary to connect
-            // Note: isAlreadyConnected was already checked above for the progress message
             val isPrimary = appViewModel.isPrimaryInstance()
             
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheckScreen: WebSocket connection check - isPrimary: $isPrimary, isAlreadyConnected: $isAlreadyConnected")
@@ -448,7 +513,9 @@ fun AuthCheckScreen(
                         appViewModel.navigateToRoomWithCache(directRoomId)
                     }
                     
-                    navController.navigate("room_timeline/$encodedRoomId")
+                    navController.navigate("room_timeline/$encodedRoomId") {
+                        popUpTo("auth_check") { inclusive = true }
+                    }
                 } else {
                     // No direct navigation - navigate to room_list normally
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheckScreen: WebSocket already connected, navigating to room_list")
@@ -548,6 +615,19 @@ fun AuthCheckScreen(
                 }
                 return@LaunchedEffect
             }
+
+            // Pinned shortcut / conversation widget / FCM: MainActivity stores direct room navigation.
+            // Do not navigate to room_list here — that flashes RoomListScreen before the WebSocket
+            // callback opens RoomTimelineScreen. Stay on auth_check until the callback runs.
+            if (appViewModel.getDirectRoomNavigation() != null) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "AuthCheckScreen",
+                        "Direct room target set — skipping early room_list; WebSocket callback will open room_timeline",
+                    )
+                }
+                return@LaunchedEffect
+            }
             
             // Either WebSocket is connected, or we are offline — in both cases it’s safe to
             // proceed to room_list using cached data.
@@ -590,13 +670,24 @@ fun AuthCheckScreen(
         }
     }
 
+    // Hot start: deep link + WebSocket already live — no avatar / startup transcript (blank surface only).
+    // Trigger is in remember keys so we recompose when MainActivity sets direct navigation.
+    val skipStartupScreenUi =
+        remember(appViewModel.directRoomNavigationTrigger) {
+            appViewModel.getDirectRoomNavigation() != null &&
+                WebSocketService.isWebSocketConnected()
+        }
+
     AndromuksTheme {
-        // auth_check is always a loading screen — unconditionally render it.
-        // The nav transition's exit animation handles fading it out.
-        // CRITICAL: Do NOT conditionally remove this based on the current nav route.
-        // If we remove the shared element from composition the instant navController.navigate("room_list")
-        // fires (which makes currentBackStackEntry report "room_list" immediately), the shared element
-        // disappears before the flight animation can start, resulting in no transition.
+        if (skipStartupScreenUi) {
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background),
+            )
+        } else {
+        // auth_check is normally a loading screen with shared-element avatar.
+        // CRITICAL: Do NOT conditionally remove this based on the current nav route (see below).
         // NOTE: showStartupMorphOverlay is declared at composable scope (above) so navigation
         // functions can reset it to false before navigating, making the flight visible.
         StartupLoadingScreen(
@@ -673,5 +764,6 @@ fun AuthCheckScreen(
                     }
                 }
             )
+        }
     }
 }

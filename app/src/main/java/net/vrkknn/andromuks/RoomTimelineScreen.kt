@@ -1,8 +1,10 @@
 package net.vrkknn.andromuks
 
 import android.Manifest
+import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
@@ -2862,24 +2864,16 @@ fun RoomTimelineScreen(
             if (appViewModel.currentRoomId == roomId) {
                 appViewModel.clearCurrentRoomId()
             }
-            
-            // CRITICAL FIX: Check if room_list is in the back stack
-            // If not (e.g., opened from notification), navigate to room_list properly
-            // This ensures room_list is properly initialized instead of just popping to auth_check
-            val popped = navController.popBackStack("room_list", inclusive = false)
-            if (!popped) {
-                // room_list is not in the back stack - navigate to it properly
-                // This will go through the normal flow (auth_check -> room_list) which ensures proper initialization
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: room_list not in back stack, navigating to room_list")
-                navController.navigate("room_list") {
-                    // Pop everything up to and including the current destination (room_timeline)
-                    popUpTo(navController.graph.startDestinationId) {
-                        inclusive = false
-                        saveState = false
-                    }
-                    // Restore state when navigating back to room_list
-                    restoreState = false
+            // Pop one level: room_list → from list; settings/mentions/etc. → previous screen.
+            // If this is the only destination (FCM/shortcut deep link after auth_check was popped), finish.
+            if (!navController.popBackStack()) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "Andromuks",
+                        "RoomTimelineScreen: popBackStack failed (single destination) — finishing activity",
+                    )
                 }
+                context.findActivityForFinish()?.finish()
             }
         }
     }
@@ -3120,16 +3114,11 @@ fun RoomTimelineScreen(
                             navController.navigate("room_info/$roomId")
                         },
                         onBackClick = {
-                            // Match main back-handling behavior: prefer popping to room_list
-                            val popped = navController.popBackStack("room_list", inclusive = false)
-                            if (!popped) {
-                                navController.navigate("room_list") {
-                                    popUpTo(navController.graph.startDestinationId) {
-                                        inclusive = false
-                                        saveState = false
-                                    }
-                                    restoreState = false
-                                }
+                            if (appViewModel.currentRoomId == roomId) {
+                                appViewModel.clearCurrentRoomId()
+                            }
+                            if (!navController.popBackStack()) {
+                                context.findActivityForFinish()?.finish()
                             }
                         },
                         onCallClick = {
@@ -5867,4 +5856,13 @@ fun RoomHeader(
             }
         }
     }
+}
+
+private fun Context.findActivityForFinish(): Activity? {
+    var ctx: Context = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
 }

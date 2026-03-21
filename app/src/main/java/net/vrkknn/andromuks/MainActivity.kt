@@ -391,8 +391,8 @@ class MainActivity : ComponentActivity() {
                                 if (!shortcutUserId.isNullOrBlank()) {
                                     appViewModel.reportPersonShortcutUsed(shortcutUserId)
                                 }
-                                // NOTE: Don't call navigateToRoomWithCache() here - RoomListScreen will handle it
-                                // after WebSocket connection and spacesLoaded = true
+                                // NOTE: Don't call navigateToRoomWithCache() here — AuthCheck's WebSocket
+                                // navigation callback opens room_timeline directly (RoomListScreen is skipped when possible).
                             } else if (extractedUserId != null) {
                                 // Store user info navigation for matrix:u/ URIs
                                 // Navigate to user info screen when WebSocket is connected
