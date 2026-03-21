@@ -22,7 +22,6 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.util.concurrent.atomic.AtomicLong
 import okhttp3.WebSocket
 import org.json.JSONObject
 import net.vrkknn.andromuks.utils.trimWebsocketHost
@@ -67,18 +66,16 @@ class WebSocketService : Service() {
         private const val PING_INTERVAL_MS = 15_000L // 15 seconds - first ping 15s after connect, then every 15s
         private const val MESSAGE_TIMEOUT_MS = 60_000L // 60 seconds without ANY message = connection stale, reconnect
         private const val PONG_CLEAR_INFLIGHT_MS = 5_000L // Clear pingInFlight after 5s so next ping can be sent
-        private const val INIT_COMPLETE_TIMEOUT_MS_BASE = 15_000L // Legacy - used by unified monitoring
-        private const val HARD_CONNECTING_TIMEOUT_MS = 5_000L // Legacy - unused, we go directly to Ready
-        private const val RUN_ID_TIMEOUT_MS = 2_000L // Legacy - unused, we don't wait for run_id
-        private const val INIT_COMPLETE_AFTER_RUN_ID_TIMEOUT_MS_BASE = 5_000L // Legacy - unused
-        private const val INIT_COMPLETE_EXTENSION_PER_MESSAGE_MS = 5_000L // Legacy - unused
+        private const val INIT_COMPLETE_TIMEOUT_MS_BASE = 15_000L // init_complete wait before run_id (unified monitoring / timeouts)
+        private const val HARD_CONNECTING_TIMEOUT_MS = 5_000L // stuck in Connecting — force recovery
+        private const val RUN_ID_TIMEOUT_MS = 2_000L // run_id must arrive shortly after dial
+        private const val INIT_COMPLETE_AFTER_RUN_ID_TIMEOUT_MS_BASE = 5_000L // init_complete base after run_id
+        private const val INIT_COMPLETE_EXTENSION_PER_MESSAGE_MS = 5_000L // extend init window per backend message
         private const val MAX_RECONNECTION_ATTEMPTS = 99
         private const val RECONNECTION_RESET_TIME_MS = 300_000L // Reset count after 5 minutes
         private const val NETWORK_CHANGE_DEBOUNCE_MS = 500L // Debounce rapid network changes
         /** First step of connection flow: wait for NET_CAPABILITY_VALIDATED before any DNS/connect. */
         internal const val NETWORK_VALIDATION_TIMEOUT_MS = 10_000L
-        private val TOGGLE_STACK_DEPTH = 6
-        private val toggleCounter = AtomicLong(0)
         
         const val ACTION_HEARTBEAT_ALARM = "net.vrkknn.andromuks.HEARTBEAT_ALARM"
         private const val HEARTBEAT_MARGIN_MS = 5000L // 5 seconds margin for coroutine to win
@@ -169,23 +166,6 @@ class WebSocketService : Service() {
             return instance != null
         }
 
-        private fun shortStackTrace(): String {
-            val st = Thread.currentThread().stackTrace
-            // Skip first frames that are inside Thread/Logger helpers; find first non-runtime frame
-            val frames = st.drop(4).take(TOGGLE_STACK_DEPTH).joinToString(" | ") {
-                "${it.className.substringAfterLast('.')}#${it.methodName}:${it.lineNumber}"
-            }
-            return frames
-        }
-
-        fun traceToggle(event: String, details: String = ""): Long {
-            val id = toggleCounter.incrementAndGet()
-            val ts = System.currentTimeMillis()
-            val stack = shortStackTrace()
-            // Log.i("WS-Toggle", "id=$id ts=$ts event=$event details=[$details] stack=[$stack]")
-            return id
-        }
-        
         // Shared OkHttpClient for health checks - evict connection pool on network changes
         private val healthCheckClient: okhttp3.OkHttpClient = okhttp3.OkHttpClient.Builder()
             .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
@@ -220,23 +200,19 @@ class WebSocketService : Service() {
          * True when a primary id is set and at least one ViewModel is attached in [SyncRepository].
          */
         fun hasPrimaryCallbacks(): Boolean {
-            synchronized(SyncRepository) {
-                return SyncRepository.getPrimaryViewModelId() != null && SyncRepository.getAttachedViewModels().isNotEmpty()
-            }
+            return SyncRepository.getPrimaryViewModelId() != null && SyncRepository.getAttachedViewModels().isNotEmpty()
         }
         
         /**
          * Debug map for connection / attachment state.
          */
         fun getPrimaryCallbackStatus(): Map<String, Boolean> {
-            synchronized(SyncRepository) {
-                return mapOf(
-                    "primaryViewModelId" to (SyncRepository.getPrimaryViewModelId() != null),
-                    "reconnectionCallback" to SyncRepository.getAttachedViewModels().isNotEmpty(),
-                    "offlineModeCallback" to true,
-                    "activityLogCallback" to true
-                )
-            }
+            return mapOf(
+                "primaryViewModelId" to (SyncRepository.getPrimaryViewModelId() != null),
+                "reconnectionCallback" to SyncRepository.getAttachedViewModels().isNotEmpty(),
+                "offlineModeCallback" to true,
+                "activityLogCallback" to true
+            )
         }
         
         /**
@@ -248,18 +224,16 @@ class WebSocketService : Service() {
          * Returns false if primary is missing, destroyed, or callbacks are invalid
          */
         fun isPrimaryAlive(): Boolean {
-            synchronized(SyncRepository) {
-                val primaryId = SyncRepository.getPrimaryViewModelId()
-                if (primaryId == null) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 3.1 - Primary health check: No primary ViewModel ID set")
-                    return false
-                }
-                if (!SyncRepository.isPrimaryEntryAlive()) {
-                    android.util.Log.w("WebSocketService", "STEP 3.1 - Primary health check: Primary ViewModel $primaryId missing or not primary in SyncRepository")
-                    return false
-                }
-                return true
+            val primaryId = SyncRepository.getPrimaryViewModelId()
+            if (primaryId == null) {
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 3.1 - Primary health check: No primary ViewModel ID set")
+                return false
             }
+            if (!SyncRepository.isPrimaryEntryAlive()) {
+                android.util.Log.w("WebSocketService", "STEP 3.1 - Primary health check: Primary ViewModel $primaryId missing or not primary in SyncRepository")
+                return false
+            }
+            return true
         }
         
         /**
@@ -329,16 +303,14 @@ class WebSocketService : Service() {
          * Clears primary id when the primary [AppViewModel] is torn down.
          */
         fun clearPrimaryCallbacks(viewModelId: String): Boolean {
-            synchronized(SyncRepository) {
-                val pid = SyncRepository.getPrimaryViewModelId()
-                if (pid != viewModelId) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "clearPrimaryCallbacks: Instance $viewModelId is not the primary instance ($pid). Nothing to clear.")
-                    return false
-                }
-                android.util.Log.i("WebSocketService", "clearPrimaryCallbacks: Clearing primary id for $viewModelId")
-                SyncRepository.clearPrimaryFor(viewModelId)
-                return true
+            val pid = SyncRepository.getPrimaryViewModelId()
+            if (pid != viewModelId) {
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "clearPrimaryCallbacks: Instance $viewModelId is not the primary instance ($pid). Nothing to clear.")
+                return false
             }
+            android.util.Log.i("WebSocketService", "clearPrimaryCallbacks: Clearing primary id for $viewModelId")
+            SyncRepository.clearPrimaryFor(viewModelId)
+            return true
         }
         
         /** True when logged-in credentials exist (replacement for legacy reconnection callback presence). */
@@ -358,19 +330,8 @@ class WebSocketService : Service() {
         }
         
         /**
-         * STEP 1.3: Safely invoke reconnection callback with error handling and logging
-         * 
-         * This method uses stored callbacks (not AppViewModel references), allowing callbacks
-         * to work even if the primary AppViewModel is destroyed. The callback reads credentials
-         * from SharedPreferences and finds registered ViewModels to handle reconnection.
-         * 
-         * @param reason Reason for reconnection
-         * @param logIfMissing Whether to log a warning if callback is missing (default: true)
-         */
-        /**
-         * REFACTORING: Service now handles reconnection directly
-         * No longer needs ViewModel callbacks - service reads credentials from SharedPreferences
-         * and uses any available ViewModel (preferably primary) or creates headless if needed
+         * Dispatches a reconnect dial: reads credentials from SharedPreferences, picks an attached
+         * [AppViewModel] when present (primary preferred), and calls [connectWebSocket] (may dial with null VM).
          */
         private fun invokeReconnectionCallback(trigger: ReconnectTrigger, lastReceivedId: Int = 0, forceColdConnect: Boolean = false, logIfMissing: Boolean = true) {
             val serviceInstance = instance ?: run {
@@ -619,48 +580,35 @@ class WebSocketService : Service() {
         }
         
         /**
-         * PHASE 1.2: Set callback for triggering reconnection
-         * Only one primary instance can register this callback
-         * 
-         * @param viewModelId Unique identifier for the AppViewModel instance
-         * @param callback Callback function to invoke when reconnection is needed
-         * @return true if registration succeeded, false if another instance is already primary
-         */
-        /**
-         * Set the clear cache callback for the primary ViewModel
-         * Called when WebSocket connects/reconnects to clear all timeline caches
+         * Registers primary role for cache-clear semantics (no-op callback; [SyncRepository] handles events).
          */
         @Suppress("UNUSED_PARAMETER")
         fun setPrimaryClearCacheCallback(viewModelId: String, callback: () -> Unit): Boolean {
-            synchronized(SyncRepository) {
-                val pid = SyncRepository.getPrimaryViewModelId()
-                if (pid != null && pid != viewModelId) {
-                    android.util.Log.w("WebSocketService", "setPrimaryClearCacheCallback: Another instance ($pid) is already primary. Rejecting $viewModelId")
-                    return false
-                }
-                if (pid == null) {
-                    SyncRepository.registerViewModel(viewModelId, isPrimary = true)
-                }
-                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setPrimaryClearCacheCallback: no-op (SyncRepository handles cache events)")
-                return true
+            val pid = SyncRepository.getPrimaryViewModelId()
+            if (pid != null && pid != viewModelId) {
+                android.util.Log.w("WebSocketService", "setPrimaryClearCacheCallback: Another instance ($pid) is already primary. Rejecting $viewModelId")
+                return false
             }
+            if (pid == null) {
+                SyncRepository.registerViewModel(viewModelId, isPrimary = true)
+            }
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setPrimaryClearCacheCallback: no-op (SyncRepository handles cache events)")
+            return true
         }
         
         @Suppress("UNUSED_PARAMETER")
         fun setReconnectionCallback(viewModelId: String, callback: (String) -> Unit): Boolean {
-            synchronized(SyncRepository) {
-                val pid = SyncRepository.getPrimaryViewModelId()
-                if (pid != null && pid != viewModelId) {
-                    android.util.Log.w("WebSocketService", "setReconnectionCallback: Another instance ($pid) is already primary. Rejecting $viewModelId")
-                    return false
-                }
-                if (pid == null) {
-                    SyncRepository.registerViewModel(viewModelId, isPrimary = true)
-                }
-                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setReconnectionCallback: primary id set ($viewModelId); reconnection uses SyncRepository/credentials")
-                processPendingReconnections()
-                return true
+            val pid = SyncRepository.getPrimaryViewModelId()
+            if (pid != null && pid != viewModelId) {
+                android.util.Log.w("WebSocketService", "setReconnectionCallback: Another instance ($pid) is already primary. Rejecting $viewModelId")
+                return false
             }
+            if (pid == null) {
+                SyncRepository.registerViewModel(viewModelId, isPrimary = true)
+            }
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setReconnectionCallback: primary id set ($viewModelId); reconnection uses SyncRepository/credentials")
+            processPendingReconnections()
+            return true
         }
         
         /**
@@ -922,7 +870,6 @@ class WebSocketService : Service() {
          * Set WebSocket connection
          */
         fun setWebSocket(webSocket: WebSocket) {
-            traceToggle("setWebSocket", "state=${instance?.connectionState}")
             val serviceInstance = instance ?: return
             val traceId = serviceInstance.currentReconnectTraceId
             android.util.Log.i("WebSocketService", "setWebSocket() called - setting up WebSocket connection")
@@ -993,7 +940,6 @@ class WebSocketService : Service() {
          * PHASE 4.1: Clear WebSocket with close code and reason
          */
         fun clearWebSocket(reason: String = "Unknown", closeCode: Int? = null, closeReason: String? = null) {
-            traceToggle("clearWebSocket")
             val serviceInstance = instance ?: return
             
             // PHASE 4.1: Store close code and reason if provided
@@ -3924,7 +3870,6 @@ class WebSocketService : Service() {
      * @param lastSyncTimestamp Optional timestamp of last sync_complete message
      */
     fun updateConnectionStatus(isConnected: Boolean, lagMs: Long? = null, lastSyncTimestamp: Long? = null) {
-        traceToggle("updateConnectionStatus", "isConnected=$isConnected lag=$lagMs lastSync=$lastSyncTimestamp")
         // CRITICAL FIX: Use SINGLE_TOP for process death recovery (same as createNotification)
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
