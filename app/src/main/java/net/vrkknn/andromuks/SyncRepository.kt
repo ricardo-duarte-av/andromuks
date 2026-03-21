@@ -66,8 +66,8 @@ object SyncRepository {
     )
     val events: SharedFlow<SyncEvent> = _events.asSharedFlow()
 
-    private val _connectionState = MutableStateFlow<WebSocketService.WebSocketState>(WebSocketService.WebSocketState.Disconnected)
-    val connectionState: StateFlow<WebSocketService.WebSocketState> = _connectionState.asStateFlow()
+    private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
+    val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
     private val _offlineMode = MutableStateFlow(false)
     val offlineMode: StateFlow<Boolean> = _offlineMode.asStateFlow()
@@ -218,7 +218,7 @@ object SyncRepository {
         emitEvent(SyncEvent.IncomingWebSocketMessage(jsonString, hint))
     }
 
-    fun updateConnectionState(state: WebSocketService.WebSocketState) {
+    fun updateConnectionState(state: ConnectionState) {
         _connectionState.value = state
     }
 
