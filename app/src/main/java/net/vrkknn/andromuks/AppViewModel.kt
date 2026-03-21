@@ -327,7 +327,7 @@ class AppViewModel : ViewModel() {
         private set
     var realMatrixHomeserverUrl by mutableStateOf("")
     var wellKnownElementCallBaseUrl by mutableStateOf("")
-        private set
+        internal set
     internal var appContext: Context? = null
     
     // Timeline cache for instant room opening (now singleton)
@@ -337,9 +337,8 @@ class AppViewModel : ViewModel() {
     var currentUserId by mutableStateOf("")
         private set
     var deviceId by mutableStateOf("")
-    private var callActiveInternal by mutableStateOf(false)
-    private var callReadyForPipInternal by mutableStateOf(false)
-        private set
+    internal var callActiveInternal by mutableStateOf(false)
+    internal var callReadyForPipInternal by mutableStateOf(false)
     var imageAuthToken by mutableStateOf("")
         private set
     var currentUserProfile by mutableStateOf<UserProfile?>(null)
@@ -1019,6 +1018,15 @@ class AppViewModel : ViewModel() {
     /** UI prefs toggles — see [SettingsCoordinator]. */
     private val settingsCoordinator by lazy { SettingsCoordinator(this) }
 
+    /** `to_device` normalization + widget bridge — see [ToDeviceCoordinator]. */
+    private val toDeviceCoordinator by lazy { ToDeviceCoordinator(this) }
+
+    /** Encryption / device info WS commands — see [UserEncryptionCoordinator]. */
+    private val userEncryptionCoordinator by lazy { UserEncryptionCoordinator(this) }
+
+    /** Element Call + widget commands — see [CallsWidgetsCoordinator]. */
+    private val callsWidgetsCoordinator by lazy { CallsWidgetsCoordinator(this) }
+
     // CRASH FIX: Expose batch processing state to UI to prevent animations during flush
     val isProcessingSyncBatch = syncBatchProcessor.isProcessingBatch
     val processingBatchSize = syncBatchProcessor.processingBatchSize
@@ -1624,7 +1632,7 @@ class AppViewModel : ViewModel() {
         if (!homeserver.isNullOrBlank()) {
             realMatrixHomeserverUrl = homeserver
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Set realMatrixHomeserverUrl: $homeserver")
-            refreshElementCallBaseUrlFromWellKnown()
+            callsWidgetsCoordinator.refreshElementCallBaseUrlFromWellKnown()
         }
         // IMPORTANT: Do NOT override gomuks backend URL with Matrix homeserver URL from client_state
         // The backend URL is set via AuthCheck from SharedPreferences (e.g., https://webmuks.aguiarvieira.pt)
@@ -1634,229 +1642,26 @@ class AppViewModel : ViewModel() {
         }
     }
 
-    private fun refreshElementCallBaseUrlFromWellKnown() {
-        val homeserver = realMatrixHomeserverUrl.trim()
-        if (homeserver.isBlank()) return
-        val wellKnownUrl = homeserver.trimEnd('/') + "/.well-known/matrix/client"
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val client = OkHttpClient.Builder().build()
-                val request = Request.Builder()
-                    .url(wellKnownUrl)
-                    .get()
-                    .header("User-Agent", getUserAgent())
-                    .build()
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        if (BuildConfig.DEBUG) {
-                            android.util.Log.w(
-                                "Andromuks",
-                                "AppViewModel: .well-known fetch failed ${response.code}"
-                            )
-                        }
-                        return@use
-                    }
-                    val body = response.body?.string().orEmpty()
-                    if (body.isBlank()) return@use
-                    val json = JSONObject(body)
-                    val rtcFoci = json.optJSONArray("org.matrix.msc4143.rtc_foci")
-                    var derivedBaseUrl: String? = null
-                    if (rtcFoci != null) {
-                        for (i in 0 until rtcFoci.length()) {
-                            val entry = rtcFoci.optJSONObject(i) ?: continue
-                            if (entry.optString("type") != "livekit") continue
-                            val serviceUrl = entry.optString("livekit_service_url").trim()
-                            if (serviceUrl.isBlank()) continue
-                            try {
-                                val uri = java.net.URI(serviceUrl)
-                                val scheme = uri.scheme ?: "https"
-                                val host = uri.host ?: continue
-                                val port = uri.port
-                                val origin = if (port == -1) {
-                                    "$scheme://$host"
-                                } else {
-                                    "$scheme://$host:$port"
-                                }
-                                derivedBaseUrl = origin.trimEnd('/') + "/room"
-                                break
-                            } catch (_: Exception) {
-                                // Ignore invalid URLs and continue scanning.
-                            }
-                        }
-                    }
-                    if (!derivedBaseUrl.isNullOrBlank()) {
-                        withContext(Dispatchers.Main) {
-                            wellKnownElementCallBaseUrl = derivedBaseUrl
-                            if (BuildConfig.DEBUG) {
-                                android.util.Log.d(
-                                    "Andromuks",
-                                    "AppViewModel: Resolved Element Call base URL from .well-known: $derivedBaseUrl"
-                                )
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.w("Andromuks", "AppViewModel: .well-known fetch failed", e)
-                }
-            }
-        }
-    }
-
     fun updateImageAuthToken(token: String) {
         imageAuthToken = token
     }
 
-    fun setCallActive(active: Boolean) {
-        callActiveInternal = active
-    }
+    fun setCallActive(active: Boolean) = callsWidgetsCoordinator.setCallActive(active)
 
-    fun isCallActive(): Boolean {
-        return callActiveInternal
-    }
+    fun isCallActive(): Boolean = callsWidgetsCoordinator.isCallActive()
 
-    fun setCallReadyForPip(ready: Boolean) {
-        callReadyForPipInternal = ready
-    }
+    fun setCallReadyForPip(ready: Boolean) = callsWidgetsCoordinator.setCallReadyForPip(ready)
 
-    fun isCallReadyForPip(): Boolean {
-        return callReadyForPipInternal
-    }
+    fun isCallReadyForPip(): Boolean = callsWidgetsCoordinator.isCallReadyForPip()
 
-    private var widgetToDeviceHandler: ((Any?) -> Unit)? = null
+    internal var widgetToDeviceHandler: ((Any?) -> Unit)? = null
 
-    fun setWidgetToDeviceHandler(handler: ((Any?) -> Unit)?) {
-        widgetToDeviceHandler = handler
-    }
+    fun setWidgetToDeviceHandler(handler: ((Any?) -> Unit)?) = toDeviceCoordinator.setWidgetToDeviceHandler(handler)
 
-    fun handleToDeviceMessage(data: Any?) {
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: to_device received ${data?.toString()?.take(200)}")
-        }
-        widgetToDeviceHandler?.invoke(normalizeToDevicePayload(data))
-    }
+    fun handleToDeviceMessage(data: Any?) = toDeviceCoordinator.handleToDeviceMessage(data)
 
-    internal fun handleSyncToDeviceEvents(syncJson: JSONObject) {
-        val data = syncJson.optJSONObject("data") ?: syncJson
-        // to_device can be either an array directly, or an object with "events" key
-        val toDeviceValue = data.opt("to_device")
-        if (toDeviceValue == null) {
-            return
-        }
-        
-        val events = when (toDeviceValue) {
-            is JSONArray -> toDeviceValue // Direct array (gomuks format)
-            is JSONObject -> toDeviceValue.optJSONArray("events") // Object with events key
-            else -> null
-        }
-        
-        if (events == null || events.length() == 0) {
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "AppViewModel: to_device exists but no events (count: ${events?.length() ?: 0})")
-            }
-            return
-        }
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: Extracting ${events.length()} to_device events from sync_complete")
-        }
-        try {
-            val payload = JSONObject().put("events", events)
-            handleToDeviceMessage(payload)
-        } catch (e: Exception) {
-            if (BuildConfig.DEBUG) {
-                android.util.Log.w("Andromuks", "AppViewModel: Failed to parse to_device events from sync", e)
-            }
-        }
-    }
+    internal fun handleSyncToDeviceEvents(syncJson: JSONObject) = toDeviceCoordinator.handleSyncToDeviceEvents(syncJson)
 
-    private fun normalizeToDevicePayload(data: Any?): Any? {
-        return when (data) {
-            is JSONObject -> {
-                if (data.has("messages")) {
-                    JSONObject().apply {
-                        put("events", normalizeToDeviceMessages(data))
-                    }
-                } else if (data.has("events")) {
-                    val normalizedEvents = normalizeToDeviceEvents(data.optJSONArray("events"))
-                    JSONObject().apply {
-                        put("events", normalizedEvents)
-                    }
-                } else {
-                    data
-                }
-            }
-            is JSONArray -> {
-                JSONObject().apply {
-                    put("events", normalizeToDeviceEvents(data))
-                }
-            }
-            is Map<*, *> -> normalizeToDevicePayload(JSONObject(data))
-            is List<*> -> normalizeToDevicePayload(JSONArray(data))
-            else -> data
-        }
-    }
-
-    private fun normalizeToDeviceEvents(rawEvents: JSONArray?): JSONArray {
-        val normalized = JSONArray()
-        if (rawEvents == null) return normalized
-        for (i in 0 until rawEvents.length()) {
-            val raw = rawEvents.optJSONObject(i) ?: continue
-            normalized.put(normalizeToDeviceEvent(raw))
-        }
-        return normalized
-    }
-
-    private fun normalizeToDeviceMessages(raw: JSONObject): JSONArray {
-        val normalized = JSONArray()
-        val eventType = raw.optString("type")
-        val sender = raw.optString("sender").takeIf { it.isNotBlank() }
-        val messages = raw.optJSONObject("messages") ?: return normalized
-        val userIds = messages.keys()
-        while (userIds.hasNext()) {
-            val userId = userIds.next()
-            val devices = messages.optJSONObject(userId) ?: continue
-            val deviceIds = devices.keys()
-            while (deviceIds.hasNext()) {
-                val deviceId = deviceIds.next()
-                val content = devices.optJSONObject(deviceId) ?: continue
-                val event = JSONObject()
-                if (eventType.isNotBlank()) {
-                    event.put("type", eventType)
-                }
-                if (sender != null) {
-                    event.put("sender", sender)
-                }
-                event.put("content", content)
-                event.put("to_user_id", userId)
-                event.put("to_device_id", deviceId)
-                normalized.put(event)
-            }
-        }
-        return normalized
-    }
-
-    private fun normalizeToDeviceEvent(raw: JSONObject): JSONObject {
-        val event = JSONObject()
-        val decryptedType = raw.optString("decrypted_type").takeIf { it.isNotBlank() }
-        if (decryptedType != null) {
-            event.put("type", decryptedType)
-        } else {
-            raw.optString("type").takeIf { it.isNotBlank() }?.let { event.put("type", it) }
-        }
-        raw.optString("sender").takeIf { it.isNotBlank() }?.let { event.put("sender", it) }
-        if (raw.has("content")) {
-            event.put("content", raw.opt("content"))
-        }
-        if (decryptedType != null && raw.has("decrypted")) {
-            event.put("content", raw.opt("decrypted"))
-        }
-        if (raw.has("encrypted")) {
-            event.put("encrypted", raw.opt("encrypted"))
-        }
-        return event
-    }
-    
     /**
      * Populate roomMap from singleton cache when it's suspiciously small (e.g., only 1 room after opening from notification)
      * This ensures RoomListScreen has access to all rooms even when opening from notification bypassed normal initialization
@@ -4328,10 +4133,10 @@ class AppViewModel : ViewModel() {
     internal val backgroundPrefetchRequests = mutableMapOf<Int, String>() // requestId -> roomId (for background prefetch)
     private val freshnessCheckRequests = mutableMapOf<Int, String>() // requestId -> roomId (for single-event freshness checks)
     private val roomStateWithMembersRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit>() // requestId -> callback
-    private val userEncryptionInfoRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
+    internal val userEncryptionInfoRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
     private val mutualRoomsRequests = mutableMapOf<Int, (List<String>?, String?) -> Unit>() // requestId -> callback
     internal val basicProfileCallbacks = mutableMapOf<Int, (MemberProfile?) -> Unit>() // requestId -> callback for direct get_profile consumers
-    private val trackDevicesRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
+    internal val trackDevicesRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
     private val resolveAliasRequests = mutableMapOf<Int, (Pair<String, List<String>>?) -> Unit>() // requestId -> callback
     private val getRoomSummaryRequests = mutableMapOf<Int, (Pair<net.vrkknn.andromuks.utils.RoomSummary?, String?>?) -> Unit>() // requestId -> callback
     internal val joinRoomCallbacks = mutableMapOf<Int, (Pair<String?, String?>?) -> Unit>() // requestId -> callback
@@ -4345,7 +4150,7 @@ class AppViewModel : ViewModel() {
     internal val pendingFullMemberListRequests = mutableSetOf<String>() // roomId that have pending full member list requests
 
     // Element Call widget command tracking (requestId -> deferred response)
-    private val widgetCommandRequests = java.util.concurrent.ConcurrentHashMap<Int, CompletableDeferred<Any?>>()
+    internal val widgetCommandRequests = java.util.concurrent.ConcurrentHashMap<Int, CompletableDeferred<Any?>>()
     
     // OPPORTUNISTIC PROFILE LOADING: Track pending on-demand profile requests
     internal val pendingProfileRequests = mutableSetOf<String>() // global userId and "roomId:userId" keys for pending profile requests
@@ -6404,11 +6209,11 @@ class AppViewModel : ViewModel() {
         } else if (roomStateWithMembersRequests.containsKey(requestId)) {
             handleRoomStateWithMembersResponse(requestId, data)
         } else if (userEncryptionInfoRequests.containsKey(requestId)) {
-            handleUserEncryptionInfoResponse(requestId, data)
+            userEncryptionCoordinator.handleUserEncryptionInfoResponse(requestId, data)
         } else if (mutualRoomsRequests.containsKey(requestId)) {
             handleMutualRoomsResponse(requestId, data)
         } else if (trackDevicesRequests.containsKey(requestId)) {
-            handleTrackDevicesResponse(requestId, data)
+            userEncryptionCoordinator.handleTrackDevicesResponse(requestId, data)
         } else if (resolveAliasRequests.containsKey(requestId)) {
             handleResolveAliasResponse(requestId, data)
         } else if (getRoomSummaryRequests.containsKey(requestId)) {
@@ -9130,31 +8935,11 @@ class AppViewModel : ViewModel() {
     /**
      * Send WebSocket command to the backend (raw payload). Delegates to [WebSocketCommandSender].
      */
-    private fun sendRawWebSocketCommand(command: String, requestId: Int, data: Any?): WebSocketResult =
+    internal fun sendRawWebSocketCommand(command: String, requestId: Int, data: Any?): WebSocketResult =
         webSocketCommands.sendRaw(command, requestId, data)
 
-    fun sendWidgetCommand(command: String, data: Any?, onResult: (Result<Any?>) -> Unit) {
-        val requestId = requestIdCounter++
-        val deferred = CompletableDeferred<Any?>()
-        widgetCommandRequests[requestId] = deferred
-
-        val result = sendRawWebSocketCommand(command, requestId, data)
-        if (result != WebSocketResult.SUCCESS) {
-            widgetCommandRequests.remove(requestId)
-            onResult(Result.failure(IllegalStateException("WebSocket not connected")))
-            return
-        }
-
-        viewModelScope.launch {
-            val response = withTimeoutOrNull(30_000L) { deferred.await() }
-            if (response == null) {
-                widgetCommandRequests.remove(requestId)
-                onResult(Result.failure(java.util.concurrent.TimeoutException("Widget command timeout")))
-            } else {
-                onResult(Result.success(response))
-            }
-        }
-    }
+    fun sendWidgetCommand(command: String, data: Any?, onResult: (Result<Any?>) -> Unit) =
+        callsWidgetsCoordinator.sendWidgetCommand(command, data, onResult)
 
     internal fun sendWebSocketCommand(command: String, requestId: Int, data: Map<String, Any>): WebSocketResult =
         webSocketCommands.send(command, requestId, data)
@@ -9699,22 +9484,8 @@ class AppViewModel : ViewModel() {
     /**
      * Requests encryption info for a user
      */
-    fun requestUserEncryptionInfo(userId: String, callback: (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting encryption info for user: $userId")
-        
-        if (!isWebSocketConnected()) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected")
-            callback(null, "WebSocket not connected")
-            return
-        }
-        
-        val requestId = requestIdCounter++
-        userEncryptionInfoRequests[requestId] = callback
-        
-        sendWebSocketCommand("get_profile_encryption_info", requestId, mapOf(
-            "user_id" to userId
-        ))
-    }
+    fun requestUserEncryptionInfo(userId: String, callback: (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit) =
+        userEncryptionCoordinator.requestUserEncryptionInfo(userId, callback)
     
     /**
      * Requests mutual rooms with a user
@@ -9739,22 +9510,8 @@ class AppViewModel : ViewModel() {
     /**
      * Starts tracking a user's devices
      */
-    fun trackUserDevices(userId: String, callback: (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Tracking devices for user: $userId")
-        
-        if (!isWebSocketConnected()) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected")
-            callback(null, "WebSocket not connected")
-            return
-        }
-        
-        val requestId = requestIdCounter++
-        trackDevicesRequests[requestId] = callback
-        
-        sendWebSocketCommand("track_user_devices", requestId, mapOf(
-            "user_id" to userId
-        ))
-    }
+    fun trackUserDevices(userId: String, callback: (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit) =
+        userEncryptionCoordinator.trackUserDevices(userId, callback)
     /**
      * Gets all messages in a thread (thread root + all replies)
      * @param roomId The room containing the thread
@@ -9994,19 +9751,6 @@ class AppViewModel : ViewModel() {
     // Temporary storage for full user info profile callbacks
     internal val fullUserInfoCallbacks = mutableMapOf<Int, (JSONObject?) -> Unit>()
     
-    private fun handleUserEncryptionInfoResponse(requestId: Int, data: Any) {
-        val callback = userEncryptionInfoRequests.remove(requestId) ?: return
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling encryption info response for requestId: $requestId")
-        
-        try {
-            val encInfo = parseUserEncryptionInfo(data)
-            callback(encInfo, null)
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Error parsing encryption info", e)
-            callback(null, "Error: ${e.message}")
-        }
-    }
-    
     private fun handleMutualRoomsResponse(requestId: Int, data: Any) {
         val callback = mutualRoomsRequests.remove(requestId) ?: return
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling mutual rooms response for requestId: $requestId, data type: ${data::class.simpleName}")
@@ -10046,57 +9790,6 @@ class AppViewModel : ViewModel() {
             android.util.Log.e("Andromuks", "AppViewModel: Error parsing mutual rooms", e)
             callback(null, "Error: ${e.message}")
         }
-    }
-    
-    private fun handleTrackDevicesResponse(requestId: Int, data: Any) {
-        val callback = trackDevicesRequests.remove(requestId) ?: return
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling track devices response for requestId: $requestId")
-        
-        try {
-            val encInfo = parseUserEncryptionInfo(data)
-            callback(encInfo, null)
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Error parsing track devices response", e)
-            callback(null, "Error: ${e.message}")
-        }
-    }
-    
-    private fun parseUserEncryptionInfo(data: Any): net.vrkknn.andromuks.utils.UserEncryptionInfo {
-        val jsonData = when (data) {
-            is JSONObject -> data
-            else -> JSONObject(data.toString())
-        }
-        
-        val devicesTracked = jsonData.optBoolean("devices_tracked", false)
-        val devicesArray = jsonData.optJSONArray("devices")
-        val devices = if (devicesArray != null) {
-            val list = mutableListOf<net.vrkknn.andromuks.utils.DeviceInfo>()
-            for (i in 0 until devicesArray.length()) {
-                val deviceJson = devicesArray.getJSONObject(i)
-                list.add(
-                    net.vrkknn.andromuks.utils.DeviceInfo(
-                        deviceId = deviceJson.getString("device_id"),
-                        name = deviceJson.getString("name"),
-                        identityKey = deviceJson.getString("identity_key"),
-                        signingKey = deviceJson.getString("signing_key"),
-                        fingerprint = deviceJson.getString("fingerprint"),
-                        trustState = deviceJson.getString("trust_state")
-                    )
-                )
-            }
-            list
-        } else {
-            null
-        }
-        
-        return net.vrkknn.andromuks.utils.UserEncryptionInfo(
-            devicesTracked = devicesTracked,
-            devices = devices,
-            masterKey = jsonData.optString("master_key")?.takeIf { it.isNotBlank() },
-            firstMasterKey = jsonData.optString("first_master_key")?.takeIf { it.isNotBlank() },
-            userTrusted = jsonData.optBoolean("user_trusted", false),
-            errors = jsonData.opt("errors")
-        )
     }
     
     /**
