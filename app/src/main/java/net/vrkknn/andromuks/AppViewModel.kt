@@ -434,7 +434,7 @@ class AppViewModel : ViewModel() {
     var realMatrixHomeserverUrl by mutableStateOf("")
     var wellKnownElementCallBaseUrl by mutableStateOf("")
         private set
-    private var appContext: Context? = null
+    internal var appContext: Context? = null
     
     // Timeline cache for instant room opening (now singleton)
     // No need to instantiate - using object RoomTimelineCache
@@ -571,18 +571,18 @@ class AppViewModel : ViewModel() {
 
     // List of spaces, each with their rooms
     var spaceList by mutableStateOf(listOf<SpaceItem>())
-        private set
+        internal set
     
     // All rooms (for filtering into sections)
     var allRooms by mutableStateOf(listOf<RoomItem>())
-        private set
+        internal set
     
     // All spaces (for Spaces section)
     var allSpaces by mutableStateOf(listOf<SpaceItem>())
-        private set
+        internal set
     
     // Track known space room IDs (top-level and nested) so we can filter them from room lists.
-    private val knownSpaceIds = mutableSetOf<String>()
+    internal val knownSpaceIds = mutableSetOf<String>()
     
     // PERFORMANCE: Cached room sections to avoid expensive filtering on every recomposition
     private var cachedDirectChatRooms by mutableStateOf<List<RoomItem>>(emptyList())
@@ -607,7 +607,7 @@ class AppViewModel : ViewModel() {
         private set
     
     // PERFORMANCE: Track which sections have been loaded (for lazy loading)
-    private val loadedSections = mutableSetOf<RoomSectionType>()
+    internal val loadedSections = mutableSetOf<RoomSectionType>()
     
     // PERFORMANCE: Cheap monotonic version counter for cache invalidation.
     // Bumped by invalidateRoomSectionCache() whenever room data actually changes
@@ -620,7 +620,7 @@ class AppViewModel : ViewModel() {
      * Invalidate room section cache when allRooms data changes.
      * Cheap O(1) — just bumps a counter.
      */
-    private fun invalidateRoomSectionCache() {
+    internal fun invalidateRoomSectionCache() {
         roomDataVersion++
     }
     
@@ -640,14 +640,7 @@ class AppViewModel : ViewModel() {
     /**
      * Registers newly discovered space IDs (top-level or nested) for filtering.
      */
-    fun registerSpaceIds(spaceIds: Collection<String>) {
-        if (spaceIds.isEmpty()) return
-        val added = knownSpaceIds.addAll(spaceIds)
-        if (added) {
-            invalidateRoomSectionCache()
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Registered ${spaceIds.size} space IDs (total=${knownSpaceIds.size})")
-        }
-    }
+    fun registerSpaceIds(spaceIds: Collection<String>) = syncRoomsCoordinator.registerSpaceIds(spaceIds)
     
     /**
      * Filters out rooms that correspond to spaces.
@@ -664,14 +657,14 @@ class AppViewModel : ViewModel() {
     
     // Space navigation state
     var currentSpaceId by mutableStateOf<String?>(null)
-        private set
+        internal set
     
     // Bridge navigation state
     var currentBridgeId by mutableStateOf<String?>(null)
         private set
     
     // Store space edges data for later processing
-    private var storedSpaceEdges: JSONObject? = null
+    internal var storedSpaceEdges: JSONObject? = null
     
     // Room state data
     var currentRoomState by mutableStateOf<RoomState?>(null)
@@ -829,16 +822,16 @@ class AppViewModel : ViewModel() {
                 _recentEmojis = it
             }
         }
-        private set(value) {
+        internal set(value) {
             RecentEmojisCache.set(value)
             _recentEmojis = value
         }
     
     // Internal storage for emoji frequencies: list of [emoji, count] pairs
-    private var recentEmojiFrequencies = mutableListOf<Pair<String, Int>>()
+    internal var recentEmojiFrequencies = mutableListOf<Pair<String, Int>>()
     // Track whether we've loaded the full recent emoji list from the server
     // This prevents sending incomplete updates that would reset the server's full list
-    private var hasLoadedRecentEmojisFromServer = false
+    internal var hasLoadedRecentEmojisFromServer = false
     
     // Mentions state - list of mention events with room info
     var mentionEvents by mutableStateOf<List<MentionEvent>>(emptyList())
@@ -891,16 +884,16 @@ class AppViewModel : ViewModel() {
     private val deferredEmojiPackRequests = mutableListOf<Pair<String, String>>() // (roomId, packName)
     
     // Cache for DM room IDs from m.direct account data
-    private var directMessageRoomIds by mutableStateOf(setOf<String>())
-        private set
+    internal var directMessageRoomIds by mutableStateOf(setOf<String>())
+        internal set
     
     // Ignored users list from m.ignored_user_list account data
-    private var ignoredUsers by mutableStateOf(setOf<String>())
-        private set
+    internal var ignoredUsers by mutableStateOf(setOf<String>())
+        internal set
 
     // Cache mapping of userId -> set of direct room IDs (from m.direct)
-    private var directMessageUserMap: Map<String, Set<String>> = emptyMap()
-        private set
+    internal var directMessageUserMap: Map<String, Set<String>> = emptyMap()
+        internal set
     
     
     // Room state storage for future use
@@ -921,7 +914,7 @@ class AppViewModel : ViewModel() {
     
     // Granular update counters to reduce unnecessary recompositions
     var roomListUpdateCounter by mutableStateOf(0)
-        private set
+        internal set
     
     var timelineUpdateCounter by mutableStateOf(0)
         private set
@@ -930,14 +923,14 @@ class AppViewModel : ViewModel() {
         internal set
     
     var memberUpdateCounter by mutableStateOf(0)
-        private set
+        internal set
     
     var roomStateUpdateCounter by mutableStateOf(0)
         private set
     
     // Room summary update counter - triggers RoomListScreen to refresh message previews/senders
     var roomSummaryUpdateCounter by mutableStateOf(0)
-        private set
+        internal set
     
     // SYNC OPTIMIZATION: Batched update mechanism
     private var pendingUIUpdates = mutableSetOf<String>() // Track which UI sections need updates
@@ -950,14 +943,14 @@ class AppViewModel : ViewModel() {
     private var forceSortNextReorder = false // Flag to force immediate sort on next reorder
     
     // SYNC OPTIMIZATION: Diff-based update tracking
-    private var lastRoomStateHash: String = ""
+    internal var lastRoomStateHash: String = ""
     private var lastTimelineStateHash: String = ""
-    private var lastMemberStateHash: String = ""
+    internal var lastMemberStateHash: String = ""
     
     // SYNC OPTIMIZATION: Selective update flags
-    private var needsRoomListUpdate = false
+    internal var needsRoomListUpdate = false
     private var needsTimelineUpdate = false
-    private var needsMemberUpdate = false
+    internal var needsMemberUpdate = false
     private var needsReactionUpdate = false
     
     // NAVIGATION PERFORMANCE: Prefetch and caching system
@@ -967,7 +960,7 @@ class AppViewModel : ViewModel() {
     
     // Read receipts update counter - separate from main updateCounter to reduce unnecessary UI updates
     var readReceiptsUpdateCounter by mutableStateOf(0)
-        private set
+        internal set
     
     // Timestamp update counter for dynamic time displays
     var timestampUpdateCounter by mutableStateOf(0)
@@ -981,7 +974,7 @@ class AppViewModel : ViewModel() {
     private var conversationsApi: ConversationsApi? = null
     
     // Persons API for People/Share surfaces
-    private var personsApi: PersonsApi? = null
+    internal var personsApi: PersonsApi? = null
     
     // Web client push integration
     private var webClientPushIntegration: WebClientPushIntegration? = null
@@ -1098,31 +1091,73 @@ class AppViewModel : ViewModel() {
     private val RESTART_COOLDOWN_MS = 5000L // 5 seconds minimum between restarts
 
     var spacesLoaded by mutableStateOf(false)
-        private set
+
+
+    internal set
     
     // Track if init_complete has been received (distinguishes initialization from real-time updates)
-    private var initializationComplete = false
+    internal var initializationComplete = false
     
     // CRITICAL FIX: Track initial sync phase and queue sync_complete messages received before init_complete
     // This ensures we process all initial room data before showing UI
-    private var initialSyncPhase = false // Set to false when WebSocket connects, true when init_complete arrives
-    private val initialSyncCompleteQueue = mutableListOf<JSONObject>() // Queue for sync_complete messages before init_complete
+    internal var initialSyncPhase = false // Set to false when WebSocket connects, true when init_complete arrives
+    internal val initialSyncCompleteQueue = mutableListOf<JSONObject>() // Queue for sync_complete messages before init_complete
     private val initialSyncProcessingMutex = Mutex() // Use Mutex for coroutine-safe locking
     var initialSyncProcessingComplete by mutableStateOf(false) // Set to true when all initial sync_complete messages are processed
-        private set
+        internal set
     var initialSyncComplete by mutableStateOf(false) // Public state for UI to observe
-        private set
+        internal set
     
     // CRITICAL FIX: Serialize sync_complete processing to prevent race conditions
     // Multiple sync_complete messages can arrive rapidly, and concurrent processing can cause messages to be missed
     private val syncCompleteProcessingMutex = Mutex() // Mutex to serialize sync_complete processing after init_complete
     
+    // Track if shortcuts have been refreshed on startup (only refresh once per app session)
+    private var shortcutsRefreshedOnStartup = false
+    
+    // Track sync_complete progress for UI display
+    var pendingSyncCompleteCount by mutableStateOf(0)
+        internal set
+    var processedSyncCompleteCount by mutableStateOf(0)
+        internal set
+    
+    // CRITICAL FIX: Track loading of all room states (for bridge badges) after init_complete
+    // This must complete before allowing other commands and before navigating to RoomListScreen
+    internal var allRoomStatesRequested = false
+    internal var allRoomStatesLoaded = false
+    private val pendingRoomStateResponses = mutableSetOf<String>() // Track which rooms we're waiting for
+    private var totalRoomStateRequests = 0
+    private var completedRoomStateRequests = 0
+    
+    // CRITICAL FIX: Block sending commands to backend until init_complete arrives and all initial sync_complete messages are processed
+    // This prevents get_room_state commands from being sent before rooms are populated from sync_complete
+    // Only applies on initial connection (not reconnections with last_received_event)
+    internal var canSendCommandsToBackend = false
+    internal val pendingCommandsQueue = mutableListOf<Triple<String, Int, Map<String, Any>>>() // Queue for commands blocked before init_complete
+
+    // --- Coordinators (all lazy). [syncRoomsCoordinator] must be declared before [syncBatchProcessor] (batch handler calls into it). ---
+    /** Outgoing WS command pipeline — see [WebSocketCommandSender]. */
+    private val webSocketCommands by lazy { WebSocketCommandSender(this) }
+
+    /** Reaction orchestration — see [ReactionCoordinator]. */
+    private val reactionCoordinator by lazy { ReactionCoordinator(this) }
+
+    /** Outgoing messages (text, media, typing, notification FIFO) — see [MessageSendCoordinator]. */
+    private val messageSendCoordinator by lazy { MessageSendCoordinator(this) }
+
+    /** Edit chains, merged bubbles, [MessageVersionsCache] — see [EditVersionCoordinator]. */
+    private val editVersionCoordinator by lazy { EditVersionCoordinator(this) }
+
+    /** Initial sync, room map, spaces, account_data from sync_complete — see [SyncRoomsCoordinator]. */
+    private val syncRoomsCoordinator by lazy { SyncRoomsCoordinator(this) }
+
     // BATTERY OPTIMIZATION: Batch sync_complete messages when app is backgrounded
     // Reduces CPU wake-ups from 480/min (8 Hz) to 6/min (every 10s) = 98.75% reduction
-    private val syncBatchProcessor = SyncBatchProcessor(
+    // Must be declared after [syncRoomsCoordinator]: [processSyncImmediately] calls into it.
+    internal val syncBatchProcessor = SyncBatchProcessor(
         scope = viewModelScope,
         processSyncImmediately = { syncJson, requestId, runId ->
-            processSyncCompleteAtomic(syncJson, requestId, runId, onComplete = null)
+            syncRoomsCoordinator.processSyncCompleteAtomic(syncJson, requestId, runId, onComplete = null)
         },
         onBatchComplete = {
             // BATTERY OPTIMIZATION: When background batch completes, trigger single UI update
@@ -1151,47 +1186,12 @@ class AppViewModel : ViewModel() {
             }
         }
     )
-    
+
     // CRASH FIX: Expose batch processing state to UI to prevent animations during flush
     val isProcessingSyncBatch = syncBatchProcessor.isProcessingBatch
     val processingBatchSize = syncBatchProcessor.processingBatchSize
     // CRITICAL FIX: Expose flag to bypass timeline rebuilds during batch processing
     private val shouldSkipTimelineRebuild = syncBatchProcessor.shouldSkipTimelineRebuild
-    
-    // Track if shortcuts have been refreshed on startup (only refresh once per app session)
-    private var shortcutsRefreshedOnStartup = false
-    
-    // Track sync_complete progress for UI display
-    var pendingSyncCompleteCount by mutableStateOf(0)
-        private set
-    var processedSyncCompleteCount by mutableStateOf(0)
-        private set
-    
-    // CRITICAL FIX: Track loading of all room states (for bridge badges) after init_complete
-    // This must complete before allowing other commands and before navigating to RoomListScreen
-    internal var allRoomStatesRequested = false
-    internal var allRoomStatesLoaded = false
-    private val pendingRoomStateResponses = mutableSetOf<String>() // Track which rooms we're waiting for
-    private var totalRoomStateRequests = 0
-    private var completedRoomStateRequests = 0
-    
-    // CRITICAL FIX: Block sending commands to backend until init_complete arrives and all initial sync_complete messages are processed
-    // This prevents get_room_state commands from being sent before rooms are populated from sync_complete
-    // Only applies on initial connection (not reconnections with last_received_event)
-    internal var canSendCommandsToBackend = false
-    internal val pendingCommandsQueue = mutableListOf<Triple<String, Int, Map<String, Any>>>() // Queue for commands blocked before init_complete
-
-    /** Outgoing WS command pipeline — see [WebSocketCommandSender]. */
-    private val webSocketCommands by lazy { WebSocketCommandSender(this) }
-
-    /** Reaction orchestration — see [ReactionCoordinator]. */
-    private val reactionCoordinator by lazy { ReactionCoordinator(this) }
-
-    /** Outgoing messages (text, media, typing, notification FIFO) — see [MessageSendCoordinator]. */
-    private val messageSendCoordinator by lazy { MessageSendCoordinator(this) }
-
-    /** Edit chains, merged bubbles, [MessageVersionsCache] — see [EditVersionCoordinator]. */
-    private val editVersionCoordinator by lazy { EditVersionCoordinator(this) }
     
     // Startup progress messages for loading screen (last 10 messages, newest on top)
     private val _startupProgressMessages = mutableStateListOf<String>()
@@ -1281,18 +1281,8 @@ class AppViewModel : ViewModel() {
         }
     }
 
-    fun setSpaces(spaces: List<SpaceItem>, skipCounterUpdate: Boolean = false) {
-        if (spaces.isNotEmpty() && !initialSyncComplete) {
-            addStartupProgressMessage("Processing ${spaces.size} spaces...")
-        }
-        spaceList = spaces
-        
-        // SYNC OPTIMIZATION: Allow skipping immediate counter updates for batched updates
-        if (!skipCounterUpdate) {
-            roomListUpdateCounter++
-            updateCounter++ // Keep for backward compatibility temporarily     
-        } 
-    }
+    fun setSpaces(spaces: List<SpaceItem>, skipCounterUpdate: Boolean = false) =
+        syncRoomsCoordinator.setSpaces(spaces, skipCounterUpdate)
     
     fun updateAllSpaces(spaces: List<SpaceItem>) {
         val previousSize = allSpaces.size
@@ -1334,17 +1324,9 @@ class AppViewModel : ViewModel() {
         updateCounter++ // Keep for backward compatibility temporarily
     }
     
-    fun enterSpace(spaceId: String) {
-        currentSpaceId = spaceId
-        roomListUpdateCounter++
-        updateCounter++ // Keep for backward compatibility temporarily
-    }
+    fun enterSpace(spaceId: String) = syncRoomsCoordinator.enterSpace(spaceId)
     
-    fun exitSpace() {
-        currentSpaceId = null
-        roomListUpdateCounter++
-        updateCounter++ // Keep for backward compatibility temporarily
-    }
+    fun exitSpace() = syncRoomsCoordinator.exitSpace()
     
     fun enterBridge(bridgeId: String) {
         currentBridgeId = bridgeId
@@ -1783,7 +1765,7 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Badge counts - DMs: $directChatsUnread, Unread: $unreadCount, Favs: $favouritesUnread")
     }
 
-    private fun buildDirectPersonTargets(rooms: List<RoomItem>): List<PersonTarget> {
+    internal fun buildDirectPersonTargets(rooms: List<RoomItem>): List<PersonTarget> {
         if (currentUserId.isBlank()) {
             return emptyList()
         }
@@ -2027,7 +2009,7 @@ class AppViewModel : ViewModel() {
      * BATTERY OPTIMIZATION: Only writes to SharedPreferences when the set actually changes.
      * This avoids expensive SharedPreferences writes on every sync when low priority status hasn't changed.
      */
-    private fun updateLowPriorityRooms(rooms: List<RoomItem>) {
+    internal fun updateLowPriorityRooms(rooms: List<RoomItem>) {
         val lowPriorityRoomIds = rooms.filter { it.isLowPriority }.map { it.id }.toSet()
         
         // BATTERY OPTIMIZATION: Only update SharedPreferences if low priority rooms actually changed
@@ -2716,7 +2698,7 @@ class AppViewModel : ViewModel() {
         widgetToDeviceHandler?.invoke(normalizeToDevicePayload(data))
     }
 
-    private fun handleSyncToDeviceEvents(syncJson: JSONObject) {
+    internal fun handleSyncToDeviceEvents(syncJson: JSONObject) {
         val data = syncJson.optJSONObject("data") ?: syncJson
         // to_device can be either an array directly, or an object with "events" key
         val toDeviceValue = data.opt("to_device")
@@ -2840,71 +2822,13 @@ class AppViewModel : ViewModel() {
      * Populate roomMap from singleton cache when it's suspiciously small (e.g., only 1 room after opening from notification)
      * This ensures RoomListScreen has access to all rooms even when opening from notification bypassed normal initialization
      */
-    fun populateRoomMapFromCache() {
-        try {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateRoomMapFromCache called - current roomMap size: ${roomMap.size}, cache size: ${RoomListCache.getRoomCount()}")
-            
-            val cachedRooms = RoomListCache.getAllRooms()
-            if (cachedRooms.isNotEmpty()) {
-                // Populate roomMap with rooms from singleton cache
-                roomMap.putAll(cachedRooms)
-                
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateRoomMapFromCache - populated roomMap with ${cachedRooms.size} rooms from cache (new size: ${roomMap.size})")
-                
-                // CRITICAL: If we loaded rooms from cache, mark spaces as loaded
-                // This prevents "Loading spaces..." from showing when we have rooms but spacesLoaded is false
-                // The cache only contains rooms that have been processed by SpaceRoomParser, so spaces are effectively loaded
-                if (!spacesLoaded && cachedRooms.isNotEmpty()) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateRoomMapFromCache - marking spaces as loaded since cache has ${cachedRooms.size} rooms")
-                    spacesLoaded = true
-                }
-                
-                // Update allRooms and invalidate cache
-                forceRoomListSort()
-            } else {
-                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: populateRoomMapFromCache - cache is empty, cannot populate roomMap")
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to populate roomMap from cache", e)
-        }
-    }
+    fun populateRoomMapFromCache() = syncRoomsCoordinator.populateRoomMapFromCache()
     
     /**
      * Populates allSpaces and storedSpaceEdges from singleton SpaceListCache.
      * This ensures spaces persist across ViewModel instances (e.g., when opening from notification).
      */
-    fun populateSpacesFromCache() {
-        try {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateSpacesFromCache called - current allSpaces size: ${allSpaces.size}, cache size: ${SpaceListCache.getSpaceCount()}")
-            
-            val cachedSpaces = SpaceListCache.getAllSpaces()
-            if (cachedSpaces.isNotEmpty()) {
-                // Populate allSpaces from singleton cache
-                allSpaces = cachedSpaces
-                
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateSpacesFromCache - populated allSpaces with ${cachedSpaces.size} spaces from cache")
-                
-                // Also restore space_edges if available
-                val cachedSpaceEdges = SpaceListCache.getSpaceEdges()
-                if (cachedSpaceEdges != null) {
-                    storedSpaceEdges = cachedSpaceEdges
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateSpacesFromCache - restored space_edges from cache")
-                }
-                
-                // Mark spaces as loaded since we restored them from cache
-                if (!spacesLoaded) {
-                    spacesLoaded = true
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateSpacesFromCache - marking spaces as loaded")
-                }
-                
-                roomListUpdateCounter++
-            } else {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateSpacesFromCache - cache is empty, spaces will be loaded from sync_complete")
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to populate spaces from cache", e)
-        }
-    }
+    fun populateSpacesFromCache() = syncRoomsCoordinator.populateSpacesFromCache()
     
     /**
      * Populate readReceipts from singleton cache
@@ -3046,12 +2970,12 @@ class AppViewModel : ViewModel() {
     }
 
     // Use a thread-safe Map to avoid ConcurrentModificationException when snapshots are taken
-    private val roomMap = java.util.concurrent.ConcurrentHashMap<String, RoomItem>()
-    private var syncMessageCount = 0
+    internal val roomMap = java.util.concurrent.ConcurrentHashMap<String, RoomItem>()
+    internal var syncMessageCount = 0
     
     // Track newly joined rooms (rooms that appeared in sync_complete for the first time)
     // These should be sorted to the top of the room list
-    private val newlyJoinedRoomIds = mutableSetOf<String>()
+    internal val newlyJoinedRoomIds = mutableSetOf<String>()
 
     // MEMORY MANAGEMENT: Profile caches are now singletons (ProfileCache)
     // This ensures profiles are shared across all AppViewModel instances
@@ -3699,7 +3623,7 @@ class AppViewModel : ViewModel() {
      * Only processes members for rooms that changed, and only every 3rd sync message
      * This prevents 100-300ms delays on every sync for large rooms
      */
-    private fun populateMemberCacheFromSync(syncJson: JSONObject) {
+    internal fun populateMemberCacheFromSync(syncJson: JSONObject) {
         val data = syncJson.optJSONObject("data") ?: return
         val roomsJson = data.optJSONObject("rooms") ?: return
         
@@ -3858,293 +3782,14 @@ class AppViewModel : ViewModel() {
         // Removed debug log to reduce log spam during initial sync
     }
     
-    /**
-     * Process account_data from sync_complete or cached state
-     * Can be called with either a sync JSON object or a direct account_data JSON string
-     * 
-     * Rules for processing:
-     * 1. Only process keys that are present in accountDataJson (partial updates)
-     * 2. If a key is present but empty/null, clear the corresponding state
-     * 3. If a key is missing, preserve existing state (don't touch it)
-     * 
-     * IMPORTANT: This function should be called with the merged account_data from cache/state,
-     * not the incoming partial data.
-     * This ensures that keys not present in the incoming sync are preserved.
-     */
-    private fun processAccountData(accountDataJson: JSONObject) {
-        // CRITICAL FIX: Store account_data in singleton cache so all ViewModel instances can access it
-        // This ensures secondary instances (e.g., opened from Contacts) can access account_data
-        AccountDataCache.setAllAccountData(accountDataJson)
-        
-        // Account data is already extracted, process it directly
-        if (BuildConfig.DEBUG) {
-            val allKeys = accountDataJson.keys().asSequence().toList()
-            android.util.Log.d("Andromuks", "AppViewModel: processAccountData - Processing account_data with ${allKeys.size} keys: ${allKeys.joinToString(", ")}")
-        }
-        
-        // Process recent emoji account data
-        // Check if key is present (even if null/empty) - this indicates we should process it
-        if (accountDataJson.has("io.element.recent_emoji")) {
-            val recentEmojiData = accountDataJson.optJSONObject("io.element.recent_emoji")
-            if (recentEmojiData != null) {
-                val content = recentEmojiData.optJSONObject("content")
-                val recentEmojiArray = content?.optJSONArray("recent_emoji")
-                
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "AppViewModel: processAccountData - Found io.element.recent_emoji, content=${content != null}, array length=${recentEmojiArray?.length() ?: 0}")
-                }
-                
-                if (recentEmojiArray != null && recentEmojiArray.length() > 0) {
-                    val frequencies = mutableListOf<Pair<String, Int>>()
-                    for (i in 0 until recentEmojiArray.length()) {
-                        val emojiEntry = recentEmojiArray.optJSONArray(i)
-                        if (emojiEntry != null && emojiEntry.length() >= 1) {
-                            val emoji = emojiEntry.optString(0)
-                            if (emoji.isNotBlank()) {
-                                // Get count from entry, default to 1 if not present
-                                val count = if (emojiEntry.length() >= 2) {
-                                    emojiEntry.optInt(1, 1)
-                                } else {
-                                    1
-                                }
-                                frequencies.add(Pair(emoji, count))
-                            }
-                        }
-                    }
-                    // Sort by frequency (descending) to ensure proper order
-                    val sortedFrequencies = frequencies.sortedByDescending { it.second }
-                    if (sortedFrequencies.isNotEmpty()) {
-                        // CRITICAL FIX: Always trust the server's data as the source of truth.
-                        // The server always sends the FULL list in account_data (not partial updates),
-                        // so we should always replace our local list with what the server sends.
-                        // This ensures we stay in sync with the server and other clients.
-                        recentEmojiFrequencies = sortedFrequencies.toMutableList()
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${sortedFrequencies.size} recent emojis from account_data (server is source of truth): ${sortedFrequencies.take(5).joinToString(", ") { "${it.first}(${it.second})" }}${if (sortedFrequencies.size > 5) "..." else ""}")
-                        val emojisList = recentEmojiFrequencies.map { it.first }
-                        RecentEmojisCache.set(emojisList)
-                        recentEmojis = emojisList
-                        // Mark that we've loaded the full list from the server
-                        hasLoadedRecentEmojisFromServer = true
-                    } else {
-                        // Key is present but array is empty - clear recent emojis
-                        recentEmojiFrequencies.clear()
-                        RecentEmojisCache.clear()
-                        recentEmojis = emptyList()
-                        // Still mark as loaded (server has empty list, which is valid)
-                        hasLoadedRecentEmojisFromServer = true
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: io.element.recent_emoji is present but empty, cleared recent emojis")
-                    }
-                } else {
-                    // Key is present but content/array is null or empty - clear recent emojis
-                    recentEmojiFrequencies.clear()
-                    recentEmojis = emptyList()
-                    // Still mark as loaded (server has empty/null list, which is valid)
-                    hasLoadedRecentEmojisFromServer = true
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: io.element.recent_emoji is present but empty/null, cleared recent emojis")
-                }
-            } else {
-                // Key is present but value is null - clear recent emojis
-                recentEmojiFrequencies.clear()
-                recentEmojis = emptyList()
-                // Still mark as loaded (server has null value, which is valid)
-                hasLoadedRecentEmojisFromServer = true
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: io.element.recent_emoji is null, cleared recent emojis")
-            }
-        } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processAccountData - io.element.recent_emoji key not found in account_data")
-        }
-        // If key is missing, don't process it (preserve existing state)
-        
-        // Process m.direct account data for DM room detection
-        if (accountDataJson.has("m.direct")) {
-            val mDirectData = accountDataJson.optJSONObject("m.direct")
-            if (mDirectData != null) {
-                val content = mDirectData.optJSONObject("content")
-                if (content != null && content.length() > 0) {
-                    val dmRoomIds = mutableSetOf<String>()
-                    val dmUserMap = mutableMapOf<String, MutableSet<String>>()
-                    
-                    // Extract all room IDs from m.direct content
-                    val keys = content.names()
-                    if (keys != null) {
-                        for (i in 0 until keys.length()) {
-                            val userId = keys.optString(i)
-                            val roomIdsArray = content.optJSONArray(userId)
-                            if (roomIdsArray != null) {
-                                val roomsForUser = dmUserMap.getOrPut(userId) { mutableSetOf() }
-                                for (j in 0 until roomIdsArray.length()) {
-                                    val roomId = roomIdsArray.optString(j)
-                                    if (roomId.isNotBlank()) {
-                                        dmRoomIds.add(roomId)
-                                        roomsForUser.add(roomId)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    // Update the DM room IDs cache
-                    directMessageRoomIds = dmRoomIds
-                    directMessageUserMap = dmUserMap.mapValues { it.value.toSet() }
-                    if (BuildConfig.DEBUG) android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Loaded ${dmRoomIds.size} DM room IDs for ${dmUserMap.size} users from m.direct account data"
-                    )
-                    
-                    // PERFORMANCE: Update existing rooms in roomMap with correct DM status from account_data
-                    // This ensures rooms loaded from cache have correct isDirectMessage flag
-                    updateRoomsDirectMessageStatus(dmRoomIds)
-                } else {
-                    // Key is present but content is null or empty - clear DM room IDs
-                    directMessageRoomIds = emptySet()
-                    directMessageUserMap = emptyMap()
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: m.direct is present but empty/null, cleared DM room IDs")
-                }
-            } else {
-                // Key is present but value is null - clear DM room IDs
-                directMessageRoomIds = emptySet()
-                    directMessageUserMap = emptyMap()
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: m.direct is null, cleared DM room IDs")
-            }
-        }
-        // If key is missing, don't process it (preserve existing state)
-        
-        // Process m.ignored_user_list account data
-        if (accountDataJson.has("m.ignored_user_list")) {
-            val ignoredUserListData = accountDataJson.optJSONObject("m.ignored_user_list")
-            if (ignoredUserListData != null) {
-                val content = ignoredUserListData.optJSONObject("content")
-                if (content != null) {
-                    val ignoredUsersObj = content.optJSONObject("ignored_users")
-                    if (ignoredUsersObj != null) {
-                        val ignoredSet = mutableSetOf<String>()
-                        val keys = ignoredUsersObj.names()
-                        if (keys != null) {
-                            for (i in 0 until keys.length()) {
-                                val userId = keys.optString(i)
-                                if (userId.isNotBlank()) {
-                                    ignoredSet.add(userId)
-                                }
-                            }
-                        }
-                        ignoredUsers = ignoredSet
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${ignoredSet.size} ignored users from m.ignored_user_list")
-                    } else {
-                        // Key is present but ignored_users is null or empty - clear ignored users
-                        ignoredUsers = emptySet()
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: m.ignored_user_list.ignored_users is null/empty, cleared ignored users")
-                    }
-                } else {
-                    // Key is present but content is null - clear ignored users
-                    ignoredUsers = emptySet()
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: m.ignored_user_list.content is null, cleared ignored users")
-                }
-            } else {
-                // Key is present but value is null - clear ignored users
-                ignoredUsers = emptySet()
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: m.ignored_user_list is null, cleared ignored users")
-            }
-        }
-        // If key is missing, don't process it (preserve existing state)
-        
-        // Process im.ponies.emote_rooms for custom emoji packs
-        if (accountDataJson.has("im.ponies.emote_rooms")) {
-            val emoteRoomsData = accountDataJson.optJSONObject("im.ponies.emote_rooms")
-            if (emoteRoomsData != null) {
-                val content = emoteRoomsData.optJSONObject("content")
-                val rooms = content?.optJSONObject("rooms")
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "AppViewModel: processAccountData - Found im.ponies.emote_rooms, content=${content != null}, rooms=${rooms != null}, rooms length=${rooms?.length() ?: 0}")
-                }
-                if (rooms != null && rooms.length() > 0) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found im.ponies.emote_rooms account data with ${rooms.length()} rooms")
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found rooms object in emote_rooms, requesting emoji pack data")
-                    // Request emoji pack data for each room/pack combination
-                    val keys = rooms.names()
-                    if (keys != null) {
-                        var packCount = 0
-                        for (i in 0 until keys.length()) {
-                            val roomId = keys.optString(i)
-                            val packsObj = rooms.optJSONObject(roomId)
-                            if (packsObj != null) {
-                                val packNames = packsObj.names()
-                                if (packNames != null) {
-                                    for (j in 0 until packNames.length()) {
-                                        val packName = packNames.optString(j)
-                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting emoji pack data for pack $packName in room $roomId")
-                                        requestEmojiPackData(roomId, packName)
-                                        packCount++
-                                    }
-                                }
-                            }
-                        }
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requested emoji pack data for $packCount packs across ${keys.length()} rooms")
-                    } else {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No room keys found in emote_rooms")
-                    }
-                } else {
-                    // Key is present but rooms is null or empty - clear emoji/sticker packs
-                    EmojiPacksCache.clear()
-                    StickerPacksCache.clear()
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: im.ponies.emote_rooms is present but empty/null, cleared emoji/sticker packs")
-                }
-            } else {
-                // Key is present but value is null - clear emoji/sticker packs
-                EmojiPacksCache.clear()
-                StickerPacksCache.clear()
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: im.ponies.emote_rooms is null, cleared emoji/sticker packs")
-            }
-        } else {
-            // Key is missing from incoming account_data - preserve existing state
-            // Only reload from storage if we have no packs loaded (e.g., after clear_state)
-            // Account data is fully populated on every websocket reconnect (clear_state: true)
-            // No need to reload from storage - if packs are missing, they'll come on next reconnect
-            if (customEmojiPacks.isEmpty() && stickerPacks.isEmpty()) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No im.ponies.emote_rooms in incoming sync and no packs loaded - will be populated on next reconnect")
-            } else {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No im.ponies.emote_rooms in incoming sync, preserving existing ${customEmojiPacks.size} emoji packs and ${stickerPacks.size} sticker packs")
-            }
-        }
-        
-        // CRITICAL: Log completion of account data processing for debugging startup stalls
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: Account data processed.")
-        }
-        addStartupProgressMessage("Account data processed.")
-    }
-    
-    /**
-     * Updates the isDirectMessage flag for all rooms in roomMap based on m.direct account data.
-     */
-    private fun updateRoomsDirectMessageStatus(dmRoomIds: Set<String>) {
-        var updatedCount = 0
-        
-        // Update each room's isDirectMessage flag based on m.direct account data
-        // Update the map in place (roomMap is a val but points to a mutable map)
-        for ((roomId, room) in roomMap) {
-            val shouldBeDirect = dmRoomIds.contains(roomId)
-            if (room.isDirectMessage != shouldBeDirect) {
-                // Update room with correct DM status
-                roomMap[roomId] = room.copy(isDirectMessage = shouldBeDirect)
-                updatedCount++
-            }
-        }
-        
-        if (updatedCount > 0) {
-            // Update allRooms to reflect the changes
-            allRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
-            // Invalidate cache to force refresh of filtered sections
-            invalidateRoomSectionCache()
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated $updatedCount rooms with correct DM status from m.direct/bridge data")
-        }
-    }
 
+    fun updateRoomsFromSyncJsonAsync(syncJson: JSONObject) = syncRoomsCoordinator.updateRoomsFromSyncJsonAsync(syncJson)
     // SYNC OPTIMIZATION: Helper functions for diff-based and batched updates
     
     /**
      * Generate a hash for room state to detect actual changes
      */
-    private fun generateRoomStateHash(rooms: List<RoomItem>): String {
+    internal fun generateRoomStateHash(rooms: List<RoomItem>): String {
         return rooms.joinToString("|") { "${it.id}:${it.name}:${it.unreadCount}:${it.messagePreview}:${it.messageSender}:${it.sortingTimestamp}" }
     }
     
@@ -4158,7 +3803,7 @@ class AppViewModel : ViewModel() {
     /**
      * Generate a hash for member state to detect actual changes
      */
-    private fun generateMemberStateHash(): String {
+    internal fun generateMemberStateHash(): String {
         return ProfileCache.getAllFlattenedProfiles().entries.take(100).joinToString("|") { "${it.key}:${it.value.displayName}:${it.value.avatarUrl}" }
     }
     
@@ -4173,7 +3818,7 @@ class AppViewModel : ViewModel() {
      * 
      * This reduces recompositions from 10-20 per second to ~1-2 during initial sync
      */
-    private fun scheduleUIUpdate(updateType: String) {
+    internal fun scheduleUIUpdate(updateType: String) {
         pendingUIUpdates.add(updateType)
         
         // Cancel existing batch job if any
@@ -4202,7 +3847,7 @@ class AppViewModel : ViewModel() {
      * This prevents the frustrating "room jumping" effect when new messages arrive
      * Can be forced to sort immediately via forceImmediate parameter
      */
-    private fun scheduleRoomReorder(forceImmediate: Boolean = false) {
+    internal fun scheduleRoomReorder(forceImmediate: Boolean = false) {
         val currentTime = System.currentTimeMillis()
         val timeSinceLastReorder = currentTime - lastRoomReorderTime
         
@@ -4413,7 +4058,7 @@ class AppViewModel : ViewModel() {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.w("Andromuks", "🟣 processSyncCompleteMessage: clear_state=true - clearing state (request_id=$requestId)")
                 }
-                handleClearStateReset()
+                syncRoomsCoordinator.handleClearStateReset()
             }
             
             // Update last sync timestamp immediately (this is lightweight)
@@ -4564,7 +4209,7 @@ class AppViewModel : ViewModel() {
                     // Switch back to main thread for UI updates only
                     withContext(Dispatchers.Main) {
                         try {
-                            processParsedSyncResult(syncResult, syncJson)
+                            syncRoomsCoordinator.processParsedSyncResult(syncResult, syncJson)
                             // CRITICAL FIX: Invoke completion callback AFTER account data processing completes
                             // This ensures startup doesn't complete before account data is processed
                             onComplete?.invoke()
@@ -4605,756 +4250,19 @@ class AppViewModel : ViewModel() {
      * Note: handleSyncToDeviceEvents() is called in updateRoomsFromSyncJsonAsync() at receive time,
      * so we intentionally do NOT call it again here to avoid double-processing.
      */
-    private suspend fun processSyncCompleteAtomic(
-        syncJson: JSONObject,
-        requestId: Int,
-        runId: String,
-        onComplete: (suspend () -> Unit)? = null
-    ) {
-        val context = appContext
-        if (context == null) {
-            android.util.Log.w("Andromuks", "AppViewModel: Skipping sync processing because appContext is null")
-            onComplete?.invoke()
-            return
-        }
-
-        try {
-            // clear_state must be handled BEFORE parsing/ingesting (atomic reset)
-            val data = syncJson.optJSONObject("data")
-            val isClearState = data?.optBoolean("clear_state") == true
-            if (isClearState) {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.w("Andromuks", "🟣 processSyncCompleteAtomic: clear_state=true - clearing state (request_id=$requestId)")
-                }
-                handleClearStateReset()
-            }
-
-            // Update last sync timestamp immediately (lightweight) and notify service
-            lastSyncTimestamp = System.currentTimeMillis()
-            WebSocketService.updateLastSyncTimestamp()
-
-            ensureSyncIngestor()
-            val ingestor = syncIngestor
-            if (ingestor == null) {
-                android.util.Log.w("Andromuks", "AppViewModel: syncIngestor is null - cannot ingest sync_complete")
-                onComplete?.invoke()
-                return
-            }
-
-            // Capture flags/ids once to keep consistent across background jobs.
-            val visible = isAppVisible
-            val runIdForIngest = currentRunId
-
-            // JSONObject is not thread-safe: clone once and create isolated copies per dispatcher.
-            val raw = try {
-                syncJson.toString()
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Failed to stringify sync_complete JSON: ${e.message}", e)
-                null
-            } ?: run {
-                onComplete?.invoke()
-                return
-            }
-
-            kotlinx.coroutines.coroutineScope {
-                val ingestDeferred = async(Dispatchers.IO) {
-                    val jsonForIngest = JSONObject(raw)
-                    ingestor.ingestSyncComplete(jsonForIngest, requestId, runIdForIngest, visible)
-                }
-
-                val parseDeferred = async(Dispatchers.Default) {
-                    val jsonForParse = JSONObject(raw)
-                    val existingRoomsSnapshot = synchronized(roomMap) { HashMap(roomMap) }
-                    SpaceRoomParser.parseSyncUpdate(
-                        jsonForParse,
-                        RoomMemberCache.getAllMembers(),
-                        this@AppViewModel,
-                        existingRooms = existingRoomsSnapshot,
-                        isClearState = isClearState
-                    )
-                }
-
-                val ingestResult = ingestDeferred.await()
-                val syncResult = parseDeferred.await()
-
-                // Apply UI state changes on main thread (Compose safety)
-                withContext(Dispatchers.Main) {
-                    try {
-                        val jsonForMain = JSONObject(raw)
-                        processParsedSyncResult(syncResult, jsonForMain)
-
-                        // Apply invites (in-memory) and UI invalidation flags.
-                        val invites = ingestResult?.invites ?: emptyList()
-                        if (invites.isNotEmpty()) {
-                            invites.forEach { invite ->
-                                PendingInvitesCache.updateInvite(invite)
-                            }
-                            needsRoomListUpdate = true
-                            if (visible) {
-                                roomListUpdateCounter++
-                            }
-                        }
-
-                        // Keep existing behavior: if cached-room events arrived, bump summary counter (foreground).
-                        val roomsWithEvents = ingestResult?.roomsWithEvents ?: emptySet()
-                        if (roomsWithEvents.isNotEmpty() && visible) {
-                            roomSummaryUpdateCounter++
-                        }
-
-                        onComplete?.invoke()
-                    } catch (e: Exception) {
-                        android.util.Log.e("Andromuks", "AppViewModel: Crash applying sync_complete on main: ${e.message}", e)
-                        onComplete?.invoke()
-                    }
-                }
-            }
-
-            // Update last_received_request_id AFTER we fully processed this message.
-            if (requestId != 0) {
-                WebSocketService.updateLastReceivedRequestId(requestId, context)
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: processSyncCompleteAtomic failed (request_id=$requestId): ${e.message}", e)
-            onComplete?.invoke()
-        }
-    }
     
     /**
      * Handles server-directed clear_state=true: purge in-memory derived state
      * while keeping events/profile/media intact.
      */
-    private fun handleClearStateReset() {
-        if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: clear_state=true received - clearing derived room/space state (events preserved)")
-        clearDerivedStateInMemory()
-        
-        ensureSyncIngestor()
-        
-        runCatching {
-            kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-                syncIngestor?.handleClearStateSignal()
-            }
-        }.onFailure {
-            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Failed to clear derived state on clear_state: ${it.message}", it)
-        }
-    }
     
     /**
      * Clears in-memory derived room/space state so subsequent syncs repopulate from scratch.
      * Events, profile info, and media cache remain untouched.
      */
-    private fun clearDerivedStateInMemory() {
-        val previousSpacesSize = allSpaces.size
-        if (BuildConfig.DEBUG && previousSpacesSize > 0) {
-            android.util.Log.w("Andromuks", "AppViewModel: clearDerivedStateInMemory - clearing $previousSpacesSize spaces")
-        }
-        roomMap.clear()
-        allRooms = emptyList()
-        invalidateRoomSectionCache()
-        allSpaces = emptyList()
-        spaceList = emptyList()
-        knownSpaceIds.clear()
-        storedSpaceEdges = null
-        spacesLoaded = false
-        newlyJoinedRoomIds.clear()
-        loadedSections.clear()
-        
-        synchronized(readReceiptsLock) {
-            readReceipts.clear()
-        }
-        roomsWithLoadedReceipts.clear()
-        roomsWithLoadedReactions.clear()
-        MessageReactionsCache.clear()
-        messageReactions = emptyMap()
-        
-        // Also clear derived account_data caches so the next full sync repopulates from the
-        // authoritative dataset sent after clear_state=true.
-        recentEmojiFrequencies.clear()
-        recentEmojis = emptyList()
-        hasLoadedRecentEmojisFromServer = false
-        directMessageRoomIds = emptySet()
-        directMessageUserMap = emptyMap()
-        EmojiPacksCache.clear()
-        StickerPacksCache.clear()
-        
-        // CRITICAL FIX: Clear singleton account_data cache on clear_state
-        AccountDataCache.clear()
-        
-        // Clear pending invites - new invites will come from clear_state sync_complete
-        PendingInvitesCache.clear()
-        
-        // CRITICAL: Clear singleton RoomListCache when clear_state=true is received
-        // This ensures that when WebSocket reconnects after primary AppViewModel dies,
-        // all AppViewModel instances (including new ones) start with a clean cache
-        RoomListCache.clear()
-        // CRITICAL: Also clear SpaceListCache when clear_state=true is received
-        // This ensures spaces are repopulated from the fresh sync_complete messages
-        SpaceListCache.clear()
-        ReadReceiptCache.clear()
-        MessageReactionsCache.clear()
-        RecentEmojisCache.clear()
-        PendingInvitesCache.clear()
-        MessageVersionsCache.clear()
-        RoomMemberCache.clear()
-        
-        // CRITICAL: Clear timeline caches only when server sends clear_state=true (base set of data).
-        // Do not clear on init_complete or resume (last_received_event); only when clear_state is present.
-        RoomTimelineCache.clearAll()
-        oldestRowIdPerRoom.clear()
-        roomsWithPendingPaginate.clear()
-        
-        // Force room list refresh to reflect cleared state until new data arrives
-        needsRoomListUpdate = true
-        scheduleUIUpdate("roomList")
-    }
 
-    /**
-     * PERFORMANCE OPTIMIZATION: Async version that processes JSON on background thread
-     * This prevents UI blocking during sync parsing (200-500ms improvement)
-     */
-    fun updateRoomsFromSyncJsonAsync(syncJson: JSONObject) {
-        handleSyncToDeviceEvents(syncJson)
-        
-        // CRITICAL FIX: Queue sync_complete messages received before init_complete
-        // These are initial sync messages that populate all rooms - we'll process them after init_complete
-        // CRITICAL: Messages MUST be queued in FIFO order to prevent race conditions
-        if (!initialSyncPhase) {
-            // We're in initial sync phase (before init_complete) - queue this message
-            synchronized(initialSyncCompleteQueue) {
-                val clonedJson = JSONObject(syncJson.toString()) // Clone to avoid mutation
-                val requestId = syncJson.optInt("request_id", 0)
-                initialSyncCompleteQueue.add(clonedJson)
-                pendingSyncCompleteCount = initialSyncCompleteQueue.size
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Queued initial sync_complete message (request_id=$requestId, queue size: ${initialSyncCompleteQueue.size}) - FIFO order preserved")
-                }
-            }
-            // Don't process yet - wait for init_complete
-            return
-        }
-        
-        // BATTERY OPTIMIZATION: Use batch processor to reduce CPU wake-ups when backgrounded
-        // Foreground: processes immediately, Background: batches every 10s (98.75% fewer wake-ups)
-        val requestId = syncJson.optInt("request_id", 0)
-        val runId = syncJson.optJSONObject("data")?.optString("run_id", "") ?: ""
-        viewModelScope.launch {
-            syncBatchProcessor.processSyncComplete(syncJson, requestId, runId)
-        }
-    }
     
     
-/**
-     * Process parsed sync result and update UI
-     * Called on main thread after background parsing completes
-     */
-    private fun processParsedSyncResult(syncResult: SyncUpdateResult, syncJson: JSONObject) {
-        // CRITICAL: Increment sync message count FIRST to prevent duplicate processing
-        syncMessageCount++
-        
-        // NOTE: Invites are loaded from sync_complete right after ingestSyncComplete completes
-        // (in the background thread, before processParsedSyncResult runs)
-        // This ensures invites are loaded before the UI checks for them
-        
-        // CRITICAL FIX: Process read receipts from sync_complete for ALL rooms, not just the currently open one
-        // This ensures receipts are updated even when rooms are not currently open
-        // Receipts are stored globally (by eventId) but should be updated whenever sync_complete arrives
-        val data = syncJson.optJSONObject("data")
-        if (data != null) {
-            val rooms = data.optJSONObject("rooms")
-            if (rooms != null) {
-                val roomKeys = rooms.keys()
-                while (roomKeys.hasNext()) {
-                    val roomId = roomKeys.next()
-                    val roomData = rooms.optJSONObject(roomId) ?: continue
-
-                    // Only process receipts for:
-                    // 1) Rooms that are actively cached (have a timeline cache), OR
-                    // 2) The room that is currently open in the UI.
-                    // This avoids wasting work on rooms whose timeline we are not keeping,
-                    // since paginate will provide authoritative receipts when they are opened.
-                    val isActivelyCached = RoomTimelineCache.isRoomActivelyCached(roomId)
-                    val isCurrentRoom = (currentRoomId == roomId)
-                    if (!isActivelyCached && !isCurrentRoom) {
-                        continue
-                    }
-
-                    val receipts = roomData.optJSONObject("receipts")
-                    if (receipts != null && receipts.length() > 0) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processParsedSyncResult - Processing read receipts from sync_complete for room: $roomId (${receipts.length()} event receipts)")
-                        synchronized(readReceiptsLock) {
-                            // Use processReadReceiptsFromSyncComplete - sync_complete moves receipts
-                            // CRITICAL FIX: Pass roomId to prevent cross-room receipt corruption
-                            ReceiptFunctions.processReadReceiptsFromSyncComplete(
-                                receipts,
-                                readReceipts,
-                                { readReceiptsUpdateCounter++ },
-                                { userId, previousEventId, newEventId ->
-                                    // Track receipt movement for animation (thread-safe)
-                                    synchronized(readReceiptsLock) {
-                                        receiptMovements[userId] = Triple(previousEventId, newEventId, System.currentTimeMillis())
-                                    }
-                                    receiptAnimationTrigger = System.currentTimeMillis()
-                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Receipt movement detected: $userId from $previousEventId to $newEventId")
-                                },
-                                roomId = roomId // Pass room ID to prevent cross-room corruption
-                            )
-
-                            // Update singleton cache after processing receipts
-                            val receiptsForCache = readReceipts.mapValues { it.value.toList() }
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updating ReadReceiptCache with ${receiptsForCache.size} events (${receiptsForCache.values.sumOf { it.size }} total receipts) from sync_complete for room: $roomId")
-                            ReadReceiptCache.setAll(receiptsForCache)
-                            if (BuildConfig.DEBUG) {
-                                val cacheAfter = ReadReceiptCache.getAllReceipts()
-                                android.util.Log.d("Andromuks", "AppViewModel: ReadReceiptCache after update: ${cacheAfter.size} events (${cacheAfter.values.sumOf { it.size }} total receipts)")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Populate member cache from sync data and check for changes
-        val oldMemberStateHash = generateMemberStateHash()
-        populateMemberCacheFromSync(syncJson)
-        val newMemberStateHash = generateMemberStateHash()
-        val memberStateChanged = newMemberStateHash != oldMemberStateHash
-        val hasRoomChanges = syncResult.updatedRooms.isNotEmpty() ||
-                syncResult.newRooms.isNotEmpty() ||
-                syncResult.removedRoomIds.isNotEmpty()
-        val accountData = data?.optJSONObject("account_data")
-        // CRITICAL FIX: account_data is ALWAYS present in sync_complete (usually as {} for no updates)
-        // Empty {} means "no updates" - preserve existing state
-        // Non-empty means "update these keys" - process them
-        // null means "no account_data field" (shouldn't happen per protocol, but handle gracefully)
-        val accountDataChanged = accountData != null && accountData.length() > 0
-        
-        // CRITICAL FIX: Process account_data BEFORE early return check
-        // This ensures account_data is ALWAYS processed when present with keys, even if there are no room/member changes
-        // This is essential after clear_state=true when account_data arrives in subsequent sync_completes
-        val isClearState = data?.optBoolean("clear_state") == true
-        if (accountData != null) {
-            if (accountData.length() > 0) {
-                // Account_data has keys - process them (this updates recent emojis, m.direct, etc.)
-                if (BuildConfig.DEBUG) {
-                    val accountDataKeys = accountData.keys().asSequence().toList()
-                    android.util.Log.d("Andromuks", "AppViewModel: processParsedSyncResult - Processing account_data with keys: ${accountDataKeys.joinToString(", ")} (clear_state=$isClearState)")
-                }
-                processAccountData(accountData)
-            } //else {
-            //    // Account_data is empty {} - no updates, preserve existing state
-            //    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processParsedSyncResult - Incoming account_data is empty {}, preserving existing state")
-            //}
-        } else {
-            // Account_data is null (special case: first clear_state message may have null)
-            // This means "no account_data updates" - preserve existing state
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processParsedSyncResult - account_data is null (preserving existing state)")
-        }
-        
-        // Early return check AFTER processing account_data
-        // This ensures account_data is processed even when there are no room/member changes
-        if (!hasRoomChanges && !accountDataChanged && !memberStateChanged) {
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: processParsedSyncResult - no changes detected (rooms/account/member), skipping UI work (account_data already processed above)"
-                )
-            }
-            return
-        }
-        
-        // BATTERY OPTIMIZATION: Auto-save state periodically for crash recovery
-        // Foreground: Save every 10 syncs (user might close app)
-        // Background: Save every 50 syncs (less frequent to reduce I/O)
-        if (syncMessageCount > 0) {
-            val shouldSave = if (isAppVisible) {
-                syncMessageCount % 10 == 0
-            } else {
-                syncMessageCount % 50 == 0
-            }
-            if (shouldSave) {
-                appContext?.let { context ->
-                    saveStateToStorage(context)
-                }
-            }
-        }
-        
-        // BATTERY OPTIMIZATION: This loop only processes rooms that actually changed in this sync (not all 588 rooms)
-        // syncResult.updatedRooms typically contains 1-10 rooms per sync, not all rooms
-        // Total cost: ~0.01-0.1ms per sync (much better than processing all 588 rooms)
-        // Update existing rooms
-        syncResult.updatedRooms.forEach { room ->
-            val existingRoom = roomMap[room.id]
-            if (existingRoom != null) {
-                // Preserve existing message preview and sender if new room data doesn't have one
-                // CRITICAL: Also preserve isFavourite and isLowPriority flags if sync doesn't include account_data.m.tag
-                // This prevents favorite rooms from disappearing from the Favs tab
-                val updatedRoom = room.copy(
-                    messagePreview = if (room.messagePreview.isNullOrBlank() && !existingRoom.messagePreview.isNullOrBlank()) {
-                        existingRoom.messagePreview
-                    } else {
-                        room.messagePreview
-                    },
-                    messageSender = if (room.messageSender.isNullOrBlank() && !existingRoom.messageSender.isNullOrBlank()) {
-                        existingRoom.messageSender
-                    } else {
-                        room.messageSender
-                    },
-                    // Preserve favorite and low priority flags if sync doesn't explicitly update them
-                    // SpaceRoomParser only sets these to true if account_data.m.tag is present
-                    // If sync doesn't include account_data, we preserve the existing values
-                    isFavourite = room.isFavourite || existingRoom.isFavourite, // Keep true if either is true
-                    isLowPriority = room.isLowPriority || existingRoom.isLowPriority, // Keep true if either is true
-                    isDirectMessage = room.isDirectMessage || existingRoom.isDirectMessage, // Preserve DM status
-                    // WRITE-ONLY BRIDGE INFO: Preserve bridge protocol avatar if it was previously set
-                    // Bridge info comes from get_room_state (m.bridge event), not from sync_complete
-                    // Once set, it's never removed (will be resolved on app restart if room is no longer bridged)
-                    // CRITICAL OPTIMIZATION: Also check SharedPreferences cache for bridge info
-                    bridgeProtocolAvatarUrl = run {
-                        val cachedBridgeAvatar = appContext?.let { context ->
-                            net.vrkknn.andromuks.utils.BridgeInfoCache.getBridgeAvatarUrl(context, room.id)
-                        }
-                        val cachedBridgeAvatarUrl = if (cachedBridgeAvatar != null && cachedBridgeAvatar.isNotEmpty()) {
-                            cachedBridgeAvatar
-                        } else {
-                            null
-                        }
-                        room.bridgeProtocolAvatarUrl 
-                            ?: existingRoom.bridgeProtocolAvatarUrl 
-                            ?: cachedBridgeAvatarUrl
-                    }
-                )
-                // Log if favorite status was preserved (for debugging)
-                if (existingRoom.isFavourite && !room.isFavourite && updatedRoom.isFavourite) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Preserved isFavourite=true for room ${room.id} (sync didn't include account_data.m.tag)")
-                }
-                roomMap[room.id] = updatedRoom
-                // Update singleton cache
-                RoomListCache.updateRoom(updatedRoom)
-            } else {
-                // New room - check SharedPreferences cache for bridge info
-                val cachedBridgeAvatar = appContext?.let { context ->
-                    net.vrkknn.andromuks.utils.BridgeInfoCache.getBridgeAvatarUrl(context, room.id)
-                }
-                val cachedBridgeAvatarUrl = if (cachedBridgeAvatar != null && cachedBridgeAvatar.isNotEmpty()) {
-                    cachedBridgeAvatar
-                } else {
-                    null
-                }
-                
-                val roomWithBridgeInfo = if (cachedBridgeAvatarUrl != null) {
-                    room.copy(bridgeProtocolAvatarUrl = cachedBridgeAvatarUrl)
-                } else {
-                    room
-                }
-                
-                roomMap[room.id] = roomWithBridgeInfo
-                // Update singleton cache
-                RoomListCache.updateRoom(roomWithBridgeInfo)
-                if (BuildConfig.DEBUG) {
-                    if (cachedBridgeAvatarUrl != null) {
-                        android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name} (unread: ${room.unreadCount}) with cached bridge avatar")
-                    } else {
-                        android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name} (unread: ${room.unreadCount})")
-                    }
-                }
-            }
-        }
-        
-        // BATTERY OPTIMIZATION: This loop only processes newly joined rooms (typically 0-1 per sync)
-        // Not all 588 rooms - only rooms that were just added
-        // Add new rooms
-        syncResult.newRooms.forEach { room ->
-            // Check SharedPreferences cache for bridge info
-            val cachedBridgeAvatar = appContext?.let { context ->
-                net.vrkknn.andromuks.utils.BridgeInfoCache.getBridgeAvatarUrl(context, room.id)
-            }
-            val cachedBridgeAvatarUrl = if (cachedBridgeAvatar != null && cachedBridgeAvatar.isNotEmpty()) {
-                cachedBridgeAvatar
-            } else {
-                null
-            }
-            
-            val roomWithBridgeInfo = if (cachedBridgeAvatarUrl != null) {
-                room.copy(bridgeProtocolAvatarUrl = cachedBridgeAvatarUrl)
-            } else {
-                room
-            }
-            
-            roomMap[room.id] = roomWithBridgeInfo
-            // Update singleton cache
-            RoomListCache.updateRoom(roomWithBridgeInfo)
-            
-            // CRITICAL FIX: Only mark as "newly joined" if initial sync is complete
-            // During initial sync, all rooms are "new" because roomMap is empty, but they're not actually newly joined
-            // Only mark as newly joined for real-time updates after initial sync is complete
-            if (initialSyncProcessingComplete) {
-                // Initial sync is complete - this is a real new room, mark as newly joined
-            newlyJoinedRoomIds.add(room.id)
-            } else {
-                // Initial sync - just add the room without marking as newly joined
-            }
-            
-            
-        }
-        
-        // CRITICAL: If we have newly joined rooms, force immediate sort to show them at the top
-        if (syncResult.newRooms.isNotEmpty()) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: New rooms detected - forcing immediate sort to show them at the top")
-            scheduleRoomReorder(forceImmediate = true)
-        }
-        
-        // BATTERY OPTIMIZATION: This loop only processes rooms that were removed (typically 0 per sync)
-        // Not all 588 rooms - only rooms that were just left/removed
-        // Remove left rooms
-        var roomsWereRemoved = false
-        var invitesWereRemoved = false
-        val removedRoomIdsSet = syncResult.removedRoomIds.toSet()
-        syncResult.removedRoomIds.forEach { roomId ->
-            // CRITICAL: Check if left room is a pending invite first (user refused invite on another client)
-            val wasPendingInvite = PendingInvitesCache.getInvite(roomId) != null
-            if (wasPendingInvite) {
-                PendingInvitesCache.removeInvite(roomId)
-                invitesWereRemoved = true
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed refused invite (left_rooms): $roomId")
-            }
-            
-            // Remove from roomMap if user was actually joined (user left room on another client)
-            val removedRoom = roomMap.remove(roomId)
-            // Remove from singleton cache
-            RoomListCache.removeRoom(roomId)
-            if (removedRoom != null) {
-                roomsWereRemoved = true
-                // Remove from newly joined set if it was there
-                newlyJoinedRoomIds.remove(roomId)
-                
-                
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed room (left_rooms): ${removedRoom.name}")
-            }
-        }
-        
-        // CRITICAL: If rooms were removed, immediately filter them out from allRooms and update UI
-        if (roomsWereRemoved) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Rooms removed - immediately filtering from allRooms and updating UI")
-            // Immediately filter out removed rooms from allRooms
-            val filteredRooms = allRooms.filter { it.id !in removedRoomIdsSet }
-            allRooms = filteredRooms
-            invalidateRoomSectionCache()
-            
-            // Also update spaces list
-            setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = filteredRooms)), skipCounterUpdate = true)
-            
-            // Trigger immediate UI update (bypass debounce)
-            needsRoomListUpdate = true
-            roomListUpdateCounter++
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Immediately updated UI after room removal (roomListUpdateCounter: $roomListUpdateCounter)")
-        }
-        
-        // CRITICAL: If invites were removed (refused on another client), trigger UI update
-        if (invitesWereRemoved) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Invites removed (refused on another client) - updating UI")
-            needsRoomListUpdate = true
-            roomListUpdateCounter++
-        }
-        
-        //if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Total rooms now: ${roomMap.size} (updated: ${syncResult.updatedRooms.size}, new: ${syncResult.newRooms.size}, removed: ${syncResult.removedRoomIds.size}) - sync message #$syncMessageCount [App visible: $isAppVisible]")
-        
-        // DETECT INVITES ACCEPTED ON OTHER DEVICES: Remove pending invites for rooms already joined
-        if (pendingInvites.isNotEmpty()) {
-            val acceptedInvites = pendingInvites.keys.filter { roomMap.containsKey(it) }
-            if (acceptedInvites.isNotEmpty()) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Detected ${acceptedInvites.size} invites already joined via sync - removing pending invites")
-                
-                acceptedInvites.forEach { roomId ->
-                    PendingInvitesCache.removeInvite(roomId)
-                }
-                
-                // Invites are in-memory only - no local cleanup needed
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed ${acceptedInvites.size} invites from memory (accepted elsewhere)")
-                
-                // Trigger UI update to remove invites from RoomListScreen
-                needsRoomListUpdate = true
-                roomListUpdateCounter++
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room list updated after removing accepted invites (roomListUpdateCounter: $roomListUpdateCounter)")
-            }
-        }
-        
-        // NOTE: Invites are loaded from sync_complete at the start of processParsedSyncResult()
-        // This ensures invites are always loaded even when there are no room changes
-        
-        // BATTERY OPTIMIZATION: Disabled timeline event caching - events are always persisted to DB by SyncIngestor
-        // We now always load from DB when opening a room (no need for multi-room RAM cache)
-        // This saves ~6-26ms CPU per sync_complete and ~15MB RAM
-        // cacheTimelineEventsFromSync(syncJson)
-        
-        // SYNC OPTIMIZATION: Update room data (last message, unread count) without immediate sorting
-        // This prevents visual jumping while still showing real-time updates
-        val allRoomsUnsorted = roomMap.values.toList()
-        
-        // BATTERY OPTIMIZATION: Update low priority rooms set only when changed (saves SharedPreferences writes)
-        // This function now caches the last hash and only writes when low priority status actually changes
-        // Without this optimization, we'd write to SharedPreferences on every sync even if nothing changed
-        updateLowPriorityRooms(allRoomsUnsorted)
-        
-        // Diff-based update: Only update UI if room state actually changed
-        // BATTERY OPTIMIZATION: generateRoomStateHash is lightweight (O(n) string operations) but necessary for change detection
-        // It allows us to skip expensive UI updates when room state hasn't changed
-        val newRoomStateHash = generateRoomStateHash(allRoomsUnsorted)
-        val roomStateChanged = newRoomStateHash != lastRoomStateHash
-        
-        // BATTERY OPTIMIZATION: Skip expensive UI updates when app is in background
-        if (isAppVisible) {
-            // Trigger timestamp update on sync (only for visible UI)
-            triggerTimestampUpdate()
-            
-            // SYNC OPTIMIZATION: Selective updates - only update what actually changed
-            if (roomStateChanged) {
-                
-                // PERFORMANCE: Update room data in current order (preserves visual stability)
-                // If allRooms is empty or this is first sync, initialize with sorted list
-                if (allRooms.isEmpty()) {
-                    // First sync - initialize with sorted list
-                    val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
-                    allRooms = sortedRooms
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Initializing allRooms with ${sortedRooms.size} sorted rooms")
-                } else {
-                    // Update existing rooms in current order, add new rooms at end
-                    // PERFORMANCE: Only create new RoomItem instances when data actually changes
-                    val existingRoomIds = allRooms.map { it.id }.toSet()
-                    var hasChanges = false
-                    val updatedExistingRooms = allRooms.mapIndexed { index, existingRoom ->
-                        val updatedRoom = roomMap[existingRoom.id] ?: existingRoom
-                        // Only create new instance if data actually changed (data class equality check)
-                        if (updatedRoom != existingRoom) {
-                            hasChanges = true
-                            updatedRoom
-                        } else {
-                            existingRoom // Keep existing instance to avoid recomposition
-                        }
-                    }
-                    
-                    // Add any new rooms that appeared in roomMap (at the end, will be sorted later)
-                    val newRooms = roomMap.values.filter { it.id !in existingRoomIds }
-                    
-                    // Only update if there are actual changes (new rooms or updated rooms)
-                    if (newRooms.isNotEmpty() || hasChanges) {
-                        // Combine existing (in current order) with new rooms (will be sorted on next reorder)
-                        allRooms = updatedExistingRooms + newRooms
-                        invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
-                        
-                        // Mark for batched UI update (for badges/timestamps - no sorting)
-                        needsRoomListUpdate = true
-                        scheduleUIUpdate("roomList")
-                    }
-                }
-                
-                // PERFORMANCE: Use debounced room reordering (30 seconds) to prevent "room jumping"
-                // This allows real-time badge/timestamp updates while only re-sorting periodically
-                scheduleRoomReorder()
-                
-                lastRoomStateHash = newRoomStateHash
-                
-                // SHORTCUT OPTIMIZATION: Shortcuts only update when user sends messages (not on sync_complete)
-                // This drastically reduces shortcut updates. Removed shortcut updates from sync_complete processing.
-                
-                // BATTERY OPTIMIZATION: Only update persons API if sync_complete has DM changes
-                // No need to sort - buildDirectPersonTargets() filters to DMs and doesn't use sorted order
-                viewModelScope.launch(Dispatchers.Default) {
-                    val syncRooms = (syncResult.updatedRooms + syncResult.newRooms).filter { 
-                        it.sortingTimestamp != null && it.sortingTimestamp > 0 
-                    }
-                    
-                    val syncDMs = syncRooms.filter { it.isDirectMessage }
-                    if (syncDMs.isNotEmpty()) {
-                        // Get all DMs from roomMap (no sorting needed - persons API doesn't care about order)
-                        val allDMs = roomMap.values.filter { it.isDirectMessage }
-                        personsApi?.updatePersons(buildDirectPersonTargets(allDMs))
-                    }
-                }
-            } else {
-                // Room state hash unchanged - check if individual rooms need timestamp updates
-                // PERFORMANCE: Only update rooms that actually changed to avoid unnecessary recomposition
-                if (allRooms.isNotEmpty()) {
-                    var needsUpdate = false
-                    val updatedRooms = allRooms.map { existingRoom ->
-                        val updatedRoom = roomMap[existingRoom.id] ?: existingRoom
-                        // Only create new instance if data actually changed (data class equality check)
-                        if (updatedRoom != existingRoom) {
-                            needsUpdate = true
-                            updatedRoom
-                        } else {
-                            existingRoom // Keep existing instance to avoid recomposition
-                        }
-                    }
-                    
-                    // Only update if something actually changed
-                    if (needsUpdate) {
-                        allRooms = updatedRooms
-                        invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
-                        
-                        // Trigger UI update for timestamp changes only
-                        needsRoomListUpdate = true
-                        scheduleUIUpdate("roomList")
-                    }
-                }
-            }
-            
-            
-            // SYNC OPTIMIZATION: Check if current room needs timeline update with diff-based detection
-            checkAndUpdateCurrentRoomTimelineOptimized(syncJson)
-            
-            // Timeline is updated directly from sync_complete events via processSyncEventsArray()
-            // No DB persistence or refresh needed - all data is in-memory
-            
-            // SYNC OPTIMIZATION: Schedule member update if member cache actually changed
-            if (memberStateChanged) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Member state changed, scheduling UI update")
-                needsMemberUpdate = true
-                scheduleUIUpdate("member")
-                lastMemberStateHash = newMemberStateHash
-            }
-        } else {
-            // BATTERY OPTIMIZATION: App is in background - minimal processing for battery saving
-            // We skip expensive operations like sorting and UI updates since no one is viewing the app
-            //if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: BATTERY SAVE MODE - App in background, skipping UI updates")
-            
-            // BATTERY OPTIMIZATION: Keep allRooms unsorted when backgrounded (skip expensive O(n log n) sort)
-            // We only need sorted rooms when updating shortcuts (every 10 syncs) or when app becomes visible
-            // This saves CPU time since sorting 588 rooms takes ~2-5ms per sync
-            allRooms = allRoomsUnsorted // Use unsorted list from roomMap - lightweight operation
-            
-            // SHORTCUT OPTIMIZATION: Shortcuts only update when user sends messages (not on sync_complete)
-            // This drastically reduces shortcut updates. Removed shortcut updates from sync_complete processing.
-            
-            // BATTERY OPTIMIZATION: Only update persons API if sync_complete has DM changes
-            // No need to sort - buildDirectPersonTargets() filters to DMs and doesn't use sorted order
-            viewModelScope.launch(Dispatchers.Default) {
-                val syncRooms = (syncResult.updatedRooms + syncResult.newRooms).filter { 
-                    it.sortingTimestamp != null && it.sortingTimestamp > 0 
-                }
-                
-                val syncDMs = syncRooms.filter { it.isDirectMessage }
-                if (syncDMs.isNotEmpty()) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Background: Updating persons (DMs changed in sync_complete)")
-                    // Get all DMs from roomMap (no sorting needed - persons API doesn't care about order)
-                    val allDMs = roomMap.values.filter { it.isDirectMessage }
-                    personsApi?.updatePersons(buildDirectPersonTargets(allDMs))
-                }
-            }
-            // Note: We don't invalidate cache on every sync when backgrounded - saves CPU time
-        }
-        
-        // Set spacesLoaded after 3 sync messages, but don't trigger navigation yet
-        // Navigation will be triggered by onInitComplete() after all initialization is done
-        if (syncMessageCount >= 3 && !spacesLoaded) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting spacesLoaded after $syncMessageCount sync messages")
-            spacesLoaded = true
-        }
-        
-        // Process space edges after roomMap is updated so spaces show only joined rooms.
-        // (Don't run from storeSpaceEdges — that runs before processParsedSyncResult, when data.rooms may be empty.)
-        if (storedSpaceEdges != null && initializationComplete) {
-            populateSpaceEdges()
-        }
-    }
     
     fun onInitComplete() {
         android.util.Log.d("Andromuks", "🟣 onInitComplete: START - initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded, initialSyncCompleteQueue.size=${initialSyncCompleteQueue.size}")
@@ -5448,7 +4356,7 @@ class AppViewModel : ViewModel() {
                                         }
                                         val msgRunId = data?.optString("run_id", "") ?: ""
                                         kotlinx.coroutines.withTimeoutOrNull(30000L) { // 30 second timeout per message
-                                            processSyncCompleteAtomic(
+                                            syncRoomsCoordinator.processSyncCompleteAtomic(
                                                 syncJson = syncJson,
                                                 requestId = requestId,
                                                 runId = msgRunId,
@@ -5815,7 +4723,7 @@ class AppViewModel : ViewModel() {
      * 2. Process space edges in background (parsing and filtering)
      * 3. Update UI on main thread (minimal state change)
      */
-    private fun populateSpaceEdges() {
+    internal fun populateSpaceEdges() {
         if (storedSpaceEdges == null) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No stored space edges to populate")
             return
@@ -6283,7 +5191,7 @@ class AppViewModel : ViewModel() {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d("Andromuks", "AppViewModel: Loading ${cachedAccountData.size} account_data types from cache (m.direct=${AccountDataCache.hasAccountData("m.direct")})")
                     }
-                    processAccountData(accountDataJson)
+                    syncRoomsCoordinator.processAccountData(accountDataJson)
                 } else {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d("Andromuks", "AppViewModel: No account_data in cache - will use fallback room scanning for DM detection")
@@ -7056,7 +5964,7 @@ class AppViewModel : ViewModel() {
     }
     private val timelineRequests = mutableMapOf<Int, String>() // requestId -> roomId
     // Track rooms with pending initial paginate requests to prevent duplicates
-    private val roomsWithPendingPaginate = Collections.synchronizedSet(mutableSetOf<String>())
+    internal val roomsWithPendingPaginate = Collections.synchronizedSet(mutableSetOf<String>())
     private val profileRequestRooms = mutableMapOf<Int, String>() // requestId -> roomId (for profile requests initiated from a specific room)
     private val roomStateRequests = mutableMapOf<Int, String>() // requestId -> roomId
     internal val messageRequests = mutableMapOf<Int, String>() // requestId -> roomId
@@ -7071,15 +5979,15 @@ class AppViewModel : ViewModel() {
     // Track last sent mark_read command per room to prevent duplicates
     // Key: roomId, Value: eventId that was last sent
     private val lastMarkReadSent = mutableMapOf<String, String>() // roomId -> eventId
-    private val readReceipts = mutableMapOf<String, MutableList<ReadReceipt>>() // eventId -> list of read receipts
-    private val readReceiptsLock = Any() // Synchronization lock for readReceipts access
-    private val roomsWithLoadedReceipts = mutableSetOf<String>() // Track rooms with receipts loaded from cache
+    internal val readReceipts = mutableMapOf<String, MutableList<ReadReceipt>>() // eventId -> list of read receipts
+    internal val readReceiptsLock = Any() // Synchronization lock for readReceipts access
+    internal val roomsWithLoadedReceipts = mutableSetOf<String>() // Track rooms with receipts loaded from cache
     internal val roomsWithLoadedReactions = mutableSetOf<String>() // Track rooms with reactions loaded from cache
     // Track receipt movements for animation - userId -> (previousEventId, currentEventId, timestamp)
     // THREAD SAFETY: Protected by readReceiptsLock since it's accessed from background threads
-    private val receiptMovements = mutableMapOf<String, Triple<String?, String, Long>>()
+    internal val receiptMovements = mutableMapOf<String, Triple<String?, String, Long>>()
     var receiptAnimationTrigger by mutableStateOf(0L)
-        private set
+        internal set
     
         // PERFORMANCE: Track new messages for sound notifications only (animations removed)
     // Use ConcurrentHashMap for thread-safe access (modified from background threads, read from UI thread)
@@ -7176,7 +6084,7 @@ class AppViewModel : ViewModel() {
     // CRITICAL: Only positive timelineRowid values are stored (negative values are for state events and cannot be used for pagination)
     // This is used for the next pull-to-refresh to know where to start paginating from
     // Matches Webmucks backend behavior: pagination uses positive timeline_rowid values only
-    private val oldestRowIdPerRoom = mutableMapOf<String, Long>()
+    internal val oldestRowIdPerRoom = mutableMapOf<String, Long>()
     var isPaginating by mutableStateOf(false)
         private set
     var hasMoreMessages by mutableStateOf(true) // Whether there are more messages to load
@@ -7204,8 +6112,8 @@ class AppViewModel : ViewModel() {
     // All WebSocket operations delegate to WebSocketService.getWebSocket()
     private var lastReceivedRequestId: Int = 0 // Tracks ANY incoming request_id (for pong detection)
     // NOTE: We no longer track last_received_id - all timeline caches are cleared on connect/reconnect
-    private var lastSyncTimestamp: Long = 0 // Timestamp of last sync_complete received
-    private var currentRunId: String = "" // Unique connection ID from gomuks backend
+    internal var lastSyncTimestamp: Long = 0 // Timestamp of last sync_complete received
+    internal var currentRunId: String = "" // Unique connection ID from gomuks backend
     private var vapidKey: String = "" // VAPID key for push notifications
     private var hasHadInitialConnection = false // Track if we've had an initial connection to only vibrate on reconnections
 
@@ -9995,7 +8903,7 @@ class AppViewModel : ViewModel() {
     /**
      * Request emoji pack data from a room using get_specific_room_state
      */
-    private fun requestEmojiPackData(roomId: String, packName: String) {
+    internal fun requestEmojiPackData(roomId: String, packName: String) {
         if (!isWebSocketConnected()) {
             // CRITICAL FIX: Queue emoji pack requests when WebSocket isn't ready
             // They will be processed when WebSocket connects
@@ -10778,12 +9686,12 @@ class AppViewModel : ViewModel() {
     // Profile management - in-memory only, loaded opportunistically when rendering events
     private val pendingProfileSaves = mutableMapOf<String, MemberProfile>()
     private var profileSaveJob: kotlinx.coroutines.Job? = null
-    private var syncIngestor: net.vrkknn.andromuks.database.SyncIngestor? = null
+    internal var syncIngestor: net.vrkknn.andromuks.database.SyncIngestor? = null
 
     /**
      * Ensures SyncIngestor is initialized with the LRU cache listener.
      */
-    private fun ensureSyncIngestor(): net.vrkknn.andromuks.database.SyncIngestor? {
+    internal fun ensureSyncIngestor(): net.vrkknn.andromuks.database.SyncIngestor? {
         val context = appContext ?: return null
         if (syncIngestor == null) {
             syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context).apply {
@@ -13034,7 +11942,7 @@ class AppViewModel : ViewModel() {
     /**
      * SYNC OPTIMIZATION: Check if current room needs timeline update with diff-based detection
      */
-    private fun checkAndUpdateCurrentRoomTimelineOptimized(syncJson: JSONObject) {
+    internal fun checkAndUpdateCurrentRoomTimelineOptimized(syncJson: JSONObject) {
         val data = syncJson.optJSONObject("data")
         if (data != null) {
             val rooms = data.optJSONObject("rooms")
