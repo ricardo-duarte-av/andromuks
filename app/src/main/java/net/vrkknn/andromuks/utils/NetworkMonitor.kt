@@ -137,14 +137,27 @@ class NetworkMonitor(
                         onNetworkLost()
                     }
                 } else {
-                    // Another network is available - report as type change
+                    // Default network switched to another link (e.g. WiFi dropped, cellular took over).
                     val newType = currentNetworkType
                     val newIdentity = currentNetworkIdentity
-                    
-                    // Don't report if it's the same type and identity (just a transient blip)
-                    // This handles cases where WiFi temporarily loses validation but comes back
-                    if (BuildConfig.DEBUG) {
-                        Log.d("NetworkMonitor", "Network lost but other network available: $newType - not reporting")
+                    when {
+                        previousType != NetworkType.NONE && previousType != newType -> {
+                            if (BuildConfig.DEBUG) {
+                                Log.i("NetworkMonitor", "Network lost — default switched: $previousType → $newType")
+                            }
+                            onNetworkTypeChanged(previousType, newType)
+                        }
+                        newType == NetworkType.WIFI && previousIdentity != newIdentity -> {
+                            if (BuildConfig.DEBUG) {
+                                Log.i("NetworkMonitor", "Network lost — WiFi identity changed: $previousIdentity → $newIdentity")
+                            }
+                            onNetworkIdentityChanged(previousType, previousIdentity, newType, newIdentity)
+                        }
+                        else -> {
+                            if (BuildConfig.DEBUG) {
+                                Log.d("NetworkMonitor", "Network lost but same type/identity after switch ($newType) — no extra report")
+                            }
+                        }
                     }
                 }
             }

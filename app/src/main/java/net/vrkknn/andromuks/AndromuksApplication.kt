@@ -3,6 +3,9 @@ package net.vrkknn.andromuks
 import android.app.Application
 import android.content.ComponentCallbacks2
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
@@ -17,6 +20,15 @@ import net.vrkknn.andromuks.RoomTimelineCache
  * to prevent cache corruption when the system trims memory.
  */
 class AndromuksApplication : Application() {
+    
+    companion object {
+        /**
+         * Process-wide fallback when [WebSocketService] is not running.
+         * Prefer [WebSocketService] instance scope for all work tied to the foreground service.
+         */
+        private val applicationJob = SupervisorJob()
+        val applicationScope: CoroutineScope = CoroutineScope(applicationJob + Dispatchers.Default)
+    }
     
     override fun onCreate() {
         super.onCreate()

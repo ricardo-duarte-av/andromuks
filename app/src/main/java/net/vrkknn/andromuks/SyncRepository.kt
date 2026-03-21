@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 
@@ -47,9 +48,11 @@ data class ViewModelRegistryInfo(
 )
 
 data class ViewModelEntry(
-    val viewModel: AppViewModel,
+    val viewModel: WeakReference<AppViewModel>,
     @Volatile var isPrimary: Boolean
-)
+) {
+    fun get(): AppViewModel? = viewModel.get()
+}
 
 object SyncRepository {
 
@@ -79,7 +82,27 @@ object SyncRepository {
     }
 
     fun attachViewModel(viewModelId: String, viewModel: AppViewModel) {
-        attachedViewModels[viewModelId] = ViewModelEntry(viewModel, isPrimary = false)
+        attachedViewModels[viewModelId] = ViewModelEntry(WeakReference(viewModel), isPrimary = false)
+    }
+
+    /**
+     * Removes registry entries whose [AppViewModel] was GC'd; promotes primary if needed.
+     */
+    private fun pruneStaleViewModelEntries(reason: String) {
+        val primaryRemoved: Boolean
+        synchronized(registryLock) {
+            val stale = attachedViewModels.filter { it.value.get() == null }.keys.toList()
+            primaryRemoved = stale.any { it == getPrimaryViewModelId() }
+            for (id in stale) {
+                attachedViewModels.remove(id)
+            }
+            if (primaryRemoved) {
+                setPrimaryViewModelId(null)
+            }
+        }
+        if (primaryRemoved) {
+            promoteNextPrimary("stale_weak_ref:$reason")
+        }
     }
 
     /**
@@ -93,7 +116,9 @@ object SyncRepository {
             }
             if (isPrimary) {
                 for ((id, entry) in attachedViewModels) {
-                    entry.isPrimary = (id == viewModelId)
+                    if (entry.get() != null) {
+                        entry.isPrimary = (id == viewModelId)
+                    }
                 }
                 setPrimaryViewModelId(viewModelId)
             } else {
@@ -159,35 +184,53 @@ object SyncRepository {
                 setPrimaryViewModelId(null)
                 null
             } else {
-                val candidate = attachedViewModels.keys.firstOrNull { it.startsWith("AppViewModel_0") }
-                    ?: attachedViewModels.keys.first()
-                for ((id, e) in attachedViewModels) {
-                    e.isPrimary = (id == candidate)
+                val aliveIds = attachedViewModels.filter { it.value.get() != null }.keys.toList()
+                if (aliveIds.isEmpty()) {
+                    setPrimaryViewModelId(null)
+                    null
+                } else {
+                    val candidate = aliveIds.firstOrNull { it.startsWith("AppViewModel_0") } ?: aliveIds.first()
+                    for ((id, e) in attachedViewModels) {
+                        if (e.get() != null) {
+                            e.isPrimary = (id == candidate)
+                        }
+                    }
+                    setPrimaryViewModelId(candidate)
+                    candidate
                 }
-                setPrimaryViewModelId(candidate)
-                candidate
             }
         } ?: return
         try {
             android.util.Log.i("SyncRepository", "promoteNextPrimary: $candidateId ($reason)")
-            getViewModel(candidateId)?.onPromotedToPrimary()
+            val vmToNotify = synchronized(registryLock) { attachedViewModels[candidateId]?.get() }
+            vmToNotify?.onPromotedToPrimary()
         } catch (e: Exception) {
             android.util.Log.e("SyncRepository", "promoteNextPrimary: notify failed", e)
         }
     }
 
-    fun isViewModelAttached(viewModelId: String): Boolean = attachedViewModels.containsKey(viewModelId)
+    fun isViewModelAttached(viewModelId: String): Boolean =
+        attachedViewModels[viewModelId]?.get() != null
 
-    fun getViewModel(viewModelId: String): AppViewModel? = attachedViewModels[viewModelId]?.viewModel
+    fun getViewModel(viewModelId: String): AppViewModel? {
+        pruneStaleViewModelEntries("getViewModel")
+        return attachedViewModels[viewModelId]?.get()
+    }
 
-    fun getAttachedViewModels(): List<AppViewModel> = attachedViewModels.values.map { it.viewModel }
+    fun getAttachedViewModels(): List<AppViewModel> {
+        pruneStaleViewModelEntries("getAttachedViewModels")
+        return attachedViewModels.values.mapNotNull { it.get() }
+    }
 
     fun getRegisteredViewModelIds(): List<String> = attachedViewModels.keys.toList().sorted()
 
     fun getRegisteredViewModelInfos(): List<ViewModelRegistryInfo> =
-        attachedViewModels.map { ViewModelRegistryInfo(it.key, it.value.isPrimary) }
+        attachedViewModels.mapNotNull { (id, e) ->
+            if (e.get() != null) ViewModelRegistryInfo(id, e.isPrimary) else null
+        }
 
-    fun isViewModelRegistered(viewModelId: String): Boolean = attachedViewModels.containsKey(viewModelId)
+    fun isViewModelRegistered(viewModelId: String): Boolean =
+        attachedViewModels[viewModelId]?.get() != null
 
     /**
      * True when primary id is set, the entry exists, and it is still marked primary.
@@ -195,7 +238,7 @@ object SyncRepository {
     fun isPrimaryEntryAlive(): Boolean {
         val id = getPrimaryViewModelId() ?: return false
         val e = attachedViewModels[id] ?: return false
-        return e.isPrimary
+        return e.isPrimary && e.get() != null
     }
 
     /**

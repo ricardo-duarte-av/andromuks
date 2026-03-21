@@ -42,6 +42,14 @@ import net.vrkknn.andromuks.BuildConfig
  * - Last message: Time since last sync_complete
  */
 class WebSocketService : Service() {
+
+    /**
+     * Coroutines tied to this service instance only. Cancelled in [onDestroy] so jobs cannot
+     * outlive the service or run against a recycled instance after Android restarts the service.
+     */
+    private val serviceJob = SupervisorJob()
+    private val serviceScope = CoroutineScope(serviceJob + Dispatchers.IO)
+
     companion object {
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "websocket_service_channel"
@@ -49,9 +57,6 @@ class WebSocketService : Service() {
         // BATTERY OPTIMIZATION: WAKE_LOCK_TAG removed - wake lock no longer used
         private const val ALARM_RESTART_DELAY_MS = 1000L // 1 second delay for AlarmManager restart
         private var instance: WebSocketService? = null
-        
-        // Service-scoped coroutine scope for background processing
-        private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         
         // Constants
         private val BASE_RECONNECTION_DELAY_MS = 500L // 3 seconds - give network time to stabilize
@@ -97,13 +102,6 @@ class WebSocketService : Service() {
         }
         
         // ViewModel attachment, primary id, and promotion live in [SyncRepository].
-        private val callbacksLock = Any() // Legacy lock for callback-style APIs (clear primary, reconnection hooks)
-        
-        data class ViewModelInfo(
-            val viewModelId: String,
-            val isPrimary: Boolean,
-            val registeredAt: Long = System.currentTimeMillis()
-        )
         
         // Connection state: single source of truth in [SyncRepository]
         val connectionStateFlow: StateFlow<ConnectionState> = SyncRepository.connectionState
@@ -157,10 +155,11 @@ class WebSocketService : Service() {
         }
         
         /**
-         * Get the service-scoped coroutine scope for background processing
-         * This scope continues running even when the app is backgrounded
+         * Scope for work that must be tied to the running [WebSocketService] instance.
+         * Falls back to [AndromuksApplication.applicationScope] briefly if the service is not running.
          */
-        fun getServiceScope(): CoroutineScope = serviceScope
+        fun getServiceScope(): CoroutineScope =
+            instance?.serviceScope ?: AndromuksApplication.applicationScope
         
         /**
          * Check if the WebSocketService is currently running
@@ -218,20 +217,10 @@ class WebSocketService : Service() {
         }
 
         /**
-         * Legacy hook for creating a non-lifecycle ViewModel. Replaced by [SyncRepository] + attached
-         * [AppViewModel] instances; kept as a no-op for call-site compatibility.
-         */
-        fun ensureHeadlessPrimary(context: Context, reason: String) {
-            if (BuildConfig.DEBUG) {
-                Log.d("WebSocketService", "ensureHeadlessPrimary no-op (reason=$reason) — use SyncRepository-attached ViewModels")
-            }
-        }
-        
-        /**
          * True when a primary id is set and at least one ViewModel is attached in [SyncRepository].
          */
         fun hasPrimaryCallbacks(): Boolean {
-            synchronized(callbacksLock) {
+            synchronized(SyncRepository) {
                 return SyncRepository.getPrimaryViewModelId() != null && SyncRepository.getAttachedViewModels().isNotEmpty()
             }
         }
@@ -240,7 +229,7 @@ class WebSocketService : Service() {
          * Debug map for connection / attachment state.
          */
         fun getPrimaryCallbackStatus(): Map<String, Boolean> {
-            synchronized(callbacksLock) {
+            synchronized(SyncRepository) {
                 return mapOf(
                     "primaryViewModelId" to (SyncRepository.getPrimaryViewModelId() != null),
                     "reconnectionCallback" to SyncRepository.getAttachedViewModels().isNotEmpty(),
@@ -259,7 +248,7 @@ class WebSocketService : Service() {
          * Returns false if primary is missing, destroyed, or callbacks are invalid
          */
         fun isPrimaryAlive(): Boolean {
-            synchronized(callbacksLock) {
+            synchronized(SyncRepository) {
                 val primaryId = SyncRepository.getPrimaryViewModelId()
                 if (primaryId == null) {
                     if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 3.1 - Primary health check: No primary ViewModel ID set")
@@ -313,13 +302,9 @@ class WebSocketService : Service() {
         
         /**
          * STEP 2.1: Get list of registered ViewModels (for primary promotion)
-         * Returns ViewModelInfo for all registered ViewModels
          */
-        fun getRegisteredViewModelInfos(): List<ViewModelInfo> {
-            return SyncRepository.getRegisteredViewModelInfos().map {
-                ViewModelInfo(viewModelId = it.viewModelId, isPrimary = it.isPrimary)
-            }
-        }
+        fun getRegisteredViewModelInfos(): List<ViewModelRegistryInfo> =
+            SyncRepository.getRegisteredViewModelInfos()
         
         /**
          * STEP 2.1: Check if a ViewModel is registered (alive)
@@ -344,7 +329,7 @@ class WebSocketService : Service() {
          * Clears primary id when the primary [AppViewModel] is torn down.
          */
         fun clearPrimaryCallbacks(viewModelId: String): Boolean {
-            synchronized(callbacksLock) {
+            synchronized(SyncRepository) {
                 val pid = SyncRepository.getPrimaryViewModelId()
                 if (pid != viewModelId) {
                     if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "clearPrimaryCallbacks: Instance $viewModelId is not the primary instance ($pid). Nothing to clear.")
@@ -401,7 +386,7 @@ class WebSocketService : Service() {
             }
             
             // Service handles reconnection directly - read credentials from SharedPreferences
-            serviceScope.launch {
+            serviceInstance.serviceScope.launch {
                 try {
                     val prefs = serviceInstance.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
                     val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
@@ -515,7 +500,8 @@ class WebSocketService : Service() {
                 serviceInstance.pingJob = null
                 serviceInstance.pongTimeoutJob = null
             }
-            instance?.pingJob = serviceScope.launch {
+            val svc = instance ?: return
+            svc.pingJob = svc.serviceScope.launch {
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop started - first ping in 15s")
                 // First ping 15 seconds after websocket connect
                 delay(PING_INTERVAL_MS)
@@ -646,7 +632,7 @@ class WebSocketService : Service() {
          */
         @Suppress("UNUSED_PARAMETER")
         fun setPrimaryClearCacheCallback(viewModelId: String, callback: () -> Unit): Boolean {
-            synchronized(callbacksLock) {
+            synchronized(SyncRepository) {
                 val pid = SyncRepository.getPrimaryViewModelId()
                 if (pid != null && pid != viewModelId) {
                     android.util.Log.w("WebSocketService", "setPrimaryClearCacheCallback: Another instance ($pid) is already primary. Rejecting $viewModelId")
@@ -662,7 +648,7 @@ class WebSocketService : Service() {
         
         @Suppress("UNUSED_PARAMETER")
         fun setReconnectionCallback(viewModelId: String, callback: (String) -> Unit): Boolean {
-            synchronized(callbacksLock) {
+            synchronized(SyncRepository) {
                 val pid = SyncRepository.getPrimaryViewModelId()
                 if (pid != null && pid != viewModelId) {
                     android.util.Log.w("WebSocketService", "setReconnectionCallback: Another instance ($pid) is already primary. Rejecting $viewModelId")
@@ -772,7 +758,7 @@ class WebSocketService : Service() {
          */
         fun triggerBackendHealthCheck() {
             val serviceInstance = instance ?: return
-            serviceScope.launch {
+            serviceInstance.serviceScope.launch {
                 try {
                     if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "triggerBackendHealthCheck called - checking connection state")
                     // Skip HTTP health check - if WebSocket is not connected, trigger reconnection
@@ -1481,9 +1467,9 @@ class WebSocketService : Service() {
             lastReceivedId: Int = 0,
             isReconnection: Boolean = false
         ) {
-            // For now, delegate to NetworkUtils.connectToWebsocket() which will call setWebSocket()
-            // Eventually, we'll move the connection logic here
-            serviceScope.launch {
+            // Must not require [instance] here: [startForegroundService] returns before [onCreate] sets [instance].
+            // Launch on [getServiceScope] (service or application fallback), then wait for the instance inside.
+            getServiceScope().launch {
                 try {
                     // CRITICAL FIX: Wait for service instance to be ready (with timeout)
                     // This prevents race condition where connectWebSocket() is called before onCreate()
@@ -1972,7 +1958,7 @@ class WebSocketService : Service() {
                 // Show toast for reconnection scheduled
                 serviceInstance.showWebSocketToast("Reconnecting: $reasonLabel")
                 
-                serviceInstance.reconnectionJob = serviceScope.launch {
+                serviceInstance.reconnectionJob = serviceInstance.serviceScope.launch {
                     val currentJob = coroutineContext[Job]
                     var invokedReconnectionCallback = false
                     try {
@@ -2025,7 +2011,7 @@ class WebSocketService : Service() {
                             updateConnectionState(ConnectionState.Disconnected)
                             updateConnectionStatus(false, null, serviceInstance.lastSyncTimestamp)
                             // Autonomous retry: slow/captive networks may validate later with no new trigger.
-                            serviceScope.launch {
+                            serviceInstance.serviceScope.launch {
                                 delay(5000L)
                                 val stillDisconnected = !isWebSocketConnected()
                                 if (stillDisconnected && !isReconnectingOrConnecting()) {
@@ -2152,7 +2138,7 @@ class WebSocketService : Service() {
             }
             
             // Add a small delay to ensure WebSocket is properly closed
-            serviceScope.launch {
+            serviceInstance.serviceScope.launch {
                 delay(1000) // 1 second delay to ensure proper closure
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Triggering reconnection after delay")
                 
@@ -2554,8 +2540,6 @@ class WebSocketService : Service() {
                 lagMs = lastKnownLagMs,
                 lastSyncTimestamp = lastSyncTimestamp
             )
-            // Headless recovery: recreate a primary ViewModel when callbacks are missing.
-            ensureHeadlessPrimary(applicationContext, "Callback missing during health check")
         }
         
         val pid = SyncRepository.getPrimaryViewModelId()
@@ -2840,9 +2824,6 @@ class WebSocketService : Service() {
                     // Clear WebSocket if not already disconnected
                     clearWebSocket("Network type changed: $previousNetworkType → $newNetworkType")
                 }
-                if (!hasCallback) {
-                    ensureHeadlessPrimary(applicationContext, "Network type change - callback missing")
-                }
                 scheduleReconnection(ReconnectTrigger.NetworkTypeChanged(previousNetworkType, newNetworkType))
             },
             onNetworkIdentityChanged = { previousType, previousIdentity, newType, newIdentity ->
@@ -3113,17 +3094,8 @@ class WebSocketService : Service() {
             // BATTERY OPTIMIZATION: Unified monitoring replaces 3 separate jobs
             stopUnifiedMonitoring()
             
-            // Cancel all coroutine jobs with timeout
-            val jobs = listOf(
-                pingJob,
-                pongTimeoutJob,
-                reconnectionJob,
-                unifiedMonitoringJob
-            )
-            
-            jobs.forEach { job ->
-                job?.cancel()
-            }
+            // Cancels all coroutines launched on [serviceScope] (ping, reconnect, debounce, etc.)
+            serviceScope.cancel()
             
             // Clear WebSocket connection immediately
             webSocket?.close(1000, "Service stopped")
@@ -3227,7 +3199,7 @@ class WebSocketService : Service() {
      */
     private fun startPongTimeout(pingRequestId: Int) {
         pongTimeoutJob?.cancel()
-        pongTimeoutJob = WebSocketService.serviceScope.launch {
+        pongTimeoutJob = serviceScope.launch {
             delay(PONG_CLEAR_INFLIGHT_MS)
             if (!connectionState.isReady()) return@launch
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Pong clear timeout - clearing pingInFlight for next ping")
@@ -3715,11 +3687,9 @@ class WebSocketService : Service() {
             lastSyncTimestamp = lastSyncTimestamp
         )
         
-        // If callback is missing, log it for debugging
+        // If credentials are missing, log it for debugging (reconnection uses SharedPreferences via [invokeReconnectionCallback])
         if (!hasCallback) {
-            android.util.Log.w("WebSocketService", "Service started but reconnection callback not set - notification will show 'Waiting for app...'")
-            // Boot/background startup: create a headless AppViewModel so WebSocket can connect.
-            ensureHeadlessPrimary(applicationContext, "Service start")
+            android.util.Log.w("WebSocketService", "Service started without login credentials - notification will show 'Waiting for app...'")
         }
         
         // CRITICAL FIX: Return START_STICKY to ensure service restarts if killed by system
@@ -3748,11 +3718,8 @@ class WebSocketService : Service() {
             // PHASE 3.1: Stop network monitoring
             stopNetworkMonitoring()
             
-            // Cancel all coroutine jobs
-            pingJob?.cancel()
-            pongTimeoutJob?.cancel()
-            initCompleteTimeoutJob?.cancel()
-            reconnectionJob?.cancel()
+            // Cancels ping loop, reconnection job, unified monitoring, network debounce, timeouts, etc.
+            serviceScope.cancel()
             
             // Clear WebSocket connection
             webSocket?.close(1000, "Service destroyed")
