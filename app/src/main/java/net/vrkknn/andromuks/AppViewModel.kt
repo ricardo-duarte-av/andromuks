@@ -162,7 +162,7 @@ class AppViewModel : ViewModel() {
         
         // MEMORY MANAGEMENT: Constants for cache limits and cleanup
         private const val INITIAL_ROOM_LOAD_EVENTS = 100 // Events to load when opening a room
-        private const val MAX_MEMBER_CACHE_SIZE = 50000
+        internal const val MAX_MEMBER_CACHE_SIZE = 50000
         internal const val MAX_MESSAGE_VERSIONS_PER_EVENT = 50
         
         // PHASE 4: Counter for generating unique ViewModel IDs
@@ -181,7 +181,7 @@ class AppViewModel : ViewModel() {
         var INITIAL_ROOM_PAGINATE_LIMIT = 50
         
         // FCM registration debounce window to prevent duplicate registrations
-        private const val FCM_REGISTRATION_DEBOUNCE_MS = 5000L // 5 seconds debounce window
+        internal const val FCM_REGISTRATION_DEBOUNCE_MS = 5000L // 5 seconds debounce window
         
         // Notification reply deduplication window to prevent duplicate sends
         private const val NOTIFICATION_REPLY_DEDUP_WINDOW_MS = 5000L // 5 seconds deduplication window
@@ -345,7 +345,7 @@ class AppViewModel : ViewModel() {
     var imageAuthToken by mutableStateOf("")
         private set
     var currentUserProfile by mutableStateOf<UserProfile?>(null)
-        private set
+        internal set
     
     // State to track if pending items are being processed (prevents showing stale data in RoomListScreen)
     var isProcessingPendingItems by mutableStateOf(false)
@@ -481,26 +481,26 @@ class AppViewModel : ViewModel() {
     internal val knownSpaceIds = mutableSetOf<String>()
     
     // PERFORMANCE: Cached room sections to avoid expensive filtering on every recomposition
-    private var cachedDirectChatRooms by mutableStateOf<List<RoomItem>>(emptyList())
-        private set
-    
-    private var cachedUnreadRooms by mutableStateOf<List<RoomItem>>(emptyList())
-        private set
-    
-    private var cachedFavouriteRooms by mutableStateOf<List<RoomItem>>(emptyList())
-        private set
-    
+    internal var cachedDirectChatRooms by mutableStateOf<List<RoomItem>>(emptyList())
+        internal set
+
+    internal var cachedUnreadRooms by mutableStateOf<List<RoomItem>>(emptyList())
+        internal set
+
+    internal var cachedFavouriteRooms by mutableStateOf<List<RoomItem>>(emptyList())
+        internal set
+
     // PERFORMANCE: Pre-computed badge counts (always computed for immediate tab bar display)
-    private var cachedDirectChatsUnreadCount by mutableStateOf(0)
-        private set
-    private var cachedDirectChatsHasHighlights by mutableStateOf(false)
-        private set
-    private var cachedUnreadCount by mutableStateOf(0)
-        private set
-    private var cachedFavouritesUnreadCount by mutableStateOf(0)
-        private set
-    private var cachedFavouritesHasHighlights by mutableStateOf(false)
-        private set
+    internal var cachedDirectChatsUnreadCount by mutableStateOf(0)
+        internal set
+    internal var cachedDirectChatsHasHighlights by mutableStateOf(false)
+        internal set
+    internal var cachedUnreadCount by mutableStateOf(0)
+        internal set
+    internal var cachedFavouritesUnreadCount by mutableStateOf(0)
+        internal set
+    internal var cachedFavouritesHasHighlights by mutableStateOf(false)
+        internal set
     
     // PERFORMANCE: Track which sections have been loaded (for lazy loading)
     internal val loadedSections = mutableSetOf<RoomSectionType>()
@@ -509,43 +509,23 @@ class AppViewModel : ViewModel() {
     // Bumped by invalidateRoomSectionCache() whenever room data actually changes
     // (performRoomReorder, setSpaces, registerSpaceIds, etc.).
     // updateCachedRoomSections() compares against its own snapshot to skip work.
-    private var roomDataVersion: Long = 0L
-    private var lastCachedVersion: Long = -1L
-    
+    internal var roomDataVersion: Long = 0L
+    internal var lastCachedVersion: Long = -1L
+
     /**
      * Invalidate room section cache when allRooms data changes.
      * Cheap O(1) — just bumps a counter.
      */
-    internal fun invalidateRoomSectionCache() {
-        roomDataVersion++
-    }
+    internal fun invalidateRoomSectionCache() = roomListUiCoordinator.invalidateRoomSectionCache()
     
     /**
      * Returns the set of known space room IDs.
      * Uses allSpaces when available, otherwise falls back to spaceList.
      */
-    private fun currentSpaceIds(): Set<String> {
-        val ids = mutableSetOf<String>()
-        if (allSpaces.isNotEmpty()) ids.addAll(allSpaces.map { it.id })
-        else if (spaceList.isNotEmpty()) ids.addAll(spaceList.map { it.id })
-        ids.addAll(knownSpaceIds)
-
-        return ids
-    }
-    
     /**
      * Registers newly discovered space IDs (top-level or nested) for filtering.
      */
     fun registerSpaceIds(spaceIds: Collection<String>) = syncRoomsCoordinator.registerSpaceIds(spaceIds)
-    
-    /**
-     * Filters out rooms that correspond to spaces.
-     * Home/unread/direct sections should never show space shells.
-     */
-    private fun filterOutSpaces(rooms: List<RoomItem>, spaceIds: Set<String> = currentSpaceIds()): List<RoomItem> {
-        if (spaceIds.isEmpty()) return rooms
-        return rooms.filter { it.id !in spaceIds }
-    }
     
     // Current selected section
     var selectedSection by mutableStateOf(RoomSectionType.HOME)
@@ -567,9 +547,9 @@ class AppViewModel : ViewModel() {
         private set
     
     // Typing indicators per room (roomId -> list of typing user IDs)
-    private val typingUsersMap = mutableMapOf<String, List<String>>()
+    internal val typingUsersMap = mutableMapOf<String, List<String>>()
     var typingUsers by mutableStateOf(listOf<String>())
-        private set
+        internal set
     
     
     // Message reactions: eventId -> list of reactions
@@ -833,9 +813,9 @@ class AppViewModel : ViewModel() {
     private var batchUpdateJob: Job? = null // Job for batching UI updates
     
     // PERFORMANCE: Debounced room reordering to prevent frustrating "room jumping"
-    private var lastRoomReorderTime = 0L
-    private var roomReorderJob: Job? = null
-    private val ROOM_REORDER_DEBOUNCE_MS = 30000L // 30 seconds debounce - reduces visual jumping
+    internal var lastRoomReorderTime = 0L
+    internal var roomReorderJob: Job? = null
+    internal val ROOM_REORDER_DEBOUNCE_MS = 30000L // 30 seconds debounce - reduces visual jumping
     private var forceSortNextReorder = false // Flag to force immediate sort on next reorder
     
     // SYNC OPTIMIZATION: Diff-based update tracking
@@ -864,20 +844,20 @@ class AppViewModel : ViewModel() {
     
     
     // FCM notification manager
-    private var fcmNotificationManager: FCMNotificationManager? = null
-    
+    internal var fcmNotificationManager: FCMNotificationManager? = null
+
     // Conversations API for shortcuts and enhanced notifications
-    private var conversationsApi: ConversationsApi? = null
+    internal var conversationsApi: ConversationsApi? = null
     
     // Persons API for People/Share surfaces
     internal var personsApi: PersonsApi? = null
     
     // Web client push integration
-    private var webClientPushIntegration: WebClientPushIntegration? = null
+    internal var webClientPushIntegration: WebClientPushIntegration? = null
     
     
     // Notification action tracking
-    private data class PendingNotificationAction(
+    internal data class PendingNotificationAction(
         val type: String, // "send_message" or "mark_read"
         val roomId: String,
         val text: String? = null,
@@ -886,7 +866,7 @@ class AppViewModel : ViewModel() {
         val onComplete: (() -> Unit)? = null
     )
     
-    private val pendingNotificationActions = mutableListOf<PendingNotificationAction>()
+    internal val pendingNotificationActions = mutableListOf<PendingNotificationAction>()
     
     // FIFO buffer for notification replies - allows duplicates, processes in order
     // Messages are added by notification replies and removed when sent to WebSocket
@@ -1088,6 +1068,24 @@ class AppViewModel : ViewModel() {
 
     /** ViewModel lifecycle: primary/visibility/onCleared — see [ViewModelLifecycleCoordinator]. */
     private val viewModelLifecycleCoordinator by lazy { ViewModelLifecycleCoordinator(this) }
+
+    /** Invites / join / leave — see [RoomInvitesCoordinator]. */
+    private val roomInvitesCoordinator by lazy { RoomInvitesCoordinator(this) }
+
+    /** Typing + read receipts + mark read — see [ReadReceiptsTypingCoordinator]. */
+    private val readReceiptsTypingCoordinator by lazy { ReadReceiptsTypingCoordinator(this) }
+
+    /** FCM / push registration — see [FcmPushCoordinator]. */
+    private val fcmPushCoordinator by lazy { FcmPushCoordinator(this) }
+
+    /** Room list sections, badges, DM helpers, debounced reorder — see [RoomListUiCoordinator]. */
+    private val roomListUiCoordinator by lazy { RoomListUiCoordinator(this) }
+
+    /** Pending/direct nav, highlights, cache-first room open — see [NavigationCoordinator]. */
+    private val navigationCoordinator by lazy { NavigationCoordinator(this) }
+
+    /** Member maps, profile storage, full member list responses — see [MemberProfilesCoordinator]. */
+    private val memberProfilesCoordinator by lazy { MemberProfilesCoordinator(this) }
 
     // CRASH FIX: Expose batch processing state to UI to prevent animations during flush
     val isProcessingSyncBatch = syncBatchProcessor.isProcessingBatch
@@ -1390,50 +1388,8 @@ class AppViewModel : ViewModel() {
      * Get the most relevant direct-message room for a given user, if any.
      * Prefers rooms listed in account data; falls back to scanning direct rooms.
      */
-    fun getDirectRoomIdForUser(userId: String): String? {
-        if (userId.isBlank()) return null
-
-        val normalizedUserId = if (userId.startsWith("@")) userId else "@$userId"
-        val candidateRooms = mutableListOf<RoomItem>()
-
-        // 1. Use mapping from m.direct account data if available
-        directMessageUserMap[normalizedUserId]?.forEach { roomId ->
-            roomMap[roomId]?.let { candidateRooms.add(it) }
-        }
-
-        // 2. Fallback: scan known direct rooms for the user
-        if (candidateRooms.isEmpty()) {
-            val roomsToCheck = if (cachedDirectChatRooms.isNotEmpty()) {
-                cachedDirectChatRooms
-            } else {
-                allRooms.filter { it.isDirectMessage }
-            }
-
-            for (room in roomsToCheck) {
-                try {
-                    val members = getMemberMap(room.id)
-                    if (members.containsKey(normalizedUserId)) {
-                        candidateRooms.add(room)
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.w(
-                        "Andromuks",
-                        "AppViewModel: Failed to inspect members for room ${room.id} when resolving DM for $normalizedUserId",
-                        e
-                    )
-                }
-            }
-        }
-
-        if (candidateRooms.isEmpty()) {
-            android.util.Log.w(
-                "Andromuks",
-                "AppViewModel: No direct room found for user $normalizedUserId"
-            )
-        }
-
-        return candidateRooms.maxByOrNull { it.sortingTimestamp ?: 0L }?.id
-    }
+    fun getDirectRoomIdForUser(userId: String): String? =
+        roomListUiCoordinator.getDirectRoomIdForUser(userId)
     
     /**
      * Get all DM room IDs for a user from m.direct account data
@@ -1441,51 +1397,8 @@ class AppViewModel : ViewModel() {
      * CRITICAL FIX: Falls back to scanning rooms when account data is not available
      * (e.g., when opened from external apps like Contacts before account_data is received)
      */
-    fun getDirectRoomIdsForUser(userId: String): Set<String> {
-        if (userId.isBlank()) return emptySet()
-        
-        val normalizedUserId = if (userId.startsWith("@")) userId else "@$userId"
-        
-        // 1. Use mapping from m.direct account data if available
-        val fromAccountData = directMessageUserMap[normalizedUserId]
-        if (fromAccountData != null && fromAccountData.isNotEmpty()) {
-            return fromAccountData
-        }
-        
-        // 2. Fallback: scan known direct rooms for the user (when account_data not loaded yet)
-        if (directMessageUserMap.isEmpty()) {
-            val roomsToCheck = if (cachedDirectChatRooms.isNotEmpty()) {
-                cachedDirectChatRooms
-            } else {
-                allRooms.filter { it.isDirectMessage }
-            }
-            
-            val foundRooms = mutableSetOf<String>()
-            for (room in roomsToCheck) {
-                try {
-                    val members = getMemberMap(room.id)
-                    if (members.containsKey(normalizedUserId)) {
-                        foundRooms.add(room.id)
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.w(
-                        "Andromuks",
-                        "AppViewModel: Failed to inspect members for room ${room.id} when resolving DM for $normalizedUserId",
-                        e
-                    )
-                }
-            }
-            
-            if (foundRooms.isNotEmpty()) {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Found ${foundRooms.size} DM rooms for $normalizedUserId via fallback scanning (account_data not loaded yet)")
-                }
-                return foundRooms
-            }
-        }
-        
-        return emptySet()
-    }
+    fun getDirectRoomIdsForUser(userId: String): Set<String> =
+        roomListUiCoordinator.getDirectRoomIdsForUser(userId)
 
     /**
      * Get the count of unread rooms for Favourites tab
@@ -1572,324 +1485,10 @@ class AppViewModel : ViewModel() {
         timelineForegroundTimestamps[roomId] = System.currentTimeMillis()
     }
     
-    /**
-     * Update cached room sections to avoid expensive filtering on every recomposition.
-     * Only recalculates when allRooms actually changes.
-     */
-    /**
-     * PERFORMANCE OPTIMIZATION: Update cached room sections and badge counts
-     * Always pre-computes badge counts for immediate tab bar display, but only
-     * filters room lists for sections that have been loaded (lazy loading)
-     */
-    private fun updateCachedRoomSections() {
-        // PERFORMANCE: Skip if nothing has changed since last computation.
-        // roomDataVersion is bumped by invalidateRoomSectionCache() only when
-        // actual room data changes — not on tab switches.
-        if (lastCachedVersion == roomDataVersion) return
-        lastCachedVersion = roomDataVersion
-        
-        // Get rooms from spaceList if allRooms is empty (fallback for existing data)
-        val roomsToUse = if (allRooms.isEmpty() && spaceList.isNotEmpty()) {
-            spaceList.firstOrNull()?.rooms ?: emptyList()
-        } else {
-            allRooms
-        }
-        val spaceIds = currentSpaceIds()
-        val roomsWithoutSpaces = filterOutSpaces(roomsToUse, spaceIds)
-        
-        // PERFORMANCE: Always pre-compute badge counts (needed for tab bar badges)
-        // This is fast even for large room lists (O(n) single pass)
-        updateBadgeCounts(roomsWithoutSpaces)
-        
-        // BUG FIX: Always update cached sections when allRooms changes, not just when accessed
-        // This ensures tabs show correct data even if user hasn't visited them recently
-        // The filtering is fast (O(n)) and ensures UI consistency
-        cachedDirectChatRooms = roomsWithoutSpaces.filter { it.isDirectMessage }
-        cachedUnreadRooms = roomsWithoutSpaces.filter { 
-            (it.unreadCount != null && it.unreadCount > 0) || 
-            (it.highlightCount != null && it.highlightCount > 0) 
-        }
-        cachedFavouriteRooms = roomsWithoutSpaces.filter { it.isFavourite }
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated cached sections - allRooms(raw): ${roomsToUse.size}, spaces filtered: ${roomsWithoutSpaces.size}, DMs: ${cachedDirectChatRooms.size}, Unread: ${cachedUnreadRooms.size}, Favourites: ${cachedFavouriteRooms.size}")
-        
-    }
+    internal fun buildDirectPersonTargets(rooms: List<RoomItem>): List<PersonTarget> =
+        roomListUiCoordinator.buildDirectPersonTargets(rooms)
     
-    /**
-     * PERFORMANCE: Pre-compute badge counts in a single O(n) pass
-     * Always computed for immediate tab bar badge display
-     */
-    private fun updateBadgeCounts(rooms: List<RoomItem>) {
-        var directChatsUnread = 0
-        var directChatsHighlights = false
-        var unreadCount = 0
-        var favouritesUnread = 0
-        var favouritesHighlights = false
-        
-        for (room in rooms) {
-            val hasUnread = (room.unreadCount != null && room.unreadCount > 0) || 
-                           (room.highlightCount != null && room.highlightCount > 0)
-            val hasHighlights = room.highlightCount != null && room.highlightCount > 0
-            
-            // Count unread for all rooms
-            if (hasUnread) {
-                unreadCount++
-            }
-            
-            // Count direct chats
-            if (room.isDirectMessage) {
-                if (hasUnread) {
-                    directChatsUnread++
-                    if (hasHighlights) {
-                        directChatsHighlights = true
-                    }
-                }
-            }
-            
-            // Count favourites
-            if (room.isFavourite) {
-                if (hasUnread) {
-                    favouritesUnread++
-                    if (hasHighlights) {
-                        favouritesHighlights = true
-                    }
-                }
-            }
-        }
-        
-        // Update cached counts
-        cachedDirectChatsUnreadCount = directChatsUnread
-        cachedDirectChatsHasHighlights = directChatsHighlights
-        cachedUnreadCount = unreadCount
-        cachedFavouritesUnreadCount = favouritesUnread
-        cachedFavouritesHasHighlights = favouritesHighlights
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Badge counts - DMs: $directChatsUnread, Unread: $unreadCount, Favs: $favouritesUnread")
-    }
-
-    internal fun buildDirectPersonTargets(rooms: List<RoomItem>): List<PersonTarget> {
-        if (currentUserId.isBlank()) {
-            return emptyList()
-        }
-
-        val result = mutableMapOf<String, PersonTarget>()
-
-        for (room in rooms) {
-            if (!room.isDirectMessage) continue
-
-            val timestamp = room.sortingTimestamp ?: 0L
-            val roomDisplayName = room.name
-            var foundOtherMember = false
-
-            val memberMap = try {
-                getMemberMap(room.id)
-            } catch (e: Exception) {
-                android.util.Log.w("Andromuks", "AppViewModel: Failed to get member map for ${room.id}", e)
-                emptyMap()
-            }
-
-            for ((userId, profile) in memberMap) {
-                if (userId == currentUserId) continue
-                foundOtherMember = true
-                val displayName = profile.displayName?.takeIf { it.isNotBlank() }
-                    ?: roomDisplayName.ifBlank { userId }
-                val existing = result[userId]
-                if (existing == null || timestamp > existing.lastActiveTimestamp) {
-                    result[userId] = PersonTarget(
-                        userId = userId,
-                        displayName = displayName,
-                        avatarUrl = profile.avatarUrl,
-                        roomId = room.id,
-                        roomDisplayName = roomDisplayName,
-                        lastActiveTimestamp = timestamp
-                    )
-                }
-            }
-
-            if (!foundOtherMember) {
-                val inferredUserId = room.messageSender
-                if (!inferredUserId.isNullOrBlank() && inferredUserId != currentUserId) {
-                    val displayName = roomDisplayName.ifBlank { inferredUserId }
-                    val existing = result[inferredUserId]
-                    if (existing == null || timestamp > existing.lastActiveTimestamp) {
-                        result[inferredUserId] = PersonTarget(
-                            userId = inferredUserId,
-                            displayName = displayName,
-                            avatarUrl = null,
-                            roomId = room.id,
-                            roomDisplayName = roomDisplayName,
-                            lastActiveTimestamp = timestamp
-                        )
-                    }
-                }
-            }
-        }
-
-        return result.values.sortedByDescending { it.lastActiveTimestamp }
-    }
-    
-    fun getCurrentRoomSection(): RoomSection {
-        // PERFORMANCE: Mark current section as loaded (enables lazy filtering)
-        if (!loadedSections.contains(selectedSection)) {
-            loadedSections.add(selectedSection)
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Lazy loading section: $selectedSection")
-            
-            // If this is the first section being loaded, also mark HOME as loaded
-            // This ensures badge counts are always computed (HOME doesn't need filtering)
-            if (loadedSections.size == 1 && selectedSection != RoomSectionType.HOME) {
-                loadedSections.add(RoomSectionType.HOME)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Auto-loading HOME section for badge counts")
-            }
-            
-            
-            // Trigger cache update to filter this section
-            invalidateRoomSectionCache()
-        }
-        
-        // BUG FIX: Always update cached room sections when getCurrentRoomSection is called
-        // This ensures cache is fresh even if allRooms changed while user was on a different tab
-        updateCachedRoomSections()
-        
-        // Get rooms from spaceList if allRooms is empty (fallback for existing data)
-        val roomsToUse = if (allRooms.isEmpty() && spaceList.isNotEmpty()) {
-            spaceList.firstOrNull()?.rooms ?: emptyList()
-        } else {
-            allRooms
-        }
-        val roomsWithoutSpaces = filterOutSpaces(roomsToUse)
-        
-        return when (selectedSection) {
-            RoomSectionType.HOME -> RoomSection(
-                type = RoomSectionType.HOME,
-                rooms = roomsWithoutSpaces
-            )
-            RoomSectionType.SPACES -> {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SPACES section - currentSpaceId = $currentSpaceId, allSpaces.size = ${allSpaces.size}")
-                if (currentSpaceId != null) {
-                    // Show rooms within the selected space
-                    val selectedSpace = allSpaces.find { it.id == currentSpaceId }
-                    val spaceRooms = selectedSpace?.rooms ?: emptyList()
-                    // Enrich space rooms with latest list summaries by replacing with roomMap/allRooms entries when available.
-                    val enrichedSpaceRooms = spaceRooms.mapNotNull { room ->
-                        roomMap[room.id] ?: allRooms.firstOrNull { it.id == room.id } ?: room
-                    }
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Selected space = $selectedSpace, rooms.size = ${spaceRooms.size}, enriched.size=${enrichedSpaceRooms.size}")
-                    RoomSection(
-                        type = RoomSectionType.SPACES,
-                        rooms = enrichedSpaceRooms,
-                        spaces = emptyList()
-                    )
-                } else {
-                    // Show list of spaces
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Showing space list with ${allSpaces.size} spaces")
-                    RoomSection(
-                        type = RoomSectionType.SPACES,
-                        rooms = emptyList(),
-                        spaces = allSpaces
-                    )
-                }
-            }
-            RoomSectionType.DIRECT_CHATS -> {
-                // PERFORMANCE: Use cached direct chat rooms instead of filtering every time
-                val unreadDmCount = cachedDirectChatRooms.count { 
-                    (it.unreadCount != null && it.unreadCount > 0) || 
-                    (it.highlightCount != null && it.highlightCount > 0) 
-                }
-                RoomSection(
-                    type = RoomSectionType.DIRECT_CHATS,
-                    rooms = cachedDirectChatRooms,
-                    unreadCount = unreadDmCount
-                )
-            }
-            RoomSectionType.UNREAD -> {
-                // PERFORMANCE: Use cached unread rooms instead of filtering every time
-                RoomSection(
-                    type = RoomSectionType.UNREAD,
-                    rooms = cachedUnreadRooms,
-                    unreadCount = cachedUnreadRooms.size
-                )
-            }
-            RoomSectionType.MENTIONS -> {
-                // Mentions section doesn't show rooms in the list - it navigates to MentionsScreen
-                RoomSection(RoomSectionType.MENTIONS, rooms = emptyList())
-            }
-            RoomSectionType.FAVOURITES -> {
-                // PERFORMANCE: Use cached favourite rooms instead of filtering every time
-                val unreadFavouriteCount = cachedFavouriteRooms.count { 
-                    (it.unreadCount != null && it.unreadCount > 0) || 
-                    (it.highlightCount != null && it.highlightCount > 0) 
-                }
-                RoomSection(
-                    type = RoomSectionType.FAVOURITES,
-                    rooms = cachedFavouriteRooms,
-                    unreadCount = unreadFavouriteCount
-                )
-            }
-            RoomSectionType.BRIDGES -> {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: BRIDGES section - currentBridgeId = $currentBridgeId")
-                
-                // Group rooms by bridgeProtocolAvatarUrl to create pseudo-spaces
-                val bridgedRooms = roomsWithoutSpaces.filter { it.bridgeProtocolAvatarUrl != null }
-                val bridgeGroups = bridgedRooms.groupBy { it.bridgeProtocolAvatarUrl!! }
-                
-                // Create pseudo-spaces (SpaceItem) for each bridge
-                // Group by bridgeProtocolAvatarUrl - each unique avatar URL represents a different bridge protocol
-                val bridgeSpaces = bridgeGroups.map { (bridgeAvatarUrl, rooms) ->
-                    // Derive bridge name from the first room's bridge info if available
-                    // Since we're grouping by avatar URL, all rooms in this group share the same bridge protocol
-                    val bridgeName = rooms.firstOrNull()?.let { room ->
-                        // Try to get bridge display name from SharedPreferences cache first (fastest)
-                        val context = appContext
-                        if (context != null) {
-                            val cachedDisplayName = net.vrkknn.andromuks.utils.BridgeInfoCache.getBridgeDisplayName(context, room.id)
-                            if (cachedDisplayName != null) {
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: BRIDGES - Found cached display name for room ${room.id}: $cachedDisplayName")
-                                return@let cachedDisplayName
-                            }
-                        }
-                        
-                        // Fallback: try to get from room state cache
-                        getBridgeDisplayNameFromRoomState(room.id) ?: "Bridge"
-                    } ?: "Bridge"
-                    
-                    if (BuildConfig.DEBUG && bridgeName == "Bridge") {
-                        android.util.Log.d("Andromuks", "AppViewModel: BRIDGES - Using fallback name 'Bridge' for bridge with avatar $bridgeAvatarUrl (room: ${rooms.firstOrNull()?.id})")
-                    }
-                    
-                    SpaceItem(
-                        id = bridgeAvatarUrl, // Use avatar URL as unique identifier
-                        name = bridgeName,
-                        avatarUrl = bridgeAvatarUrl,
-                        rooms = rooms
-                    )
-                }
-                
-                if (currentBridgeId != null) {
-                    // Show rooms within the selected bridge
-                    val selectedBridge = bridgeSpaces.find { it.id == currentBridgeId }
-                    val bridgeRooms = selectedBridge?.rooms ?: emptyList()
-                    // Enrich bridge rooms with latest list summaries
-                    val enrichedBridgeRooms = bridgeRooms.mapNotNull { room ->
-                        roomMap[room.id] ?: allRooms.firstOrNull { it.id == room.id } ?: room
-                    }
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Selected bridge = $selectedBridge, rooms.size = ${bridgeRooms.size}, enriched.size=${enrichedBridgeRooms.size}")
-                    RoomSection(
-                        type = RoomSectionType.BRIDGES,
-                        rooms = enrichedBridgeRooms,
-                        spaces = emptyList()
-                    )
-                } else {
-                    // Show list of bridges
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Showing bridge list with ${bridgeSpaces.size} bridges")
-                    RoomSection(
-                        type = RoomSectionType.BRIDGES,
-                        rooms = emptyList(),
-                        spaces = bridgeSpaces
-                    )
-                }
-            }
-        }
-    }
+    fun getCurrentRoomSection(): RoomSection = roomListUiCoordinator.getCurrentRoomSection()
 
     fun showLoading() {
         isLoading = true
@@ -1954,46 +1553,7 @@ class AppViewModel : ViewModel() {
      * @param authToken Authentication token for the backend (optional, can be empty at initialization)
      */
     fun initializeFCM(context: Context, homeserverUrl: String = "", authToken: String = "", skipCacheClear: Boolean = false) {
-        // STEP 2.1: Register this ViewModel with service (as secondary by default)
-        // Will be updated to primary if markAsPrimaryInstance() is called later
-        if (!WebSocketService.isViewModelRegistered(viewModelId)) {
-            WebSocketService.registerViewModel(viewModelId, isPrimary = false)
-        }
-        appContext = context
-        // Provide application context to RoomTimelineCache for debug-only diagnostics/toasts
-        RoomTimelineCache.setAppContext(context)
-        
-        // Clear current room ID on app startup - ensures notifications aren't suppressed after crash/restart
-        // The room ID will be set again when user actually opens a room
-        // OPTIMIZATION: Skip cache clearing when opening from notification to preserve preemptive pagination cache
-        if (!skipCacheClear) {
-            clearCurrentRoomId()
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared current room ID on app startup")
-        } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping cache clear on app startup (opening from notification)")
-        }
-        
-        // PHASE 5.1: Load pending WebSocket operations from storage
-        loadPendingOperationsFromStorage()
-        
-        val components = FCMNotificationManager.initializeComponents(
-            context = context,
-            homeserverUrl = homeserverUrl,
-            authToken = authToken,
-            realMatrixHomeserverUrl = realMatrixHomeserverUrl
-        )
-        fcmNotificationManager = components.fcmNotificationManager
-        conversationsApi = components.conversationsApi
-        personsApi = components.personsApi
-        webClientPushIntegration = components.webClientPushIntegration
-        
-        // Network monitoring will be started when WebSocket service starts
-        
-        // PHASE 5.2: Start periodic acknowledgment timeout check
-        startAcknowledgmentTimeoutCheck()
-        
-        // PHASE 5.4: Start periodic cleanup of acknowledged messages
-        startAcknowledgedMessagesCleanup()
+        fcmPushCoordinator.initializeFCM(context, homeserverUrl, authToken, skipCacheClear)
     }
     
     // PHASE 5.2: Periodic acknowledgment timeout check job
@@ -2006,7 +1566,7 @@ class AppViewModel : ViewModel() {
      * PHASE 5.2: Start periodic check for unacknowledged messages
      * Checks every 10 seconds for messages that have exceeded their acknowledgment timeout
      */
-    private fun startAcknowledgmentTimeoutCheck() {
+    internal fun startAcknowledgmentTimeoutCheck() {
         acknowledgmentTimeoutJob?.cancel()
         acknowledgmentTimeoutJob = viewModelScope.launch {
             while (isActive) {
@@ -2100,7 +1660,7 @@ class AppViewModel : ViewModel() {
                         val roomId = operation.data["roomId"] as? String
                         val eventId = operation.data["eventId"] as? String
                         if (roomId != null && eventId != null) {
-                            markRoomAsReadInternal(roomId, eventId)
+                            readReceiptsTypingCoordinator.markRoomAsReadInternal(roomId, eventId)
                         }
                     }
                     operation.type.startsWith("offline_") -> {
@@ -2160,7 +1720,7 @@ class AppViewModel : ViewModel() {
      * PHASE 5.4: Start periodic cleanup of acknowledged messages
      * Removes acknowledged messages older than 1 hour every 5 minutes
      */
-    private fun startAcknowledgedMessagesCleanup() {
+    internal fun startAcknowledgedMessagesCleanup() {
         acknowledgedMessagesCleanupJob?.cancel()
         acknowledgedMessagesCleanupJob = viewModelScope.launch {
             while (isActive) {
@@ -2204,33 +1764,12 @@ class AppViewModel : ViewModel() {
      * the FCM token registration process. When the token is ready, it triggers the
      * WebSocket-based registration with the Gomuks backend.
      */
-    fun registerFCMNotifications() {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: registerFCMNotifications called")
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: fcmNotificationManager=${fcmNotificationManager != null}, homeserverUrl=$homeserverUrl, authToken=${authToken.take(20)}..., currentUserId=$currentUserId")
-        
-        fcmNotificationManager?.let { manager ->
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Calling FCMNotificationManager.registerNotifications")
-            FCMNotificationManager.registerNotifications(
-                fcmNotificationManager = manager,
-                homeserverUrl = homeserverUrl,
-                authToken = authToken,
-                currentUserId = currentUserId,
-                onTokenReady = {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: FCM token ready callback triggered, registering with Gomuks Backend")
-                    registerFCMWithGomuksBackend()
-                }
-            )
-        } ?: run {
-            android.util.Log.w("Andromuks", "AppViewModel: fcmNotificationManager is null, cannot register FCM notifications")
-        }
-    }
-    
+    fun registerFCMNotifications() = fcmPushCoordinator.registerFCMNotifications()
+
     /**
      * Get FCM token for Gomuks Backend registration
      */
-    fun getFCMTokenForGomuksBackend(): String? {
-        return fcmNotificationManager?.getTokenForGomuksBackend()
-    }
+    fun getFCMTokenForGomuksBackend(): String? = fcmPushCoordinator.getFCMTokenForGomuksBackend()
     
     /**
      * Check if push registration should be performed (time-based)
@@ -2274,189 +1813,23 @@ class AppViewModel : ViewModel() {
      * @param forceRegistrationOnConnect If true, register on every connect/reconnect (skip time-based shouldRegisterPush check).
      * @param forceNow If true, skip debounce (e.g. user tapped "Re-register" in Settings).
      */
-    fun registerFCMWithGomuksBackend(forceRegistrationOnConnect: Boolean = false, forceNow: Boolean = false) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: registerFCMWithGomuksBackend called (forceRegistrationOnConnect=$forceRegistrationOnConnect, forceNow=$forceNow)")
-        
-        // DEBOUNCE: Skip if we sent recently (unless forceNow)
-        if (!forceNow) {
-            val now = System.currentTimeMillis()
-            val timeSinceLastRegistration = now - lastFCMRegistrationTime
-            if (timeSinceLastRegistration < FCM_REGISTRATION_DEBOUNCE_MS) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping FCM registration - only ${timeSinceLastRegistration}ms since last registration (debounce: ${FCM_REGISTRATION_DEBOUNCE_MS}ms)")
-                return
-            }
-        }
-        
-        // Time-based check: skip if we registered recently (unless forceRegistrationOnConnect or forceNow)
-        if (!forceRegistrationOnConnect && !forceNow) {
-            val shouldRegister = shouldRegisterPush()
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: shouldRegisterPush() returned $shouldRegister")
-            val hasRegisteredViaWebSocket = appContext?.let { context ->
-                context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                    .getBoolean("fcm_registered_via_websocket", false)
-            } ?: false
-            val forceRegistration = !hasRegisteredViaWebSocket
-            if (!shouldRegister && !forceRegistration) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping FCM registration - not due yet and already registered via WebSocket")
-                return
-            }
-        }
-        
-        val token = getFCMTokenForGomuksBackend()
-        val deviceId = webClientPushIntegration?.getLocalDeviceID()
-        val encryptionKey = webClientPushIntegration?.getPushEncryptionKey()
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: registerFCMWithGomuksBackend - token=${token?.take(20)}..., deviceId=$deviceId, encryptionKey=${encryptionKey?.take(20)}...")
-        
-        if (token != null && deviceId != null && encryptionKey != null) {
-            val registrationRequestId = requestIdCounter++
-            fcmRegistrationRequests[registrationRequestId] = "fcm_registration"
-            
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Registering FCM with request_id=$registrationRequestId")
-            
-            // Gomuks backend: device_id, type, data (FCM token string), encryption { key, expiration (required) }
-            val expirationSeconds = System.currentTimeMillis() / 1000 + 86400 // 24 hours from now
-            val registrationData = mapOf(
-                "type" to "fcm",
-                "device_id" to deviceId,
-                "data" to token,
-                "encryption" to mapOf(
-                    "key" to encryptionKey,
-                    "expiration" to expirationSeconds
-                )
-            )
-            
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending WebSocket command: register_push with data: $registrationData")
-            val result = sendWebSocketCommand("register_push", registrationRequestId, registrationData)
-            
-            // DEBOUNCE: Only update last registration time when we actually sent (SUCCESS)
-            if (result == WebSocketResult.SUCCESS) {
-                lastFCMRegistrationTime = System.currentTimeMillis()
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent FCM registration to Gomuks Backend with device_id=$deviceId (request_id=$registrationRequestId)")
-            } else {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: register_push queued or not sent (result=$result) - will be sent after init_complete or when connected")
-            }
-            
-            appContext?.let { context ->
-                context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                    .edit()
-                    .putBoolean("fcm_websocket_registration_attempted", true)
-                    .apply()
-            }
-        } else {
-            android.util.Log.w("Andromuks", "AppViewModel: Missing required data for FCM registration - token=${token != null}, deviceId=${deviceId != null}, encryptionKey=${encryptionKey != null}")
-        }
-    }
+    fun registerFCMWithGomuksBackend(forceRegistrationOnConnect: Boolean = false, forceNow: Boolean = false) =
+        fcmPushCoordinator.registerFCMWithGomuksBackend(forceRegistrationOnConnect, forceNow)
+
     /**
      * Handle FCM registration response from Gomuks Backend
      */
-    fun handleFCMRegistrationResponse(requestId: Int, data: Any) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: handleFCMRegistrationResponse called with requestId=$requestId, dataType=${data::class.java.simpleName}")
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: FCM registration response data: $data")
-        
-        // Remove from pending requests
-        fcmRegistrationRequests.remove(requestId)
-        
-        // Handle the response - it could be a boolean, string, or object
-        when (data) {
-            is Boolean -> {
-                if (data) {
-                    android.util.Log.i("Andromuks", "AppViewModel: FCM registration successful (boolean true)")
-                    webClientPushIntegration?.markPushRegistrationCompleted()
-                    // Mark that WebSocket registration was successful
-                    appContext?.let { context ->
-                        context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                            .edit()
-                            .putBoolean("fcm_registered_via_websocket", true)
-                            .apply()
-                    }
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked FCM as registered via WebSocket")
-                } else {
-                    android.util.Log.e("Andromuks", "AppViewModel: FCM registration failed (boolean false)")
-                }
-            }
-            is String -> {
-                android.util.Log.i("Andromuks", "AppViewModel: FCM registration response (string): $data")
-                // Assume string response means success
-                webClientPushIntegration?.markPushRegistrationCompleted()
-                // Mark that WebSocket registration was successful
-                appContext?.let { context ->
-                    context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                        .edit()
-                        .putBoolean("fcm_registered_via_websocket", true)
-                        .apply()
-                }
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked FCM as registered via WebSocket (string response)")
-            }
-            is org.json.JSONObject -> {
-                android.util.Log.i("Andromuks", "AppViewModel: FCM registration response (JSON): ${data.toString()}")
-                // Check if there's a success field or assume JSON response means success
-                val success = data.optBoolean("success", true)
-                if (success) {
-                    android.util.Log.i("Andromuks", "AppViewModel: FCM registration successful (JSON)")
-                    webClientPushIntegration?.markPushRegistrationCompleted()
-                    // Mark that WebSocket registration was successful
-                    appContext?.let { context ->
-                        context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                            .edit()
-                            .putBoolean("fcm_registered_via_websocket", true)
-                            .apply()
-                    }
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked FCM as registered via WebSocket (JSON response)")
-                } else {
-                    android.util.Log.e("Andromuks", "AppViewModel: FCM registration failed (JSON)")
-                }
-            }
-            else -> {
-                android.util.Log.i("Andromuks", "AppViewModel: FCM registration response (unknown type): $data")
-                // Assume any response means success
-                webClientPushIntegration?.markPushRegistrationCompleted()
-                // Mark that WebSocket registration was successful
-                appContext?.let { context ->
-                    context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                        .edit()
-                        .putBoolean("fcm_registered_via_websocket", true)
-                        .apply()
-                }
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked FCM as registered via WebSocket (unknown response type)")
-            }
-        }
-    }
+    fun handleFCMRegistrationResponse(requestId: Int, data: Any) =
+        fcmPushCoordinator.handleFCMRegistrationResponse(requestId, data)
     
-    fun updateTypingUsers(roomId: String, userIds: List<String>) {
-        // Only update if room is in cache (opened or actively cached)
-        if (roomId.isBlank()) {
-            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Ignoring typing update with blank roomId")
-            return
-        }
-        
-        // Check if room is in cache - only update typing info for rooms we care about
-        val isRoomInCache = RoomTimelineCache.isRoomOpened(roomId) || RoomTimelineCache.isRoomActivelyCached(roomId)
-        
-        if (!isRoomInCache) {
-            return
-        }
-        
-        // Store typing users per-room
-        typingUsersMap[roomId] = userIds
-        
-        // Update the current room's typing users if this is the current room
-        if (currentRoomId == roomId) {
-            typingUsers = userIds
-        }
-        // Note: We don't clear typingUsers if this update is for a different room,
-        // as the current room's typing users should remain displayed
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated typing users for room $roomId: ${userIds.size} users typing (currentRoomId=$currentRoomId)")
-    }
-    
+    fun updateTypingUsers(roomId: String, userIds: List<String>) =
+        readReceiptsTypingCoordinator.updateTypingUsers(roomId, userIds)
+
     /**
      * Get typing users for a specific room
      */
-    fun getTypingUsersForRoom(roomId: String): List<String> {
-        val allTypingUsers = typingUsersMap[roomId] ?: emptyList()
-        return allTypingUsers.filter { it != currentUserId } // Always exclude ourselves from the list of typing users.
-    }
+    fun getTypingUsersForRoom(roomId: String): List<String> =
+        readReceiptsTypingCoordinator.getTypingUsersForRoom(roomId)
     
     private fun normalizeTimestamp(primary: Long, vararg fallbacks: Long): Long {
         if (primary > 0) return primary
@@ -2736,54 +2109,7 @@ class AppViewModel : ViewModel() {
      * Populate readReceipts from singleton cache
      * This ensures read receipts persist across AppViewModel instances
      */
-    fun populateReadReceiptsFromCache() {
-        try {
-            synchronized(readReceiptsLock) {
-                val cachedReceipts = ReadReceiptCache.getAllReceipts()
-                if (cachedReceipts.isNotEmpty()) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache called - current receipts: ${readReceipts.size} events, cache: ${cachedReceipts.size} events")
-                    
-                    // CRITICAL FIX: Merge cache with existing receipts instead of replacing
-                    // This prevents overwriting fresh receipts from paginate/sync_complete
-                    // Only add receipts from cache that don't already exist (by eventId)
-                    var hasChanges = false
-                    cachedReceipts.forEach { (eventId, cachedReceiptsList) ->
-                        if (cachedReceiptsList.isNotEmpty()) {
-                            val existingReceipts = readReceipts[eventId]
-                            if (existingReceipts == null || existingReceipts.isEmpty()) {
-                                // No existing receipts for this event - add from cache
-                                readReceipts[eventId] = cachedReceiptsList.toMutableList()
-                                hasChanges = true
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache - added ${cachedReceiptsList.size} receipts for eventId=$eventId from cache")
-                            } else {
-                                // Receipts already exist - merge (add receipts from cache that don't exist yet)
-                                // CRITICAL FIX: Create a new list instead of modifying existing one to avoid concurrent modification during composition
-                                val existingUserIds = existingReceipts.map { it.userId }.toSet()
-                                val newReceipts = cachedReceiptsList.filter { it.userId !in existingUserIds }
-                                if (newReceipts.isNotEmpty()) {
-                                    // Create a new list instead of modifying the existing one
-                                    readReceipts[eventId] = (existingReceipts + newReceipts).toMutableList()
-                                    hasChanges = true
-                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache - merged ${newReceipts.size} new receipts for eventId=$eventId from cache (${readReceipts[eventId]?.size} total)")
-                                }
-                            }
-                        }
-                    }
-                    
-                    if (hasChanges) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache - merged cache with existing receipts, total events: ${readReceipts.size}")
-                        readReceiptsUpdateCounter++
-                    } else {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache - no changes (all cache receipts already in readReceipts)")
-                    }
-                } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache - cache is empty, no receipts to populate")
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to populate readReceipts from cache", e)
-        }
-    }
+    fun populateReadReceiptsFromCache() = readReceiptsTypingCoordinator.populateReadReceiptsFromCache()
     
     /**
      * Populate messageReactions from singleton cache
@@ -2928,151 +2254,21 @@ class AppViewModel : ViewModel() {
         return RoomMemberCache.getMember(roomId, userId)
     }
 
-    fun getMemberMap(roomId: String): Map<String, MemberProfile> {
-        // OPTIMIZED: Use indexed cache for O(1) lookups instead of scanning all entries
-        val memberMap = mutableMapOf<String, MemberProfile>()
-        
-        // Try indexed lookup first - get room-specific profiles
-        val userIds = ProfileCache.getRoomUserIds(roomId)
-        if (userIds != null && userIds.isNotEmpty()) {
-            for (userId in userIds) {
-                val profile = ProfileCache.getFlattenedProfile(roomId, userId)
-                if (profile != null) {
-                    memberMap[userId] = profile
-                } else {
-                    // Room-specific profile doesn't exist, check global cache
-                    val globalProfile = ProfileCache.getGlobalProfileProfile(userId)
-                    if (globalProfile != null) {
-                        ProfileCache.updateGlobalProfileAccess(userId)
-                        memberMap[userId] = globalProfile
-                    }
-                }
-            }
-        } else {
-            // Fallback to legacy cache if index is empty
-            val legacyMap = RoomMemberCache.getRoomMembers(roomId)
-            if (legacyMap.isNotEmpty()) {
-                memberMap.putAll(legacyMap)
-            }
-        }
-        
-        // CRITICAL FIX: Also check global cache for users in this room's timeline events
-        // This ensures profiles are found even if they're not in the room index
-        // (e.g., when a user has a global profile but hasn't been indexed for this room)
-        // Check both current timelineEvents (for current room) and RoomTimelineCache (for any room)
-        val eventsToCheck = if (currentRoomId == roomId && timelineEvents.isNotEmpty()) {
-            timelineEvents
-        } else {
-            // For other rooms, check RoomTimelineCache
-            RoomTimelineCache.getCachedEvents(roomId) ?: emptyList()
-        }
-        
-        if (eventsToCheck.isNotEmpty()) {
-            for (event in eventsToCheck) {
-                val sender = event.sender
-                if (!memberMap.containsKey(sender)) {
-                    // Check global cache for this user
-                    val globalProfile = ProfileCache.getGlobalProfileProfile(sender)
-                    if (globalProfile != null) {
-                        ProfileCache.updateGlobalProfileAccess(sender)
-                        memberMap[sender] = globalProfile
-                        // Persist room membership in the index so future getMemberMap() calls
-                        // resolve this user via the indexed path instead of re-adding fallback.
-                        ProfileCache.addToRoomIndex(roomId, sender)
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added global profile fallback for $sender in room $roomId via getMemberMap()")
-                    }
-                }
-            }
-        }
-        
-        return memberMap
-    }
+    fun getMemberMap(roomId: String): Map<String, MemberProfile> =
+        memberProfilesCoordinator.getMemberMap(roomId)
     
     /**
      * Enhanced getMemberMap that includes global cache fallback for users in timeline events
      */
-    fun getMemberMapWithFallback(roomId: String, timelineEvents: List<TimelineEvent>? = null): Map<String, MemberProfile> {
-        val memberMap = getMemberMap(roomId).toMutableMap()
-        
-        // If timeline events are provided, add fallback profiles from global cache for users in events
-        timelineEvents?.let { events ->
-            for (event in events) {
-                val sender = event.sender
-                if (!memberMap.containsKey(sender)) {
-                    // Check global cache and add to member map if found
-                    val globalProfile = ProfileCache.getGlobalProfileProfile(sender)
-                    if (globalProfile != null) {
-                        ProfileCache.updateGlobalProfileAccess(sender)
-                        memberMap[sender] = globalProfile
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added global profile fallback for $sender in room $roomId")
-                    }
-                }
-            }
-        }
-
-        // Normalize display names: if empty/null, fall back to the username part without domain
-        return memberMap.mapValues { (userId, profile) ->
-            val fallbackName = userId.removePrefix("@").substringBefore(":")
-            MemberProfile(
-                displayName = profile.displayName?.takeIf { it.isNotBlank() } ?: fallbackName,
-                avatarUrl = profile.avatarUrl
-            )
-        }
-    }
+    fun getMemberMapWithFallback(roomId: String, timelineEvents: List<TimelineEvent>? = null): Map<String, MemberProfile> =
+        memberProfilesCoordinator.getMemberMapWithFallback(roomId, timelineEvents)
+    
     /**
-     * MEMORY MANAGEMENT: Helper method to store member profile in both flattened and legacy caches
-     * OPTIMIZATION: Only stores room-specific profile if it differs from global profile to avoid redundancy.
-     * 
-     * Strategy:
-     * - If no global profile exists, set it as global (no room-specific entry needed)
-     * - If global profile exists and matches, don't store room-specific entry (use global)
-     * - If global profile exists and differs, store room-specific entry (but don't update global)
-     * 
-     * Note: Global profile should ideally come from explicit profile requests, not from room member events.
-     * This prevents the global from drifting and ensures room-specific entries only exist when truly different.
+     * MEMORY MANAGEMENT: Helper method to store member profile in both flattened and legacy caches.
+     * Delegates to [MemberProfilesCoordinator].
      */
-    private fun storeMemberProfile(roomId: String, userId: String, profile: MemberProfile) {
-        // Check existing global profile BEFORE updating (to compare)
-        val existingGlobalProfileEntry = ProfileCache.getGlobalProfile(userId)
-        val existingGlobalProfile = existingGlobalProfileEntry?.profile
-        
-        if (existingGlobalProfile == null) {
-            // No global profile yet - set this as global, don't store room-specific
-            ProfileCache.setGlobalProfile(userId, ProfileCache.CachedProfileEntry(profile, System.currentTimeMillis()))
-            // Remove any existing room-specific entry (cleanup)
-            ProfileCache.removeFlattenedProfile(roomId, userId)
-            ProfileCache.removeFromRoomIndex(roomId, userId)
-        } else {
-            // Global profile exists - compare
-            val profilesDiffer = existingGlobalProfile.displayName != profile.displayName ||
-                existingGlobalProfile.avatarUrl != profile.avatarUrl
-            
-            if (profilesDiffer) {
-                // Profile differs from global - store room-specific entry
-                ProfileCache.setFlattenedProfile(roomId, userId, profile)
-                
-                // OPTIMIZED: Update indexed cache for fast lookups
-                ProfileCache.addToRoomIndex(roomId, userId)
-                
-                // DON'T update global here - it should come from explicit profile requests
-                // This prevents global from drifting and ensures consistency
-            } else {
-                // Profile matches global - remove room-specific entry if it exists (cleanup)
-                ProfileCache.removeFlattenedProfile(roomId, userId)
-                // Also remove from index if present
-                ProfileCache.removeFromRoomIndex(roomId, userId)
-            }
-        }
-        
-        // Also maintain legacy cache for compatibility (but this will be deprecated)
-        // Update singleton RoomMemberCache
-        RoomMemberCache.updateMember(roomId, userId, profile)
-        
-        // MEMORY MANAGEMENT: Cleanup if cache gets too large
-        if (ProfileCache.getFlattenedCacheSize() > MAX_MEMBER_CACHE_SIZE) {
-            performMemberCacheCleanup()
-        }
-    }
+    private fun storeMemberProfile(roomId: String, userId: String, profile: MemberProfile) =
+        memberProfilesCoordinator.storeMemberProfile(roomId, userId, profile)
     
     /**
      * Updates the global profile cache explicitly (e.g., from profile requests).
@@ -3096,17 +2292,6 @@ class AppViewModel : ViewModel() {
             
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated global profile for $userId and cleaned up matching room-specific entries")
         }
-    }
-    
-    /**
-     * MEMORY MANAGEMENT: Cleanup old member cache entries to prevent memory pressure
-     */
-    private fun performMemberCacheCleanup() {
-        // Use ProfileCache cleanup methods
-        ProfileCache.cleanupGlobalProfiles(MAX_MEMBER_CACHE_SIZE)
-        ProfileCache.cleanupFlattenedProfiles(MAX_MEMBER_CACHE_SIZE)
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Performed member cache cleanup - flattened: ${ProfileCache.getFlattenedCacheSize()}, global: ${ProfileCache.getGlobalCacheSize()}")
     }
     
     /**
@@ -3749,25 +2934,8 @@ class AppViewModel : ViewModel() {
      * This prevents the frustrating "room jumping" effect when new messages arrive
      * Can be forced to sort immediately via forceImmediate parameter
      */
-    internal fun scheduleRoomReorder(forceImmediate: Boolean = false) {
-        val currentTime = System.currentTimeMillis()
-        val timeSinceLastReorder = currentTime - lastRoomReorderTime
-        
-        // Cancel existing reorder job
-        roomReorderJob?.cancel()
-        
-        if (forceImmediate || timeSinceLastReorder >= ROOM_REORDER_DEBOUNCE_MS) {
-            // Force immediate sort or enough time has passed, reorder immediately
-            performRoomReorder()
-        } else {
-            // Schedule reorder for later
-            val delayMs = ROOM_REORDER_DEBOUNCE_MS - timeSinceLastReorder
-            roomReorderJob = viewModelScope.launch {
-                delay(delayMs)
-                performRoomReorder()
-            }
-        }
-    }
+    internal fun scheduleRoomReorder(forceImmediate: Boolean = false) =
+        roomListUiCoordinator.scheduleRoomReorder(forceImmediate)
     
     /**
      * Force immediate room list re-sorting
@@ -3776,50 +2944,6 @@ class AppViewModel : ViewModel() {
     fun forceRoomListSort() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Force sorting room list (tab change or screen return)")
         scheduleRoomReorder(forceImmediate = true)
-    }
-    
-    /**
-     * Actually perform the room reordering
-     */
-    private fun performRoomReorder() {
-        lastRoomReorderTime = System.currentTimeMillis()
-        
-        // Separate newly joined rooms from existing rooms
-        val newlyJoinedRooms = roomMap.values.filter { newlyJoinedRoomIds.contains(it.id) }
-        val existingRooms = roomMap.values.filter { !newlyJoinedRoomIds.contains(it.id) }
-        
-        // Sort existing rooms by timestamp (newest first)
-        val sortedExistingRooms = existingRooms.sortedByDescending { it.sortingTimestamp ?: 0L }
-        
-        // Sort newly joined rooms by timestamp (newest first) - these go at the top
-        val sortedNewlyJoinedRooms = newlyJoinedRooms.sortedByDescending { it.sortingTimestamp ?: 0L }
-        
-        // Combine: newly joined rooms first, then existing rooms
-        val sortedRooms = sortedNewlyJoinedRooms + sortedExistingRooms
-        
-        // Clear newly joined set after sorting (rooms are no longer "new" after first sort)
-        if (newlyJoinedRoomIds.isNotEmpty()) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sorting ${newlyJoinedRoomIds.size} newly joined rooms to the top")
-            newlyJoinedRoomIds.clear()
-        }
-        
-        // ANTI-FLICKER FIX: Only update allRooms if the order actually changed
-        // Compare room IDs to detect order changes without creating new list instances unnecessarily
-        val currentRoomIds = allRooms.map { it.id }
-        val newRoomIds = sortedRooms.map { it.id }
-        val orderChanged = currentRoomIds != newRoomIds
-        
-        if (orderChanged || allRooms.size != sortedRooms.size) {
-            // Order changed or size changed - update the list
-            setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)), skipCounterUpdate = true)
-            allRooms = sortedRooms
-            invalidateRoomSectionCache()
-            
-            // Trigger UI update
-            needsRoomListUpdate = true
-            scheduleUIUpdate("roomList")
-            
-        } 
     }
     /**
      * Perform batched UI updates only for changed sections
@@ -4699,12 +3823,12 @@ class AppViewModel : ViewModel() {
     internal var isPendingNavigationFromNotification: Boolean = false
     
     // OPTIMIZATION #1: Direct room navigation (bypasses pending state)
-    private var directRoomNavigation: String? = null
-    private var directRoomNavigationTimestamp: Long? = null
+    internal var directRoomNavigation: String? = null
+    internal var directRoomNavigationTimestamp: Long? = null
     // Observable trigger so RoomListScreen can react when onNewIntent sets a new
     // directRoomNavigation on an already-composed screen.
     var directRoomNavigationTrigger by mutableIntStateOf(0)
-        private set
+        internal set
     
     // User info navigation (for matrix:u/ URIs from contacts)
     private var pendingUserInfoNavigation: String? = null
@@ -4715,7 +3839,7 @@ class AppViewModel : ViewModel() {
     private var pendingBubbleNavigation: String? = null
 
     // Pending highlight targets (e.g., notification taps)
-    private val pendingHighlightEvents = ConcurrentHashMap<String, String>()
+    internal val pendingHighlightEvents = ConcurrentHashMap<String, String>()
     
     // Websocket restart callback
     var onRestartWebSocket: ((ReconnectTrigger) -> Unit)? = null
@@ -4746,61 +3870,25 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    fun setPendingRoomNavigation(roomId: String, fromNotification: Boolean = false) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Set pending room navigation to: $roomId (fromNotification: $fromNotification)")
-        pendingRoomNavigation = roomId
-        isPendingNavigationFromNotification = fromNotification
-    }
+    fun setPendingRoomNavigation(roomId: String, fromNotification: Boolean = false) =
+        navigationCoordinator.setPendingRoomNavigation(roomId, fromNotification)
     
     // OPTIMIZATION #1: Direct navigation method (bypasses pending state)
     fun setDirectRoomNavigation(
         roomId: String,
         notificationTimestamp: Long? = null,
         targetEventId: String? = null
-    ) {
-        if (BuildConfig.DEBUG) android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: OPTIMIZATION #1 - Set direct room navigation to: $roomId (timestamp: $notificationTimestamp, targetEventId: $targetEventId)"
-        )
-        directRoomNavigation = roomId
-        directRoomNavigationTimestamp = notificationTimestamp
-        directRoomNavigationTrigger++ // Notify observers (e.g. RoomListScreen) of new navigation request
-        if (!targetEventId.isNullOrBlank()) {
-            setPendingHighlightEvent(roomId, targetEventId)
-        }
-    }
+    ) = navigationCoordinator.setDirectRoomNavigation(roomId, notificationTimestamp, targetEventId)
     
-    fun getDirectRoomNavigation(): String? {
-        val roomId = directRoomNavigation
-        if (roomId != null) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #1 - Getting direct room navigation: $roomId")
-        }
-        return roomId
-    }
+    fun getDirectRoomNavigation(): String? = navigationCoordinator.getDirectRoomNavigation()
     
-    fun clearDirectRoomNavigation() {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #1 - Clearing direct room navigation")
-        directRoomNavigation = null
-        directRoomNavigationTimestamp = null
-    }
+    fun clearDirectRoomNavigation() = navigationCoordinator.clearDirectRoomNavigation()
     
-    fun getDirectRoomNavigationTimestamp(): Long? {
-        return directRoomNavigationTimestamp
-    }
+    fun getDirectRoomNavigationTimestamp(): Long? = navigationCoordinator.getDirectRoomNavigationTimestamp()
     
-    fun getPendingRoomNavigation(): String? {
-        val roomId = pendingRoomNavigation
-        if (roomId != null) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Getting pending room navigation: $roomId")
-        }
-        return roomId
-    }
+    fun getPendingRoomNavigation(): String? = navigationCoordinator.getPendingRoomNavigation()
     
-    fun clearPendingRoomNavigation() {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Clearing pending room navigation")
-        pendingRoomNavigation = null
-        isPendingNavigationFromNotification = false
-    }
+    fun clearPendingRoomNavigation() = navigationCoordinator.clearPendingRoomNavigation()
     
     fun setPendingUserInfoNavigation(userId: String) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Set pending user info navigation for: $userId")
@@ -4835,25 +3923,11 @@ class AppViewModel : ViewModel() {
         pendingBubbleNavigation = null
     }
 
-    fun setPendingHighlightEvent(roomId: String, eventId: String?) {
-        if (eventId.isNullOrBlank()) return
-        pendingHighlightEvents[roomId] = eventId
-        if (BuildConfig.DEBUG) android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Stored pending highlight event for $roomId -> $eventId"
-        )
-    }
+    fun setPendingHighlightEvent(roomId: String, eventId: String?) =
+        navigationCoordinator.setPendingHighlightEvent(roomId, eventId)
 
-    fun consumePendingHighlightEvent(roomId: String): String? {
-        val eventId = pendingHighlightEvents.remove(roomId)
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: consumePendingHighlightEvent($roomId) -> ${eventId ?: "NULL"} (pendingHighlightEvents keys: ${pendingHighlightEvents.keys})"
-            )
-        }
-        return eventId
-    }
+    fun consumePendingHighlightEvent(roomId: String): String? =
+        navigationCoordinator.consumePendingHighlightEvent(roomId)
     
     /**
      * Called when app becomes visible (foreground)
@@ -5425,7 +4499,7 @@ class AppViewModel : ViewModel() {
     internal val timelineRequests = mutableMapOf<Int, String>() // requestId -> roomId
     // Track rooms with pending initial paginate requests to prevent duplicates
     internal val roomsWithPendingPaginate = Collections.synchronizedSet(mutableSetOf<String>())
-    private val profileRequestRooms = mutableMapOf<Int, String>() // requestId -> roomId (for profile requests initiated from a specific room)
+    internal val profileRequestRooms = mutableMapOf<Int, String>() // requestId -> roomId (for profile requests initiated from a specific room)
     internal val roomStateRequests = mutableMapOf<Int, String>() // requestId -> roomId
     internal val messageRequests = mutableMapOf<Int, String>() // requestId -> roomId
     
@@ -5435,10 +4509,10 @@ class AppViewModel : ViewModel() {
     // Track requests for get_related_events used to backfill detailed reactions (user + timestamp) for a specific event.
     // Key: requestId, Value: Pair(roomId, targetEventId)
     internal val relatedEventsRequests = mutableMapOf<Int, Pair<String, String>>()
-    private val markReadRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    internal val markReadRequests = mutableMapOf<Int, String>() // requestId -> roomId
     // Track last sent mark_read command per room to prevent duplicates
     // Key: roomId, Value: eventId that was last sent
-    private val lastMarkReadSent = mutableMapOf<String, String>() // roomId -> eventId
+    internal val lastMarkReadSent = mutableMapOf<String, String>() // roomId -> eventId
     internal val readReceipts = mutableMapOf<String, MutableList<ReadReceipt>>() // eventId -> list of read receipts
     internal val readReceiptsLock = Any() // Synchronization lock for readReceipts access
     internal val roomsWithLoadedReceipts = mutableSetOf<String>() // Track rooms with receipts loaded from cache
@@ -5478,11 +4552,11 @@ class AppViewModel : ViewModel() {
         PendingInvitesCache.clear()
     }
     private val roomSummaryRequests = mutableMapOf<Int, String>() // requestId -> roomId
-    private val joinRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
-    private val leaveRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    internal val joinRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    internal val leaveRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
     internal val outgoingRequests = mutableMapOf<Int, String>() // requestId -> roomId (for all outgoing requests)
-    private val fcmRegistrationRequests = mutableMapOf<Int, String>() // requestId -> "fcm_registration"
-    private var lastFCMRegistrationTime: Long = 0 // Track last registration to prevent duplicates
+    internal val fcmRegistrationRequests = mutableMapOf<Int, String>() // requestId -> "fcm_registration"
+    internal var lastFCMRegistrationTime: Long = 0 // Track last registration to prevent duplicates
     private val eventRequests = mutableMapOf<Int, Pair<String, (TimelineEvent?) -> Unit>>() // requestId -> (roomId, callback)
     private val eventContextRequests = mutableMapOf<Int, Pair<String, (List<TimelineEvent>?) -> Unit>>() // requestId -> (roomId, callback)
     internal val paginateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for pagination)
@@ -5492,26 +4566,26 @@ class AppViewModel : ViewModel() {
     private val roomStateWithMembersRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit>() // requestId -> callback
     private val userEncryptionInfoRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
     private val mutualRoomsRequests = mutableMapOf<Int, (List<String>?, String?) -> Unit>() // requestId -> callback
-    private val basicProfileCallbacks = mutableMapOf<Int, (MemberProfile?) -> Unit>() // requestId -> callback for direct get_profile consumers
+    internal val basicProfileCallbacks = mutableMapOf<Int, (MemberProfile?) -> Unit>() // requestId -> callback for direct get_profile consumers
     private val trackDevicesRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
     private val resolveAliasRequests = mutableMapOf<Int, (Pair<String, List<String>>?) -> Unit>() // requestId -> callback
     private val getRoomSummaryRequests = mutableMapOf<Int, (Pair<net.vrkknn.andromuks.utils.RoomSummary?, String?>?) -> Unit>() // requestId -> callback
-    private val joinRoomCallbacks = mutableMapOf<Int, (Pair<String?, String?>?) -> Unit>() // requestId -> callback
+    internal val joinRoomCallbacks = mutableMapOf<Int, (Pair<String?, String?>?) -> Unit>() // requestId -> callback
     private val roomSpecificStateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for get_specific_room_state requests)
     private val roomSpecificProfileCallbacks = mutableMapOf<Int, (String?, String?) -> Unit>() // requestId -> (displayName, avatarUrl) callback
-    private val fullMemberListRequests = mutableMapOf<Int, String>() // requestId -> roomId (for get_room_state with include_members requests)
+    internal val fullMemberListRequests = mutableMapOf<Int, String>() // requestId -> roomId (for get_room_state with include_members requests)
     private val mentionsRequests = mutableMapOf<Int, Unit>() // requestId -> Unit (for get_mentions requests)
     private val mentionEventRequests = mutableMapOf<Int, Pair<String, String>>() // requestId -> (roomId, eventId) for fetching reply targets
     
     // PERFORMANCE: Track pending full member list requests to prevent duplicate WebSocket commands
-    private val pendingFullMemberListRequests = mutableSetOf<String>() // roomId that have pending full member list requests
+    internal val pendingFullMemberListRequests = mutableSetOf<String>() // roomId that have pending full member list requests
 
     // Element Call widget command tracking (requestId -> deferred response)
     private val widgetCommandRequests = java.util.concurrent.ConcurrentHashMap<Int, CompletableDeferred<Any?>>()
     
     // OPPORTUNISTIC PROFILE LOADING: Track pending on-demand profile requests
-    private val pendingProfileRequests = mutableSetOf<String>() // "roomId:userId" keys for pending profile requests
-    private val profileRequests = mutableMapOf<Int, String>() // requestId -> "roomId:userId" for on-demand profile requests
+    internal val pendingProfileRequests = mutableSetOf<String>() // global userId and "roomId:userId" keys for pending profile requests
+    internal val profileRequests = mutableMapOf<Int, String>() // requestId -> userId (get_profile) or routed keys
     
     // CRITICAL FIX: Track profile request metadata for timeout handling and cleanup
     private data class ProfileRequestMetadata(
@@ -6298,7 +5372,7 @@ class AppViewModel : ViewModel() {
      * PHASE 5.1: Load pending WebSocket operations from SharedPreferences
      * Called on app startup
      */
-    private fun loadPendingOperationsFromStorage() {
+    internal fun loadPendingOperationsFromStorage() {
         appContext?.let { context ->
             try {
                 val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
@@ -6476,7 +5550,7 @@ class AppViewModel : ViewModel() {
                             val eventId = operation.data["eventId"] as String?
                             if (roomId != null && eventId != null) {
                                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Retrying markRoomAsRead for room $roomId (attempt ${operation.retryCount + 1})")
-                                markRoomAsReadInternal(roomId, eventId)
+                                readReceiptsTypingCoordinator.markRoomAsReadInternal(roomId, eventId)
                             }
                         }
                         else -> {
@@ -6907,72 +5981,15 @@ class AppViewModel : ViewModel() {
         }
     }
 
-    fun requestUserProfile(userId: String, roomId: String? = null) {
-        // Global get_profile requests should only be deduped against other global requests.
-        // Do not block a global fallback just because a room-specific request is pending.
-        val globalRequestKey = userId
-        
-        // PERFORMANCE: Prevent duplicate global profile requests for the same user.
-        if (pendingProfileRequests.contains(globalRequestKey)) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Global profile request already pending for $userId, skipping duplicate")
-            return
-        }
-        
-        // Check if already in cache (quick check) to avoid unnecessary requests
-        // Use getUserProfile which correctly prioritizes room-specific profiles
-        val profile = getUserProfile(userId, roomId)
-        if (profile != null && !profile.displayName.isNullOrBlank()) {
-            // Profile already exists and has a valid display name - skip request
-            return
-        }
-        
-        // CRITICAL FIX: Don't request profile if WebSocket is not ready
-        // sendWebSocketCommand will queue it, but we should wait for WebSocket to be ready
-        // This prevents race conditions where profile is requested before init_complete
-        if (!canSendCommandsToBackend) {
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "AppViewModel: Profile request for $userId deferred - WebSocket not ready (will be queued)")
-            }
-            // sendWebSocketCommand will queue the command, so it's safe to continue
-            // The command will be sent when WebSocket is ready
-        }
-        
-        val reqId = requestIdCounter++
-        
-        // Track this request to prevent duplicates
-        pendingProfileRequests.add(userId)
-        profileRequests[reqId] = userId
-        if (roomId != null) {
-            profileRequestRooms[reqId] = roomId
-        }
-        
-        // REFACTORING: Use WebSocketService.sendCommand() instead of direct ws.send()
-        // This will queue the command if WebSocket is not ready
-        sendWebSocketCommand("get_profile", reqId, mapOf("user_id" to userId))
-    }
+    fun requestUserProfile(userId: String, roomId: String? = null) =
+        memberProfilesCoordinator.requestUserProfile(userId, roomId)
 
     /**
      * Request a basic global profile and invoke callback as soon as get_profile returns.
      * This is useful for surfaces (like pinned events) that need deterministic profile fetch.
      */
-    fun requestBasicUserProfile(userId: String, callback: (MemberProfile?) -> Unit) {
-        val cached = ProfileCache.getGlobalProfileProfile(userId)
-        if (cached != null && (!cached.displayName.isNullOrBlank() || !cached.avatarUrl.isNullOrBlank())) {
-            callback(cached)
-            return
-        }
-
-        if (!isWebSocketConnected()) {
-            callback(null)
-            return
-        }
-
-        val reqId = requestIdCounter++
-        pendingProfileRequests.add(userId)
-        profileRequests[reqId] = userId
-        basicProfileCallbacks[reqId] = callback
-        sendWebSocketCommand("get_profile", reqId, mapOf("user_id" to userId))
-    }
+    fun requestBasicUserProfile(userId: String, callback: (MemberProfile?) -> Unit) =
+        memberProfilesCoordinator.requestBasicUserProfile(userId, callback)
     
     /**
      * Validates and requests missing user profiles for a room.
@@ -7032,7 +6049,7 @@ class AppViewModel : ViewModel() {
     /**
      * Helper function to process cached events and display them
      */
-    private fun processCachedEvents(
+    internal fun processCachedEvents(
         roomId: String,
         cachedEvents: List<TimelineEvent>,
         openingFromNotification: Boolean,
@@ -7454,177 +6471,8 @@ class AppViewModel : ViewModel() {
     suspend fun flushSyncBatchForRoom(roomId: String) = timelineCacheCoordinator.flushSyncBatchForRoom(roomId)
 
     // OPTIMIZATION #4: Cache-first navigation method
-    fun navigateToRoomWithCache(roomId: String, notificationTimestamp: Long? = null) {
-        android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: START - roomId=$roomId, notificationTimestamp=$notificationTimestamp, isProcessingPendingItems=$isProcessingPendingItems, initialSyncComplete=$initialSyncComplete")
-        updateCurrentRoomIdInPrefs(roomId)
-        // Add to opened rooms (exempt from cache clearing on reconnect)
-        RoomTimelineCache.addOpenedRoom(roomId)
-        
-        // CRITICAL FIX: Set isTimelineLoading = true immediately to ensure UI shows loading state
-        // and awaitRoomDataReadiness waits for processing to begin.
-        isTimelineLoading = true
-        
-        // CRITICAL FIX: Always load from DB and hydrate RAM cache BEFORE processing events
-        // This ensures we always have the latest events from DB before rendering
-        // CACHE-ONLY APPROACH: No DB loading - rely on cache or paginate
-        // Cache is populated from sync_complete messages or paginate responses only
-        viewModelScope.launch {
-            // CRITICAL FIX: When opening from notification, flush batched sync_complete messages first
-            // This ensures we have the latest cached data before checking cache
-            // Batched messages contain events that haven't been cached yet
-            if (notificationTimestamp != null) {
-                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Opening from notification - flushing batched sync_complete messages first")
-                
-                // CRITICAL FIX: Set currentRoomId BEFORE flushing batches
-                // This ensures that when events are added to cache via appendEventsToCachedRoom(),
-                // they're also added to eventChainMap and buildTimelineFromChain() is called
-                // Without this, events are cached but the timeline isn't updated
-                val previousRoomId = currentRoomId
-                currentRoomId = roomId
-                setCurrentRoomIdForTimeline(roomId)
-                
-                // CRITICAL FIX: Mark room as actively cached BEFORE flushing batches
-                // This ensures SyncIngestor.processRoom() will cache events for this room
-                // even if it's not currently in the cache (e.g., was evicted or never cached)
-                // Without this, events from buffered sync_complete messages won't be cached
-                RoomTimelineCache.markRoomAsCached(roomId)
-                RoomTimelineCache.addOpenedRoom(roomId) // Also add to opened rooms to ensure it's tracked
-                if (BuildConfig.DEBUG) {
-                    val cachedRoomIds = RoomTimelineCache.getActivelyCachedRoomIds()
-                    android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Set currentRoomId=$roomId and marked as actively cached before batch flush (activelyCachedRooms: ${cachedRoomIds.size} rooms, includes target: ${cachedRoomIds.contains(roomId)})")
-                }
-                
-                val flushJob = syncBatchProcessor.forceFlushBatch()
-                flushJob?.join() // Wait for batch flush to complete
-                
-                // CRITICAL: Small delay to ensure cache updates are fully processed
-                delay(100)
-                
-                // Verify cache was updated (events from batch flush should be in cache now)
-                val cacheAfterFlush = RoomTimelineCache.getCachedEventCount(roomId)
-                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Batch flush completed - cache now has $cacheAfterFlush events (may have been updated)")
-                
-                // CRITICAL FIX: Clean up preemptive_paginate_rooms SharedPreferences.
-                // EnhancedNotificationDisplay writes room IDs here as a fallback when sending
-                // the PREEMPTIVE_PAGINATE broadcast.  The broadcast can be lost if the Activity
-                // was killed while backgrounded (BroadcastReceiver unregistered in onDestroy).
-                // Remove this room from the set so it doesn't accumulate stale entries.
-                appContext?.let { ctx ->
-                    val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                    val preemptiveRooms = prefs.getStringSet("preemptive_paginate_rooms", null)?.toMutableSet()
-                    if (preemptiveRooms != null && preemptiveRooms.remove(roomId)) {
-                        prefs.edit().putStringSet("preemptive_paginate_rooms", preemptiveRooms).apply()
-                        android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Cleared $roomId from preemptive_paginate_rooms SharedPreferences")
-                    }
-                }
-            }
-            
-            // Re-check cache after flush (it may have been updated)
-            var cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
-            android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Cache check - roomId=$roomId, cachedEventCount=$cachedEventCount, isActivelyCached=${RoomTimelineCache.isRoomActivelyCached(roomId)}")
-            
-            // OPTIMIZATION #4: Use the exact same logic as requestRoomTimeline for consistency
-            val cacheSufficientThreshold = INITIAL_ROOM_PAGINATE_LIMIT / 2
-            if (cachedEventCount >= cacheSufficientThreshold) {
-                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Using cache (>=${cacheSufficientThreshold} events) - roomId=$roomId, cachedEventCount=$cachedEventCount")
-                // OPTIMIZATION #4: Use cached data immediately (same threshold as requestRoomTimeline)
-                val cachedEvents = RoomTimelineCache.getCachedEvents(roomId)
-                
-                if (cachedEvents != null) {
-                    android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Cache hit - roomId=$roomId, cachedEvents.size=${cachedEvents.size}, building timeline from cache")
-                    
-                    // REFACTORED: Use centralized processCachedEvents (include redactions for "Removed by X for Y")
-                    processCachedEvents(roomId, RoomTimelineCache.getCachedEventsForTimeline(roomId), openingFromNotification = notificationTimestamp != null)
-                    
-                    // CRITICAL FIX: Mark as actively cached in singleton cache
-                    // This ensures sync_complete updates keep this cache fresh
-                    RoomTimelineCache.markRoomAsCached(roomId)
-                    RoomTimelineCache.markRoomAccessed(roomId)
-                    
-                    // Store room open timestamp for animation purposes
-                    roomOpenTimestamps[roomId] = System.currentTimeMillis()
-                    
-                    android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: SUCCESS - roomId=$roomId, timeline built from cache (${cachedEvents.size} events), isTimelineLoading=$isTimelineLoading")
-                    return@launch // Exit early - room is already rendered from cache
-                } else {
-                    android.util.Log.w("Andromuks", "🔵 navigateToRoomWithCache: Cache miss - roomId=$roomId, cachedEventCount=$cachedEventCount but getCachedEvents returned null")
-                }
-            } else if (notificationTimestamp != null && cachedEventCount > 0) {
-                // OPTION B: Notification path with partial cache — show cached events immediately,
-                // paginate via background-merge path so the response MERGES into cache instead of
-                // wiping and rebuilding.  This avoids the "2 messages → flash → 100 messages" problem.
-                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Notification with partial cache ($cachedEventCount events) - showing immediately, will merge paginate in background")
-                val partialCachedEvents = RoomTimelineCache.getCachedEvents(roomId)
-                if (partialCachedEvents != null && partialCachedEvents.isNotEmpty()) {
-                    // Show whatever we have right now (e.g. 2 events from sync_complete flush)
-                    processCachedEvents(roomId, RoomTimelineCache.getCachedEventsForTimeline(roomId), openingFromNotification = true)
-                    RoomTimelineCache.markRoomAsCached(roomId)
-                    RoomTimelineCache.markRoomAccessed(roomId)
-                    roomOpenTimestamps[roomId] = System.currentTimeMillis()
-
-                    // Send paginate via backgroundPrefetchRequests so handleBackgroundPrefetch
-                    // merges the response into cache and rebuilds the timeline seamlessly.
-                    if (isWebSocketConnected() && INITIAL_ROOM_PAGINATE_LIMIT > 0) {
-                        val paginateRequestId = requestIdCounter++
-                        backgroundPrefetchRequests[paginateRequestId] = roomId
-                        roomsWithPendingPaginate.add(roomId)
-                        markInitialPaginate(roomId, "notification_background_merge")
-                        val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
-                            "room_id" to roomId,
-                            "max_timeline_id" to 0, // Fetch latest events
-                            "limit" to INITIAL_ROOM_PAGINATE_LIMIT,
-                            "reset" to false
-                        ))
-                        if (result == WebSocketResult.SUCCESS) {
-                            android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Background merge paginate sent - showing ${partialCachedEvents.size} cached events immediately, history will merge seamlessly (reqId=$paginateRequestId)")
-                        } else {
-                            backgroundPrefetchRequests.remove(paginateRequestId)
-                            roomsWithPendingPaginate.remove(roomId)
-                            android.util.Log.w("Andromuks", "🔵 navigateToRoomWithCache: Failed to send background merge paginate for $roomId: $result")
-                        }
-                    }
-
-                    android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: SUCCESS (notification background merge) - roomId=$roomId, showing ${partialCachedEvents.size} events, paginate in flight")
-                    return@launch
-                }
-                // getCachedEvents returned null despite count > 0 — fall through to regular path
-                android.util.Log.w("Andromuks", "🔵 navigateToRoomWithCache: Partial cache count=$cachedEventCount but getCachedEvents returned null, falling through")
-            } else {
-                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Cache insufficient - roomId=$roomId, cachedEventCount=$cachedEventCount (<50), will request timeline")
-            }
-            
-            // Fallback: cache is empty or non-notification open — use regular requestRoomTimeline
-            // which sends a paginate via timelineRequests (wipe-and-rebuild).
-            // CRITICAL FIX: Wait for pending items to finish processing before requesting timeline
-            // This prevents race condition where timeline request is sent while sync_complete is still processing
-            // which can cause the timeline to wait indefinitely for a response
-            if (isProcessingPendingItems) {
-                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Waiting for pending items - roomId=$roomId, isProcessingPendingItems=true")
-                val waitStart = System.currentTimeMillis()
-                // Wait for pending items to finish (with timeout to avoid infinite wait)
-                withTimeoutOrNull(10_000L) {
-                    while (isProcessingPendingItems) {
-                        delay(100L)
-                    }
-                }
-                val waitDuration = System.currentTimeMillis() - waitStart
-                android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Pending items finished - roomId=$roomId, waitDuration=${waitDuration}ms, isProcessingPendingItems=$isProcessingPendingItems")
-            }
-            
-            // Clear timelineEvents before calling requestRoomTimeline.
-            // We may have set currentRoomId = roomId earlier (needed for the batch flush to
-            // update the correct room's timeline chain).  The flush may have added a
-            // handful of events to timelineEvents from sync_complete.  requestRoomTimeline
-            // checks `currentRoomId == roomId && timelineEvents.isNotEmpty()` to decide
-            // "isRefreshingSameRoom" – if true it SKIPS the paginate, assuming the room
-            // is already open and loaded.  Clearing timelineEvents here forces it to
-            // treat this as a fresh open and send the paginate request so we get history.
-            timelineEvents = emptyList()
-            android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: Calling requestRoomTimeline (cleared timelineEvents to force fresh paginate) - roomId=$roomId, isTimelineLoading=$isTimelineLoading")
-            requestRoomTimeline(roomId)
-            android.util.Log.d("Andromuks", "🔵 navigateToRoomWithCache: requestRoomTimeline returned - roomId=$roomId, isTimelineLoading=$isTimelineLoading")
-        }
-    }
+    fun navigateToRoomWithCache(roomId: String, notificationTimestamp: Long? = null) =
+        navigationCoordinator.navigateToRoomWithCache(roomId, notificationTimestamp)
 
     internal fun requestHistoricalReactions(roomId: String, smallestCached: Long) =
         reactionCoordinator.requestHistoricalReactions(roomId, smallestCached)
@@ -8050,80 +6898,8 @@ class AppViewModel : ViewModel() {
      * Marks a room as read from a notification action.
      * Uses the always-connected WebSocket maintained by the foreground service.
      */
-    fun markRoomAsReadFromNotification(roomId: String, eventId: String, onComplete: (() -> Unit)? = null) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: markRoomAsReadFromNotification called for room $roomId")
-        
-        // Check websocket state
-        if (!isWebSocketConnected() || !spacesLoaded) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket not ready yet, queueing notification action")
-            
-            // Queue the action to be executed when WebSocket is ready
-            // (Foreground service maintains connection, this should be rare - only during initial startup)
-            pendingNotificationActions.add(
-                PendingNotificationAction(
-                    type = "mark_read",
-                    roomId = roomId,
-                    eventId = eventId,
-                    onComplete = onComplete
-                )
-            )
-            
-            // If callback provided and WebSocket not ready, call it immediately to prevent UI stalling
-            if (onComplete != null) {
-                android.util.Log.w("Andromuks", "AppViewModel: WebSocket not ready, calling completion callback immediately to prevent UI stalling")
-                onComplete()
-            }
-            return
-        }
-        
-        // WebSocket is ready (maintained by foreground service), mark as read directly
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marking room as read from notification (WebSocket maintained by service)")
-        val markReadRequestId = requestIdCounter++
-        
-        markReadRequests[markReadRequestId] = roomId
-        beginNotificationAction()
-        val completionWrapper: () -> Unit = {
-            onComplete?.invoke()
-            endNotificationAction()
-        }
-        notificationActionCompletionCallbacks[markReadRequestId] = completionWrapper
-        
-        // Set up timeout to prevent infinite stalling - use IO dispatcher to avoid background throttling
-        // Use shorter timeout when app is in background to handle throttling issues
-        viewModelScope.launch(Dispatchers.IO) {
-            val timeoutMs = if (isAppVisible) 30000L else 10000L // 10s timeout in background
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting mark read timeout to ${timeoutMs}ms (app visible: $isAppVisible)")
-            delay(timeoutMs)
-            // Switch to Main dispatcher only for the final callback
-            withContext(Dispatchers.Main) {
-                if (notificationActionCompletionCallbacks.containsKey(markReadRequestId)) {
-                    android.util.Log.w("Andromuks", "AppViewModel: Mark read timeout after ${timeoutMs}ms for requestId=$markReadRequestId, calling completion callback")
-                    notificationActionCompletionCallbacks.remove(markReadRequestId)?.invoke()
-                    // Also clean up from markReadRequests
-                    markReadRequests.remove(markReadRequestId)
-                }
-            }
-        }
-        
-        val commandData = mapOf(
-            "room_id" to roomId,
-            "event_id" to eventId,
-            "receipt_type" to "m.read"
-        )
-        
-        val result = sendWebSocketCommand("mark_read", markReadRequestId, commandData)
-        
-        // Handle immediate failure cases
-        if (result != WebSocketResult.SUCCESS) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to send mark read from notification, result: $result")
-            markReadRequests.remove(markReadRequestId)
-            notificationActionCompletionCallbacks.remove(markReadRequestId)?.invoke()
-            return
-        }
-        
-        // No shutdown needed - foreground service keeps WebSocket open
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Mark read sent, WebSocket remains connected via service")
-    }
+    fun markRoomAsReadFromNotification(roomId: String, eventId: String, onComplete: (() -> Unit)? = null) =
+        readReceiptsTypingCoordinator.markRoomAsReadFromNotification(roomId, eventId, onComplete)
     
     fun sendReaction(roomId: String, eventId: String, emoji: String) =
         reactionCoordinator.sendReaction(roomId, eventId, emoji)
@@ -8440,7 +7216,7 @@ class AppViewModel : ViewModel() {
                 val userId = profileRequests[requestId]
                 android.util.Log.d("Andromuks", "AppViewModel: Received profile response for requestId=$requestId, userId=$userId")
             }
-            handleProfileResponse(requestId, data)
+            memberProfilesCoordinator.handleProfileResponse(requestId, data)
         } else if (timelineRequests.containsKey(requestId)) {
             handleTimelineResponse(requestId, data)
         } else if (synchronized(roomStateRequests) { roomStateRequests.containsKey(requestId) }) {
@@ -8487,12 +7263,10 @@ class AppViewModel : ViewModel() {
             handleGetRoomSummaryResponse(requestId, data)
         } else if (joinRoomCallbacks.containsKey(requestId)) {
             handleJoinRoomCallbackResponse(requestId, data)
-        } else if (profileRequests.containsKey(requestId)) {
-            handleOnDemandProfileResponse(requestId, data)
         } else if (roomSpecificStateRequests.containsKey(requestId)) {
             handleRoomSpecificStateResponse(requestId, data)
         } else if (fullMemberListRequests.containsKey(requestId)) {
-            handleFullMemberListResponse(requestId, data)
+            memberProfilesCoordinator.handleFullMemberListResponse(requestId, data)
         } else if (outgoingRequests.containsKey(requestId)) {
             handleOutgoingRequestResponse(requestId, data)
         } else if (mentionsRequests.containsKey(requestId)) {
@@ -8532,7 +7306,7 @@ class AppViewModel : ViewModel() {
         }
         
         if (profileRequests.containsKey(requestId)) {
-            handleProfileError(requestId, errorMessage)
+            memberProfilesCoordinator.handleProfileError(requestId, errorMessage)
         } else if (messageRequests.containsKey(requestId)) {
             android.util.Log.w("Andromuks", "AppViewModel: Message send error for requestId=$requestId: $errorMessage")
             val roomId = messageRequests.remove(requestId)
@@ -8618,123 +7392,7 @@ class AppViewModel : ViewModel() {
             android.util.Log.w("Andromuks", "AppViewModel: Unknown error requestId=$requestId: $errorMessage")
         }
     }
-    private fun handleProfileError(requestId: Int, errorMessage: String) {
-        val userId = profileRequests.remove(requestId) ?: return
-        val requestingRoomId = profileRequestRooms.remove(requestId)
-        
-        // PERFORMANCE: Remove from pending requests set even on error
-        pendingProfileRequests.remove(userId)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile lookup failed for $userId: $errorMessage")
-        
-        // Check if this is part of a full user info request and handle it immediately
-        val fullUserInfoCallback = fullUserInfoCallbacks.remove(requestId)
-        if (fullUserInfoCallback != null) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile error for full user info request (requestId: $requestId, userId: $userId), invoking callback with null")
-            // Invoke callback with null to indicate profile request failed
-            // This will mark profileCompleted = true and trigger checkCompletion() immediately
-            fullUserInfoCallback(null)
-        }
-        
-        // CRITICAL FIX: Before applying low-quality fallback (username only),
-        // check if we ALREADY have a valid profile from room state (e.g. from get_specific_room_state)
-        val existingProfile = getUserProfile(userId, requestingRoomId)
-        if (existingProfile != null && !existingProfile.displayName.isNullOrBlank()) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Global profile lookup failed for $userId, but we already have a profile from room state. Skipping fallback.")
-            return
-        }
-        
-        // If no profile found anywhere, use username part of Matrix ID as last resort
-        val username = userId.removePrefix("@").substringBefore(":")
-        val memberProfile = MemberProfile(username, null)
-        
-        // Use storeMemberProfile to ensure optimization (only store room-specific if differs from global)
-        // This is a fallback profile (username only), so it should be set as global
-        if (requestingRoomId != null) {
-            storeMemberProfile(requestingRoomId, userId, memberProfile)
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added fallback profile for $userId to room $requestingRoomId")
-        }
-        
-        // Also update member cache for all rooms that already contain this user
-        RoomMemberCache.getAllMembers().forEach { (roomId, memberMap) ->
-            val existingMembers = RoomMemberCache.getRoomMembers(roomId)
-            if (existingMembers.containsKey(userId)) {
-                storeMemberProfile(roomId, userId, memberProfile)
-                RoomMemberCache.updateMember(roomId, userId, memberProfile)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated member cache with username '$username' for $userId in room $roomId")
-            }
-        }
-        
-        // SYNC OPTIMIZATION: Schedule member update instead of immediate counter increment
-        needsMemberUpdate = true
-        scheduleUIUpdate("member")
-    }
-    
-    private fun handleProfileResponse(requestId: Int, data: Any) {
-        val userId = profileRequests.remove(requestId)
-        if (userId == null) {
-            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: handleProfileResponse called for unknown requestId=$requestId")
-            return
-        }
-        val requestingRoomId = profileRequestRooms.remove(requestId)
-        val basicProfileCallback = basicProfileCallbacks.remove(requestId)
-        
-        // PERFORMANCE: Remove from pending requests set
-        pendingProfileRequests.remove(userId)
-        val obj = data as? JSONObject
-        if (obj == null) {
-            basicProfileCallback?.invoke(null)
-            return
-        }
-        val avatar = obj.optString("avatar_url")?.takeIf { it.isNotBlank() }
-        val display = obj.optString("displayname")?.takeIf { it.isNotBlank() }
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: handleProfileResponse processing - userId: $userId, displayName: $display, avatarUrl: $avatar")
-        
-        val memberProfile = MemberProfile(display, avatar)
-        
-        // Update global profile (canonical profile from explicit request)
-        // This will automatically clean up room-specific entries that now match global
-        updateGlobalProfile(userId, memberProfile)
-        
-        // Update singleton cache
-        if (requestingRoomId != null) {
-            RoomMemberCache.updateMember(requestingRoomId, userId, memberProfile)
-        }
-        
-        // Also update singleton cache for all rooms that already contain this user
-        val allRooms = RoomMemberCache.getAllMembers()
-        allRooms.forEach { (roomId, memberMap) ->
-            if (memberMap.containsKey(userId)) {
-                RoomMemberCache.updateMember(roomId, userId, memberProfile)
-            }
-        }
-        
-        if (userId == currentUserId) {
-            currentUserProfile = UserProfile(userId = userId, displayName = display, avatarUrl = avatar)
-            persistCurrentUserAvatarMxcIfChanged(avatar)
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated currentUserProfile - userId: $userId, displayName: $display, avatarUrl: $avatar")
-        }
-        
-        // Save profile to disk cache for persistence
-        // Use batch save queue to avoid blocking and improve performance
-        queueProfileForBatchSave(userId, memberProfile)
-        basicProfileCallback?.invoke(memberProfile)
-        
-        // Check if this is part of a full user info request
-        val fullUserInfoCallback = fullUserInfoCallbacks.remove(requestId)
-        if (fullUserInfoCallback != null) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Invoking full user info callback for profile (requestId: $requestId, userId: $userId)")
-            fullUserInfoCallback(obj)
-        } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile response received but no full user info callback found (requestId: $requestId)")
-        }
-        
-        // SYNC OPTIMIZATION: Schedule member update instead of immediate counter increment
-        needsMemberUpdate = true
-        scheduleUIUpdate("member")
-    }
-
-    private fun persistCurrentUserAvatarMxcIfChanged(avatarMxc: String?) {
+    internal fun persistCurrentUserAvatarMxcIfChanged(avatarMxc: String?) {
         val context = appContext ?: return
         val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
         val current = prefs.getString("current_user_avatar_mxc", null)
@@ -8824,7 +7482,7 @@ class AppViewModel : ViewModel() {
     /**
      * Manages global profile cache size to prevent memory issues.
      */
-    private fun manageGlobalCacheSize() {
+    internal fun manageGlobalCacheSize() {
         if (ProfileCache.getGlobalCacheSize() > 1000) {
             // Use ProfileCache cleanup method
             ProfileCache.cleanupGlobalProfiles(500) // Keep only 500 most recent
@@ -8835,22 +7493,13 @@ class AppViewModel : ViewModel() {
     /**
      * Manages room member cache size to prevent memory issues.
      */
-    private fun manageRoomMemberCacheSize(roomId: String) {
-        val memberMap = RoomMemberCache.getRoomMembers(roomId)
-        if (memberMap.size > 500) {
-            // Clear oldest entries to make room (take first 250)
-            val keysToRemove = memberMap.keys.take(250)
-            keysToRemove.forEach { userId ->
-                RoomMemberCache.removeMember(roomId, userId)
-            }
-            android.util.Log.w("Andromuks", "AppViewModel: Cleared ${keysToRemove.size} old entries from room $roomId cache")
-        }
-    }
+    private fun manageRoomMemberCacheSize(roomId: String) =
+        memberProfilesCoordinator.manageRoomMemberCacheSize(roomId)
     
     /**
      * Manages flattened member cache size to prevent memory issues.
      */
-    private fun manageFlattenedMemberCacheSize() {
+    internal fun manageFlattenedMemberCacheSize() {
         if (ProfileCache.getFlattenedCacheSize() > 2000) {
             // Clear oldest entries to make room
             ProfileCache.cleanupFlattenedProfiles(1000) // Keep only 1000 most recent
@@ -8862,7 +7511,7 @@ class AppViewModel : ViewModel() {
      * Queues a profile for batch processing. This prevents blocking the main thread
      * when processing large member lists.
      */
-    private fun queueProfileForBatchSave(userId: String, profile: MemberProfile) {
+    internal fun queueProfileForBatchSave(userId: String, profile: MemberProfile) {
         synchronized(pendingProfileSaves) {
             // Aggressive memory management: Much smaller batch size to prevent OOM
             if (pendingProfileSaves.size >= 50) {
@@ -9265,7 +7914,7 @@ class AppViewModel : ViewModel() {
      * Parse room state from state events.
      * OPTIMIZED: Single pass with minimal JSON access; early exits in branches.
      */
-    private fun parseRoomStateFromEvents(roomId: String, events: JSONArray) {
+    internal fun parseRoomStateFromEvents(roomId: String, events: JSONArray) {
         var name: String? = null
         var canonicalAlias: String? = null
         var topic: String? = null
@@ -9499,7 +8148,7 @@ class AppViewModel : ViewModel() {
      * Get bridge display name from a room's cached state or SharedPreferences cache
      * Returns the protocol display name (e.g., "WhatsApp", "Telegram", "Discord") or null if not found
      */
-    private fun getBridgeDisplayNameFromRoomState(roomId: String): String? {
+    internal fun getBridgeDisplayNameFromRoomState(roomId: String): String? {
         // First try to get from SharedPreferences cache (fastest, always available if cached)
         val context = appContext
         if (context != null) {
@@ -9898,34 +8547,6 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    private fun handleOnDemandProfileResponse(requestId: Int, data: Any) {
-        val requestKey = profileRequests.remove(requestId) ?: return
-        val (roomId, userId) = requestKey.split(":", limit = 2)
-        
-        // Remove from pending requests
-        pendingProfileRequests.remove(requestKey)
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling on-demand profile response for $userId in room $roomId")
-        
-        when (data) {
-            is JSONArray -> {
-                if (data.length() > 0) {
-                    // Parse the single member event
-                    parseMemberEventsForProfileUpdate(roomId, data)
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Successfully loaded profile for $userId")
-                } else {
-                    android.util.Log.w("Andromuks", "AppViewModel: No profile data found for $userId")
-                }
-            }
-            is JSONObject -> {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: On-demand profile response is JSONObject, expected JSONArray")
-            }
-            else -> {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleOnDemandProfileResponse: ${data::class.java.simpleName}")
-            }
-        }
-    }
-    
     private fun handleRoomSpecificStateResponse(requestId: Int, data: Any) {
         val roomId = roomSpecificStateRequests.remove(requestId) ?: return
         // BATCH: Clean up all pending keys for this request (batched profile request)
@@ -10146,142 +8767,6 @@ class AppViewModel : ViewModel() {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Emoji pack response is not JSONArray: ${data::class.java.simpleName}")
             }
         }
-    }
-    
-    private fun handleFullMemberListResponse(requestId: Int, data: Any) {
-        val roomId = fullMemberListRequests.remove(requestId) ?: return
-        
-        // PERFORMANCE: Remove from pending requests set
-        pendingFullMemberListRequests.remove(roomId)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling full member list response for room: $roomId")
-        
-        // NAVIGATION PERFORMANCE: Update navigation state cache when member data is loaded
-        val currentState = navigationCache[roomId] ?: RoomNavigationState(roomId)
-        navigationCache[roomId] = currentState.copy(
-            memberDataLoaded = true,
-            lastPrefetchTime = System.currentTimeMillis()
-        )
-        
-        when (data) {
-            is JSONArray -> {
-                // Parse all room state events but only process m.room.member events
-                parseFullMemberListFromRoomState(roomId, data)
-            }
-            else -> {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleFullMemberListResponse: ${data::class.java.simpleName}")
-            }
-        }
-    }
-    
-    private fun parseFullMemberListFromRoomState(roomId: String, events: JSONArray) {
-        val startTime = System.currentTimeMillis()
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Parsing full member list from ${events.length()} room state events for room: $roomId")
-        
-        // Clear existing cache to ensure we don't have stale invite members or other invalid entries
-        // Since this is a full member list request, we want to start fresh
-        val previousSize = RoomMemberCache.getRoomMembers(roomId).size
-        RoomMemberCache.clearRoom(roomId)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared $previousSize existing members from cache for fresh member list")
-        
-        // Use a local mutable map to build up the new member list
-        val memberMap = mutableMapOf<String, MemberProfile>()
-        
-        var updatedMembers = 0
-        val isLargeRoom = events.length() > 100
-        val profilesToBatchSave = mutableMapOf<String, MemberProfile>()
-        var cacheCleared = false // Flag to only clear cache once when crossing 500 threshold
-        
-        for (i in 0 until events.length()) {
-            val event = events.optJSONObject(i) ?: continue
-            val eventType = event.optString("type")
-            
-            if (eventType == "m.room.member") {
-                val stateKey = event.optString("state_key")
-                val content = event.optJSONObject("content")
-                val membership = content?.optString("membership")
-                
-                if (stateKey.isNotEmpty()) {
-                    when (membership) {
-                        "join" -> {
-                            // Add/update joined members with full profile data
-                            val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
-                            val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
-                            
-                            val newProfile = MemberProfile(displayName, avatarUrl)
-                            memberMap[stateKey] = newProfile
-                            
-                            // Update singleton cache
-                            RoomMemberCache.updateMember(roomId, stateKey, newProfile)
-                            
-                            // Use storeMemberProfile to ensure optimization (only store room-specific if differs from global)
-                            storeMemberProfile(roomId, stateKey, newProfile)
-                            
-                            // MEMORY MANAGEMENT: Cleanup if needed (less frequently for large rooms)
-                            if (!isLargeRoom || updatedMembers % 50 == 0) {
-                                manageGlobalCacheSize()
-                                manageRoomMemberCacheSize(roomId)
-                                manageFlattenedMemberCacheSize()
-                            }
-                            
-                            if (BuildConfig.DEBUG && updatedMembers < 20) {
-                                android.util.Log.d("Andromuks", "AppViewModel: Added member $stateKey to room $roomId - displayName: '$displayName', avatarUrl: '$avatarUrl'")
-                            }
-                            updatedMembers++
-                            
-                            // For large rooms, collect profiles for batch save instead of queuing individually
-                            if (isLargeRoom) {
-                                profilesToBatchSave[stateKey] = newProfile
-                                
-                                // For very large lists, clear caches aggressively (only once)
-                                if (updatedMembers > 500 && !cacheCleared) {
-                                    // Clear all caches to prevent OOM
-                                    ProfileCache.clear()
-                                    cacheCleared = true
-                                    android.util.Log.w("Andromuks", "AppViewModel: Cleared all caches due to large member list (${updatedMembers}+ members)")
-                                }
-                            } else {
-                                // Queue for batch saving for smaller lists
-                                queueProfileForBatchSave(stateKey, newProfile)
-                            }
-                        }
-                        "leave", "ban" -> {
-                            // Remove members who left or were banned
-                            val wasRemoved = memberMap.remove(stateKey) != null
-                            RoomMemberCache.removeMember(roomId, stateKey)
-                            val wasRemovedFromFlattened = ProfileCache.hasFlattenedProfile(roomId, stateKey)
-                            if (wasRemovedFromFlattened) {
-                                ProfileCache.removeFlattenedProfile(roomId, stateKey)
-                            }
-                            
-                            // OPTIMIZED: Remove from indexed cache
-                            ProfileCache.removeFromRoomIndex(roomId, stateKey)
-                            
-                            if (wasRemoved || wasRemovedFromFlattened) {
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed $stateKey from room $roomId (membership: $membership)")
-                                updatedMembers++
-                            }
-                            // Note: Don't remove from global cache as they might be in other rooms
-                        }
-                    }
-                }
-            }
-        }
-        
-        if (updatedMembers > 0) {
-            val duration = System.currentTimeMillis() - startTime
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated $updatedMembers members in full member list for room $roomId in ${duration}ms")
-            // Trigger UI update since member cache changed
-            updateCounter++
-            memberUpdateCounter++ // CRITICAL: Increment memberUpdateCounter so UI recomposes and shows mention list
-            
-            // Profiles are cached in-memory only - no DB persistence needed
-            
-            // Profiles are cached in-memory only - no DB persistence needed
-            // Profiles are loaded opportunistically when rendering events via requestUserProfileOnDemand()
-        }
-        
-        // Also parse room state metadata (name, alias, topic, avatar) for header display
-        parseRoomStateFromEvents(roomId, events)
     }
     
     private fun parseMemberEventsForProfileUpdate(roomId: String, events: JSONArray) {
@@ -11259,110 +9744,9 @@ class AppViewModel : ViewModel() {
         editVersionCoordinator.mergeEditContent(originalEvent, editEvent)
 
     
-    fun markRoomAsRead(roomId: String, eventId: String) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: markRoomAsRead called with roomId: '$roomId', eventId: '$eventId'")
-        
-        // DEDUPLICATION: Check if we've already sent this exact mark_read command
-        // This prevents hundreds of duplicate commands when LaunchedEffect restarts
-        val lastSentEventId = lastMarkReadSent[roomId]
-        if (lastSentEventId == eventId) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping duplicate mark_read for room $roomId with event $eventId (already sent)")
-            // Still optimistically clear unread counts even if we skip the command
-            optimisticallyClearUnreadCounts(roomId)
-            return
-        }
-        
-        // Track this command to prevent duplicates
-        lastMarkReadSent[roomId] = eventId
-        
-        // Optimistically clear unread counts immediately for instant UI feedback
-        // The backend will confirm this in the next sync_complete, but we update UI now
-        optimisticallyClearUnreadCounts(roomId)
-        
-        // Try to mark as read immediately
-        val result = markRoomAsReadInternal(roomId, eventId)
-        
-        // If WebSocket is not available, queue the operation for retry when connection is restored
-        if (result != WebSocketResult.SUCCESS) {
-            android.util.Log.w("Andromuks", "AppViewModel: markRoomAsRead failed with result: $result - queuing for retry when connection is restored")
-            addPendingOperation(
-                PendingWebSocketOperation(
-                    type = "markRoomAsRead",
-                    data = mapOf(
-                        "roomId" to roomId,
-                        "eventId" to eventId
-                    )
-                ),
-                saveToStorage = true // Save to storage when WebSocket is disconnected
-            )
-        }
-    }
-    
-    /**
-     * Optimistically clear unread counts for a room when marking as read.
-     * This provides instant UI feedback before the backend sends updated counts in sync_complete.
-     */
-    private fun optimisticallyClearUnreadCounts(roomId: String) {
-        // Update in-memory state if the room exists in roomMap
-        val existingRoom = roomMap[roomId]
-        if (existingRoom != null && ((existingRoom.unreadCount != null && existingRoom.unreadCount > 0) || 
-            (existingRoom.highlightCount != null && existingRoom.highlightCount > 0))) {
-            // Update room with cleared unread counts
-            val updatedRoom = existingRoom.copy(
-                unreadCount = null,
-                highlightCount = null
-            )
-            roomMap[roomId] = updatedRoom
-            
-            // Update allRooms to reflect the change immediately
-            val updatedAllRooms = allRooms.map { room ->
-                if (room.id == roomId) updatedRoom else room
-            }
-            allRooms = updatedAllRooms
-            
-            // Also update spaces list if needed
-            if (spaceList.isNotEmpty()) {
-                val updatedSpaces = spaceList.map { space ->
-                    val updatedSpaceRooms = space.rooms.map { room ->
-                        if (room.id == roomId) updatedRoom else room
-                    }
-                    space.copy(rooms = updatedSpaceRooms)
-                }
-                setSpaces(updatedSpaces, skipCounterUpdate = false)
-            }
-        }
-        
-        // Invalidate cache to force recalculation of sections and badge counts
-        invalidateRoomSectionCache()
-        
-        // Trigger UI update - all data is in-memory only
-        roomListUpdateCounter++
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked room $roomId as read (in-memory only)")
-    }
-    
-    private fun markRoomAsReadInternal(roomId: String, eventId: String): WebSocketResult {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: markRoomAsReadInternal called")
-        val markReadRequestId = requestIdCounter++
-        
-        // PHASE 5.2: sendWebSocketCommand() now automatically tracks all commands with positive request_id
-        val commandData = mapOf(
-            "room_id" to roomId,
-            "event_id" to eventId,
-            "receipt_type" to "m.read"
-        )
-        
-        val result = sendWebSocketCommand("mark_read", markReadRequestId, commandData)
-        
-        if (result == WebSocketResult.SUCCESS) {
-            markReadRequests[markReadRequestId] = roomId
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Mark read queued with request_id: $markReadRequestId")
-        } else {
-            android.util.Log.w("Andromuks", "AppViewModel: Failed to send mark read, result: $result")
-        }
-        
-        return result
-    }
-    
+    fun markRoomAsRead(roomId: String, eventId: String) =
+        readReceiptsTypingCoordinator.markRoomAsRead(roomId, eventId)
+
     fun getRoomSummary(roomId: String) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Getting room summary for invite: $roomId")
         
@@ -11375,49 +9759,9 @@ class AppViewModel : ViewModel() {
         ))
     }
     
-    fun acceptRoomInvite(roomId: String) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Accepting room invite: $roomId")
-        
-        // CRITICAL: Preemptively mark room as newly joined so it appears at top when sync arrives
-        newlyJoinedRoomIds.add(roomId)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Preemptively marked room $roomId as newly joined")
-        
-        val acceptRequestId = requestIdCounter++
-        joinRoomRequests[acceptRequestId] = roomId
-        val via = roomId.substringAfter(":").substringBefore(".") // Extract server from room ID
-        sendWebSocketCommand("join_room", acceptRequestId, mapOf(
-            "room_id_or_alias" to roomId,
-            "via" to listOf(via)
-        ))
-        
-        // Remove from pending invites (in-memory only)
-        PendingInvitesCache.removeInvite(roomId)
-        
-        // Invites are in-memory only - no local cleanup needed
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed invite from memory: $roomId")
-        
-        roomListUpdateCounter++
-        updateCounter++ // Keep for backward compatibility temporarily
-    }
-    
-    fun refuseRoomInvite(roomId: String) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Refusing room invite: $roomId")
-        
-        val refuseRequestId = requestIdCounter++
-        leaveRoomRequests[refuseRequestId] = roomId
-        sendWebSocketCommand("leave_room", refuseRequestId, mapOf(
-            "room_id" to roomId
-        ))
-        
-        // Remove from pending invites (in-memory only)
-        PendingInvitesCache.removeInvite(roomId)
-        
-        // Invites are in-memory only - no local cleanup needed
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed invite from memory: $roomId")
-        
-        roomListUpdateCounter++
-        updateCounter++ // Keep for backward compatibility temporarily
-    }
+    fun acceptRoomInvite(roomId: String) = roomInvitesCoordinator.acceptRoomInvite(roomId)
+
+    fun refuseRoomInvite(roomId: String) = roomInvitesCoordinator.refuseRoomInvite(roomId)
     
     fun handleMarkReadResponse(requestId: Int, success: Boolean) {
         val roomId = markReadRequests[requestId]
@@ -11478,23 +9822,8 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    fun leaveRoom(roomId: String, reason: String? = null) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Leaving room: $roomId${if (reason != null) " with reason: $reason" else ""}")
-        
-        val leaveRequestId = requestIdCounter++
-        leaveRoomRequests[leaveRequestId] = roomId
-        
-        val commandData = mutableMapOf<String, Any>(
-            "room_id" to roomId
-        )
-        if (reason != null && reason.isNotBlank()) {
-            commandData["reason"] = reason
-        }
-        
-        sendWebSocketCommand("leave_room", leaveRequestId, commandData)
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent leave_room command for $roomId with requestId=$leaveRequestId")
-    }
+    fun leaveRoom(roomId: String, reason: String? = null) =
+        roomInvitesCoordinator.leaveRoom(roomId, reason)
     
     fun handleLeaveRoomResponse(requestId: Int, data: Any) {
         val roomId = leaveRoomRequests[requestId]
@@ -13237,7 +11566,7 @@ class AppViewModel : ViewModel() {
     }
     
     // Temporary storage for full user info profile callbacks
-    private val fullUserInfoCallbacks = mutableMapOf<Int, (JSONObject?) -> Unit>()
+    internal val fullUserInfoCallbacks = mutableMapOf<Int, (JSONObject?) -> Unit>()
     
     private fun handleUserEncryptionInfoResponse(requestId: Int, data: Any) {
         val callback = userEncryptionInfoRequests.remove(requestId) ?: return
@@ -13398,21 +11727,8 @@ class AppViewModel : ViewModel() {
     /**
      * Join room with callback
      */
-    fun joinRoomWithCallback(roomIdOrAlias: String, viaServers: List<String>, callback: (Pair<String?, String?>?) -> Unit) {
-        val requestId = requestIdCounter++
-        joinRoomCallbacks[requestId] = callback
-        
-        // Store the roomIdOrAlias so we can mark it as newly joined when we get the response
-        // We'll mark it in handleJoinRoomCallbackResponse when we get the actual room ID
-        
-        // Always include "matrix.org" as default server, plus any additional servers
-        val finalViaServers = (viaServers + "matrix.org").distinct()
-        
-        // REFACTORING: Use sendWebSocketCommand() instead of direct send()
-        val dataMap = mutableMapOf<String, Any>("room_id_or_alias" to roomIdOrAlias)
-        dataMap["via"] = finalViaServers
-        sendWebSocketCommand("join_room", requestId, dataMap)
-    }
+    fun joinRoomWithCallback(roomIdOrAlias: String, viaServers: List<String>, callback: (Pair<String?, String?>?) -> Unit) =
+        roomInvitesCoordinator.joinRoomWithCallback(roomIdOrAlias, viaServers, callback)
     
     private fun handleResolveAliasResponse(requestId: Int, data: Any) {
         val callback = resolveAliasRequests.remove(requestId) ?: return
@@ -13585,7 +11901,7 @@ class AppViewModel : ViewModel() {
     private fun performPeriodicMemoryCleanup() {
         try {
             // Clean up stale member cache entries
-            performMemberCacheCleanup()
+            memberProfilesCoordinator.performMemberCacheCleanup()
             
             // Clean up stale message versions (keep only recent ones)
             val currentTime = System.currentTimeMillis()
