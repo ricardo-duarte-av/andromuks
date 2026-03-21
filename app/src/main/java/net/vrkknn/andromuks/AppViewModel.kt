@@ -198,7 +198,7 @@ class AppViewModel : ViewModel() {
     }
 
     // PHASE 4: Unique ID for this ViewModel instance (for WebSocket callback registration)
-    private val viewModelId: String = "AppViewModel_${viewModelCounter++}"
+    internal val viewModelId: String = "AppViewModel_${viewModelCounter++}"
     
     init {
         SyncRepository.attachViewModel(viewModelId, this)
@@ -236,41 +236,18 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    private enum class InstanceRole {
+    internal enum class InstanceRole {
         PRIMARY,
         BUBBLE,
         SECONDARY
     }
-    
-    private var instanceRole: InstanceRole = InstanceRole.SECONDARY
-    
-    fun markAsPrimaryInstance() {
-        instanceRole = InstanceRole.PRIMARY
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Instance role set to PRIMARY for $viewModelId")
-        
-        // STEP 2.1: Register/update this ViewModel with service (as primary)
-        // This updates the registration if it was already registered as secondary
-        WebSocketService.registerViewModel(viewModelId, isPrimary = true)
-        
-        // PHASE 1.4 FIX: Register primary callbacks immediately when marked as primary
-        // This ensures callbacks are available before WebSocket connection is established
-        // The service can then properly detect that AppViewModel is available
-        registerPrimaryCallbacks()
-    }
-    
-    fun promoteToPrimaryIfNeeded(reason: String) {
-        if (instanceRole == InstanceRole.PRIMARY) {
-            return
-        }
-        val currentPrimary = WebSocketService.getPrimaryViewModelId()
-        if (currentPrimary == null) {
-            android.util.Log.i("Andromuks", "AppViewModel: No primary instance detected - promoting $viewModelId ($reason)")
-            markAsPrimaryInstance()
-            startWebSocketService()
-        } else if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: Primary instance already registered ($currentPrimary) - skipping promotion request from $viewModelId ($reason)")
-        }
-    }
+
+    internal var instanceRole: InstanceRole = InstanceRole.SECONDARY
+
+    fun markAsPrimaryInstance() = viewModelLifecycleCoordinator.markAsPrimaryInstance()
+
+    fun promoteToPrimaryIfNeeded(reason: String) =
+        viewModelLifecycleCoordinator.promoteToPrimaryIfNeeded(reason)
 
     suspend fun awaitRoomDataReadiness(
         timeoutMs: Long = 15_000L,
@@ -326,106 +303,25 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    /**
-     * Registers this instance as primary with [WebSocketService] (id only).
-     * Offline / activity / connection events use [SyncRepository] flows — see [init] collector.
-     */
-    private fun registerPrimaryCallbacks() {
-        if (instanceRole != InstanceRole.PRIMARY) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping primary registration - not PRIMARY")
-            return
-        }
-        WebSocketService.setPrimaryClearCacheCallback(viewModelId) {
-            SyncRepository.requestClearTimelineCaches()
-        }
-        val ok = WebSocketService.setReconnectionCallback(viewModelId) { }
-        if (!ok) {
-            android.util.Log.w("Andromuks", "AppViewModel: setReconnectionCallback failed for $viewModelId")
-        }
-        WebSocketService.setOfflineModeCallback(viewModelId) { }
-        WebSocketService.setActivityLogCallback(viewModelId) { _, _ -> }
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Primary registered (SyncRepository flows); viewModelId=$viewModelId")
-    }
-    
-    fun markAsBubbleInstance() {
-        instanceRole = InstanceRole.BUBBLE
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Instance role set to BUBBLE for $viewModelId")
-        
-        // STEP 2.1: Register this ViewModel with service (as secondary)
-        WebSocketService.registerViewModel(viewModelId, isPrimary = false)
-    }
-    
+    fun markAsBubbleInstance() = viewModelLifecycleCoordinator.markAsBubbleInstance()
+
     /**
      * STEP 2.3: Called by WebSocketService when this ViewModel is promoted to primary
      * This happens automatically when the original primary ViewModel is destroyed
-     * 
+     *
      * When promoted, the ViewModel:
      * 1. Registers as primary with the service
      * 2. Registers primary callbacks with service
      * 3. Takes over WebSocket management (attaches to existing WebSocket or ensures service is running)
      */
-    fun onPromotedToPrimary() {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: STEP 2.3 - ViewModel $viewModelId promoted to primary")
-        
-        // Update instance role
-        instanceRole = InstanceRole.PRIMARY
-        
-        // STEP 2.3: Update registration to reflect primary status
-        WebSocketService.registerViewModel(viewModelId, isPrimary = true)
-        
-        // CRITICAL: Register to receive WebSocket messages
-        WebSocketService.registerReceiveCallback(viewModelId, this)
-        
-        // STEP 2.3: Register primary callbacks with service
-        // The callbacks are already stored in service (from previous primary), but we need to
-        // ensure this ViewModel can handle them. Since callbacks don't capture AppViewModel
-        // (Step 1.2), they should work, but we re-register to ensure this ViewModel is set as primary
-        registerPrimaryCallbacks()
-        
-        // STEP 2.3: Take over WebSocket management
-        // 1. Ensure WebSocket service is running (if not already)
-        if (!WebSocketService.isServiceRunning()) {
-            android.util.Log.i("Andromuks", "AppViewModel: STEP 2.3 - WebSocket service not running, starting it")
-            startWebSocketService()
-        }
-        
-        // 2. Attach to existing WebSocket if available and not already attached
-        val existingWebSocket = WebSocketService.getWebSocket()
-        if (existingWebSocket != null) {
-            // REFACTORING: Service owns WebSocket - just register callbacks, no local storage needed
-            android.util.Log.i("Andromuks", "AppViewModel: STEP 2.3 - Attaching to existing WebSocket")
-            WebSocketService.registerReceiveCallback(viewModelId, this)
-        } else {
-            // 3. If no WebSocket exists and we have credentials, attempt to reconnect
-            // This handles the case where the primary was destroyed while disconnected
-            appContext?.let { context ->
-                val prefs = context.getSharedPreferences("AndromuksPrefs", android.content.Context.MODE_PRIVATE)
-                val storedHomeserverUrl = prefs.getString("homeserverUrl", null)
-                val storedAuthToken = prefs.getString("authToken", null)
-                
-                if (storedHomeserverUrl != null && storedAuthToken != null) {
-                    android.util.Log.i("Andromuks", "AppViewModel: STEP 2.3 - No WebSocket found, attempting to reconnect as new primary")
-                    // Use viewModelScope to ensure connection survives activity recreation
-                    viewModelScope.launch {
-                        initializeWebSocketConnection(storedHomeserverUrl, storedAuthToken)
-                    }
-                } else {
-                    android.util.Log.w("Andromuks", "AppViewModel: STEP 2.3 - No WebSocket and no credentials found - cannot reconnect")
-                }
-            }
-        }
-        
-        android.util.Log.i("Andromuks", "AppViewModel: STEP 2.3 - ViewModel $viewModelId successfully promoted to primary, callbacks registered, and WebSocket management taken over")
-    }
-    
+    fun onPromotedToPrimary() = viewModelLifecycleCoordinator.onPromotedToPrimary()
+
     /**
      * Check if this AppViewModel instance is the primary instance
      * Only the primary instance should create new WebSocket connections
      */
-    fun isPrimaryInstance(): Boolean {
-        return instanceRole == InstanceRole.PRIMARY
-    }
-    
+    fun isPrimaryInstance() = viewModelLifecycleCoordinator.isPrimaryInstance()
+
     var isLoading by mutableStateOf(false)
     var homeserverUrl by mutableStateOf("")
         private set
@@ -1189,6 +1085,9 @@ class AppViewModel : ViewModel() {
             }
         }
     )
+
+    /** ViewModel lifecycle: primary/visibility/onCleared — see [ViewModelLifecycleCoordinator]. */
+    private val viewModelLifecycleCoordinator by lazy { ViewModelLifecycleCoordinator(this) }
 
     // CRASH FIX: Expose batch processing state to UI to prevent animations during flush
     val isProcessingSyncBatch = syncBatchProcessor.isProcessingBatch
@@ -4823,10 +4722,10 @@ class AppViewModel : ViewModel() {
     
     // App lifecycle state
     var isAppVisible by mutableStateOf(true)
-        private set
+        internal set
     
     // Delayed shutdown job for when app becomes invisible
-    private var appInvisibleJob: Job? = null
+    internal var appInvisibleJob: Job? = null
     
     fun setNavigationCallback(callback: () -> Unit) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Navigation callback set")
@@ -4959,73 +4858,13 @@ class AppViewModel : ViewModel() {
     /**
      * Called when app becomes visible (foreground)
      */
-    fun onAppBecameVisible() {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: App became visible")
-        isAppVisible = true
-        updateAppVisibilityInPrefs(true)
-        
-        // BATTERY OPTIMIZATION: Notify batch processor to flush pending messages and process immediately
-        // CRITICAL: Wait for batches to flush BEFORE refreshing UI, so UI shows up-to-date data
-        val (_, batchFlushJob) = syncBatchProcessor.onAppVisibilityChanged(true)
-
-        // Notify service of app visibility change
-        WebSocketService.setAppVisibility(true)
-
-        if (currentRoomId.isEmpty()) {
-            val roomToRestore = pendingRoomToRestore
-            if (!roomToRestore.isNullOrEmpty()) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restoring current room to $roomToRestore after visibility change")
-                updateCurrentRoomIdInPrefs(roomToRestore)
-            }
-        }
-        pendingRoomToRestore = null
-        
-        // Cancel any pending shutdown
-        appInvisibleJob?.cancel()
-        appInvisibleJob = null
-        
-        // BATTERY OPTIMIZATION: Rush process pending rooms and receipts that were deferred when backgrounded
-        // CRITICAL: Set processing flag to prevent RoomListScreen from showing stale data
-        processPendingItemsIfNeeded()
-        
-        // CRITICAL: Wait for batch flush to complete, THEN refresh UI
-        // This ensures UI shows up-to-date data instead of stale data that gets updated again
-        if (batchFlushJob != null) {
-            viewModelScope.launch {
-                try {
-                    batchFlushJob.join() // Wait for batch flush to complete
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Batch flush completed, refreshing UI")
-                    // Refresh UI with up-to-date state after batches are processed
-                    refreshUIState()
-                } catch (e: Exception) {
-                    // Still refresh UI even if batch flush failed
-                    refreshUIState()
-                }
-            }
-        } else {
-            // No batches to flush, refresh UI immediately
-            refreshUIState()
-        }
-        
-        // CRITICAL FIX: Ensure current user profile is loaded when app becomes visible
-        // This fixes issues when app starts from notification/shortcut and profile wasn't loaded yet
-        ensureCurrentUserProfileLoaded()
-        
-        // If a room is currently open, trigger timeline refresh to show new events from cache
-        if (currentRoomId.isNotEmpty()) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room is open ($currentRoomId), triggering timeline refresh")
-            timelineRefreshTrigger++
-        }
-        
-        // WebSocket service maintains connection
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: App visible, will refresh UI after batch flush completes")
-    }
+    fun onAppBecameVisible() = viewModelLifecycleCoordinator.onAppBecameVisible()
     
     /**
      * Process pending items if any exist. This ensures RoomListScreen shows up-to-date data.
      * Called when app becomes visible or on startup.
      */
-    private fun processPendingItemsIfNeeded() {
+    internal fun processPendingItemsIfNeeded() {
         // CRITICAL: Only process if syncIngestor is initialized
         // Don't set flag to true if syncIngestor doesn't exist - no need to block UI
         val syncIngestorInstance = syncIngestor ?: run {
@@ -5269,7 +5108,7 @@ class AppViewModel : ViewModel() {
      * Refreshes UI state when app becomes visible
      * This updates the UI with any changes that happened while app was in background
      */
-    private fun refreshUIState() {
+    internal fun refreshUIState() {
         // CRITICAL FIX: Don't rebuild allRooms from roomMap - it may have stale unread counts.
         // We now treat in-memory state as the single source of truth.
         
@@ -5315,34 +5154,7 @@ class AppViewModel : ViewModel() {
     /**
      * Called when app becomes invisible (background/standby)
      */
-    fun onAppBecameInvisible() {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: App became invisible")
-        isAppVisible = false
-        updateAppVisibilityInPrefs(false)
-        
-        // BATTERY OPTIMIZATION: Notify batch processor to start batching messages
-        syncBatchProcessor.onAppVisibilityChanged(false)
-        
-        // Notify service of app visibility change
-        WebSocketService.setAppVisibility(false)
-        if (currentRoomId.isNotEmpty()) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Clearing current room ($currentRoomId) while app invisible to allow notifications")
-            clearCurrentRoomId(shouldRestoreOnVisible = true)
-        }
-        
-        // Save state to storage for crash recovery (preserves run_id and last_received_sync_id)
-        // This allows seamless resumption if app is killed by system
-        appContext?.let { context ->
-            saveStateToStorage(context)
-        }
-        
-        // Cancel any existing shutdown job (no shutdown needed - service maintains connection)
-        appInvisibleJob?.cancel()
-        appInvisibleJob = null
-        
-        // WebSocket service maintains connection in background
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: App invisible, WebSocket service continues maintaining connection")
-    }
+    fun onAppBecameInvisible() = viewModelLifecycleCoordinator.onAppBecameInvisible()
     
     /**
      * Manually triggers app suspension (for back button from room list).
@@ -5350,76 +5162,11 @@ class AppViewModel : ViewModel() {
      * This function is called when the user presses the back button from the room list screen.
      * With the foreground service, we just save state but keep the WebSocket open.
      */
-    fun suspendApp() {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: App manually suspended, WebSocket service continues")
-        onAppBecameInvisible() // This will save state for crash recovery
-    }
+    fun suspendApp() = viewModelLifecycleCoordinator.suspendApp()
     
     override fun onCleared() {
         super.onCleared()
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: onCleared - cleaning up resources for $viewModelId")
-        
-        // Detach from SyncRepository (single registry: lifecycle + receive; primary promotion on detach)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unregistering $viewModelId from WebSocket / SyncRepository")
-        WebSocketService.unregisterReceiveCallback(viewModelId)
-        
-        // PHASE 1.3: Clear primary callbacks if this is the primary instance
-        if (instanceRole == InstanceRole.PRIMARY) {
-            // PHASE 1.3: Validate that this instance is actually the primary before clearing
-            val currentPrimaryId = WebSocketService.getPrimaryViewModelId()
-            val isActuallyPrimary = WebSocketService.isPrimaryInstance(viewModelId)
-            
-            if (isActuallyPrimary) {
-                // This instance is confirmed as primary - safe to clear
-                val cleared = WebSocketService.clearPrimaryCallbacks(viewModelId)
-                if (cleared) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared primary callbacks for $viewModelId")
-                } else {
-                    android.util.Log.w("Andromuks", "AppViewModel: Failed to clear primary callbacks for $viewModelId (unexpected failure)")
-                }
-            } else {
-                // This instance thinks it's primary but WebSocketService says otherwise
-                if (currentPrimaryId != null) {
-                    android.util.Log.w("Andromuks", "AppViewModel: Instance $viewModelId marked as PRIMARY but WebSocketService reports $currentPrimaryId as primary. State mismatch detected.")
-                } else {
-                    android.util.Log.w("Andromuks", "AppViewModel: Instance $viewModelId marked as PRIMARY but no primary instance registered in WebSocketService. State mismatch detected.")
-                }
-                // Attempt to clear anyway (defensive cleanup)
-                val cleared = WebSocketService.clearPrimaryCallbacks(viewModelId)
-                if (!cleared && BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Clear attempt failed as expected (instance was not primary)")
-                }
-            }
-        } else {
-            // Not a primary instance - verify we're not accidentally registered as primary
-            if (WebSocketService.isPrimaryInstance(viewModelId)) {
-                android.util.Log.w("Andromuks", "AppViewModel: Instance $viewModelId is not marked as PRIMARY but is registered as primary in WebSocketService. Clearing to prevent state corruption.")
-                WebSocketService.clearPrimaryCallbacks(viewModelId)
-            }
-        }
-        
-        // Cancel any pending jobs
-        appInvisibleJob?.cancel()
-        appInvisibleJob = null
-        
-        if (instanceRole == InstanceRole.PRIMARY) {
-            // CRITICAL FIX: Don't clear WebSocket when Activity is swiped away
-            // The foreground service should maintain the connection independently
-            // Only clear WebSocket if we're actually shutting down (e.g., on logout)
-            // Check if service is still running - if so, don't clear the connection
-            val serviceStillRunning = WebSocketService.isServiceRunning()
-            if (serviceStillRunning) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Service still running - NOT clearing WebSocket (foreground service maintains connection)")
-                // Just cancel reconnection, but keep the connection alive
-                WebSocketService.cancelReconnection()
-            } else {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Service not running - clearing WebSocket (app shutdown)")
-                WebSocketService.cancelReconnection()
-                clearWebSocket("ViewModel cleared - service not running")
-            }
-        } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping global WebSocket teardown for role=$instanceRole")
-        }
+        viewModelLifecycleCoordinator.onCleared()
     }
 
     fun getRoomById(roomId: String): RoomItem? {
@@ -5443,7 +5190,7 @@ class AppViewModel : ViewModel() {
     // Room timeline state
     var currentRoomId by mutableStateOf("")
         private set
-    private var pendingRoomToRestore: String? = null
+    internal var pendingRoomToRestore: String? = null
     /**
      * Helper function to set currentRoomId and save it to SharedPreferences.
      * This allows notification services to check if a room is currently open.
@@ -5487,7 +5234,7 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    private fun updateAppVisibilityInPrefs(visible: Boolean) {
+    internal fun updateAppVisibilityInPrefs(visible: Boolean) {
         appContext?.applicationContext?.let { context ->
             val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             val editor = sharedPrefs.edit()
@@ -5610,7 +5357,7 @@ class AppViewModel : ViewModel() {
     
     // Trigger for timeline refresh when app resumes (incremented when app becomes visible)
     var timelineRefreshTrigger by mutableStateOf(0)
-        private set
+        internal set
     
     // Edit chain tracking system
     data class EventChainEntry(
@@ -6096,7 +5843,7 @@ class AppViewModel : ViewModel() {
             if (currentPrimaryId != viewModelId) {
                 // Callbacks weren't registered yet - register them now as fallback
                 android.util.Log.w("Andromuks", "AppViewModel: Primary callbacks not registered yet in setWebSocket() - registering now as fallback")
-                registerPrimaryCallbacks()
+                viewModelLifecycleCoordinator.registerPrimaryCallbacks()
             } else {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Primary callbacks already registered for $viewModelId")
             }
