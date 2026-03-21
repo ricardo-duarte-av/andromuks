@@ -60,8 +60,6 @@ import java.util.Collections
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.getUserAgent
 import net.vrkknn.andromuks.utils.applyIncomingWebSocketMessageForViewModel
-import net.vrkknn.andromuks.utils.MatrixMxidUtils
-
 data class MemberProfile(
     val displayName: String?,
     val avatarUrl: String?
@@ -170,7 +168,7 @@ class AppViewModel : ViewModel() {
         
         // PHASE 5.1: Constants for outgoing message queue (internal: [WebSocketCommandSender])
         internal const val MAX_QUEUE_SIZE = 800 // Maximum queue size (raised to cover bulk pagination hydrates)
-        private const val MAX_MESSAGE_AGE_MS = 24 * 60 * 60 * 1000L // 24 hours
+        internal const val MAX_MESSAGE_AGE_MS = 24 * 60 * 60 * 1000L // 24 hours
         
         // Processed timeline state is now stored in RoomTimelineCache singleton (no size limit needed)
         
@@ -361,34 +359,34 @@ class AppViewModel : ViewModel() {
     // This causes significant battery drain even when messages are buffered
     // Users can enable it in settings if they prefer bandwidth savings over battery
     var enableCompression by mutableStateOf(false)
-        private set
+        internal set
     var enterKeySendsMessage by mutableStateOf(true) // true = Enter sends, Shift+Enter newline; false = Enter newline, Shift+Enter sends
-        private set
+        internal set
     var loadThumbnailsIfAvailable by mutableStateOf(true)
-        private set
+        internal set
     var renderThumbnailsAlways by mutableStateOf(true)
-        private set
+        internal set
     // Room list bottom bar layout: false = compact (4 tabs), true = full (6 tabs: +Favs, +Bridges)
     var showAllRoomListTabs by mutableStateOf(false)
-        private set
+        internal set
     // Room timeline read receipts layout: false = inline next to bubble, true = moved to opposite screen edge
     var moveReadReceiptsToEdge by mutableStateOf(false)
-        private set
+        internal set
     // Trim long display names in timeline: if true, names longer than 40 chars are trimmed with "..."
     var trimLongDisplayNames by mutableStateOf(true)
-        private set
+        internal set
     var elementCallBaseUrl by mutableStateOf("")
-        private set
+        internal set
 
     // ── Background purge settings (exposed for SettingsScreen) ──────────────
     var backgroundPurgeIntervalMinutes by mutableStateOf(
         (SyncBatchProcessor.DEFAULT_BATCH_INTERVAL_MS / 60_000L).toInt()
     )
-        private set
+        internal set
     var backgroundPurgeMessageThreshold by mutableStateOf(
         SyncBatchProcessor.DEFAULT_MAX_BATCH_SIZE
     )
-        private set
+        internal set
 
     var pendingShare by mutableStateOf<PendingSharePayload?>(null)
         private set
@@ -579,114 +577,30 @@ class AppViewModel : ViewModel() {
     private var reconnectWithResume: Boolean? = null
 
     // Track uploads in progress per room (roomId -> count)
-    private val uploadInProgressCount = mutableStateMapOf<String, Int>()
+    internal val uploadInProgressCount = mutableStateMapOf<String, Int>()
     // Track upload types per room (roomId -> set of upload types: "image", "video", "audio", "file")
-    private val uploadTypesPerRoom = mutableStateMapOf<String, MutableSet<String>>()
+    internal val uploadTypesPerRoom = mutableStateMapOf<String, MutableSet<String>>()
     // Track upload retry count per room (roomId -> count)
-    private val uploadRetryCounts = mutableStateMapOf<String, Int>()
+    internal val uploadRetryCounts = mutableStateMapOf<String, Int>()
     // Track upload progress per room (roomId -> Map<String, Float>) where key is "original" or "thumbnail"
-    private val uploadProgressPerRoom = mutableStateMapOf<String, Map<String, Float>>()
+    internal val uploadProgressPerRoom = mutableStateMapOf<String, Map<String, Float>>()
     
-    /**
-     * Check if there are uploads in progress for a room
-     */
-    fun hasUploadInProgress(roomId: String): Boolean {
-        return uploadInProgressCount[roomId] ?: 0 > 0
-    }
-    
-    /**
-     * Get the primary upload type for a room (for status message)
-     * Returns the first type found, or "media" as fallback
-     */
-    fun getUploadType(roomId: String): String {
-        val types = uploadTypesPerRoom[roomId] ?: return "media"
-        return when {
-            types.contains("video") -> "video"
-            types.contains("image") -> "image"
-            types.contains("audio") -> "audio"
-            types.contains("file") -> "file"
-            else -> "media"
-        }
-    }
-    
-    /**
-     * Get the upload retry count for a room
-     */
-    fun getUploadRetryCount(roomId: String): Int {
-        return uploadRetryCounts[roomId] ?: 0
-    }
-    
-    /**
-     * Set the upload retry count for a room
-     */
-    fun setUploadRetryCount(roomId: String, count: Int) {
-        if (count > 0) {
-            uploadRetryCounts[roomId] = count
-        } else {
-            uploadRetryCounts.remove(roomId)
-        }
-    }
+    fun hasUploadInProgress(roomId: String): Boolean = uploadCoordinator.hasUploadInProgress(roomId)
 
-    /**
-     * Set the upload progress for a room
-     * @param roomId The room ID
-     * @param key The progress key ("original" or "thumbnail")
-     * @param progress The progress value (0f to 1f)
-     */
-    fun setUploadProgress(roomId: String, key: String, progress: Float) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: setUploadProgress for room $roomId: $key = $progress")
-        val currentProgress = uploadProgressPerRoom[roomId]?.toMutableMap() ?: mutableMapOf()
-        currentProgress[key] = progress
-        uploadProgressPerRoom[roomId] = currentProgress
-    }
+    fun getUploadType(roomId: String): String = uploadCoordinator.getUploadType(roomId)
 
-    /**
-     * Get the upload progress for a room
-     * @param roomId The room ID
-     * @return A map of progress keys and values
-     */
-    fun getUploadProgress(roomId: String): Map<String, Float> {
-        return uploadProgressPerRoom[roomId] ?: emptyMap()
-    }
-    
-    /**
-     * Start tracking an upload for a room
-     * @param roomId The room ID
-     * @param uploadType The type of upload: "image", "video", "audio", or "file"
-     */
-    fun beginUpload(roomId: String, uploadType: String = "image") {
-        val current = uploadInProgressCount[roomId] ?: 0
-        uploadInProgressCount[roomId] = current + 1
-        
-        val types = uploadTypesPerRoom.getOrPut(roomId) { mutableSetOf() }
-        types.add(uploadType)
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Begin upload for room $roomId (type: $uploadType, count: ${uploadInProgressCount[roomId]})")
-    }
-    
-    /**
-     * End tracking an upload for a room
-     * @param roomId The room ID
-     * @param uploadType The type of upload being completed
-     */
-    fun endUpload(roomId: String, uploadType: String = "image") {
-        val current = uploadInProgressCount[roomId] ?: 0
-        if (current > 0) {
-            val newCount = current - 1
-            if (newCount == 0) {
-                uploadInProgressCount.remove(roomId)
-                uploadTypesPerRoom.remove(roomId)
-                uploadRetryCounts.remove(roomId)
-                uploadProgressPerRoom.remove(roomId)
-            } else {
-                uploadInProgressCount[roomId] = newCount
-                // Note: We keep all types in the set until count reaches 0
-                // This ensures getUploadType() can still return the correct type
-                // even if multiple uploads of different types are in progress
-            }
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: End upload for room $roomId (type: $uploadType, count: $newCount)")
-        }
-    }
+    fun getUploadRetryCount(roomId: String): Int = uploadCoordinator.getUploadRetryCount(roomId)
+
+    fun setUploadRetryCount(roomId: String, count: Int) = uploadCoordinator.setUploadRetryCount(roomId, count)
+
+    fun setUploadProgress(roomId: String, key: String, progress: Float) =
+        uploadCoordinator.setUploadProgress(roomId, key, progress)
+
+    fun getUploadProgress(roomId: String): Map<String, Float> = uploadCoordinator.getUploadProgress(roomId)
+
+    fun beginUpload(roomId: String, uploadType: String = "image") = uploadCoordinator.beginUpload(roomId, uploadType)
+
+    fun endUpload(roomId: String, uploadType: String = "image") = uploadCoordinator.endUpload(roomId, uploadType)
     
     // Recent emojis for reactions (stored as list of strings for UI)
     // Now using singleton RecentEmojisCache - synced for UI reactivity
@@ -956,10 +870,10 @@ class AppViewModel : ViewModel() {
     
     internal val pendingWebSocketOperations = mutableListOf<PendingWebSocketOperation>()
     internal val pendingOperationsLock = Any() // Lock for synchronizing access to pendingWebSocketOperations
-    private val maxRetryAttempts = 3
+    internal val maxRetryAttempts = 3
     
     // Track last reconnection time for stabilization period
-    private var lastReconnectionTime = 0L
+    internal var lastReconnectionTime = 0L
     
     // INFINITE LOOP FIX: Track restart state to prevent rapid-fire restarts
     private var isRestarting = false
@@ -1019,7 +933,7 @@ class AppViewModel : ViewModel() {
     internal val reactionCoordinator by lazy { ReactionCoordinator(this) }
 
     /** Outgoing messages (text, media, typing, notification FIFO) — see [MessageSendCoordinator]. */
-    private val messageSendCoordinator by lazy { MessageSendCoordinator(this) }
+    internal val messageSendCoordinator by lazy { MessageSendCoordinator(this) }
 
     /** Edit chains, merged bubbles, [MessageVersionsCache] — see [EditVersionCoordinator]. */
     internal val editVersionCoordinator by lazy { EditVersionCoordinator(this) }
@@ -1073,7 +987,7 @@ class AppViewModel : ViewModel() {
     private val roomInvitesCoordinator by lazy { RoomInvitesCoordinator(this) }
 
     /** Typing + read receipts + mark read — see [ReadReceiptsTypingCoordinator]. */
-    private val readReceiptsTypingCoordinator by lazy { ReadReceiptsTypingCoordinator(this) }
+    internal val readReceiptsTypingCoordinator by lazy { ReadReceiptsTypingCoordinator(this) }
 
     /** FCM / push registration — see [FcmPushCoordinator]. */
     private val fcmPushCoordinator by lazy { FcmPushCoordinator(this) }
@@ -1086,6 +1000,24 @@ class AppViewModel : ViewModel() {
 
     /** Member maps, profile storage, full member list responses — see [MemberProfilesCoordinator]. */
     private val memberProfilesCoordinator by lazy { MemberProfilesCoordinator(this) }
+
+    /** Activity log + cache stats — see [DiagnosticsCoordinator]. */
+    internal val diagnosticsCoordinator by lazy { DiagnosticsCoordinator(this) }
+
+    /** Prefs, pending WS queue, save/load state — see [PersistenceCoordinator]. */
+    private val persistenceCoordinator by lazy { PersistenceCoordinator(this) }
+
+    /** Upload progress — see [UploadCoordinator]. */
+    private val uploadCoordinator by lazy { UploadCoordinator(this) }
+
+    /** Account data (m.direct, tags, ignore, recent emojis) — see [AccountDataCoordinator]. */
+    internal val accountDataCoordinator by lazy { AccountDataCoordinator(this) }
+
+    /** Slash commands — see [SlashCommandsCoordinator]. */
+    private val slashCommandsCoordinator by lazy { SlashCommandsCoordinator(this) }
+
+    /** UI prefs toggles — see [SettingsCoordinator]. */
+    private val settingsCoordinator by lazy { SettingsCoordinator(this) }
 
     // CRASH FIX: Expose batch processing state to UI to prevent animations during flush
     val isProcessingSyncBatch = syncBatchProcessor.isProcessingBatch
@@ -1571,189 +1503,21 @@ class AppViewModel : ViewModel() {
         acknowledgmentTimeoutJob = viewModelScope.launch {
             while (isActive) {
                 delay(10000L) // Check every 10 seconds
-                checkAcknowledgmentTimeouts()
+                persistenceCoordinator.checkAcknowledgmentTimeouts()
             }
         }
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Started acknowledgment timeout check job")
     }
-    
-    /**
-     * PHASE 5.2: Check for unacknowledged messages that have exceeded their timeout
-     * Retries messages if retryCount < maxRetryAttempts, otherwise marks as failed
-     * QUEUE FLUSHING FIX: Respects stabilization period after reconnection to prevent triple-sending
-     */
-    private fun checkAcknowledgmentTimeouts() {
-        val currentTime = System.currentTimeMillis()
-        val operationsToRetry = mutableListOf<PendingWebSocketOperation>()
-        val operationsToRemove = mutableListOf<PendingWebSocketOperation>()
-        // Take a snapshot to avoid ConcurrentModificationException while iterating
-        val operationsSnapshot = synchronized(pendingOperationsLock) { pendingWebSocketOperations.toList() }
-        
-        // QUEUE FLUSHING FIX: Don't retry immediately after reconnection - give backend time to stabilize
-        // Wait at least 5 seconds after reconnection before retrying
-        val stabilizationPeriodMs = 5000L // 5 seconds
-        val timeSinceReconnection = if (lastReconnectionTime > 0) currentTime - lastReconnectionTime else Long.MAX_VALUE
-        val isInStabilizationPeriod = timeSinceReconnection < stabilizationPeriodMs
-        
-        operationsSnapshot.forEach { operation ->
-            if (!operation.acknowledged && currentTime >= operation.acknowledgmentTimeout) {
-                // QUEUE FLUSHING FIX: If we're in stabilization period, extend timeout instead of retrying
-                if (isInStabilizationPeriod && operation.retryCount == 0) {
-                    // First retry after reconnection - extend timeout to give backend more time
-                    val newTimeout = currentTime + 10000L // 10 more seconds
-                    android.util.Log.i("Andromuks", "AppViewModel: QUEUE FLUSHING - Extending timeout for ${operation.type} (stabilization period, ${timeSinceReconnection}ms since reconnection)")
-                    val updatedOperation = operation.copy(acknowledgmentTimeout = newTimeout)
-                    operationsToRemove.add(operation)
-                    operationsToRetry.add(updatedOperation)
-                } else if (operation.retryCount < maxRetryAttempts) {
-                    // Retry the message
-                    val newRetryCount = operation.retryCount + 1
-                    val newTimeout = currentTime + 30000L // 30 seconds for next attempt
-                    android.util.Log.w("Andromuks", "AppViewModel: Message acknowledgment timeout - retrying (attempt $newRetryCount/${maxRetryAttempts}): ${operation.type}, messageId: ${operation.messageId}")
-                    
-                    operationsToRetry.add(operation.copy(
-                        retryCount = newRetryCount,
-                        acknowledgmentTimeout = newTimeout
-                    ))
-                    operationsToRemove.add(operation)
-                } else {
-                    // Max retries exceeded - mark as failed and remove
-                    android.util.Log.e("Andromuks", "AppViewModel: Message failed after ${maxRetryAttempts} retries: ${operation.type}, messageId: ${operation.messageId}")
-                    logActivity("Message Failed - ${operation.type} (${maxRetryAttempts} retries)", null)
-                    operationsToRemove.add(operation)
-                }
-            }
-        }
-        
-        // Remove failed/retried operations (guarded)
-        if (operationsToRemove.isNotEmpty()) {
-            synchronized(pendingOperationsLock) {
-                operationsToRemove.forEach { pendingWebSocketOperations.remove(it) }
-            }
-        }
-        
-        // Add retried operations back with updated retry count (addPendingOperation already syncs)
-        // Skip command_* operations here because sendWebSocketCommand() will re-track them with the new request_id.
-        // CRITICAL FIX: Save to storage for retries (need persistence)
-        operationsToRetry
-            .filterNot { it.type.startsWith("command_") }
-            .forEach { addPendingOperation(it, saveToStorage = true) }
-        
-        // Retry the operations
-        if (operationsToRetry.isNotEmpty()) {
-            android.util.Log.i("Andromuks", "AppViewModel: Retrying ${operationsToRetry.size} timed-out messages")
-            operationsToRetry.forEach { operation ->
-                when {
-                    operation.type == "sendMessage" -> {
-                        val roomId = operation.data["roomId"] as? String
-                        val text = operation.data["text"] as? String
-                        if (roomId != null && text != null) {
-                            messageSendCoordinator.sendMessageInternal(roomId, text)
-                        }
-                    }
-                    operation.type == "sendReply" -> {
-                        // Note: sendReply requires originalEvent which is complex to restore
-                        // For now, we'll skip retrying sendReply operations
-                        android.util.Log.w("Andromuks", "AppViewModel: Skipping retry of sendReply (originalEvent not stored)")
-                    }
-                    operation.type == "markRoomAsRead" -> {
-                        val roomId = operation.data["roomId"] as? String
-                        val eventId = operation.data["eventId"] as? String
-                        if (roomId != null && eventId != null) {
-                            readReceiptsTypingCoordinator.markRoomAsReadInternal(roomId, eventId)
-                        }
-                    }
-                    operation.type.startsWith("offline_") -> {
-                        // PHASE 5.2: Retry offline commands (created when network was unavailable)
-                        val command = operation.data["command"] as? String
-                        val requestId = operation.data["requestId"] as? Int
-                        @Suppress("UNCHECKED_CAST")
-                        val data = operation.data["data"] as? Map<String, Any>
-                        
-                        if (command != null && requestId != null && data != null) {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Retrying offline command: $command (attempt ${operation.retryCount + 1})")
-                            // Generate new request_id for retry (can't reuse old one)
-                            val newRequestId = requestIdCounter++
-                            sendWebSocketCommand(command, newRequestId, data)
-                        } else {
-                            android.util.Log.w("Andromuks", "AppViewModel: Invalid offline operation data - command: $command, requestId: $requestId, data: ${data != null}")
-                        }
-                    }
-                    operation.type.startsWith("command_") -> {
-                        // PHASE 5.2: Retry generic commands
-                        val command = operation.type.removePrefix("command_")
-                        val requestId = operation.data["requestId"] as? Int
-                        @Suppress("UNCHECKED_CAST")
-                        val data = operation.data["data"] as? Map<String, Any>
-                        if (requestId != null && data != null) {
-                            // SAFETY GUARD: prevent duplicate mark_read storms when acknowledgments never arrive
-                            if (command == "mark_read") {
-                                val roomId = data["room_id"] as? String
-                                val eventId = data["event_id"] as? String
-                                if (roomId != null && eventId != null) {
-                                    val lastSent = lastMarkReadSent[roomId]
-                                    if (lastSent == eventId) {
-                                        android.util.Log.w(
-                                            "Andromuks",
-                                            "AppViewModel: Skipping retry for duplicate mark_read for room $roomId event $eventId"
-                                        )
-                                        return@forEach
-                                    }
-                                    lastMarkReadSent[roomId] = eventId
-                                }
-                            }
-                            // Generate new request_id for retry (can't reuse old one)
-                            val newRequestId = requestIdCounter++
-                            android.util.Log.w("Andromuks", "AppViewModel: Retrying command '$command' with new request_id: $newRequestId (was: $requestId)")
-                            sendWebSocketCommand(command, newRequestId, data)
-                        }
-                    }
-                    else -> {
-                        android.util.Log.w("Andromuks", "AppViewModel: Unknown operation type for retry: ${operation.type}")
-                    }
-                }
-            }
-        }
-    }
-    
-    /**
-     * PHASE 5.4: Start periodic cleanup of acknowledged messages
-     * Removes acknowledged messages older than 1 hour every 5 minutes
-     */
+
     internal fun startAcknowledgedMessagesCleanup() {
         acknowledgedMessagesCleanupJob?.cancel()
         acknowledgedMessagesCleanupJob = viewModelScope.launch {
             while (isActive) {
                 delay(5 * 60 * 1000L) // Every 5 minutes
-                cleanupAcknowledgedMessages()
+                persistenceCoordinator.cleanupAcknowledgedMessages()
             }
         }
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Started acknowledged messages cleanup job")
-    }
-    
-    /**
-     * PHASE 5.4: Cleanup acknowledged messages older than 1 hour
-     * Prevents queue from growing indefinitely with old acknowledged messages
-     */
-    private fun cleanupAcknowledgedMessages() {
-        val currentTime = System.currentTimeMillis()
-        val oneHourAgo = currentTime - (60 * 60 * 1000L) // 1 hour
-        
-        val operationsToRemove = synchronized(pendingOperationsLock) {
-            pendingWebSocketOperations.filter { 
-            it.acknowledged && it.timestamp < oneHourAgo
-            }
-        }
-        
-        if (operationsToRemove.isNotEmpty()) {
-            synchronized(pendingOperationsLock) {
-            operationsToRemove.forEach { pendingWebSocketOperations.remove(it) }
-            }
-            savePendingOperationsToStorage()
-            android.util.Log.i("Andromuks", "AppViewModel: PHASE 5.4 - Cleaned up ${operationsToRemove.size} acknowledged messages older than 1 hour")
-        } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.4 - No acknowledged messages to clean up")
-        }
     }
     
     
@@ -4648,7 +4412,7 @@ class AppViewModel : ViewModel() {
     // NOTE: We no longer track last_received_id - all timeline caches are cleared on connect/reconnect
     internal var lastSyncTimestamp: Long = 0 // Timestamp of last sync_complete received
     internal var currentRunId: String = "" // Unique connection ID from gomuks backend
-    private var vapidKey: String = "" // VAPID key for push notifications
+    internal var vapidKey: String = "" // VAPID key for push notifications
     private var hasHadInitialConnection = false // Track if we've had an initial connection to only vibrate on reconnections
 
     // NETWORK OPTIMIZATION: Offline caching and connection state
@@ -4690,143 +4454,13 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    private val activityLog = mutableListOf<ActivityLogEntry>()
-    private val activityLogLock = Any() // Synchronization lock for activityLog access
-    private val maxLogEntries = 100 // Keep last 100 entries
-    private val activityLogPrefsName = "AndromuksActivityLogPrefs"
-    private val activityLogPrefsKey = "activity_log"
-    
-    /**
-     * Load activity log from SharedPreferences
-     */
-    private fun loadActivityLogFromStorage(context: android.content.Context? = null) {
-        val ctx = context ?: appContext
-        ctx?.let { ctx ->
-            try {
-                val prefs = ctx.getSharedPreferences(activityLogPrefsName, android.content.Context.MODE_PRIVATE)
-                val logJson = prefs.getString(activityLogPrefsKey, null)
-                
-                if (logJson != null) {
-                    val logArray = org.json.JSONArray(logJson)
-                    synchronized(activityLogLock) {
-                        activityLog.clear()
-                        
-                        for (i in 0 until logArray.length()) {
-                            val entryJson = logArray.getJSONObject(i)
-                            activityLog.add(ActivityLogEntry.fromJson(entryJson))
-                        }
-                        
-                        // Keep only the last maxLogEntries entries
-                        if (activityLog.size > maxLogEntries) {
-                            val entriesToKeep = activityLog.takeLast(maxLogEntries)
-                            activityLog.clear()
-                            activityLog.addAll(entriesToKeep)
-                        }
-                        
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${activityLog.size} activity log entries from storage")
-                    }
-                } else {
-                    // One-time migration for users coming from old storage key/file.
-                    val legacyPrefs = ctx.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-                    val legacyLogJson = legacyPrefs.getString(activityLogPrefsKey, null)
-                    if (legacyLogJson != null) {
-                        val logArray = org.json.JSONArray(legacyLogJson)
-                        synchronized(activityLogLock) {
-                            activityLog.clear()
-                            for (i in 0 until logArray.length()) {
-                                val entryJson = logArray.getJSONObject(i)
-                                activityLog.add(ActivityLogEntry.fromJson(entryJson))
-                            }
-                            if (activityLog.size > maxLogEntries) {
-                                val entriesToKeep = activityLog.takeLast(maxLogEntries)
-                                activityLog.clear()
-                                activityLog.addAll(entriesToKeep)
-                            }
-                        }
-                        saveActivityLogToStorage()
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Failed to load activity log from storage", e)
-            }
-        }
-    }
-    
-    /**
-     * Save activity log to SharedPreferences
-     */
-    private fun saveActivityLogToStorage() {
-        appContext?.let { context ->
-            try {
-                val prefs = context.getSharedPreferences(activityLogPrefsName, android.content.Context.MODE_PRIVATE)
-                val logArray = org.json.JSONArray()
-                
-                // Take a snapshot under lock to avoid ConcurrentModificationException
-                val entriesToSave: List<ActivityLogEntry> = synchronized(activityLogLock) {
-                    if (activityLog.size > maxLogEntries) {
-                        activityLog.takeLast(maxLogEntries).toList()
-                    } else {
-                        activityLog.toList()
-                    }
-                }
-                
-                entriesToSave.forEach { entry ->
-                    logArray.put(entry.toJson())
-                }
-                
-                prefs.edit()
-                    .putString(activityLogPrefsKey, logArray.toString())
-                    .commit()
-                
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Failed to save activity log to storage", e)
-            }
-        }
-    }
-    
-    /**
-     * Log an activity event (app started, websocket connected, disconnected, etc.)
-     *
-     * This is also used as the "WebSocket activity" log in Settings. To keep that
-     * view focused on connection / network state (rather than every WebSocket
-     * command), we intentionally ignore low‑level command/ack events here.
-     */
-    fun logActivity(event: String, networkType: String? = null) {
-        // Filter out verbose command-level noise – we only want status / network /
-        // connect / disconnect level events in the activity log UI.
-        val lower = event.lowercase()
-        val isCommandNoise =
-            lower.startsWith("command ") ||
-            lower.startsWith("command acknowledged") ||
-            lower.startsWith("matrix server error") ||
-            lower.startsWith("matrix server confirmed")
-        if (isCommandNoise) {
-            return
-        }
-        
-        val entry = ActivityLogEntry(
-            timestamp = System.currentTimeMillis(),
-            event = event,
-            networkType = networkType
-        )
-        synchronized(activityLogLock) {
-            activityLog.add(entry)
-            // Keep only the last maxLogEntries entries
-            if (activityLog.size > maxLogEntries) {
-                activityLog.removeAt(0)
-            }
-        }
-        
-        // Persist to storage
-        saveActivityLogToStorage()
-    }
-    
-    /**
-     * Get the activity log for display
-     */
-    fun getActivityLog(): List<ActivityLogEntry> {
-        return synchronized(activityLogLock) { activityLog.toList() }
-    }
+    internal val activityLog = mutableListOf<ActivityLogEntry>()
+    internal val activityLogLock = Any()
+
+    fun logActivity(event: String, networkType: String? = null) =
+        diagnosticsCoordinator.logActivity(event, networkType)
+
+    fun getActivityLog(): List<ActivityLogEntry> = diagnosticsCoordinator.getActivityLog()
 
     // Backwards compatibility - keep old reconnection log methods
     data class ReconnectionLogEntry(
@@ -5287,333 +4921,14 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    /**
-     * PHASE 5.1: Add operation to queue with size limits and persistence
-     */
-    internal fun addPendingOperation(operation: PendingWebSocketOperation, saveToStorage: Boolean = false): Boolean {
-        // PHASE 5.1: Enforce queue size limit (remove oldest if at limit)
-        synchronized(pendingOperationsLock) {
-        if (pendingWebSocketOperations.size >= MAX_QUEUE_SIZE) {
-                // Remove oldest operation (by timestamp)
-                val oldest = pendingWebSocketOperations.minByOrNull { it.timestamp }
-            if (oldest != null) {
-                pendingWebSocketOperations.remove(oldest)
-                    android.util.Log.w(
-                        "Andromuks",
-                        "AppViewModel: Queue full (${MAX_QUEUE_SIZE}), removed oldest operation: ${oldest.type}"
-                    )
-            }
-        }
-        
-        pendingWebSocketOperations.add(operation)
-        }
-        // CRITICAL FIX: Only save to storage when explicitly needed (disconnected commands, retries)
-        // When WebSocket is connected and command is sent successfully, we only need in-memory tracking
-        // Storage is only needed for persistence across app restarts or when disconnected
-        // This prevents unnecessary storage writes on every command when WebSocket is connected
-        if (saveToStorage) {
-            savePendingOperationsToStorage()
-        }
-        return true
-    }
-    
-    /**
-     * PHASE 5.1: Save pending WebSocket operations to SharedPreferences
-     * Called whenever operations are added or modified
-     */
-    private fun savePendingOperationsToStorage() {
-        appContext?.let { context ->
-            try {
-                val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                val operationsArray = JSONArray()
-                
-                // CRASH FIX: Create a snapshot to avoid ConcurrentModificationException
-                // Multiple threads may modify pendingWebSocketOperations while we're iterating
-                val operationsSnapshot = synchronized(pendingOperationsLock) {
-                    pendingWebSocketOperations.toList() // Create immutable copy
-                }
-                
-                // Convert operations to JSON
-                operationsSnapshot.forEach { operation ->
-                    val operationJson = JSONObject(operation.toJsonMap())
-                    operationsArray.put(operationJson)
-                }
-                
-                prefs.edit()
-                    .putString("pending_websocket_operations", operationsArray.toString())
-                    .apply()
-                
-            } catch (e: ConcurrentModificationException) {
-                // Retry once with a fresh snapshot if we still get CME
-                android.util.Log.w("Andromuks", "AppViewModel: ConcurrentModificationException in savePendingOperationsToStorage, retrying", e)
-                try {
-                    val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                    val operationsArray = JSONArray()
-                    val operationsSnapshot = synchronized(pendingOperationsLock) {
-                        pendingWebSocketOperations.toList()
-                    }
-                    operationsSnapshot.forEach { operation ->
-                        val operationJson = JSONObject(operation.toJsonMap())
-                        operationsArray.put(operationJson)
-                    }
-                    prefs.edit()
-                        .putString("pending_websocket_operations", operationsArray.toString())
-                        .apply()
-                } catch (e2: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Failed to save pending WebSocket operations to storage (retry also failed)", e2)
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Failed to save pending WebSocket operations to storage", e)
-            }
-        }
-    }
-    
-    /**
-     * PHASE 5.1: Load pending WebSocket operations from SharedPreferences
-     * Called on app startup
-     */
-    internal fun loadPendingOperationsFromStorage() {
-        appContext?.let { context ->
-            try {
-                val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                val operationsJson = prefs.getString("pending_websocket_operations", null)
-                
-                if (operationsJson == null || operationsJson.isEmpty()) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No pending WebSocket operations found in storage")
-                    return
-                }
-                
-                val operationsArray = JSONArray(operationsJson)
-                val loadedOperations = mutableListOf<PendingWebSocketOperation>()
-                val currentTime = System.currentTimeMillis()
-                
-                // Parse operations and filter out old ones (>24 hours)
-                for (i in 0 until operationsArray.length()) {
-                    val operationJson = operationsArray.getJSONObject(i)
-                    val operationMap = mutableMapOf<String, Any>()
-                    
-                    // Convert JSONObject to Map
-                    val keys = operationJson.keys()
-                    while (keys.hasNext()) {
-                        val key = keys.next()
-                        operationMap[key] = operationJson.get(key)
-                    }
-                    
-                    val operation = PendingWebSocketOperation.fromJsonMap(operationMap)
-                    if (operation != null) {
-                        // PHASE 5.1: Remove old messages (>24 hours)
-                        val age = currentTime - operation.timestamp
-                        if (age <= MAX_MESSAGE_AGE_MS) {
-                            loadedOperations.add(operation)
-                        } else {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed old pending operation (age: ${age / 1000 / 60} minutes): ${operation.type}")
-                        }
-                    }
-                }
-                
-                // PHASE 5.1: Limit queue size (keep most recent)
-                val operationsToLoad = if (loadedOperations.size > MAX_QUEUE_SIZE) {
-                    loadedOperations.sortedByDescending { it.timestamp }.take(MAX_QUEUE_SIZE)
-                } else {
-                    loadedOperations
-                }
-                
-                synchronized(pendingOperationsLock) {
-                pendingWebSocketOperations.clear()
-                pendingWebSocketOperations.addAll(operationsToLoad)
-                }
-                
-                if (operationsToLoad.isNotEmpty()) {
-                    android.util.Log.i("Andromuks", "AppViewModel: Loaded ${operationsToLoad.size} pending WebSocket operations from storage (removed ${loadedOperations.size - operationsToLoad.size} old/over-limit)")
-                } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No valid pending WebSocket operations to load")
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Failed to load pending WebSocket operations from storage", e)
-            }
-        }
-    }
-    
-    /**
-     * Retry pending unacknowledged operations after reconnection with stabilization delay
-     * Webmuks handles out-of-order messages, so we can retry in background without blocking new commands
-     */
-    private fun flushPendingQueueAfterReconnection() {
-        val pendingSize = synchronized(pendingOperationsLock) { pendingWebSocketOperations.size }
-        if (pendingSize == 0) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No pending operations to retry after reconnection")
-            return
-        }
-        
-        val unacknowledgedCount = synchronized(pendingOperationsLock) {
-            pendingWebSocketOperations.count { !it.acknowledged }
-        }
-        if (unacknowledgedCount == 0) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: All pending operations already acknowledged, no retry needed")
-            return
-        }
-        
-        android.util.Log.i("Andromuks", "AppViewModel: Scheduling retry of $unacknowledgedCount unacknowledged operations after stabilization delay")
-        lastReconnectionTime = System.currentTimeMillis()
-        
-        viewModelScope.launch {
-            // Wait 2 seconds after init_complete for backend to stabilize before retrying
-            // This prevents overwhelming the backend immediately after reconnection
-            delay(2000L)
-            
-            android.util.Log.i("Andromuks", "AppViewModel: Starting retry of pending operations (new commands can be sent immediately)")
-            retryPendingWebSocketOperations()
-            
-            // Wait a bit more to ensure all retries are processed
-            delay(500L)
-            
-            val remaining = synchronized(pendingOperationsLock) { pendingWebSocketOperations.size }
-            android.util.Log.i("Andromuks", "AppViewModel: Retry complete, $remaining operations remain in queue")
-        }
-    }
-    
-    /**
-     * PHASE 5.4: Retry pending WebSocket operations with smart queue management
-     * Only retries unacknowledged messages, respects timeouts, orders by timestamp, limits batch size
-     * QUEUE FLUSHING FIX: Now respects stabilization period after reconnection
-     */
-    private fun retryPendingWebSocketOperations() {
-        val pendingSize = synchronized(pendingOperationsLock) { pendingWebSocketOperations.size }
-        if (pendingSize == 0) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No pending WebSocket operations to retry")
-            return
-        }
-        
-        val currentTime = System.currentTimeMillis()
-        
-        // PHASE 5.4: Filter operations to retry:
-        // 1. Only unacknowledged messages
-        // 2. Only if acknowledgmentTimeout has passed
-        // 3. Sort by timestamp (oldest first)
-        val operationsToRetry = synchronized(pendingOperationsLock) {
-            pendingWebSocketOperations
-            .filter { !it.acknowledged && currentTime >= it.acknowledgmentTimeout }
-            .sortedBy { it.timestamp }
-            .take(10) // PHASE 5.4: Limit batch size to 10 at a time
-        }
-        
-        if (operationsToRetry.isEmpty()) {
-            val (acknowledgedCount, waitingCount, total) = synchronized(pendingOperationsLock) {
-                val ack = pendingWebSocketOperations.count { it.acknowledged }
-                val waiting = pendingWebSocketOperations.count { currentTime < it.acknowledgmentTimeout }
-                Triple(ack, waiting, pendingWebSocketOperations.size)
-            }
-            if (BuildConfig.DEBUG) android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: No operations ready to retry (acknowledged: $acknowledgedCount, waiting for timeout: $waitingCount, total: $total)"
-            )
-            return
-        }
-        
-        android.util.Log.i("Andromuks", "AppViewModel: PHASE 5.4 - Retrying ${operationsToRetry.size} pending WebSocket operations (oldest first, batch limited to 10)")
-        
-        // Remove operations from queue before retrying (will be re-added if they fail)
-        synchronized(pendingOperationsLock) {
-        operationsToRetry.forEach { pendingWebSocketOperations.remove(it) }
-        }
-        savePendingOperationsToStorage()
-        
-        // PHASE 5.4: Retry operations with delay between retries to avoid rate limiting
-        viewModelScope.launch {
-            operationsToRetry.forEachIndexed { index, operation ->
-                try {
-                    // PHASE 5.4: Add delay between retries (100ms) to avoid rate limiting
-                    if (index > 0) {
-                        delay(100L)
-                    }
-                    
-                    when (operation.type) {
-                        "sendMessage" -> {
-                            val roomId = operation.data["roomId"] as String?
-                            val text = operation.data["text"] as String?
-                            if (roomId != null && text != null) {
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Retrying sendMessage for room $roomId (attempt ${operation.retryCount + 1})")
-                                val result = messageSendCoordinator.sendMessageInternal(roomId, text)
-                                if (result != WebSocketResult.SUCCESS && operation.retryCount < maxRetryAttempts) {
-                                    // Re-queue if still failing
-                                    addPendingOperation(operation.copy(retryCount = operation.retryCount + 1), saveToStorage = true)
-                                }
-                            }
-                        }
-                        "sendReply" -> {
-                            // Note: SendReply operations would need the originalEvent, which is complex to serialize
-                            // For now, we'll skip retrying sendReply operations as they're less critical
-                            android.util.Log.w("Andromuks", "AppViewModel: Skipping retry of sendReply operation (complex to serialize)")
-                        }
-                        "markRoomAsRead" -> {
-                            val roomId = operation.data["roomId"] as String?
-                            val eventId = operation.data["eventId"] as String?
-                            if (roomId != null && eventId != null) {
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Retrying markRoomAsRead for room $roomId (attempt ${operation.retryCount + 1})")
-                                readReceiptsTypingCoordinator.markRoomAsReadInternal(roomId, eventId)
-                            }
-                        }
-                        else -> {
-                            // PHASE 5.4: Handle generic commands and offline retry commands
-                            if (operation.type.startsWith("offline_")) {
-                                val command = operation.data["command"] as String?
-                                val requestId = operation.data["requestId"] as Int?
-                                @Suppress("UNCHECKED_CAST")
-                                val data = operation.data["data"] as? Map<String, Any>
-                                
-                                if (command != null && requestId != null && data != null) {
-                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Retrying offline command: $command (attempt ${operation.retryCount + 1})")
-                                    sendWebSocketCommand(command, requestId, data)
-                                }
-                            } else if (operation.type.startsWith("command_")) {
-                                // PHASE 5.4: Retry generic commands
-                                val command = operation.type.removePrefix("command_")
-                                val requestId = operation.data["requestId"] as? Int
-                                @Suppress("UNCHECKED_CAST")
-                                val data = operation.data["data"] as? Map<String, Any>
-                                
-                                if (requestId != null && data != null) {
-                                    // SAFETY GUARD: prevent duplicate mark_read storms when acknowledgments never arrive
-                                    if (command == "mark_read") {
-                                        val roomId = data["room_id"] as? String
-                                        val eventId = data["event_id"] as? String
-                                        if (roomId != null && eventId != null) {
-                                            val lastSent = lastMarkReadSent[roomId]
-                                            if (lastSent == eventId) {
-                                                android.util.Log.w(
-                                                    "Andromuks",
-                                                    "AppViewModel: Skipping retry for duplicate mark_read for room $roomId event $eventId"
-                                                )
-                                                return@forEachIndexed
-                                            }
-                                            lastMarkReadSent[roomId] = eventId
-                                        }
-                                    }
-                                    // Generate new request_id for retry (can't reuse old one)
-                                    val newRequestId = requestIdCounter++
-                                    android.util.Log.w("Andromuks", "AppViewModel: Retrying command '$command' with new request_id: $newRequestId (was: $requestId, attempt ${operation.retryCount + 1})")
-                                    sendWebSocketCommand(command, newRequestId, data)
-                                }
-                            } else {
-                                android.util.Log.w("Andromuks", "AppViewModel: Unknown operation type for retry: ${operation.type}")
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Error retrying operation ${operation.type}: ${e.message}")
-                    if (operation.retryCount < maxRetryAttempts) {
-                        addPendingOperation(operation.copy(retryCount = operation.retryCount + 1), saveToStorage = true)
-                    }
-                }
-            }
-            
-            // PHASE 5.1: Save queue after retry operations complete
-            savePendingOperationsToStorage()
-            
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.4 - Finished retrying ${operationsToRetry.size} operations, ${pendingWebSocketOperations.size} remain queued")
-        }
-    }
-    
+    internal fun addPendingOperation(operation: PendingWebSocketOperation, saveToStorage: Boolean = false): Boolean =
+        persistenceCoordinator.addPendingOperation(operation, saveToStorage)
+
+    internal fun loadPendingOperationsFromStorage() = persistenceCoordinator.loadPendingOperationsFromStorage()
+
+    internal fun savePendingOperationsToStorage() = persistenceCoordinator.savePendingOperationsToStorage()
+
+    private fun flushPendingQueueAfterReconnection() = persistenceCoordinator.flushPendingQueueAfterReconnection()
 
     fun noteIncomingRequestId(requestId: Int) {
         if (requestId != 0) {
@@ -5718,82 +5033,11 @@ class AppViewModel : ViewModel() {
      * Check if an event is pinned in the current room
      */
     
-    /**
-     * Saves the current WebSocket state and room data to persistent storage.
-     * This allows the app to resume quickly on restart by loading cached data
-     * and reconnecting with run_id and last_received_id.
-     * 
-     * Note: With foreground service maintaining connection, this primarily serves as
-     * crash recovery - preserving run_id and sync state for seamless resumption if
-     * the app process is killed by the system.
-     */
-    fun saveStateToStorage(context: android.content.Context) {
-        try {
-            val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-            val editor = prefs.edit()
-            
-            // Save WebSocket connection state
-            editor.putString("ws_run_id", currentRunId)
-            editor.putString("ws_vapid_key", vapidKey)
-            
-            // Save room data as JSON
-            val roomsArray = JSONArray()
-            for (room in allRooms) {
-                val roomJson = JSONObject()
-                roomJson.put("id", room.id)
-                roomJson.put("name", room.name)
-                roomJson.put("avatarUrl", room.avatarUrl ?: "")
-                roomJson.put("messagePreview", room.messagePreview ?: "")
-                roomJson.put("messageSender", room.messageSender ?: "")
-                roomJson.put("sortingTimestamp", room.sortingTimestamp ?: 0L)
-                roomJson.put("unreadCount", room.unreadCount ?: 0)
-                roomJson.put("highlightCount", room.highlightCount ?: 0)
-                roomJson.put("isDirectMessage", room.isDirectMessage)
-                roomsArray.put(roomJson)
-            }
-            editor.putString("cached_rooms", roomsArray.toString())
-            
-            // Save timestamp of when state was saved
-            editor.putLong("state_saved_timestamp", System.currentTimeMillis())
-            
-            editor.apply()
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to save state to storage", e)
-        }
-    }
-    /**
-     * Loads the previously saved WebSocket state and room data from persistent storage.
-     * Returns true if cached data was loaded, false otherwise.
-     */
-    /**
-     * Load minimal state from SharedPreferences (run_id and vapid_key only).
-     * All room/space/account data comes from sync_complete on reconnect.
-     */
-    fun loadStateFromStorage(context: android.content.Context): Boolean {
-        try {
-            // Load activity log from storage first
-            loadActivityLogFromStorage(context)
-            
-            // Load only run_id and vapid_key from SharedPreferences
-            // All room/space/account data comes from sync_complete on reconnect (clear_state: true)
-            val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-            val runId = prefs.getString("ws_run_id", "") ?: ""
-            val savedVapidKey = prefs.getString("ws_vapid_key", "") ?: ""
-            
-            if (runId.isNotEmpty()) {
-                currentRunId = runId
-                vapidKey = savedVapidKey
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored WebSocket state from SharedPreferences - run_id: $runId")
-                return true
-            }
-            
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No run_id found in SharedPreferences")
-            return false
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to load state from storage", e)
-            return false
-        }
-    }
+    fun saveStateToStorage(context: android.content.Context) = persistenceCoordinator.saveStateToStorage(context)
+
+    /** Load minimal state from SharedPreferences (run_id and vapid_key only). */
+    fun loadStateFromStorage(context: android.content.Context): Boolean =
+        persistenceCoordinator.loadStateFromStorage(context)
     
     /**
      * Handles 401 Unauthorized error by clearing all credentials and triggering login navigation.
@@ -5853,7 +5097,7 @@ class AppViewModel : ViewModel() {
     }
 
     
-    private fun restartWebSocket(trigger: ReconnectTrigger = ReconnectTrigger.Unclassified("Unknown reason")) {
+    internal fun restartWebSocket(trigger: ReconnectTrigger = ReconnectTrigger.Unclassified("Unknown reason")) {
         // INFINITE LOOP FIX: Prevent rapid-fire restarts
         val currentTime = System.currentTimeMillis()
         val timeSinceLastRestart = currentTime - lastRestartTime
@@ -6539,19 +5783,6 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $stateRequestId (include_members=true)")
     }
     
-    /**
-     * OPPORTUNISTIC PROFILE LOADING: Request profile for a single user only when needed for rendering.
-     * This prevents loading 15,000+ profiles upfront and only loads what's actually displayed.
-     */
-    private fun estimateProfileEntryBytes(key: String, profile: MemberProfile): Long {
-        var bytes = (key.length * 2).toLong()
-        profile.displayName?.let { bytes += it.length * 2L }
-        profile.avatarUrl?.let { bytes += it.length * 2L }
-        // overhead fudge factor
-        bytes += 64
-        return bytes
-    }
-
     fun requestUserProfileOnDemand(userId: String, roomId: String) {
         // CRITICAL FIX: Check if we have a valid profile (not just non-null)
         // A profile with blank displayName should still be requested to get the actual name
@@ -6904,87 +6135,8 @@ class AppViewModel : ViewModel() {
     fun sendReaction(roomId: String, eventId: String, emoji: String) =
         reactionCoordinator.sendReaction(roomId, eventId, emoji)
     
-    fun updateRecentEmojis(emoji: String) {
-        // CRITICAL: Do NOT update recentEmojiFrequencies here - it will be updated when we receive sync_complete from the server.
-        // We only read from it to create the updated list to send, and update the UI optimistically for better UX.
-        
-        if (!hasLoadedRecentEmojisFromServer) {
-            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Skipping updateRecentEmojis - haven't loaded full recent emoji list from server yet. Will update after sync completes.")
-            return
-        }
-        
-        // Create a copy of the current frequencies (from server) and update it
-        val currentFrequencies = recentEmojiFrequencies.toMutableList()
-        val existingIndex = currentFrequencies.indexOfFirst { it.first == emoji }
-        
-        if (existingIndex >= 0) {
-            // Emoji exists - increment its count
-            val existingPair = currentFrequencies[existingIndex]
-            val newCount = existingPair.second + 1
-            currentFrequencies[existingIndex] = Pair(emoji, newCount)
-        } else {
-            // New emoji - add with count 1
-            currentFrequencies.add(Pair(emoji, 1))
-        }
-        
-        // Sort by frequency (descending)
-        val sortedFrequencies = currentFrequencies.sortedByDescending { it.second }
-        
-        // Keep only top 20
-        val updatedFrequencies = sortedFrequencies.take(20)
-        
-        // CRITICAL SAFEGUARD: Ensure we never have an empty list after update
-        if (updatedFrequencies.isEmpty()) {
-            android.util.Log.e("Andromuks", "AppViewModel: updateRecentEmojis resulted in empty list for emoji '$emoji' - this should never happen!")
-            return
-        }
-        
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: Preparing to send emoji update - current list has ${recentEmojiFrequencies.size} emojis, updated list will have ${updatedFrequencies.size} emojis")
-            android.util.Log.d("Andromuks", "AppViewModel: Emoji '$emoji' will have count ${updatedFrequencies.find { it.first == emoji }?.second ?: 1}")
-            android.util.Log.d("Andromuks", "AppViewModel: Full list being sent: ${updatedFrequencies.joinToString(", ") { "${it.first}(${it.second})" }}")
-        }
-        
-        // Send the updated list to the server
-        sendAccountDataUpdate(updatedFrequencies)
-        
-        // Update UI optimistically for better UX (but don't update recentEmojiFrequencies - server will send it back)
-        val emojisList = updatedFrequencies.map { it.first }
-        RecentEmojisCache.set(emojisList)
-        recentEmojis = emojisList
-    }
-    
-    private fun sendAccountDataUpdate(frequencies: List<Pair<String, Int>>) {
-        val ws = WebSocketService.getWebSocket() ?: return
-        
-        // CRITICAL SAFEGUARD: Never send empty recent_emoji array to server
-        // This would clear all recent emojis. If frequencies is empty, something went wrong.
-        if (frequencies.isEmpty()) {
-            android.util.Log.w("Andromuks", "AppViewModel: sendAccountDataUpdate called with empty frequencies list - skipping send to prevent clearing recent emojis")
-            return
-        }
-        
-        val accountDataRequestId = requestIdCounter++
-        
-        // Create the recent_emoji array format: [["emoji", count], ...]
-        val recentEmojiArray = frequencies.map { listOf(it.first, it.second) }
-        
-        val commandData = mapOf(
-            "type" to "io.element.recent_emoji",
-            "content" to mapOf(
-                "recent_emoji" to recentEmojiArray
-            )
-        )
-        
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: set_account_data with ${frequencies.size} emojis")
-            android.util.Log.d("Andromuks", "AppViewModel: Emojis being sent: ${frequencies.joinToString(", ") { "${it.first}(${it.second})" }}")
-            android.util.Log.d("Andromuks", "AppViewModel: Full command data: $commandData")
-        }
-        sendWebSocketCommand("set_account_data", accountDataRequestId, commandData)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $accountDataRequestId")
-    }
-    
+    fun updateRecentEmojis(emoji: String) = accountDataCoordinator.updateRecentEmojis(emoji)
+
     fun sendReply(roomId: String, text: String, originalEvent: TimelineEvent) =
         messageSendCoordinator.sendReply(roomId, text, originalEvent)
 
@@ -9778,31 +8930,8 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    /**
-     * PHASE 5.2/5.3: Handle message acknowledgment by request_id (source of truth)
-     * Backend responds with same request_id, so we match by request_id stored in operation data
-     * Finds message in queue, marks as acknowledged, and removes from queue
-     * 
-     * This is called from handleResponse() and handleError() for all commands with positive request_id
-     */
-    private fun handleMessageAcknowledgmentByRequestId(requestId: Int) {
-        val operation: PendingWebSocketOperation? = synchronized(pendingOperationsLock) {
-            pendingWebSocketOperations.find { op ->
-                (op.data["requestId"] as? Int) == requestId
-            }
-        }
-        if (operation != null) {
-            val command = operation.data["command"] as? String ?: operation.type.removePrefix("command_")
-            val elapsed = System.currentTimeMillis() - operation.timestamp
-            logActivity("Command Acknowledged - $command (request_id: $requestId)", null)
-            synchronized(pendingOperationsLock) {
-            pendingWebSocketOperations.remove(operation)
-            }
-            savePendingOperationsToStorage()
-        } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.3 - No pending operation found for requestId: $requestId (may have been already acknowledged, not tracked, or request_id=0)")
-        }
-    }
+    private fun handleMessageAcknowledgmentByRequestId(requestId: Int) =
+        persistenceCoordinator.handleMessageAcknowledgmentByRequestId(requestId)
     
     fun handleRoomSummaryResponse(requestId: Int, data: Any) {
         val roomId = roomSummaryRequests[requestId]
@@ -9834,386 +8963,9 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    /**
-     * Build a mutable copy of the current m.direct map (user MXID -> room IDs).
-     * Merges [directMessageUserMap] with [AccountDataCache] so entries only present in one
-     * source (e.g. cache restored after partial sync bugs) are not lost.
-     */
-    private fun mutableDirectMapFromCurrent(): MutableMap<String, MutableList<String>> {
-        val out = mutableMapOf<String, MutableList<String>>()
-        for ((userId, roomSet) in directMessageUserMap) {
-            out[userId] = roomSet.toMutableList()
-        }
-        val mDirectWrapper = AccountDataCache.getAccountData("m.direct") ?: return out
-        val content = mDirectWrapper.optJSONObject("content") ?: return out
-        val names = content.names() ?: return out
-        for (i in 0 until names.length()) {
-            val userId = names.optString(i)
-            if (userId.isBlank()) continue
-            val arr = content.optJSONArray(userId) ?: continue
-            val list = out.getOrPut(userId) { mutableListOf() }
-            for (j in 0 until arr.length()) {
-                val id = arr.optString(j)
-                if (id.isNotBlank() && id !in list) list.add(id)
-            }
-        }
-        return out
-    }
+    fun executeCommand(roomId: String, text: String, context: android.content.Context, navController: androidx.navigation.NavController? = null): Boolean =
+        slashCommandsCoordinator.executeCommand(roomId, text, context, navController)
 
-    /**
-     * If the room has exactly one other member (besides [currentUserId]), return their MXID; otherwise null.
-     */
-    private fun inferSingleOtherMemberMxid(roomId: String): String? {
-        if (currentUserId.isBlank()) return null
-        val others = getMemberMap(roomId).keys.filter { it.isNotBlank() && it != currentUserId }
-        return others.singleOrNull()
-    }
-
-    /**
-     * Remove [roomId] from every user's DM list in [map].
-     */
-    private fun removeRoomFromAllDirectEntries(map: MutableMap<String, MutableList<String>>, roomId: String) {
-        for (uid in map.keys.toList()) {
-            map[uid]?.remove(roomId)
-            if (map[uid].isNullOrEmpty()) map.remove(uid)
-        }
-    }
-
-    /**
-     * Commit full m.direct content to the server and apply the same state locally (optimistic).
-     */
-    private fun commitMDirectToServer(map: MutableMap<String, MutableList<String>>) {
-        val contentMap = mutableMapOf<String, Any>()
-        for ((userId, rooms) in map) {
-            if (rooms.isNotEmpty()) {
-                contentMap[userId] = ArrayList(rooms)
-            }
-        }
-        val requestId = requestIdCounter++
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: set_account_data m.direct — ${contentMap.size} user keys, ${map.values.sumOf { it.size }} room entries (local caches updated on next sync_complete)"
-            )
-        }
-        // No optimistic update: m.direct / room DM flags refresh when account_data arrives via sync_complete.
-        sendWebSocketCommand(
-            "set_account_data",
-            requestId,
-            mapOf(
-                "type" to "m.direct",
-                "content" to contentMap
-            )
-        )
-    }
-
-    /**
-     * Parse and execute a command from user input
-     * Returns true if the text was a command and was executed, false otherwise
-     */
-    fun executeCommand(roomId: String, text: String, context: android.content.Context, navController: androidx.navigation.NavController? = null): Boolean {
-        val trimmed = text.trim()
-        if (!trimmed.startsWith("/")) return false
-        
-        val parts = trimmed.split("\\s+".toRegex(), limit = 10) // Limit to prevent issues with very long inputs
-        if (parts.isEmpty()) return false
-        
-        val command = parts[0].lowercase()
-        val args = parts.drop(1)
-        
-        return when {
-            command == "/join" || command == "/j" -> {
-                if (args.isNotEmpty()) {
-                    val roomRef = args[0]
-                    val reason = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() }
-                    // Navigate to join view or join room directly
-                    if (navController != null) {
-                        // TODO: Navigate to join view or handle join
-                        android.util.Log.d("Andromuks", "AppViewModel: /join command - room: $roomRef, reason: $reason")
-                    }
-                }
-                true
-            }
-            command == "/leave" || command == "/part" -> {
-                val reason = args.joinToString(" ").takeIf { it.isNotBlank() }
-                leaveRoom(roomId)
-                true
-            }
-            command == "/invite" -> {
-                if (args.isNotEmpty()) {
-                    val userId = args[0]
-                    val reason = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() }
-                    val requestId = requestIdCounter++
-                    sendWebSocketCommand("set_membership", requestId, mapOf(
-                        "room_id" to roomId,
-                        "user_id" to userId,
-                        "action" to "invite",
-                        "reason" to (reason ?: "")
-                    ))
-                }
-                true
-            }
-            command == "/kick" -> {
-                if (args.isNotEmpty()) {
-                    val userId = args[0]
-                    val reason = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() }
-                    val requestId = requestIdCounter++
-                    sendWebSocketCommand("set_membership", requestId, mapOf(
-                        "room_id" to roomId,
-                        "user_id" to userId,
-                        "action" to "kick",
-                        "reason" to (reason ?: "")
-                    ))
-                }
-                true
-            }
-            command == "/ban" -> {
-                if (args.isNotEmpty()) {
-                    val userId = args[0]
-                    val reason = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() }
-                    val requestId = requestIdCounter++
-                    sendWebSocketCommand("set_membership", requestId, mapOf(
-                        "room_id" to roomId,
-                        "user_id" to userId,
-                        "action" to "ban",
-                        "reason" to (reason ?: "")
-                    ))
-                }
-                true
-            }
-            command == "/myroomnick" || command == "/roomnick" -> {
-                if (args.isNotEmpty()) {
-                    val name = args.joinToString(" ")
-                    // Send m.room.member state event to set display name
-                    val requestId = requestIdCounter++
-                    sendWebSocketCommand("set_state", requestId, mapOf(
-                        "room_id" to roomId,
-                        "type" to "m.room.member",
-                        "state_key" to currentUserId,
-                        "content" to mapOf(
-                            "displayname" to name,
-                            "membership" to "join"
-                        )
-                    ))
-                }
-                true
-            }
-            command == "/myroomavatar" -> {
-                // Return false so UI can handle image picker, upload, and set_state
-                return false
-            }
-            command == "/globalnick" || command == "/globalname" -> {
-                if (args.isNotEmpty()) {
-                    val name = args.joinToString(" ")
-                    // Use set_profile_field command for global display name
-                    val requestId = requestIdCounter++
-                    sendWebSocketCommand("set_profile_field", requestId, mapOf(
-                        "field" to "displayname",
-                        "value" to name
-                    ))
-                }
-                true
-            }
-            command == "/globalavatar" -> {
-                // Return special value to indicate UI should open image picker
-                // The UI will handle upload and then call setAvatarProfileField
-                return false // UI will handle this
-            }
-            command == "/roomname" -> {
-                if (args.isNotEmpty()) {
-                    val name = args.joinToString(" ")
-                    val requestId = requestIdCounter++
-                    sendWebSocketCommand("set_state", requestId, mapOf(
-                        "room_id" to roomId,
-                        "type" to "m.room.name",
-                        "state_key" to "",
-                        "content" to mapOf("name" to name)
-                    ))
-                }
-                true
-            }
-            command == "/roomavatar" -> {
-                // Return false so UI can handle image picker, upload, and set_state
-                return false
-            }
-            command == "/redact" -> {
-                if (args.isNotEmpty()) {
-                    val eventId = args[0]
-                    val reason = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() }
-                    val requestId = requestIdCounter++
-                    sendWebSocketCommand("redact_event", requestId, mapOf(
-                        "room_id" to roomId,
-                        "event_id" to eventId,
-                        "reason" to (reason ?: "")
-                    ))
-                }
-                true
-            }
-            command == "/raw" -> {
-                if (args.isNotEmpty()) {
-                    val eventType = args[0]
-                    val jsonStr = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() } ?: "{}"
-                    val requestId = requestIdCounter++
-                    try {
-                        val content = org.json.JSONObject(jsonStr)
-                        val contentMap = mutableMapOf<String, Any>()
-                        val keys = content.keys()
-                        while (keys.hasNext()) {
-                            val key = keys.next()
-                            contentMap[key] = content.get(key)
-                        }
-                        sendWebSocketCommand("send_event", requestId, mapOf(
-                            "room_id" to roomId,
-                            "type" to eventType,
-                            "content" to contentMap,
-                            "disable_encryption" to false
-                        ))
-                    } catch (e: Exception) {
-                        android.util.Log.e("Andromuks", "AppViewModel: Invalid JSON in /raw command", e)
-                    }
-                }
-                true
-            }
-            command == "/unencryptedraw" -> {
-                if (args.isNotEmpty()) {
-                    val eventType = args[0]
-                    val jsonStr = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() } ?: "{}"
-                    val requestId = requestIdCounter++
-                    try {
-                        val content = org.json.JSONObject(jsonStr)
-                        val contentMap = mutableMapOf<String, Any>()
-                        val keys = content.keys()
-                        while (keys.hasNext()) {
-                            val key = keys.next()
-                            contentMap[key] = content.get(key)
-                        }
-                        sendWebSocketCommand("send_event", requestId, mapOf(
-                            "room_id" to roomId,
-                            "type" to eventType,
-                            "content" to contentMap,
-                            "disable_encryption" to true
-                        ))
-                    } catch (e: Exception) {
-                        android.util.Log.e("Andromuks", "AppViewModel: Invalid JSON in /unencryptedraw command", e)
-                    }
-                }
-                true
-            }
-            command == "/rawstate" -> {
-                if (args.size >= 2) {
-                    val eventType = args[0]
-                    val stateKey = args[1]
-                    val jsonStr = args.drop(2).joinToString(" ").takeIf { it.isNotBlank() } ?: "{}"
-                    val requestId = requestIdCounter++
-                    try {
-                        val content = org.json.JSONObject(jsonStr)
-                        val contentMap = mutableMapOf<String, Any>()
-                        val keys = content.keys()
-                        while (keys.hasNext()) {
-                            val key = keys.next()
-                            contentMap[key] = content.get(key)
-                        }
-                        sendWebSocketCommand("set_state", requestId, mapOf(
-                            "room_id" to roomId,
-                            "type" to eventType,
-                            "state_key" to stateKey,
-                            "content" to contentMap
-                        ))
-                    } catch (e: Exception) {
-                        android.util.Log.e("Andromuks", "AppViewModel: Invalid JSON in /rawstate command", e)
-                    }
-                }
-                true
-            }
-            command == "/alias" -> {
-                if (args.size >= 2) {
-                    val action = args[0].lowercase()
-                    val alias = args[1]
-                    val requestId = requestIdCounter++
-                    when (action) {
-                        "add", "create" -> {
-                            // Add alias - send m.room.canonical_alias state event
-                            sendWebSocketCommand("set_state", requestId, mapOf(
-                                "room_id" to roomId,
-                                "type" to "m.room.canonical_alias",
-                                "state_key" to "",
-                                "content" to mapOf("alias" to alias)
-                            ))
-                        }
-                        "del", "remove", "rm", "delete" -> {
-                            // Remove alias - send m.room.canonical_alias state event with empty alias
-                            sendWebSocketCommand("set_state", requestId, mapOf(
-                                "room_id" to roomId,
-                                "type" to "m.room.canonical_alias",
-                                "state_key" to "",
-                                "content" to mapOf("alias" to "")
-                            ))
-                        }
-                    }
-                }
-                true
-            }
-            command == "/converttodm" -> {
-                // Everything after the command (limit 2) so "[Display Name](https://matrix.to/#/@user:server)" works
-                val remainder =
-                    trimmed.split("\\s+".toRegex(), limit = 2).getOrNull(1)?.trim().orEmpty()
-                val arg0 = remainder.takeIf { it.isNotBlank() }
-                val targetUserId = if (arg0 != null) {
-                    MatrixMxidUtils.parseFlexibleUserMxidInput(arg0)
-                } else {
-                    val inferred = inferSingleOtherMemberMxid(roomId)
-                    if (inferred == null) {
-                        android.widget.Toast.makeText(
-                            context,
-                            "Specify a user (@user:server) or use in a room with exactly one other member",
-                            android.widget.Toast.LENGTH_LONG
-                        ).show()
-                        return true
-                    }
-                    MatrixMxidUtils.normalizeMxid(inferred)
-                }
-                if (!targetUserId.contains(":") || targetUserId.length < 4) {
-                    android.widget.Toast.makeText(
-                        context,
-                        "Invalid Matrix user ID",
-                        android.widget.Toast.LENGTH_SHORT
-                    ).show()
-                    return true
-                }
-                val map = mutableDirectMapFromCurrent()
-                removeRoomFromAllDirectEntries(map, roomId)
-                val list = map.getOrPut(targetUserId) { mutableListOf() }
-                if (roomId !in list) list.add(roomId)
-                commitMDirectToServer(map)
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "AppViewModel: /converttodm — room=$roomId with $targetUserId")
-                }
-                true
-            }
-            command == "/converttoroom" -> {
-                val map = mutableDirectMapFromCurrent()
-                val wasDirect = map.values.any { it.contains(roomId) }
-                if (!wasDirect) {
-                    val msg = if (roomMap[roomId]?.isDirectMessage == true) {
-                        "This room is not in your m.direct map here, so it can't be removed that way. " +
-                            "The Direct tab may be using room metadata (dm_user_id), not account m.direct."
-                    } else {
-                        "This room is not in your m.direct list."
-                    }
-                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
-                    return true
-                }
-                removeRoomFromAllDirectEntries(map, roomId)
-                commitMDirectToServer(map)
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "AppViewModel: /converttoroom — removed $roomId from m.direct")
-                }
-                true
-            }
-            else -> false // Not a recognized command
-        }
-    }
-    
     /**
      * Set room member avatar (myroomavatar command)
      * Called after image is uploaded
@@ -10267,60 +9019,7 @@ class AppViewModel : ViewModel() {
         return ignoredUsers.contains(userId)
     }
     
-    /**
-     * Set ignored users list (add or remove a user)
-     */
-    fun setIgnoredUser(userId: String, ignore: Boolean) {
-        val currentIgnored = ignoredUsers.toMutableSet()
-        
-        if (ignore) {
-            // Add user to ignored list
-            currentIgnored.add(userId)
-        } else {
-            // Remove user from ignored list
-            currentIgnored.remove(userId)
-        }
-        
-        // Build the ignored_users object with empty objects as values
-        val ignoredUsersObj = org.json.JSONObject()
-        currentIgnored.forEach { ignoredUserId ->
-            ignoredUsersObj.put(ignoredUserId, org.json.JSONObject())
-        }
-        
-        // Convert JSONObject to Map for the command
-        val ignoredUsersMap = mutableMapOf<String, Any>()
-        val keys = ignoredUsersObj.names()
-        if (keys != null) {
-            for (i in 0 until keys.length()) {
-                val key = keys.optString(i)
-                val value = ignoredUsersObj.optJSONObject(key)
-                if (value != null) {
-                    // Convert empty JSONObject to empty Map
-                    ignoredUsersMap[key] = emptyMap<String, Any>()
-                }
-            }
-        }
-        
-        // Send set_account_data command
-        val requestId = requestIdCounter++
-        val commandData = mapOf(
-            "type" to "m.ignored_user_list",
-            "content" to mapOf(
-                "ignored_users" to ignoredUsersMap
-            )
-        )
-        
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: Setting ignored users: ${if (ignore) "ignoring" else "unignoring"} $userId")
-            android.util.Log.d("Andromuks", "AppViewModel: Total ignored users: ${currentIgnored.size}")
-        }
-        
-        // Update local state immediately (optimistic update)
-        ignoredUsers = currentIgnored.toSet()
-        
-        // Send to server
-        sendWebSocketCommand("set_account_data", requestId, commandData)
-    }
+    fun setIgnoredUser(userId: String, ignore: Boolean) = accountDataCoordinator.setIgnoredUser(userId, ignore)
     
     /**
      * Get next request ID (for operations that need multiple requests)
@@ -10381,68 +9080,8 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    /**
-     * Set room tag (favourite or low priority)
-     * @param roomId The room ID
-     * @param tagType Either "m.favourite" or "m.lowpriority"
-     * @param enabled Whether the tag should be enabled (true) or removed (false)
-     */
-    fun setRoomTag(roomId: String, tagType: String, enabled: Boolean) {
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: Setting room tag - roomId: $roomId, tagType: $tagType, enabled: $enabled")
-        }
-        
-        val requestId = requestIdCounter++
-        
-        // Build tags object - include all existing tags plus the new one, or exclude it if disabling
-        val existingRoom = roomMap[roomId]
-        val existingTags = mutableMapOf<String, Map<String, Any>>()
-        
-        // Preserve existing tags
-        if (existingRoom != null) {
-            if (existingRoom.isFavourite && tagType != "m.favourite") {
-                existingTags["m.favourite"] = emptyMap()
-            }
-            if (existingRoom.isLowPriority && tagType != "m.lowpriority") {
-                existingTags["m.lowpriority"] = emptyMap()
-            }
-        }
-        
-        // Add or remove the target tag
-        if (enabled) {
-            existingTags[tagType] = emptyMap()
-        }
-        
-        val commandData = mapOf(
-            "type" to "m.tag",
-            "room_id" to roomId,
-            "content" to mapOf(
-                "tags" to existingTags
-            )
-        )
-        
-        // Optimistically update local state
-        val updatedRoom = existingRoom?.let { room ->
-            when (tagType) {
-                "m.favourite" -> room.copy(isFavourite = enabled)
-                "m.lowpriority" -> room.copy(isLowPriority = enabled)
-                else -> room
-            }
-        }
-        
-        if (updatedRoom != null) {
-            roomMap[roomId] = updatedRoom
-            RoomListCache.updateRoom(updatedRoom)
-            // Trigger UI update
-            forceRoomListSort()
-        }
-        
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: Sending set_account_data for room tag - commandData: $commandData")
-        }
-        
-        sendWebSocketCommand("set_account_data", requestId, commandData)
-    }
+    fun setRoomTag(roomId: String, tagType: String, enabled: Boolean) =
+        accountDataCoordinator.setRoomTag(roomId, tagType, enabled)
     
     /**
      * Set room avatar (roomavatar command)
@@ -10943,242 +9582,29 @@ class AppViewModel : ViewModel() {
         }
     }
 
-    // Settings functions
-    fun toggleCompression() {
-        enableCompression = !enableCompression
-        
-        // Save setting to SharedPreferences
-        appContext?.let { context ->
-            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            val saved = prefs.edit()
-                .putBoolean("enable_compression", enableCompression)
-                .commit() // Use commit() instead of apply() to ensure it's saved synchronously
-            
-            // RACE CONDITION FIX: Read back immediately after commit() to verify it was written
-            // This ensures the value is visible before we start the async reconnection
-            val verify = prefs.getBoolean("enable_compression", !enableCompression)
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "AppViewModel: Saved enableCompression setting: $enableCompression (commit result: $saved, verified: $verify)")
-                if (verify != enableCompression) {
-                    android.util.Log.e("Andromuks", "AppViewModel: CRITICAL - Compression setting mismatch! Expected: $enableCompression, got: $verify")
-                }
-            }
-            
-            // RACE CONDITION FIX: Add small delay to ensure SharedPreferences write is fully flushed
-            // Even though commit() is synchronous, there can be thread visibility issues
-            // when reading from a different coroutine scope (serviceScope)
-            viewModelScope.launch {
-                delay(100) // 100ms delay to ensure write is visible to other threads
-                
-                // Double-check the value is correct before reconnecting
-                val finalValue = prefs.getBoolean("enable_compression", !enableCompression)
-                if (finalValue != enableCompression) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Compression setting still incorrect after delay! Expected: $enableCompression, got: $finalValue - retrying save")
-                    // Retry save
-                    prefs.edit().putBoolean("enable_compression", enableCompression).commit()
-                }
-                
-                // Restart WebSocket with new compression setting
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restarting WebSocket due to compression setting change (value: $enableCompression)")
-                logActivity("Compression Setting Changed - Restarting", null)
-                restartWebSocket(ReconnectTrigger.Unclassified("Compression setting changed"))
-            }
-        } ?: run {
-            // No context - can't save or reconnect
-            android.util.Log.e("Andromuks", "AppViewModel: Cannot toggle compression - appContext is null")
-        }
-    }
-    
-    fun toggleEnterKeyBehavior() {
-        enterKeySendsMessage = !enterKeySendsMessage
-        
-        // Save setting to SharedPreferences
-        appContext?.let { context ->
-            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            prefs.edit()
-                .putBoolean("enter_key_sends_message", enterKeySendsMessage)
-                .apply()
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved enterKeySendsMessage setting: $enterKeySendsMessage")
-        }
-    }
-    
-    fun toggleLoadThumbnailsIfAvailable() {
-        loadThumbnailsIfAvailable = !loadThumbnailsIfAvailable
-        
-        appContext?.let { context ->
-            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            prefs.edit()
-                .putBoolean("load_thumbnails_if_available", loadThumbnailsIfAvailable)
-                .apply()
-            if (BuildConfig.DEBUG) android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved loadThumbnailsIfAvailable setting: $loadThumbnailsIfAvailable"
-            )
-        }
-    }
-    
-    fun toggleRenderThumbnailsAlways() {
-        renderThumbnailsAlways = !renderThumbnailsAlways
-        
-        appContext?.let { context ->
-            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            prefs.edit()
-                .putBoolean("render_thumbnails_always", renderThumbnailsAlways)
-                .apply()
-            if (BuildConfig.DEBUG) android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved renderThumbnailsAlways setting: $renderThumbnailsAlways"
-            )
-        }
-    }
+    fun toggleCompression() = settingsCoordinator.toggleCompression()
 
-    fun toggleShowAllRoomListTabs() {
-        showAllRoomListTabs = !showAllRoomListTabs
+    fun toggleEnterKeyBehavior() = settingsCoordinator.toggleEnterKeyBehavior()
 
-        appContext?.let { context ->
-            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            prefs.edit()
-                .putBoolean("show_all_room_list_tabs", showAllRoomListTabs)
-                .apply()
-            if (BuildConfig.DEBUG) android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved showAllRoomListTabs setting: $showAllRoomListTabs"
-            )
-        }
-    }
+    fun toggleLoadThumbnailsIfAvailable() = settingsCoordinator.toggleLoadThumbnailsIfAvailable()
 
-    fun toggleMoveReadReceiptsToEdge() {
-        moveReadReceiptsToEdge = !moveReadReceiptsToEdge
+    fun toggleRenderThumbnailsAlways() = settingsCoordinator.toggleRenderThumbnailsAlways()
 
-        appContext?.let { context ->
-            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            prefs.edit()
-                .putBoolean("move_read_receipts_to_edge", moveReadReceiptsToEdge)
-                .apply()
-            if (BuildConfig.DEBUG) android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved moveReadReceiptsToEdge setting: $moveReadReceiptsToEdge"
-            )
-        }
-    }
+    fun toggleShowAllRoomListTabs() = settingsCoordinator.toggleShowAllRoomListTabs()
 
-    fun toggleTrimLongDisplayNames() {
-        trimLongDisplayNames = !trimLongDisplayNames
+    fun toggleMoveReadReceiptsToEdge() = settingsCoordinator.toggleMoveReadReceiptsToEdge()
 
-        appContext?.let { context ->
-            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            prefs.edit()
-                .putBoolean("trim_long_display_names", trimLongDisplayNames)
-                .apply()
-            if (BuildConfig.DEBUG) android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved trimLongDisplayNames setting: $trimLongDisplayNames"
-            )
-        }
-    }
+    fun toggleTrimLongDisplayNames() = settingsCoordinator.toggleTrimLongDisplayNames()
 
-    fun updateElementCallBaseUrl(url: String) {
-        elementCallBaseUrl = url.trim()
-        appContext?.let { context ->
-            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            prefs.edit()
-                .putString("element_call_base_url", elementCallBaseUrl)
-                .apply()
-            if (BuildConfig.DEBUG) android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved elementCallBaseUrl setting: $elementCallBaseUrl"
-            )
-        }
-    }
+    fun updateElementCallBaseUrl(url: String) = settingsCoordinator.updateElementCallBaseUrl(url)
 
-    // ── Background purge settings ───────────────────────────────────────────
+    fun updateBackgroundPurgeInterval(minutes: Int) = settingsCoordinator.updateBackgroundPurgeInterval(minutes)
 
-    /**
-     * Update the periodic background purge interval (in minutes).
-     * Also pushes the value into the live [SyncBatchProcessor].
-     */
-    fun updateBackgroundPurgeInterval(minutes: Int) {
-        val clamped = minutes.coerceIn(1, 1440) // 1 min … 24 h
-        backgroundPurgeIntervalMinutes = clamped
-        syncBatchProcessor.batchIntervalMs = clamped.toLong() * 60_000L
-        appContext?.let { ctx ->
-            ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                .edit()
-                .putInt("background_purge_interval_minutes", clamped)
-                .apply()
-        }
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks",
-            "AppViewModel: backgroundPurgeIntervalMinutes=$clamped → ${syncBatchProcessor.batchIntervalMs}ms")
-    }
+    fun updateBackgroundPurgeThreshold(count: Int) = settingsCoordinator.updateBackgroundPurgeThreshold(count)
 
-    /**
-     * Update the message-count threshold that triggers an automatic background purge.
-     */
-    fun updateBackgroundPurgeThreshold(count: Int) {
-        val clamped = count.coerceIn(10, 100_000)
-        backgroundPurgeMessageThreshold = clamped
-        syncBatchProcessor.maxBatchSize = clamped
-        appContext?.let { ctx ->
-            ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                .edit()
-                .putInt("background_purge_message_threshold", clamped)
-                .apply()
-        }
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks",
-            "AppViewModel: backgroundPurgeMessageThreshold=$clamped")
-    }
+    fun triggerBackgroundBufferPurge() = settingsCoordinator.triggerBackgroundBufferPurge()
 
-    /**
-     * Trigger a background buffer purge (called from FCM notification receiver).
-     * Processes all buffered sync_complete messages WITHOUT changing app visibility,
-     * so the app state is up-to-date before the user opens the notification.
-     */
-    fun triggerBackgroundBufferPurge() {
-        syncBatchProcessor.backgroundFlush()
-    }
-    
-    /**
-     * Load settings from SharedPreferences
-     */
-    fun loadSettings(context: Context? = null) {
-        val contextToUse = context ?: appContext
-        contextToUse?.let { ctx ->
-            val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            // BATTERY OPTIMIZATION: Default changed to false (was true)
-            // Compression causes battery drain due to immediate decompression on every message
-            enableCompression = prefs.getBoolean("enable_compression", false) // Default to false
-            enterKeySendsMessage = prefs.getBoolean("enter_key_sends_message", true) // Default to true (Enter sends, Shift+Enter newline)
-            loadThumbnailsIfAvailable = prefs.getBoolean("load_thumbnails_if_available", true) // Default to true
-            renderThumbnailsAlways = prefs.getBoolean("render_thumbnails_always", true) // Default to true
-            // Room list bottom bar: default to compact 4-tab layout
-            showAllRoomListTabs = prefs.getBoolean("show_all_room_list_tabs", false) // Default to false (4 tabs)
-            // Room timeline read receipts: default to inline next to bubble
-            moveReadReceiptsToEdge = prefs.getBoolean("move_read_receipts_to_edge", false) // Default to false
-            // Trim long display names: default to true (enabled)
-            trimLongDisplayNames = prefs.getBoolean("trim_long_display_names", true) // Default to true
-            elementCallBaseUrl = prefs.getString("element_call_base_url", "") ?: ""
-
-            // Background purge settings
-            val defaultIntervalMin = (SyncBatchProcessor.DEFAULT_BATCH_INTERVAL_MS / 60_000L).toInt()
-            backgroundPurgeIntervalMinutes = prefs.getInt("background_purge_interval_minutes", defaultIntervalMin)
-            backgroundPurgeMessageThreshold = prefs.getInt("background_purge_message_threshold", SyncBatchProcessor.DEFAULT_MAX_BATCH_SIZE)
-            // Push to live processor
-            syncBatchProcessor.batchIntervalMs = backgroundPurgeIntervalMinutes.toLong() * 60_000L
-            syncBatchProcessor.maxBatchSize = backgroundPurgeMessageThreshold
-
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded enableCompression setting: $enableCompression")
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded enterKeySendsMessage setting: $enterKeySendsMessage")
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded loadThumbnailsIfAvailable setting: $loadThumbnailsIfAvailable")
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded renderThumbnailsAlways setting: $renderThumbnailsAlways")
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded showAllRoomListTabs setting: $showAllRoomListTabs")
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded moveReadReceiptsToEdge setting: $moveReadReceiptsToEdge")
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded trimLongDisplayNames setting: $trimLongDisplayNames")
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded elementCallBaseUrl setting: $elementCallBaseUrl")
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded backgroundPurgeIntervalMinutes=$backgroundPurgeIntervalMinutes, backgroundPurgeMessageThreshold=$backgroundPurgeMessageThreshold")
-            }
-        }
-    }
+    fun loadSettings(context: Context? = null) = settingsCoordinator.loadSettings(context)
     /**
      * Starts the WebSocket service to maintain connection in background
      * 
@@ -12007,110 +10433,10 @@ class AppViewModel : ViewModel() {
     internal fun buildEditChainsFromEvents(timelineList: List<TimelineEvent>, clearExisting: Boolean = true) =
         editVersionCoordinator.buildEditChainsFromEvents(timelineList, clearExisting)
 
-    /**
-     * Get cache statistics for display in settings
-     * Returns a map with cache size information for various caches
-     */
-    fun getCacheStatistics(context: android.content.Context): Map<String, String> {
-        val stats = mutableMapOf<String, String>()
-        
-        // 1. Current app RAM usage (with detailed diagnostics)
-        val runtime = Runtime.getRuntime()
-        val usedMemory = runtime.totalMemory() - runtime.freeMemory()
-        val maxMemory = runtime.maxMemory()
-        val freeMemory = runtime.freeMemory()
-        val totalMemory = runtime.totalMemory()
-        val memoryUsagePercent = (usedMemory.toDouble() / maxMemory.toDouble() * 100).toInt()
-        
-        stats["app_ram_usage"] = formatBytes(usedMemory)
-        stats["app_ram_max"] = formatBytes(maxMemory)
-        stats["app_ram_free"] = formatBytes(freeMemory)
-        stats["app_ram_total"] = formatBytes(totalMemory)
-        stats["app_ram_usage_percent"] = "$memoryUsagePercent%"
-        
-        // Log memory diagnostics for debugging
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "Memory Stats: Used=${formatBytes(usedMemory)}, Free=${formatBytes(freeMemory)}, Max=${formatBytes(maxMemory)}, Usage=$memoryUsagePercent%")
-        
-        // 2. Room timeline memory cache size
-        val timelineCacheStats = RoomTimelineCache.getCacheStats()
-        val totalTimelineEvents = timelineCacheStats["total_events_cached"] as? Int ?: 0
-        // Estimate memory: each TimelineEvent with all fields is roughly 1-2KB
-        val estimatedTimelineMemory = totalTimelineEvents * 1.5 * 1024 // 1.5KB per event estimate
-        stats["timeline_memory_cache"] = formatBytes(estimatedTimelineMemory.toLong())
-        stats["timeline_event_count"] = "$totalTimelineEvents events"
-        
-        // 3. User profiles memory cache size
-        val flattenedCount = ProfileCache.getFlattenedCacheSize()
-        val roomMemberCount = RoomMemberCache.getAllMembers().values.sumOf { it.size }
-        val globalCount = ProfileCache.getGlobalCacheSize()
-        // Estimate: MemberProfile with strings is roughly 200-500 bytes
-        val estimatedProfileMemory = (flattenedCount + roomMemberCount + globalCount) * 350L // 350 bytes per profile estimate
-        val perRoomProfilesCount = flattenedCount + roomMemberCount
-        val globalProfilesCount = globalCount
-        val estimatedPerRoomProfileMemory = perRoomProfilesCount * 350L
-        val estimatedGlobalProfileMemory = globalProfilesCount * 350L
-        stats["user_profiles_memory_cache"] = formatBytes(estimatedProfileMemory)
-        stats["user_profiles_count"] = "${flattenedCount + roomMemberCount + globalCount} profiles"
-        stats["user_profiles_room_memory_cache"] = formatBytes(estimatedPerRoomProfileMemory)
-        stats["user_profiles_room_count"] = "$perRoomProfilesCount profiles"
-        stats["user_profiles_global_memory_cache"] = formatBytes(estimatedGlobalProfileMemory)
-        stats["user_profiles_global_count"] = "$globalProfilesCount profiles"
-        
-        // 4. User profile disk cache size (no disk cache)
-        val profileDiskSize = 0L
-        stats["user_profiles_disk_cache"] = formatBytes(profileDiskSize)
-        
-        // 5. Media memory cache size (from Coil)
-        // NOTE: Coil's MemoryCache doesn't expose actual current usage, only max size configuration
-        // We show the maximum configured size (25% of max memory)
-        val mediaMemoryCacheSize = try {
-            val imageLoader = net.vrkknn.andromuks.utils.ImageLoaderSingleton.get(context)
-            val memoryCache = imageLoader.memoryCache
-            // MemoryCache uses 25% of available memory (from ImageLoaderSingleton.MEMORY_CACHE_PERCENT)
-            val runtime = Runtime.getRuntime()
-            (runtime.maxMemory() * 0.25).toLong()
-        } catch (e: Exception) {
-            0L
-        }
-        stats["media_memory_cache"] = formatBytes(mediaMemoryCacheSize)
-        stats["media_memory_cache_max"] = "Max: ${formatBytes(mediaMemoryCacheSize)}" // Store max for display
-        
-        // 6. Media disk cache size (from Coil)
-        val mediaDiskCacheSize = try {
-            val cacheDir = java.io.File(context.cacheDir, "image_cache")
-            if (cacheDir.exists() && cacheDir.isDirectory) {
-                cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-            } else {
-                0L
-            }
-        } catch (e: Exception) {
-            0L
-        }
-        stats["media_disk_cache"] = formatBytes(mediaDiskCacheSize)
-        
-        return stats
-    }
-    
-    /**
-     * @deprecated Room data is in-memory only - only in-memory caches need clearing
-     */
-    /**
-     * Format bytes to human-readable string (e.g., "1.5 MB")
-     */
-    fun formatBytes(bytes: Long): String {
-        if (bytes < 0) return "0 B"
-        val kb = bytes / 1024.0
-        val mb = kb / 1024.0
-        val gb = mb / 1024.0
-        
-        return when {
-            gb >= 1.0 -> String.format("%.2f GB", gb)
-            mb >= 1.0 -> String.format("%.2f MB", mb)
-            kb >= 1.0 -> String.format("%.2f KB", kb)
-            else -> "$bytes B"
-        }
-    }
-    
+    fun getCacheStatistics(context: android.content.Context): Map<String, String> =
+        diagnosticsCoordinator.getCacheStatistics(context)
+
+    fun formatBytes(bytes: Long): String = diagnosticsCoordinator.formatBytes(bytes)
 }
 
 
