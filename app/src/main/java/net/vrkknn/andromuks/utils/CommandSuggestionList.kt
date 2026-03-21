@@ -127,7 +127,7 @@ object Commands {
         CommandDefinition(
             command = "/converttodm",
             description = "Mark the current room as a DM (m.direct)",
-            parameters = listOf("@user:server?")
+            parameters = listOf("@user:server | [name](https://matrix.to/#/@user:server)?")
         ),
         CommandDefinition(
             command = "/converttoroom",

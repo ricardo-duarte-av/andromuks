@@ -60,6 +60,7 @@ import java.util.Collections
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.getUserAgent
 import net.vrkknn.andromuks.utils.applyIncomingWebSocketMessageForViewModel
+import net.vrkknn.andromuks.utils.MatrixMxidUtils
 
 data class MemberProfile(
     val displayName: String?,
@@ -15828,12 +15829,6 @@ class AppViewModel : ViewModel() {
         return out
     }
 
-    private fun normalizeMxidForDirect(raw: String): String {
-        val t = raw.trim()
-        if (t.isEmpty()) return t
-        return if (t.startsWith("@")) t else "@$t"
-    }
-
     /**
      * If the room has exactly one other member (besides [currentUserId]), return their MXID; otherwise null.
      */
@@ -16128,9 +16123,12 @@ class AppViewModel : ViewModel() {
                 true
             }
             command == "/converttodm" -> {
-                val arg0 = args.getOrNull(0)?.trim()?.takeIf { it.isNotBlank() }
+                // Everything after the command (limit 2) so "[Display Name](https://matrix.to/#/@user:server)" works
+                val remainder =
+                    trimmed.split("\\s+".toRegex(), limit = 2).getOrNull(1)?.trim().orEmpty()
+                val arg0 = remainder.takeIf { it.isNotBlank() }
                 val targetUserId = if (arg0 != null) {
-                    normalizeMxidForDirect(arg0)
+                    MatrixMxidUtils.parseFlexibleUserMxidInput(arg0)
                 } else {
                     val inferred = inferSingleOtherMemberMxid(roomId)
                     if (inferred == null) {
@@ -16141,7 +16139,7 @@ class AppViewModel : ViewModel() {
                         ).show()
                         return true
                     }
-                    normalizeMxidForDirect(inferred)
+                    MatrixMxidUtils.normalizeMxid(inferred)
                 }
                 if (!targetUserId.contains(":") || targetUserId.length < 4) {
                     android.widget.Toast.makeText(
