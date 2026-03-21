@@ -168,8 +168,8 @@ class AppViewModel : ViewModel() {
         // PHASE 4: Counter for generating unique ViewModel IDs
         private var viewModelCounter = 0
         
-        // PHASE 5.1: Constants for outgoing message queue
-        private const val MAX_QUEUE_SIZE = 800 // Maximum queue size (raised to cover bulk pagination hydrates)
+        // PHASE 5.1: Constants for outgoing message queue (internal: [WebSocketCommandSender])
+        internal const val MAX_QUEUE_SIZE = 800 // Maximum queue size (raised to cover bulk pagination hydrates)
         private const val MAX_MESSAGE_AGE_MS = 24 * 60 * 60 * 1000L // 24 hours
         
         // Processed timeline state is now stored in RoomTimelineCache singleton (no size limit needed)
@@ -1035,7 +1035,7 @@ class AppViewModel : ViewModel() {
 
     // WebSocket pending operations for retry when connection is restored
     // PHASE 5.1: Enhanced PendingWebSocketOperation with persistence support
-    private data class PendingWebSocketOperation(
+    internal data class PendingWebSocketOperation(
         val type: String, // "sendMessage", "sendReply", "markRoomAsRead", etc.
         val data: Map<String, Any>,
         val retryCount: Int = 0,
@@ -1088,8 +1088,8 @@ class AppViewModel : ViewModel() {
         val lastPrefetchTime: Long = System.currentTimeMillis()
     )
     
-    private val pendingWebSocketOperations = mutableListOf<PendingWebSocketOperation>()
-    private val pendingOperationsLock = Any() // Lock for synchronizing access to pendingWebSocketOperations
+    internal val pendingWebSocketOperations = mutableListOf<PendingWebSocketOperation>()
+    internal val pendingOperationsLock = Any() // Lock for synchronizing access to pendingWebSocketOperations
     private val maxRetryAttempts = 3
     
     // Track last reconnection time for stabilization period
@@ -1172,8 +1172,8 @@ class AppViewModel : ViewModel() {
     
     // CRITICAL FIX: Track loading of all room states (for bridge badges) after init_complete
     // This must complete before allowing other commands and before navigating to RoomListScreen
-    private var allRoomStatesRequested = false
-    private var allRoomStatesLoaded = false
+    internal var allRoomStatesRequested = false
+    internal var allRoomStatesLoaded = false
     private val pendingRoomStateResponses = mutableSetOf<String>() // Track which rooms we're waiting for
     private var totalRoomStateRequests = 0
     private var completedRoomStateRequests = 0
@@ -1181,8 +1181,11 @@ class AppViewModel : ViewModel() {
     // CRITICAL FIX: Block sending commands to backend until init_complete arrives and all initial sync_complete messages are processed
     // This prevents get_room_state commands from being sent before rooms are populated from sync_complete
     // Only applies on initial connection (not reconnections with last_received_event)
-    private var canSendCommandsToBackend = false
-    private val pendingCommandsQueue = mutableListOf<Triple<String, Int, Map<String, Any>>>() // Queue for commands blocked before init_complete
+    internal var canSendCommandsToBackend = false
+    internal val pendingCommandsQueue = mutableListOf<Triple<String, Int, Map<String, Any>>>() // Queue for commands blocked before init_complete
+
+    /** Outgoing WS command pipeline — see [WebSocketCommandSender]. */
+    private val webSocketCommands by lazy { WebSocketCommandSender(this) }
     
     // Startup progress messages for loading screen (last 10 messages, newest on top)
     private val _startupProgressMessages = mutableStateListOf<String>()
@@ -8090,7 +8093,7 @@ class AppViewModel : ViewModel() {
     /**
      * PHASE 5.1: Add operation to queue with size limits and persistence
      */
-    private fun addPendingOperation(operation: PendingWebSocketOperation, saveToStorage: Boolean = false): Boolean {
+    internal fun addPendingOperation(operation: PendingWebSocketOperation, saveToStorage: Boolean = false): Boolean {
         // PHASE 5.1: Enforce queue size limit (remove oldest if at limit)
         synchronized(pendingOperationsLock) {
         if (pendingWebSocketOperations.size >= MAX_QUEUE_SIZE) {
@@ -16458,84 +16461,10 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting custom profile field '$field'")
     }
     /**
-     * Send WebSocket command to the backend
-     * Commands are sent individually with sequential request IDs
+     * Send WebSocket command to the backend (raw payload). Delegates to [WebSocketCommandSender].
      */
-    private fun sendRawWebSocketCommand(command: String, requestId: Int, data: Any?): WebSocketResult {
-        // REFACTORING: Convert data to Map format for WebSocketService.sendCommand()
-        val dataMap = when (data) {
-            null -> emptyMap<String, Any>()
-            is Map<*, *> -> {
-                @Suppress("UNCHECKED_CAST")
-                data as Map<String, Any>
-            }
-            is JSONObject -> {
-                // Convert JSONObject to Map
-                val map = mutableMapOf<String, Any>()
-                val keys = data.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    map[key] = data.opt(key) ?: ""
-                }
-                map
-            }
-            else -> {
-                // For complex types, fall back to direct WebSocket send
-                // This is a legacy path - most commands should use Map<String, Any>
-                android.util.Log.w("Andromuks", "sendRawWebSocketCommand: Complex data type, using legacy path: ${data::class.simpleName}")
-                // Use WebSocketService.getWebSocket() and send directly for complex types
-                return try {
-                    val json = JSONObject()
-                    json.put("command", command)
-                    json.put("request_id", requestId)
-                    json.put("data", data)
-                    val jsonString = json.toString()
-                    val ws = WebSocketService.getWebSocket()
-                    if (ws == null) {
-                        android.util.Log.w("Andromuks", "AppViewModel: WebSocket is not connected, cannot send command: $command")
-                        return WebSocketResult.NOT_CONNECTED
-                    }
-                    // Legacy path: direct send for complex data types
-                    ws.send(jsonString)
-                    WebSocketResult.SUCCESS
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Failed to send raw WebSocket command: $command", e)
-                    WebSocketResult.CONNECTION_ERROR
-                }
-            }
-        }
-
-        // Normalize send_to_device payload
-        val normalizedData = if (command == "send_to_device" && dataMap.isNotEmpty()) {
-            val eventType = (dataMap["event_type"] as? String) ?: (dataMap["type"] as? String) ?: ""
-            val normalized = mutableMapOf<String, Any>()
-            if (eventType.isNotBlank()) {
-                normalized["event_type"] = eventType
-            }
-            if (dataMap.containsKey("encrypted")) {
-                normalized["encrypted"] = dataMap["encrypted"] ?: false
-            }
-            if (dataMap.containsKey("messages")) {
-                normalized["messages"] = dataMap["messages"] ?: emptyList<Any>()
-            }
-            // Copy other fields
-            dataMap.forEach { (key, value) ->
-                if (!normalized.containsKey(key)) {
-                    normalized[key] = value
-                }
-            }
-            normalized
-        } else {
-            dataMap
-        }
-
-        // Use WebSocketService.sendCommand()
-        return if (WebSocketService.sendCommand(command, requestId, normalizedData)) {
-            WebSocketResult.SUCCESS
-        } else {
-            WebSocketResult.CONNECTION_ERROR
-        }
-    }
+    private fun sendRawWebSocketCommand(command: String, requestId: Int, data: Any?): WebSocketResult =
+        webSocketCommands.sendRaw(command, requestId, data)
 
     fun sendWidgetCommand(command: String, data: Any?, onResult: (Result<Any?>) -> Unit) {
         val requestId = requestIdCounter++
@@ -16560,152 +16489,11 @@ class AppViewModel : ViewModel() {
         }
     }
 
-    private fun sendWebSocketCommand(command: String, requestId: Int, data: Map<String, Any>): WebSocketResult {
-        // Handle offline mode
-        if (isOfflineMode && !isOfflineCapableCommand(command)) {
-            android.util.Log.w("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Command $command queued for offline retry")
-            queueCommandForOfflineRetry(command, requestId, data)
-            return WebSocketResult.NOT_CONNECTED
-        }
-        
-        // REFACTORING: Use WebSocketService.sendCommand() API instead of direct WebSocket access
-        // Check connection state first
-        if (!WebSocketService.isWebSocketConnected()) {
-            // CRITICAL FIX: Only queue user-initiated commands for offline retry
-            // Automatic commands (get_room_state, register_push, etc.) will be re-requested when online
-            val isUserInitiated = when (command) {
-                "send_message", "mark_read" -> true
-                else -> false
-            }
-            
-            if (isUserInitiated) {
-                android.util.Log.w("Andromuks", "AppViewModel: WebSocket is not connected, queuing user-initiated command: $command (requestId: $requestId)")
-                queueCommandForOfflineRetry(command, requestId, data)
-            } else {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "AppViewModel: WebSocket is not connected, skipping automatic command: $command (will be re-requested when online)")
-                }
-            }
-            return WebSocketResult.NOT_CONNECTED
-        }
-        
-        // CRITICAL FIX: Block commands until init_complete arrives and all initial sync_complete messages are processed
-        // This prevents get_room_state commands from being sent before rooms are populated from sync_complete
-        // Only applies on initial connection (not reconnections with last_received_event)
-        // EXCEPTION: Allow get_room_state commands during initial room state loading (they're exempt from blocking)
-        val isInitialRoomStateLoading = allRoomStatesRequested && !allRoomStatesLoaded
-        val isExemptCommand = command == "get_room_state" && isInitialRoomStateLoading
-        
-        if (!canSendCommandsToBackend && !isExemptCommand) {
-            synchronized(pendingCommandsQueue) {
-                pendingCommandsQueue.add(Triple(command, requestId, data))
-            }
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "AppViewModel: Command $command (requestId: $requestId) queued - waiting for init_complete + sync_complete processing (${pendingCommandsQueue.size} commands queued)")
-            }
-            return WebSocketResult.NOT_CONNECTED
-        }
-        
-        // REMOVED: Queue flushing blocking behavior
-        // Webmuks can handle out-of-order messages and responses are matched by request_id
-        // There's no need to block new commands while retrying old ones
-        // New commands can be sent immediately, and responses will be processed as they arrive
-        
-        // REFACTORING: Use WebSocketService.sendCommand() API
-        // Log all WebSocket commands being sent
-        val roomId = data["room_id"] as? String
-        if (command == "paginate" && BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "🟠 sendWebSocketCommand: SENDING paginate - requestId=$requestId, roomId=$roomId, data=${org.json.JSONObject(data).toString().take(200)}")
-        } else if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "sendWebSocketCommand: command='$command', requestId=$requestId, data=${org.json.JSONObject(data).toString().take(200)}")
-        }
-        
-        val sendResult = if (WebSocketService.sendCommand(command, requestId, data)) {
-            if (command == "paginate" && BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "🟠 sendWebSocketCommand: paginate SENT successfully - requestId=$requestId, roomId=$roomId")
-            }
-            WebSocketResult.SUCCESS
-        } else {
-            android.util.Log.w("Andromuks", "🟠 sendWebSocketCommand: FAILED to send $command - requestId=$requestId, roomId=$roomId (service returned false)")
-            WebSocketResult.CONNECTION_ERROR
-        }
-        
-        // PHASE 5.2: Track all commands with positive request_id for acknowledgment
-        // request_id = 0 means no response expected (like typing)
-        // request_id > 0 means we expect a response with same request_id
-        // CRITICAL FIX: Only track in memory for acknowledgment - don't save to storage when WebSocket is connected
-        // Storage is only needed for persistence across app restarts or when disconnected
-        if (requestId > 0 && sendResult == WebSocketResult.SUCCESS) {
-            val messageId = java.util.UUID.randomUUID().toString()
-            val acknowledgmentTimeout = System.currentTimeMillis() + 30000L // 30 seconds
-            
-            val operation = PendingWebSocketOperation(
-                type = "command_$command", // Use command name as type for generic tracking
-                data = mapOf(
-                    "command" to command,
-                    "requestId" to requestId,
-                    "data" to data
-                ),
-                retryCount = 0,
-                messageId = messageId, // Internal tracking only
-                timestamp = System.currentTimeMillis(),
-                acknowledged = false,
-                acknowledgmentTimeout = acknowledgmentTimeout
-            )
-            
-            // Add to in-memory queue for acknowledgment tracking (no storage save)
-            // Only save to storage if WebSocket disconnects or command fails
-            synchronized(pendingOperationsLock) {
-                if (pendingWebSocketOperations.size >= MAX_QUEUE_SIZE) {
-                    // Remove oldest operation (by timestamp)
-                    val oldest = pendingWebSocketOperations.minByOrNull { it.timestamp }
-                    if (oldest != null) {
-                        pendingWebSocketOperations.remove(oldest)
-                        if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Queue full (${MAX_QUEUE_SIZE}), removed oldest operation: ${oldest.type}")
-                    }
-                }
-                pendingWebSocketOperations.add(operation)
-            }
-        }
-        
-        return sendResult
-    }
-    
-    /**
-     * NETWORK OPTIMIZATION: Check if command can work offline (use cached data)
-     */
-    private fun isOfflineCapableCommand(command: String): Boolean {
-        return when (command) {
-            "get_profile", "get_room_state" -> true // These can use cached data
-            else -> false
-        }
-    }
-    
-    /**
-     * CRITICAL FIX: Flush pending commands queue after init_complete and all sync_complete messages are processed
-     * This sends all commands that were blocked during initial connection
-     */
+    private fun sendWebSocketCommand(command: String, requestId: Int, data: Map<String, Any>): WebSocketResult =
+        webSocketCommands.send(command, requestId, data)
+
     private fun flushPendingCommandsQueue() {
-        val commandsToFlush = synchronized(pendingCommandsQueue) {
-            val commands = pendingCommandsQueue.toList()
-            pendingCommandsQueue.clear()
-            commands
-        }
-        
-        if (commandsToFlush.isNotEmpty()) {
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "AppViewModel: Flushing ${commandsToFlush.size} queued commands after init_complete + sync_complete processing")
-            }
-            
-            // Send all queued commands
-            for ((command, requestId, data) in commandsToFlush) {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Flushing queued command: $command (requestId: $requestId)")
-                }
-                // Recursively call sendWebSocketCommand - it will now succeed since canSendCommandsToBackend is true
-                sendWebSocketCommand(command, requestId, data)
-            }
-        }
+        webSocketCommands.flushPendingQueue()
     }
     
     /**
@@ -16850,42 +16638,10 @@ class AppViewModel : ViewModel() {
     
     /**
      * NETWORK OPTIMIZATION: Queue command for retry when connection is restored
-     * 
-     * IMPORTANT: Only stores user-initiated commands (from notifications).
-     * Automatic commands (get_room_state, register_push, etc.) are NOT stored
-     * because they will be automatically re-requested when connection is restored.
+     * (implementation in [WebSocketCommandSender]).
      */
     private fun queueCommandForOfflineRetry(command: String, requestId: Int, data: Map<String, Any>) {
-        // Only store user-initiated commands from notifications
-        // Automatic commands will be re-requested when connection is restored
-        val isUserInitiated = when (command) {
-            "send_message" -> true // User messages from notifications
-            "mark_read" -> true    // Mark read from notifications
-            else -> false          // All other commands are automatic (get_room_state, register_push, etc.)
-        }
-        
-        if (!isUserInitiated) {
-            // Don't store automatic commands - they'll be re-requested when online
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping offline storage for automatic command: $command (will be re-requested when online)")
-            return
-        }
-        
-        // PHASE 5.1: Add to pending operations for retry when connection is restored
-        // Queue size limit is now enforced in addPendingOperation()
-        // CRITICAL FIX: Save to storage when WebSocket is disconnected (need persistence)
-        addPendingOperation(
-            PendingWebSocketOperation(
-                type = "offline_$command",
-                data = mapOf(
-                    "command" to command,
-                    "requestId" to requestId,
-                    "data" to data
-                ),
-                retryCount = 0
-            ),
-            saveToStorage = true // Save to storage when disconnected
-        )
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Queued offline command: $command (user-initiated)")
+        webSocketCommands.queueOfflineRetry(command, requestId, data)
     }
     
     /**
