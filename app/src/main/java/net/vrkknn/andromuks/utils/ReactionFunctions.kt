@@ -39,6 +39,7 @@ import coil.request.CachePolicy
 import coil.ImageLoader
 import net.vrkknn.andromuks.MessageReaction
 import net.vrkknn.andromuks.ReactionEvent
+import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.MediaUtils
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
@@ -329,6 +330,43 @@ fun processReactionEvent(
     //android.util.Log.d("Andromuks", "ReactionFunctions: Skipping reaction processing - currentRoomId is null")
     return messageReactions
 }
+
+private fun normalizeReactionTimestamp(primary: Long, vararg fallbacks: Long): Long {
+    if (primary > 0) return primary
+    for (candidate in fallbacks) {
+        if (candidate > 0) return candidate
+    }
+    return System.currentTimeMillis()
+}
+
+/**
+ * Extract [ReactionEvent] from a timeline `m.reaction` event (shared by [net.vrkknn.andromuks.ReactionCoordinator]).
+ */
+fun extractReactionEventFromTimeline(event: TimelineEvent): ReactionEvent? {
+    val content = event.content ?: return null
+    val relatesTo = content.optJSONObject("m.relates_to") ?: return null
+
+    val relatesToEventId = relatesTo.optString("event_id")
+    val emoji = relatesTo.optString("key")
+    val relType = relatesTo.optString("rel_type")
+
+    return if (relatesToEventId.isNotBlank() && emoji.isNotBlank() && relType == "m.annotation") {
+        ReactionEvent(
+            roomId = event.roomId,
+            eventId = event.eventId,
+            sender = event.sender,
+            emoji = emoji,
+            relatesToEventId = relatesToEventId,
+            timestamp = normalizeReactionTimestamp(
+                event.timestamp,
+                event.unsigned?.optLong("age_ts") ?: 0L
+            )
+        )
+    } else {
+        null
+    }
+}
+
 // --- Reaction Details Dialog ---
 
 /**

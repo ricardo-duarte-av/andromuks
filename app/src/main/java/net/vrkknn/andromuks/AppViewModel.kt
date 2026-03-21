@@ -696,13 +696,13 @@ class AppViewModel : ViewModel() {
                 _messageReactions = it
             }
         }
-        private set(value) {
+        internal set(value) {
             MessageReactionsCache.setAll(value)
             _messageReactions = value
         }
     
     // Track processed reaction events to prevent duplicate processing
-    private val processedReactions = mutableSetOf<String>()
+    internal val processedReactions = mutableSetOf<String>()
     
     // Track pending message sends for send button animation
     var pendingSendCount by mutableStateOf(0)
@@ -920,7 +920,7 @@ class AppViewModel : ViewModel() {
 
     // Force recomposition counter - DEPRECATED: Use specific counters below instead
     var updateCounter by mutableStateOf(0)
-        private set
+        internal set
     
     // Granular update counters to reduce unnecessary recompositions
     var roomListUpdateCounter by mutableStateOf(0)
@@ -930,7 +930,7 @@ class AppViewModel : ViewModel() {
         private set
     
     var reactionUpdateCounter by mutableStateOf(0)
-        private set
+        internal set
     
     var memberUpdateCounter by mutableStateOf(0)
         private set
@@ -1186,6 +1186,9 @@ class AppViewModel : ViewModel() {
 
     /** Outgoing WS command pipeline — see [WebSocketCommandSender]. */
     private val webSocketCommands by lazy { WebSocketCommandSender(this) }
+
+    /** Reaction orchestration — see [ReactionCoordinator]. */
+    private val reactionCoordinator by lazy { ReactionCoordinator(this) }
     
     // Startup progress messages for loading screen (last 10 messages, newest on top)
     private val _startupProgressMessages = mutableStateListOf<String>()
@@ -2576,79 +2579,8 @@ class AppViewModel : ViewModel() {
         return System.currentTimeMillis()
     }
     
-    fun processReactionEvent(reactionEvent: ReactionEvent, isHistorical: Boolean = false) {
-        // Create a unique key for this logical reaction (sender + emoji + target message)
-        // This prevents the same logical reaction from being processed twice even if it comes
-        // from both send_complete and sync_complete with different event IDs
-        val reactionKey = "${reactionEvent.sender}_${reactionEvent.emoji}_${reactionEvent.relatesToEventId}"
-        
-        // Only apply duplicate detection to live reactions, not historical reactions
-        // Historical reactions should always be processed as they may have been previously
-        // processed during app startup but need to be displayed in the current room context
-        if (!isHistorical && processedReactions.contains(reactionKey)) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping duplicate logical reaction: $reactionKey (eventId: ${reactionEvent.eventId})")
-            return
-        }
-        
-        // Only mark live reactions as processed to prevent duplicates
-        if (!isHistorical) {
-            processedReactions.add(reactionKey)
-        }
-        
-        // Clean up old processed reactions to prevent memory leaks (keep only last 100)
-        // Only do cleanup for live reactions since historical reactions don't add to processedReactions
-        if (!isHistorical && processedReactions.size > 100) {
-            val toRemove = processedReactions.take(processedReactions.size - 100)
-            processedReactions.removeAll(toRemove)
-        }
-        
-        val previousReactions = messageReactions[reactionEvent.relatesToEventId] ?: emptyList()
-
-        // For historical reactions (loaded from pagination / get_related_events), make processing idempotent:
-        // - If we already have this sender+emoji recorded for the target event, do NOT toggle it off.
-        //   This prevents backfill responses from "undoing" live reactions or double-processing the same
-        //   m.reaction event and effectively removing it.
-        if (isHistorical) {
-            val existingForEmoji = previousReactions.find { it.emoji == reactionEvent.emoji }
-            val alreadyHasUser = existingForEmoji?.userReactions?.any { it.userId == reactionEvent.sender } == true
-            if (alreadyHasUser) {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Skipping historical duplicate reaction (idempotent) for ${reactionEvent.sender} ${reactionEvent.emoji} on ${reactionEvent.relatesToEventId}"
-                    )
-                }
-                return
-            }
-        }
-
-        val updatedReactionsMap = net.vrkknn.andromuks.utils.processReactionEvent(reactionEvent, currentRoomId, messageReactions)
-        messageReactions = updatedReactionsMap // This will update both cache and state
-        val updatedReactions = updatedReactionsMap[reactionEvent.relatesToEventId] ?: emptyList()
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processReactionEvent - eventId: ${reactionEvent.eventId}, logicalKey: $reactionKey, previous=${previousReactions.size}, updated=${updatedReactions.size}, reactionUpdateCounter: $reactionUpdateCounter")
-        
-        if (!isHistorical) {
-            val previousPairs = previousReactions.flatMap { reaction ->
-                reaction.users.map { userId -> reaction.emoji to userId }
-            }.toSet()
-            val updatedPairs = updatedReactions.flatMap { reaction ->
-                reaction.users.map { userId -> reaction.emoji to userId }
-            }.toSet()
-
-            val additionOccurred = updatedPairs.contains(reactionEvent.emoji to reactionEvent.sender) &&
-                !previousPairs.contains(reactionEvent.emoji to reactionEvent.sender)
-            val removalOccurred = previousPairs.contains(reactionEvent.emoji to reactionEvent.sender) &&
-                !updatedPairs.contains(reactionEvent.emoji to reactionEvent.sender)
-
-            // Reactions are in-memory only - no DB persistence needed
-            if (BuildConfig.DEBUG && (additionOccurred || removalOccurred)) {
-                android.util.Log.d("Andromuks", "AppViewModel: Reaction change processed (in-memory only): addition=$additionOccurred, removal=$removalOccurred for event ${reactionEvent.relatesToEventId}")
-            }
-        }
-
-        reactionUpdateCounter++ // Trigger UI recomposition for reactions only
-        updateCounter++ // Keep for backward compatibility temporarily
-    }
+    fun processReactionEvent(reactionEvent: ReactionEvent, isHistorical: Boolean = false) =
+        reactionCoordinator.processReactionEvent(reactionEvent, isHistorical)
 
     fun handleClientState(userId: String?, device: String?, homeserver: String?) {
         if (!userId.isNullOrBlank()) {
@@ -3028,18 +2960,7 @@ class AppViewModel : ViewModel() {
      * Populate messageReactions from singleton cache
      * This ensures reactions persist across AppViewModel instances
      */
-    fun populateMessageReactionsFromCache() {
-        try {
-            val cachedReactions = MessageReactionsCache.getAllReactions()
-            if (cachedReactions.isNotEmpty()) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateMessageReactionsFromCache - populated with ${cachedReactions.size} events from cache")
-                messageReactions = cachedReactions
-                reactionUpdateCounter++
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to populate messageReactions from cache", e)
-        }
-    }
+    fun populateMessageReactionsFromCache() = reactionCoordinator.populateMessageReactionsFromCache()
     
     /**
      * Populate recentEmojis from singleton cache
@@ -7240,7 +7161,7 @@ class AppViewModel : ViewModel() {
     // Track rooms that need timeline rebuild during batch processing (defer rebuild until batch completes)
     private val roomsNeedingRebuildDuringBatch = Collections.synchronizedSet(mutableSetOf<String>())
 
-    private fun hasInitialPaginate(roomId: String): Boolean = roomsPaginatedOnce.contains(roomId)
+    internal fun hasInitialPaginate(roomId: String): Boolean = roomsPaginatedOnce.contains(roomId)
 
     private fun markInitialPaginate(roomId: String, reason: String) {
         val added = roomsPaginatedOnce.add(roomId)
@@ -7251,7 +7172,7 @@ class AppViewModel : ViewModel() {
         setAutoPaginationEnabled(false, "paginate_lock_$roomId")
     }
 
-    private fun logSkippedPaginate(roomId: String, reason: String) {
+    internal fun logSkippedPaginate(roomId: String, reason: String) {
         if (BuildConfig.DEBUG) android.util.Log.d(
             "Andromuks",
             "AppViewModel: Skipping paginate for $roomId ($reason) - already paginated once this session"
@@ -7308,10 +7229,10 @@ class AppViewModel : ViewModel() {
     
     // PERFORMANCE: Track pending room state requests to prevent duplicate WebSocket commands
     private val pendingRoomStateRequests = mutableSetOf<String>() // roomId that have pending state requests
-    private val reactionRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    internal val reactionRequests = mutableMapOf<Int, String>() // requestId -> roomId
     // Track requests for get_related_events used to backfill detailed reactions (user + timestamp) for a specific event.
     // Key: requestId, Value: Pair(roomId, targetEventId)
-    private val relatedEventsRequests = mutableMapOf<Int, Pair<String, String>>()
+    internal val relatedEventsRequests = mutableMapOf<Int, Pair<String, String>>()
     private val markReadRequests = mutableMapOf<Int, String>() // requestId -> roomId
     // Track last sent mark_read command per room to prevent duplicates
     // Key: roomId, Value: eventId that was last sent
@@ -7319,7 +7240,7 @@ class AppViewModel : ViewModel() {
     private val readReceipts = mutableMapOf<String, MutableList<ReadReceipt>>() // eventId -> list of read receipts
     private val readReceiptsLock = Any() // Synchronization lock for readReceipts access
     private val roomsWithLoadedReceipts = mutableSetOf<String>() // Track rooms with receipts loaded from cache
-    private val roomsWithLoadedReactions = mutableSetOf<String>() // Track rooms with reactions loaded from cache
+    internal val roomsWithLoadedReactions = mutableSetOf<String>() // Track rooms with reactions loaded from cache
     // Track receipt movements for animation - userId -> (previousEventId, currentEventId, timestamp)
     // THREAD SAFETY: Protected by readReceiptsLock since it's accessed from background threads
     private val receiptMovements = mutableMapOf<String, Triple<String?, String, Long>>()
@@ -7364,7 +7285,7 @@ class AppViewModel : ViewModel() {
     private val eventContextRequests = mutableMapOf<Int, Pair<String, (List<TimelineEvent>?) -> Unit>>() // requestId -> (roomId, callback)
     private val paginateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for pagination)
     private val paginateRequestMaxTimelineIds = mutableMapOf<Int, Long>() // requestId -> max_timeline_id used in request (for progress detection)
-    private val backgroundPrefetchRequests = mutableMapOf<Int, String>() // requestId -> roomId (for background prefetch)
+    internal val backgroundPrefetchRequests = mutableMapOf<Int, String>() // requestId -> roomId (for background prefetch)
     private val freshnessCheckRequests = mutableMapOf<Int, String>() // requestId -> roomId (for single-event freshness checks)
     private val roomStateWithMembersRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit>() // requestId -> callback
     private val userEncryptionInfoRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
@@ -9237,140 +9158,11 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    private fun loadReactionsForRoom(roomId: String, cachedEvents: List<TimelineEvent>, forceReload: Boolean = false) {
-        if (cachedEvents.isEmpty()) return
+    private fun loadReactionsForRoom(roomId: String, cachedEvents: List<TimelineEvent>, forceReload: Boolean = false) =
+        reactionCoordinator.loadReactionsForRoom(roomId, cachedEvents, forceReload)
 
-        // Allow reloading reactions when new events arrive (e.g., from paginate response)
-        if (!forceReload && !roomsWithLoadedReactions.add(roomId)) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reactions for room $roomId already loaded from cache, skipping")
-            return
-        }
-
-        // CRITICAL FIX: Process reaction events from cache to restore reactions when reopening a room
-        // Reaction events are stored separately in the cache (filtered from timeline events)
-        val reactionEvents = RoomTimelineCache.getCachedReactionEvents(roomId)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: loadReactionsForRoom($roomId) - found ${reactionEvents.size} cached reaction events")
-        if (reactionEvents.isNotEmpty()) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing ${reactionEvents.size} reaction events from cache for room $roomId")
-            var processedCount = 0
-            for (reactionEvent in reactionEvents) {
-                // Process each reaction event to rebuild messageReactions
-                if (processReactionFromTimeline(reactionEvent)) {
-                    processedCount++
-                }
-            }
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored reactions from ${processedCount}/${reactionEvents.size} cached reaction events for room $roomId")
-        } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No cached reaction events found for room $roomId")
-        }
-    }
-
-    private fun applyAggregatedReactionsFromEvents(events: List<TimelineEvent>, source: String) {
-        if (events.isEmpty()) return
-
-        val aggregatedByEvent = mutableMapOf<String, List<MessageReaction>>()
-        for (event in events) {
-            val reactionsObject = event.aggregatedReactions ?: continue
-            
-            // CRASH FIX: Wrap reaction processing in try-catch to handle malformed JSON gracefully
-            try {
-            val reactionList = mutableListOf<MessageReaction>()
-            val keys = reactionsObject.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                    try {
-                var count = 0
-                when (val value = reactionsObject.opt(key)) {
-                    is Number -> count = value.toInt()
-                    is JSONObject -> count = value.optInt("count", 0)
-                    else -> {
-                        // Attempt fallback to optInt
-                        count = reactionsObject.optInt(key, 0)
-                    }
-                }
-                if (count > 0 && !key.isNullOrBlank()) {
-                    reactionList.add(
-                        MessageReaction(
-                            emoji = key,
-                            count = count,
-                            users = emptyList()
-                        )
-                    )
-                        }
-                    } catch (e: Exception) {
-                        // Skip this reaction key if there's an error processing it
-                        android.util.Log.w("Andromuks", "AppViewModel: Error processing reaction key '$key' for event ${event.eventId}: ${e.message}")
-                }
-            }
-            if (reactionList.isNotEmpty()) {
-                    // Sort reactions by emoji - handle any potential comparison errors
-                    try {
-                aggregatedByEvent[event.eventId] = reactionList.sortedBy { it.emoji }
-                    } catch (e: Exception) {
-                        // If sorting fails, use unsorted list
-                        android.util.Log.w("Andromuks", "AppViewModel: Error sorting reactions for event ${event.eventId}, using unsorted: ${e.message}")
-                        aggregatedByEvent[event.eventId] = reactionList
-                    }
-                }
-            } catch (e: Exception) {
-                // Skip this event's reactions if there's an error iterating over them
-                android.util.Log.w("Andromuks", "AppViewModel: Error processing aggregated reactions for event ${event.eventId} from $source: ${e.message}", e)
-            }
-        }
-
-        if (aggregatedByEvent.isEmpty()) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: applyAggregatedReactionsFromEvents($source) - no aggregated reactions found")
-            return
-        }
-
-        val updated = messageReactions.toMutableMap()
-        var changed = false
-
-        for ((eventId, reactions) in aggregatedByEvent) {
-            val existing = updated[eventId]
-            // CRITICAL FIX: Merge aggregated reactions with existing reactions instead of only setting if empty
-            // This ensures reactions from paginate (aggregated) are combined with reactions from sync_complete (individual events)
-            if (existing == null || existing.isEmpty()) {
-                // No existing reactions - use aggregated reactions directly
-                updated[eventId] = reactions
-                changed = true
-            } else {
-                // Merge aggregated reactions with existing reactions
-                // Create a map of emoji -> count from aggregated reactions
-                val aggregatedMap = reactions.associate { it.emoji to it.count }
-                val mergedReactions = existing.map { existingReaction ->
-                    val aggregatedCount = aggregatedMap[existingReaction.emoji] ?: existingReaction.count
-                    // Use the larger count (aggregated reactions from paginate are authoritative for counts)
-                    if (aggregatedCount > existingReaction.count) {
-                        existingReaction.copy(count = aggregatedCount)
-                    } else {
-                        existingReaction
-                    }
-                }.toMutableList()
-                
-                // Add any reactions from aggregated that don't exist in current
-                val existingEmojis = existing.map { it.emoji }.toSet()
-                reactions.forEach { aggregatedReaction ->
-                    if (aggregatedReaction.emoji !in existingEmojis) {
-                        mergedReactions.add(aggregatedReaction)
-                    }
-                }
-                
-                updated[eventId] = mergedReactions
-                changed = true
-            }
-        }
-
-        if (changed) {
-            messageReactions = updated
-            reactionUpdateCounter++
-            if (BuildConfig.DEBUG) android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Applied aggregated reactions from $source for ${aggregatedByEvent.size} events"
-            )
-            // PERFORMANCE FIX: Removed persistRenderableEvents() - UI now uses timelineEvents directly
-        }
-    }
+    private fun applyAggregatedReactionsFromEvents(events: List<TimelineEvent>, source: String) =
+        reactionCoordinator.applyAggregatedReactionsFromEvents(events, source)
 
     /**
      * Ensure timeline cache is fresh (cache-only approach, no DB loading)
@@ -10045,31 +9837,8 @@ class AppViewModel : ViewModel() {
         }
     }
 
-    private fun requestHistoricalReactions(roomId: String, smallestCached: Long) {
-        if (hasInitialPaginate(roomId)) {
-            logSkippedPaginate(roomId, "historical_reactions")
-            return
-        }
-        val reactionRequestId = requestIdCounter++
-        backgroundPrefetchRequests[reactionRequestId] = roomId
-        val effectiveMaxTimelineId = if (smallestCached > 0) smallestCached else 0L
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: About to send reaction request - currentRoomId: $currentRoomId, roomId=$roomId, smallestCached=$smallestCached, effectiveMaxTimelineId=$effectiveMaxTimelineId")
-        val result = sendWebSocketCommand(
-            "paginate",
-            reactionRequestId,
-            mapOf(
-                "room_id" to roomId,
-                "max_timeline_id" to effectiveMaxTimelineId,
-                "limit" to INITIAL_ROOM_PAGINATE_LIMIT,
-                "reset" to false
-            )
-        )
-        if (result == WebSocketResult.SUCCESS) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✅ Sent reaction request for cached room: $roomId (requestId: $reactionRequestId)")
-        } else {
-            android.util.Log.w("Andromuks", "AppViewModel: Reaction request for $roomId (requestId: $reactionRequestId) could not be sent immediately (result=$result)")
-        }
-    }
+    private fun requestHistoricalReactions(roomId: String, smallestCached: Long) =
+        reactionCoordinator.requestHistoricalReactions(roomId, smallestCached)
 
     /**
      * Request related events for a specific message to backfill detailed reactions via get_related_events.
@@ -10078,39 +9847,8 @@ class AppViewModel : ViewModel() {
      * messageReactions[eventId] has per-user reaction data (including timestamps), even when the
      * room was loaded primarily via paginate responses.
      */
-    fun requestReactionDetails(roomId: String, eventId: String) {
-        if (!isWebSocketConnected()) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping requestReactionDetails - WebSocket not connected (roomId=$roomId, eventId=$eventId)")
-            return
-        }
-
-        val requestId = requestIdCounter++
-        relatedEventsRequests[requestId] = roomId to eventId
-
-        val commandData = mapOf(
-            "room_id" to roomId,
-            "event_id" to eventId,
-            "relation_type" to "m.annotation"
-        )
-
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: requestReactionDetails - sending get_related_events for roomId=$roomId, eventId=$eventId, requestId=$requestId"
-            )
-        }
-
-        val result = sendWebSocketCommand("get_related_events", requestId, commandData)
-        if (result != WebSocketResult.SUCCESS) {
-            relatedEventsRequests.remove(requestId)
-            if (BuildConfig.DEBUG) {
-                android.util.Log.w(
-                    "Andromuks",
-                    "AppViewModel: requestReactionDetails - get_related_events failed to send for roomId=$roomId, eventId=$eventId, requestId=$requestId, result=$result"
-                )
-            }
-        }
-    }
+    fun requestReactionDetails(roomId: String, eventId: String) =
+        reactionCoordinator.requestReactionDetails(roomId, eventId)
     
     fun requestRoomState(roomId: String) {
         // PERFORMANCE: Prevent duplicate room state requests for the same room
@@ -10784,79 +10522,8 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Mark read sent, WebSocket remains connected via service")
     }
     
-    fun sendReaction(roomId: String, eventId: String, emoji: String) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendReaction called with roomId: '$roomId', eventId: '$eventId', emoji: '$emoji'")
-        
-        val ws = WebSocketService.getWebSocket() ?: return
-        
-        val reactionRequestId = requestIdCounter++
-        
-        // Track this outgoing request
-        reactionRequests[reactionRequestId] = roomId
-        
-        // For custom emojis, extract MXC URL from formatted string for reaction key
-        // Reactions should use ONLY the mxc:// URL, not the full markup
-        val reactionKey = if (emoji.startsWith("![:") && emoji.contains("mxc://")) {
-            // Extract MXC URL from format: ![:name:](mxc://url "Emoji: :name:")
-            val mxcStart = emoji.indexOf("mxc://")
-            if (mxcStart >= 0) {
-                val mxcEnd = emoji.indexOf("\"", mxcStart)
-                if (mxcEnd > mxcStart) {
-                    emoji.substring(mxcStart, mxcEnd).trim()
-                } else {
-                    // Fallback: extract until closing parenthesis or end of string
-                    val parenEnd = emoji.indexOf(")", mxcStart)
-                    if (parenEnd > mxcStart) {
-                        emoji.substring(mxcStart, parenEnd).trim()
-                    } else {
-                        emoji.substring(mxcStart).trim()
-                    }
-                }
-            } else {
-                emoji
-            }
-        } else {
-            emoji
-        }
-        
-        val commandData = mapOf(
-            "room_id" to roomId,
-            "type" to "m.reaction",
-            "content" to mapOf(
-                "m.relates_to" to mapOf(
-                    "rel_type" to "m.annotation",
-                    "event_id" to eventId,
-                    "key" to reactionKey
-                )
-            ),
-            "disable_encryption" to false,
-            "synchronous" to false
-        )
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_event with data: $commandData")
-        sendWebSocketCommand("send_event", reactionRequestId, commandData)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $reactionRequestId")
-        
-        // Update recent emojis
-        // For custom emojis, extract MXC URL from formatted string
-        val emojiForRecent = if (emoji.startsWith("![:") && emoji.contains("mxc://")) {
-            // Extract MXC URL from format: ![:name:](mxc://url "Emoji: :name:")
-            val mxcStart = emoji.indexOf("mxc://")
-            if (mxcStart >= 0) {
-                val mxcEnd = emoji.indexOf("\"", mxcStart)
-                if (mxcEnd > mxcStart) {
-                    emoji.substring(mxcStart, mxcEnd)
-                } else {
-                    emoji.substring(mxcStart)
-                }
-            } else {
-                emoji
-            }
-        } else {
-            emoji
-        }
-        updateRecentEmojis(emojiForRecent)
-    }
+    fun sendReaction(roomId: String, eventId: String, emoji: String) =
+        reactionCoordinator.sendReaction(roomId, eventId, emoji)
     
     fun updateRecentEmojis(emoji: String) {
         // CRITICAL: Do NOT update recentEmojiFrequencies here - it will be updated when we receive sync_complete from the server.
@@ -11600,9 +11267,9 @@ class AppViewModel : ViewModel() {
         } else if (messageRequests.containsKey(requestId)) {
             handleMessageResponse(requestId, data)
         } else if (reactionRequests.containsKey(requestId)) {
-            handleReactionResponse(requestId, data)
+            reactionCoordinator.handleReactionResponse(requestId, data)
         } else if (relatedEventsRequests.containsKey(requestId)) {
-            handleRelatedEventsResponse(requestId, data)
+            reactionCoordinator.handleRelatedEventsResponse(requestId, data)
         } else if (markReadRequests.containsKey(requestId)) {
             // Handle mark_read response - data should be a boolean
             val success = data as? Boolean ?: false
@@ -12464,7 +12131,7 @@ class AppViewModel : ViewModel() {
                     } else {
                         // Process reaction events using helper function
                         if (event.type == "m.reaction") {
-                            if (processReactionFromTimeline(event)) {
+                            if (reactionCoordinator.processReactionFromTimeline(event)) {
                                 reactionProcessedCount++
                             }
                             filteredByType++
@@ -13562,91 +13229,6 @@ class AppViewModel : ViewModel() {
             } catch (e: Exception) {
                 android.util.Log.e("Andromuks", "AppViewModel: Error refreshing shortcuts on startup", e)
             }
-        }
-    }
-    
-    private fun handleReactionResponse(requestId: Int, data: Any) {
-        val roomId = reactionRequests.remove(requestId) ?: return
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling reaction response for room: $roomId, currentRoomId: $currentRoomId")
-        
-        when (data) {
-            is JSONObject -> {
-                // Create TimelineEvent from the response
-                val event = TimelineEvent.fromJson(data)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Created reaction event: type=${event.type}, roomId=${event.roomId}, eventId=${event.eventId}")
-                if (event.type == "m.reaction") {
-                    // Don't add response events to timeline - they have temporary transaction IDs
-                    // The real event will come via send_complete with proper Matrix event ID
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Ignoring reaction response event (temporary ID), waiting for send_complete: ${event.content?.optJSONObject("m.relates_to")?.optString("key")}")
-                } else {
-                    android.util.Log.w("Andromuks", "AppViewModel: Expected m.reaction event but got: ${event.type}")
-                }
-            }
-            else -> {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleReactionResponse: ${data::class.java.simpleName}")
-            }
-        }
-    }
-
-    /**
-     * Handle response from get_related_events used for reaction details backfill.
-     *
-     * The backend returns a list of events (database.Event[]). We:
-     * - Parse them into TimelineEvent objects
-     * - Feed any m.reaction events through processReactionFromTimeline so messageReactions[eventId]
-     *   is populated with per-user reactions (including timestamp) for the target message.
-     * - Optionally apply aggregated reactions from these events to keep counts in sync.
-     */
-    private fun handleRelatedEventsResponse(requestId: Int, data: Any) {
-        val (roomId, targetEventId) = relatedEventsRequests.remove(requestId) ?: return
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling related_events response for room: $roomId, targetEventId=$targetEventId, dataType=${data::class.java.simpleName}")
-
-        val eventsArray: JSONArray? = when (data) {
-            is JSONArray -> data
-            is JSONObject -> {
-                // Some endpoints wrap events in an "events" array; fall back to treating the object as a single event.
-                data.optJSONArray("events") ?: JSONArray().apply { put(data) }
-            }
-            else -> null
-        }
-
-        if (eventsArray == null || eventsArray.length() == 0) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: related_events response empty for $targetEventId in $roomId")
-            return
-        }
-
-        val timelineEvents = mutableListOf<TimelineEvent>()
-        var reactionsProcessed = 0
-
-        for (i in 0 until eventsArray.length()) {
-            val eventJson = eventsArray.optJSONObject(i) ?: continue
-            try {
-                val event = TimelineEvent.fromJson(eventJson)
-                timelineEvents.add(event)
-
-                // Only process reactions that belong to this room; processReactionFromTimeline
-                // already filters by type == "m.reaction" and redaction status.
-                if (event.type == "m.reaction" && event.roomId == roomId) {
-                    if (processReactionFromTimeline(event)) {
-                        reactionsProcessed++
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Error parsing related_event at index $i for $targetEventId in $roomId: ${e.message}", e)
-            }
-        }
-
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Processed $reactionsProcessed reaction events from related_events for target=$targetEventId in room=$roomId (total related events=${timelineEvents.size})"
-            )
-        }
-
-        // Also merge any aggregated reactions present on the target event (or others in the set)
-        // so counts are authoritative even if only some individual reaction events are returned.
-        if (timelineEvents.isNotEmpty()) {
-            applyAggregatedReactionsFromEvents(timelineEvents, source = "related_events")
         }
     }
     
@@ -16489,7 +16071,7 @@ class AppViewModel : ViewModel() {
         }
     }
 
-    private fun sendWebSocketCommand(command: String, requestId: Int, data: Map<String, Any>): WebSocketResult =
+    internal fun sendWebSocketCommand(command: String, requestId: Int, data: Map<String, Any>): WebSocketResult =
         webSocketCommands.send(command, requestId, data)
 
     private fun flushPendingCommandsQueue() {
@@ -18014,36 +17596,6 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Extract reaction event from timeline event
-     */
-    private fun extractReactionEvent(event: TimelineEvent): ReactionEvent? {
-        val content = event.content ?: return null
-        val relatesTo = content.optJSONObject("m.relates_to") ?: return null
-        
-        val relatesToEventId = relatesTo.optString("event_id")
-        val emoji = relatesTo.optString("key")
-        val relType = relatesTo.optString("rel_type")
-        
-        return if (relatesToEventId.isNotBlank() && emoji.isNotBlank() && relType == "m.annotation") {
-            ReactionEvent(
-                roomId = event.roomId,
-                eventId = event.eventId,
-                sender = event.sender,
-                emoji = emoji,
-                relatesToEventId = relatesToEventId,
-                timestamp = normalizeTimestamp(
-                    event.timestamp,
-                    event.unsigned?.optLong("age_ts") ?: 0L
-                )
-            )
-        } else {
-            null
-        }
-    }
-    
-
-    
-    /**
      * Process member event - update cache
      */
     private fun processMemberEvent(
@@ -18064,23 +17616,6 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile change detected in timeline for $userId")
             true
         } else {
-            false
-        }
-    }
-    
-    /**
-     * Process reaction event from timeline
-     */
-    private fun processReactionFromTimeline(event: TimelineEvent): Boolean {
-        if (event.type != "m.reaction") return false
-        
-        val reaction = extractReactionEvent(event) ?: return false
-        
-        return if (event.redactedBy == null) {
-            processReactionEvent(reaction, isHistorical = true)
-            true
-        } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping redacted historical reaction: ${reaction.emoji} from ${reaction.sender} to ${reaction.relatesToEventId}")
             false
         }
     }
