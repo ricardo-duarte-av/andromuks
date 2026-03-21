@@ -140,6 +140,7 @@ private fun emitIncomingWebSocketMessage(json: JSONObject, hint: IncomingWebSock
 /**
  * Applies one parsed inbound WebSocket message to a single [AppViewModel].
  * Emission is fan-out via [SyncRepository.events] ([SyncEvent.IncomingWebSocketMessage]); each attached VM collects and calls this.
+ * Note: [sync_complete] is **not** delivered here — it is handled once via [SyncRepository.enqueueSyncComplete].
  */
 fun applyIncomingWebSocketMessageForViewModel(
     jsonObject: JSONObject,
@@ -160,15 +161,7 @@ fun applyIncomingWebSocketMessageForViewModel(
             }
         }
         "sync_complete" -> {
-            viewModel.viewModelScope.launch(Dispatchers.IO) {
-                if (hint == IncomingWebSocketHint.SYNC_COMPLETE_AFTER_RESUME) {
-                    withContext(Dispatchers.Main) {
-                        viewModel.onInitComplete()
-                    }
-                }
-                val clone = JSONObject(jsonObject.toString())
-                viewModel.updateRoomsFromSyncJsonAsync(clone)
-            }
+            // Processed only by SyncRepository single-consumer pipeline (see dispatchParsedWebSocketMessage).
         }
         "init_complete" -> {
             if (hint == IncomingWebSocketHint.INIT_COMPLETE) {
@@ -248,8 +241,10 @@ fun applyIncomingWebSocketMessageForViewModel(
 }
 
 /**
- * Dispatches a parsed WebSocket message (command + data) to WebSocketService and [SyncRepository] (fan-out to ViewModels).
- * Called from the ordered dispatcher so sync_complete and all messages are processed in receipt order.
+ * Dispatches a parsed WebSocket message (command + data) to WebSocketService and [SyncRepository].
+ * Most commands fan out via [SyncRepository.emitIncomingWebSocketMessage]; [sync_complete] uses
+ * [SyncRepository.enqueueSyncComplete] (single consumer, then [SyncEvent.RoomListSingletonReplicated] for other VMs).
+ * Called from the ordered dispatcher so messages are processed in receipt order.
  */
 private fun dispatchParsedWebSocketMessage(jsonObject: JSONObject) {
     val command = jsonObject.optString("command")
@@ -278,8 +273,8 @@ private fun dispatchParsedWebSocketMessage(jsonObject: JSONObject) {
             if (SyncRepository.getAttachedViewModels().isEmpty()) {
                 Log.w("Andromuks", "NetworkUtils: CRITICAL - sync_complete received but no ViewModels attached in SyncRepository!")
             }
-            emitIncomingWebSocketMessage(
-                jsonObject,
+            SyncRepository.enqueueSyncComplete(
+                jsonObject.toString(),
                 if (wasResume) IncomingWebSocketHint.SYNC_COMPLETE_AFTER_RESUME else IncomingWebSocketHint.NONE
             )
         }

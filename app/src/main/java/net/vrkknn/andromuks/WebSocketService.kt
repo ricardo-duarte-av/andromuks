@@ -230,7 +230,9 @@ class WebSocketService : Service() {
                 return false
             }
             if (!SyncRepository.isPrimaryEntryAlive()) {
-                android.util.Log.w("WebSocketService", "STEP 3.1 - Primary health check: Primary ViewModel $primaryId missing or not primary in SyncRepository")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("WebSocketService", "STEP 3.1 - Primary health check: Primary ViewModel $primaryId missing or not primary in SyncRepository")
+                }
                 return false
             }
             return true
@@ -2296,11 +2298,11 @@ class WebSocketService : Service() {
      * - Same monitoring coverage, better battery efficiency
      * 
      * What it monitors:
-     * 1. Callback health (every 30s) - ensures reconnection callbacks are available
-     * 2. State corruption (every 60s) - detects and recovers from state inconsistencies
-     * 3. Primary ViewModel health (every 30s) - ensures primary ViewModel is alive, promotes secondary if needed
-     * 4. Connection health (every 30s) - detects stuck CONNECTING/RECONNECTING states
-     * 5. Notification staleness (every 30s) - ensures notification is updated
+     * 1. Callback health (validateCallbacks each tick; internal cadence varies)
+     * 2. State corruption (~every 30s) - detects and recovers from state inconsistencies
+     * 3. Primary ViewModel health (~every 30s, same tick as state corruption) - safety net; SyncRepository owns attach/prune
+     * 4. Connection health (every 1s) - detects stuck CONNECTING/RECONNECTING states
+     * 5. Notification staleness (each tick) - ensures notification is updated when needed
      */
     private fun startUnifiedMonitoring() {
         unifiedMonitoringJob?.cancel()
@@ -2318,44 +2320,34 @@ class WebSocketService : Service() {
                     // Ensures reconnection callbacks are available for reconnection attempts
                     validateCallbacks()
                     
-                    // 2. State corruption check (~every 30s - every 30 iterations)
-                    // Detects and recovers from state inconsistencies (WebSocket vs state mismatch, stuck states)
+                    // 2 + 3. State corruption + primary ViewModel health (~every 30s — same counter as documented)
+                    // Primary promotion is a safety net; SyncRepository flows own attachment/pruning. This must not
+                    // run every 1s (it did before): it spams logs and fights registerReceiveCallback/attach ordering.
                     stateCorruptionCheckCounter++
                     if (stateCorruptionCheckCounter >= 30) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Unified monitoring: Running state corruption check")
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Unified monitoring: state corruption + primary health checks")
                         WebSocketService.detectAndRecoverStateCorruption()
-                        stateCorruptionCheckCounter = 0
-                    }
-                    
-                    // 3. Primary ViewModel health check (every 30s)
-                    // STEP 3.2: Ensures primary ViewModel is alive and healthy
-                    // Automatically promotes secondary ViewModel if primary is detected as dead
-                    val isAlive = isPrimaryAlive()
-                    val primaryId = getPrimaryViewModelId()
-                    
-                    if (!isAlive) {
-                        android.util.Log.w("WebSocketService", "STEP 3.2 - Primary health check: Primary ViewModel is NOT alive (primaryId=$primaryId)")
                         
-                        // Log detailed status for debugging
-                        val registeredCount = getRegisteredViewModelIds().size
-                        val callbackStatus = getPrimaryCallbackStatus()
-                        android.util.Log.w("WebSocketService", "STEP 3.2 - Health check details: registeredViewModels=$registeredCount, callbackStatus=$callbackStatus")
-                        
-                        // STEP 3.3: If primary health check fails, automatically promote next available ViewModel
-                        if (primaryId != null) {
-                            // Primary ID is set but ViewModel is dead - clear it and attempt promotion
-                            android.util.Log.i("WebSocketService", "STEP 3.3 - Primary ViewModel $primaryId detected as dead - attempting automatic promotion")
-                            SyncRepository.clearStalePrimaryAndPromote(primaryId, "health_check_failed")
-                        } else {
-                            // No primary ID set - check if we have ViewModels to promote
-                            if (registeredCount > 0) {
-                                android.util.Log.i("WebSocketService", "STEP 3.3 - No primary set but $registeredCount ViewModels available - attempting promotion")
-                                SyncRepository.promoteNextPrimary("no_primary_set")
+                        val isAlive = isPrimaryAlive()
+                        val primaryId = getPrimaryViewModelId()
+                        if (!isAlive) {
+                            android.util.Log.w("WebSocketService", "STEP 3.2 - Primary health check: Primary ViewModel is NOT alive (primaryId=$primaryId)")
+                            val registeredCount = getRegisteredViewModelIds().size
+                            val callbackStatus = getPrimaryCallbackStatus()
+                            android.util.Log.w("WebSocketService", "STEP 3.2 - Health check details: registeredViewModels=$registeredCount, callbackStatus=$callbackStatus")
+                            if (primaryId != null) {
+                                android.util.Log.i("WebSocketService", "STEP 3.3 - Primary ViewModel $primaryId detected as dead - attempting automatic promotion")
+                                SyncRepository.clearStalePrimaryAndPromote(primaryId, "health_check_failed")
                             } else {
-                                android.util.Log.w("WebSocketService", "STEP 3.3 - No primary and no ViewModels available - next MainActivity launch will become primary")
-                                // Primary callbacks remain in service - next MainActivity will automatically become primary
+                                if (registeredCount > 0) {
+                                    android.util.Log.i("WebSocketService", "STEP 3.3 - No primary set but $registeredCount ViewModels available - attempting promotion")
+                                    SyncRepository.promoteNextPrimary("no_primary_set")
+                                } else {
+                                    android.util.Log.w("WebSocketService", "STEP 3.3 - No primary and no ViewModels available - next MainActivity launch will become primary")
+                                }
                             }
                         }
+                        stateCorruptionCheckCounter = 0
                     }
                     
                     // 4. Connection health check (every 1s)

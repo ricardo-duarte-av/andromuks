@@ -3,7 +3,6 @@ package net.vrkknn.andromuks
 import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -15,6 +14,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Batches sync_complete messages to reduce battery drain when app is backgrounded.
@@ -34,7 +34,13 @@ class SyncBatchProcessor(
     private val batchQueue = mutableListOf<SyncMessage>()
     private val batchLock = Mutex()
     private var batchJob: Job? = null
-    private var isAppVisible = true
+    /**
+     * Must be thread-safe: [onAppVisibilityChanged] runs on the main thread while
+     * [processSyncComplete] runs on dispatcher threads (e.g. after SyncRepository fan-out).
+     * A plain `var` updated under [synchronized] on [batchQueue] was not visible to readers
+     * holding only [batchLock], so backgrounding could keep looking "foreground" → no batching.
+     */
+    private val appVisible = AtomicBoolean(true)
     
     // CRASH FIX: Track batch processing state to prevent animations during flush
     private var _isProcessingBatch = MutableStateFlow(false)
@@ -87,7 +93,7 @@ class SyncBatchProcessor(
             // even if app is visible. This prevents messages from appearing one-by-one during batch flush.
             val isCurrentlyProcessingBatch = _isProcessingBatch.value
             
-            if (isAppVisible && !isCurrentlyProcessingBatch) {
+            if (appVisible.get() && !isCurrentlyProcessingBatch) {
                 // FOREGROUND: Process immediately (only if not currently processing a batch)
                 processSyncImmediately(syncJson, requestId, runId)
                 
@@ -104,7 +110,7 @@ class SyncBatchProcessor(
                 batchQueue.add(SyncMessage(syncJson, requestId, runId))
                 
                 // Start batch timer if not running (only if app is backgrounded)
-                if (!isAppVisible) {
+                if (!appVisible.get()) {
                     if (batchJob == null || !batchJob!!.isActive) {
                         scheduleBatchProcessing()
                     }
@@ -126,7 +132,7 @@ class SyncBatchProcessor(
         batchJob = scope.launch {
             delay(batchIntervalMs)
             batchLock.withLock {
-                if (batchQueue.isNotEmpty() && !isAppVisible) {
+                if (batchQueue.isNotEmpty() && !appVisible.get()) {
                     Log.i(TAG, "Periodic background purge triggered (interval=${batchIntervalMs}ms)")
                     flushBatchLocked()
                 }
@@ -159,7 +165,7 @@ class SyncBatchProcessor(
         // appendEventsToCachedRoom() sees it as true. StateFlow is thread-safe, so we can
         // set it from any thread, but we need to ensure it's set before processSyncImmediately() runs.
         // BATTERY OPTIMIZATION: Only update UI state when foregrounded
-        if (isAppVisible) {
+        if (appVisible.get()) {
             // Set synchronously (StateFlow is thread-safe) before processing starts
             _processingBatchSize.value = batchSize
             _isProcessingBatch.value = true
@@ -206,7 +212,7 @@ class SyncBatchProcessor(
             }
             
             // CRASH FIX: Ensure minimum visible duration so UI can observe state change
-            if (isAppVisible) {
+            if (appVisible.get()) {
                 val minVisibleDuration = 200L
                 val remainingTime = minVisibleDuration - elapsed
                 if (remainingTime > 0) {
@@ -222,7 +228,7 @@ class SyncBatchProcessor(
         } finally {
             // CRASH FIX: Always reset processing state, even if processing failed or timed out
             // StateFlow is thread-safe, so we can set it from any thread
-            if (isAppVisible) {
+            if (appVisible.get()) {
                 _isProcessingBatch.value = false
                 _processingBatchSize.value = 0
                 _shouldSkipTimelineRebuild.value = false // CRITICAL: Re-enable timeline rebuilds after batch completes
@@ -234,10 +240,10 @@ class SyncBatchProcessor(
         
         // CRITICAL FIX: If new messages arrived during batch processing and app is visible,
         // process them immediately in a new batch to prevent them from being processed one-by-one
-        if (batchQueue.isNotEmpty() && isAppVisible) {
+        if (batchQueue.isNotEmpty() && appVisible.get()) {
             Log.i(TAG, "New messages arrived during batch processing - processing ${batchQueue.size} messages in new batch")
             flushBatchLocked(recursionDepth + 1)
-        } else if (batchQueue.isNotEmpty() && !isAppVisible) {
+        } else if (batchQueue.isNotEmpty() && !appVisible.get()) {
             // Background: reschedule periodic processing
             scheduleBatchProcessing()
         }
@@ -260,8 +266,8 @@ class SyncBatchProcessor(
         // batchLock is a Mutex (suspend-only), we use a quick synchronised block
         // on the list itself for the non-suspend read, then launch the real flush.
         synchronized(batchQueue) {
-            val wasVisible = isAppVisible
-            isAppVisible = visible
+            val wasVisible = appVisible.get()
+            appVisible.set(visible)
             pendingCount = if (visible && !wasVisible) batchQueue.size else 0
         }
 
@@ -279,7 +285,7 @@ class SyncBatchProcessor(
                 } catch (e: Exception) {
                     // CRASH FIX: If job is cancelled or fails, ensure state is reset
                     Log.e(TAG, "Error in batch flush job: ${e.message}", e)
-                    if (isAppVisible) {
+                    if (appVisible.get()) {
                         // StateFlow is thread-safe, so we can set it from any thread
                         _isProcessingBatch.value = false
                         _shouldSkipTimelineRebuild.value = false
@@ -288,12 +294,8 @@ class SyncBatchProcessor(
                 }
             }
         } else {
-            // Still need to update isAppVisible under the mutex for correctness
-            job = scope.launch {
-                batchLock.withLock {
-                    isAppVisible = visible
-                }
-            }
+            // Visibility already updated synchronously above (atomic); no extra job needed.
+            job = null
         }
 
         return Pair(pendingCount, job)
@@ -309,14 +311,14 @@ class SyncBatchProcessor(
         return scope.launch {
             batchLock.withLock {
                 if (batchQueue.isEmpty()) {
-                    isAppVisible = true
+                    appVisible.set(true)
                     return@launch
                 }
                 
                 val batchSize = batchQueue.size
                 Log.i(TAG, "Force flushing $batchSize batched messages (notification navigation)")
                 
-                isAppVisible = true
+                appVisible.set(true)
             }
             
             batchLock.withLock {

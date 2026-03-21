@@ -221,6 +221,13 @@ class AppViewModel : ViewModel() {
                     is SyncEvent.ClearTimelineCachesRequested -> {
                         clearAllTimelineCaches()
                     }
+                    is SyncEvent.RoomListSingletonReplicated -> {
+                        val pid = SyncRepository.getPrimaryViewModelId()
+                        if (pid != null && viewModelId != pid) {
+                            populateRoomMapFromCache()
+                            roomListUpdateCounter++
+                        }
+                    }
                     is SyncEvent.IncomingWebSocketMessage -> {
                         try {
                             val json = JSONObject(event.jsonString)
@@ -2440,6 +2447,13 @@ class AppViewModel : ViewModel() {
     
 
     fun updateRoomsFromSyncJsonAsync(syncJson: JSONObject) = syncRoomsCoordinator.updateRoomsFromSyncJsonAsync(syncJson)
+
+    /**
+     * Single [sync_complete] pipeline from [SyncRepository] (not per-VM fan-out).
+     */
+    internal suspend fun applySyncCompleteFromRepository(syncJson: JSONObject) {
+        syncRoomsCoordinator.updateRoomsFromSyncJsonAsyncBody(syncJson)
+    }
     // SYNC OPTIMIZATION: Helper functions for diff-based and batched updates
     
     /**

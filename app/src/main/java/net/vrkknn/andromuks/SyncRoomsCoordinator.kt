@@ -494,6 +494,7 @@ internal class SyncRoomsCoordinator(
                             vm.roomSummaryUpdateCounter++
                         }
 
+                        SyncRepository.emitEvent(SyncEvent.RoomListSingletonReplicated)
                         onComplete?.invoke()
                     } catch (e: Exception) {
                         android.util.Log.e("Andromuks", "AppViewModel: Crash applying sync_complete on main: ${e.message}", e)
@@ -597,6 +598,15 @@ internal class SyncRoomsCoordinator(
     }
 
     fun updateRoomsFromSyncJsonAsync(syncJson: JSONObject) {
+        vm.viewModelScope.launch {
+            updateRoomsFromSyncJsonAsyncBody(syncJson)
+        }
+    }
+
+    /**
+     * Suspend body used by [SyncRepository]'s single sync_complete pipeline and by [updateRoomsFromSyncJsonAsync].
+     */
+    suspend fun updateRoomsFromSyncJsonAsyncBody(syncJson: JSONObject) {
         vm.handleSyncToDeviceEvents(syncJson)
 
         // CRITICAL FIX: Queue sync_complete messages received before init_complete
@@ -618,9 +628,7 @@ internal class SyncRoomsCoordinator(
 
         val requestId = syncJson.optInt("request_id", 0)
         val runId = syncJson.optJSONObject("data")?.optString("run_id", "") ?: ""
-        vm.viewModelScope.launch {
-            vm.syncBatchProcessor.processSyncComplete(syncJson, requestId, runId)
-        }
+        vm.syncBatchProcessor.processSyncComplete(syncJson, requestId, runId)
     }
 
     fun processParsedSyncResult(syncResult: SyncUpdateResult, syncJson: JSONObject) {

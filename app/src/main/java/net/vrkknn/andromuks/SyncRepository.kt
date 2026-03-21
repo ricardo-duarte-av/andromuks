@@ -1,13 +1,22 @@
 package net.vrkknn.andromuks
 
 import android.content.Context
+import android.util.Log
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
@@ -20,6 +29,12 @@ sealed class SyncEvent {
     data class OfflineModeChanged(val isOffline: Boolean) : SyncEvent()
     data class ActivityLog(val event: String, val networkType: String?) : SyncEvent()
     data object ClearTimelineCachesRequested : SyncEvent()
+
+    /**
+     * Primary (or sole) processor finished applying a [sync_complete] to shared stores ([RoomListCache], etc.).
+     * Non-primary [AppViewModel] instances should refresh local [AppViewModel.roomMap] from singletons.
+     */
+    data object RoomListSingletonReplicated : SyncEvent()
 
     /**
      * Parsed WebSocket JSON (one direction: NetworkUtils → all attached ViewModels).
@@ -56,11 +71,74 @@ data class ViewModelEntry(
 
 object SyncRepository {
 
+    private const val TAG = "SyncRepository"
+
     private val registryLock = Any()
 
     private val attachedViewModels = ConcurrentHashMap<String, ViewModelEntry>()
 
     private val primaryViewModelIdRef = AtomicReference<String?>(null)
+
+    /**
+     * Single ordered consumer for [sync_complete]: one ingest/parse/apply per server message (not per attached VM).
+     */
+    private data class PendingSyncComplete(val jsonString: String, val hint: IncomingWebSocketHint)
+
+    private val syncCompleteChannel = Channel<PendingSyncComplete>(Channel.UNLIMITED)
+    private val syncPipelineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
+
+    init {
+        syncPipelineScope.launch {
+            for (msg in syncCompleteChannel) {
+                try {
+                    processSyncCompletePipeline(msg)
+                } catch (e: Exception) {
+                    Log.e(TAG, "sync_complete pipeline failed", e)
+                }
+            }
+        }
+    }
+
+    /**
+     * Enqueue a single [sync_complete] for processing on the canonical [AppViewModel] (primary if set, else first attached).
+     * Does not fan out [SyncEvent.IncomingWebSocketMessage] for this command.
+     */
+    fun enqueueSyncComplete(jsonString: String, hint: IncomingWebSocketHint) {
+        val result = syncCompleteChannel.trySend(PendingSyncComplete(jsonString, hint))
+        if (!result.isSuccess) {
+            Log.e(TAG, "enqueueSyncComplete: channel closed or failed")
+        }
+    }
+
+    private suspend fun processSyncCompletePipeline(msg: PendingSyncComplete) {
+        val json = JSONObject(msg.jsonString)
+        if (msg.hint == IncomingWebSocketHint.SYNC_COMPLETE_AFTER_RESUME) {
+            withContext(Dispatchers.Main) {
+                getAttachedViewModels().forEach { vm ->
+                    vm.onInitComplete()
+                }
+            }
+        }
+        val target = resolveSyncProcessingViewModel()
+        if (target == null) {
+            Log.w(TAG, "sync_complete: no AppViewModel to process (dropped)")
+            return
+        }
+        val job = target.viewModelScope.launch {
+            target.applySyncCompleteFromRepository(json)
+        }
+        job.join()
+    }
+
+    /**
+     * Prefer primary; otherwise first attached instance (e.g. bubble-only process).
+     */
+    private fun resolveSyncProcessingViewModel(): AppViewModel? {
+        getPrimaryViewModelId()?.let { id ->
+            getViewModel(id)?.let { return it }
+        }
+        return getAttachedViewModels().firstOrNull()
+    }
 
     private val _events = MutableSharedFlow<SyncEvent>(
         replay = 0,
@@ -81,8 +159,16 @@ object SyncRepository {
         primaryViewModelIdRef.set(id)
     }
 
+    /**
+     * (Re)attaches the weak ref for this id. [isPrimary] must stay in sync with [getPrimaryViewModelId]:
+     * [registerViewModel] sets primary, then [registerReceiveCallback] calls this — if we always used
+     * `isPrimary = false` here, we'd wipe the primary flag and trigger endless "dead primary" promotion.
+     */
     fun attachViewModel(viewModelId: String, viewModel: AppViewModel) {
-        attachedViewModels[viewModelId] = ViewModelEntry(WeakReference(viewModel), isPrimary = false)
+        synchronized(registryLock) {
+            val isPrimary = (getPrimaryViewModelId() == viewModelId)
+            attachedViewModels[viewModelId] = ViewModelEntry(WeakReference(viewModel), isPrimary = isPrimary)
+        }
     }
 
     /**
