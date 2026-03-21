@@ -163,7 +163,7 @@ class AppViewModel : ViewModel() {
         // MEMORY MANAGEMENT: Constants for cache limits and cleanup
         private const val INITIAL_ROOM_LOAD_EVENTS = 100 // Events to load when opening a room
         private const val MAX_MEMBER_CACHE_SIZE = 50000
-        private const val MAX_MESSAGE_VERSIONS_PER_EVENT = 50
+        internal const val MAX_MESSAGE_VERSIONS_PER_EVENT = 50
         
         // PHASE 4: Counter for generating unique ViewModel IDs
         private var viewModelCounter = 0
@@ -1189,6 +1189,9 @@ class AppViewModel : ViewModel() {
 
     /** Outgoing messages (text, media, typing, notification FIFO) — see [MessageSendCoordinator]. */
     private val messageSendCoordinator by lazy { MessageSendCoordinator(this) }
+
+    /** Edit chains, merged bubbles, [MessageVersionsCache] — see [EditVersionCoordinator]. */
+    private val editVersionCoordinator by lazy { EditVersionCoordinator(this) }
     
     // Startup progress messages for loading screen (last 10 messages, newest on top)
     private val _startupProgressMessages = mutableStateListOf<String>()
@@ -3666,195 +3669,26 @@ class AppViewModel : ViewModel() {
     /**
      * Helper function to check if an event is an edit (m.replace relationship)
      */
-    private fun isEditEvent(event: TimelineEvent): Boolean {
-        if (event.relationType == "m.replace" && !event.relatesTo.isNullOrBlank()) return true
-        return when {
-            event.type == "m.room.message" ->
-                event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-            event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" ->
-                event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-            else -> false
-        }
-    }
+    private fun isEditEvent(event: TimelineEvent) = editVersionCoordinator.isEditEvent(event)
 
     /** Target event id for an edit (m.replace); supports sync_complete top-level relates_to only. */
-    private fun editTargetEventId(event: TimelineEvent): String? {
-        val fromContent = when {
-            event.type == "m.room.message" ->
-                event.content?.optJSONObject("m.relates_to")?.optString("event_id")
-            event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" ->
-                event.decrypted?.optJSONObject("m.relates_to")?.optString("event_id")
-            else -> null
-        }?.takeIf { it.isNotBlank() }
-        if (fromContent != null) return fromContent
-        if (event.relationType == "m.replace") return event.relatesTo?.takeIf { it.isNotBlank() }
-        return null
-    }
+    private fun editTargetEventId(event: TimelineEvent) = editVersionCoordinator.editTargetEventId(event)
+
     /**
      * Helper to merge message versions without duplicates and keep newest-first ordering.
      */
     private fun mergeVersionsDistinct(
         existing: List<MessageVersion>,
         extra: MessageVersion? = null
-    ): List<MessageVersion> {
-        return (if (extra != null) existing + extra else existing)
-            .groupBy { it.eventId }           // de-dupe by eventId
-            .map { (_, versions) -> versions.maxByOrNull { it.timestamp } ?: versions.first() } // keep newest per id
-            .sortedByDescending { it.timestamp }
-    }
+    ) = editVersionCoordinator.mergeVersionsDistinct(existing, extra)
 
     /**
      * OPTIMIZED: Process events to build version cache (O(n) where n = number of events)
      * This replaces the old chain-following approach with direct version storage
      */
-    private fun processVersionedMessages(events: List<TimelineEvent>) {
-        for (event in events) {
-            when {
-                // Handle redaction events - O(1) storage (both encrypted and non-encrypted for E2EE rooms)
-                event.type == "m.room.redaction" ||
-                (event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction") -> {
-                    // For encrypted redactions, check decrypted content; for non-encrypted, check content
-                    val redactsEventId = when {
-                        event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction" -> {
-                            event.decrypted?.optString("redacts")?.takeIf { it.isNotBlank() }
-                        }
-                        else -> {
-                            event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
-                        }
-                    }
-                    
-                    if (redactsEventId != null) {
-                        // Mark the original message as redacted
-                        val versioned = messageVersions[redactsEventId]
-                        if (versioned != null) {
-                            MessageVersionsCache.updateVersion(redactsEventId, versioned.copy(
-                                redactedBy = event.eventId,
-                                redactionEvent = event
-                            ))
-                        } else {
-                            // Redaction came before the original event - try to find original in cache
-                            // This happens when pagination returns redaction before the original message
-                            val originalEvent = RoomTimelineCache.getCachedEvents(event.roomId)?.find { it.eventId == redactsEventId }
-                            
-                            if (originalEvent != null) {
-                                // Found original event in cache - create VersionedMessage with redaction
-                                MessageVersionsCache.updateVersion(redactsEventId, VersionedMessage(
-                                    originalEventId = redactsEventId,
-                                    originalEvent = originalEvent,
-                                    versions = emptyList(),
-                                    redactedBy = event.eventId,
-                                    redactionEvent = event
-                                ))
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Redaction event ${event.eventId} (type=${event.type}, decryptedType=${event.decryptedType}) received before original $redactsEventId, but found original in cache")
-                            } else {
-                                // Original not in cache yet - create placeholder so redaction can be found
-                                // We'll use the redaction event itself as a temporary originalEvent
-                                // This will be updated when the original event arrives
-                                MessageVersionsCache.updateVersion(redactsEventId, VersionedMessage(
-                                    originalEventId = redactsEventId,
-                                    originalEvent = event,  // Temporary placeholder
-                                    versions = emptyList(),
-                                    redactedBy = event.eventId,
-                                    redactionEvent = event
-                                ))
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Redaction event ${event.eventId} (type=${event.type}, decryptedType=${event.decryptedType}) received before original $redactsEventId - created placeholder")
-                            }
-                        }
-                    }
-                }
-                
-                // Handle edit events (m.replace) - O(1) storage
-                isEditEvent(event) -> {
-                    val originalEventId = editTargetEventId(event)
-                    
-                    if (originalEventId != null) {
-                        // Store reverse mapping for quick lookup (handled by MessageVersionsCache)
-                        // editToOriginal is computed from messageVersions
-                        
-                        val versioned = messageVersions[originalEventId]
-                        if (versioned != null) {
-                            // Add this edit to the version list
-                            val newVersion = MessageVersion(
-                                eventId = event.eventId,
-                                event = event,
-                                timestamp = event.timestamp,
-                                isOriginal = false
-                            )
-                            
-                            // Merge and sort versions (newest first) without duplicates
-                            val updatedVersions = mergeVersionsDistinct(versioned.versions, newVersion)
-                            
-                            // MEMORY MANAGEMENT: Limit versions per message to prevent memory leaks
-                            val limitedVersions = if (updatedVersions.size > MAX_MESSAGE_VERSIONS_PER_EVENT) {
-                                updatedVersions.take(MAX_MESSAGE_VERSIONS_PER_EVENT)
-                            } else {
-                                updatedVersions
-                            }
-                            
-                            val updatedVersioned = versioned.copy(
-                                versions = limitedVersions
-                            )
-                            MessageVersionsCache.updateVersion(originalEventId, updatedVersioned)
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added edit ${event.eventId} to original $originalEventId (total versions: ${updatedVersions.size})")
-                        } else {
-                            // Edit came before original - create placeholder with just the edit
-                            MessageVersionsCache.updateVersion(originalEventId, VersionedMessage(
-                                originalEventId = originalEventId,
-                                originalEvent = event,  // Temporary, will be replaced when original arrives
-                                versions = listOf(MessageVersion(
-                                    eventId = event.eventId,
-                                    event = event,
-                                    timestamp = event.timestamp,
-                                    isOriginal = false
-                                ))
-                            ))
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Edit ${event.eventId} received before original $originalEventId - created placeholder")
-                        }
-                    }
-                }
-                
-                // Handle regular messages (original events) - O(1) storage
-                event.type == "m.room.message" || event.type == "m.room.encrypted" -> {
-                    val existing = messageVersions[event.eventId]
-                    
-                    if (existing != null) {
-                        // We already have edit versions, now add/update the original
-                        val originalVersion = MessageVersion(
-                            eventId = event.eventId,
-                            event = event,
-                            timestamp = event.timestamp,
-                            isOriginal = true
-                        )
-                        
-                        // Merge with existing edits and sort (de-duped)
-                        val updatedVersions = mergeVersionsDistinct(
-                            existing.versions.filter { !it.isOriginal },
-                            originalVersion
-                        )
-                        
-                        MessageVersionsCache.updateVersion(event.eventId, existing.copy(
-                            originalEvent = event,
-                            versions = updatedVersions
-                        ))
-                        
-                        //android.util.Log.d("Andromuks", "AppViewModel: Updated original event ${event.eventId} with ${updatedVersions.size} total versions")
-                    } else {
-                        // First time seeing this message - create new versioned message
-                        MessageVersionsCache.updateVersion(event.eventId, VersionedMessage(
-                            originalEventId = event.eventId,
-                            originalEvent = event,
-                            versions = listOf(MessageVersion(
-                                eventId = event.eventId,
-                                event = event,
-                                timestamp = event.timestamp,
-                                isOriginal = true
-                            ))
-                        ))
-                    }
-                }
-            }
-        }
-    }
+    private fun processVersionedMessages(events: List<TimelineEvent>) =
+        editVersionCoordinator.processVersionedMessages(events)
+
     
     // PERFORMANCE: Track member processing state for incremental updates
     private var memberProcessingIndex = 0
@@ -7155,8 +6989,8 @@ class AppViewModel : ViewModel() {
         val originalTimestamp: Long
     )
     
-    private val eventChainMap = mutableMapOf<String, EventChainEntry>()
-    private val editEventsMap = mutableMapOf<String, TimelineEvent>() // Store edit events separately
+    internal val eventChainMap = mutableMapOf<String, EventChainEntry>()
+    internal val editEventsMap = mutableMapOf<String, TimelineEvent>() // Store edit events separately
     private val roomsPaginatedOnce = Collections.synchronizedSet(mutableSetOf<String>())
     // Track rooms that need timeline rebuild during batch processing (defer rebuild until batch completes)
     private val roomsNeedingRebuildDuringBatch = Collections.synchronizedSet(mutableSetOf<String>())
@@ -13645,226 +13479,40 @@ class AppViewModel : ViewModel() {
      * Handles edit events using the edit chain tracking system.
      * This ensures clean edit handling by tracking the edit chain properly.
      */
-    private fun handleEditEventInChain(editEvent: TimelineEvent) {        
-        // Check if the edit event needs decryption
-        val processedEditEvent = if (editEvent.type == "m.room.encrypted" && editEvent.decrypted == null) {
-            // For now, store as-is - decryption should happen elsewhere
-            editEvent
-        } else {
-            editEvent
-        }
-        
-        // Store the edit event
-        editEventsMap[editEvent.eventId] = processedEditEvent
-        
-        // Get the target event ID from the edit event
-        val relatesTo = when {
-            editEvent.type == "m.room.message" -> editEvent.content?.optJSONObject("m.relates_to")
-            editEvent.type == "m.room.encrypted" && editEvent.decryptedType == "m.room.message" -> editEvent.decrypted?.optJSONObject("m.relates_to")
-            else -> null
-        }
-        
-        val targetEventId = relatesTo?.optString("event_id")
-        if (targetEventId != null) {
-            
-            // Find the target event in our chain mapping
-            val targetEntry = eventChainMap[targetEventId]
-            if (targetEntry != null) {
-               
-                // Update the target event's replacedBy field with the new edit
-                targetEntry.replacedBy = editEvent.eventId
-                
-            } 
-        } else {
-            android.util.Log.w("Andromuks", "AppViewModel: Could not find target event ID in edit event ${editEvent.eventId}")
-        }
-    }
-    
+    private fun handleEditEventInChain(editEvent: TimelineEvent) =
+        editVersionCoordinator.handleEditEventInChain(editEvent)
+
     /**
      * Adds a new timeline event to the edit chain.
      * Includes deduplication to prevent the same event from being added multiple times.
      */
-    private fun addNewEventToChain(event: TimelineEvent) {
-        val existingEntry = eventChainMap[event.eventId]
-        if (existingEntry != null) {
-            // Event already exists - merge timeline_rowid if incoming has resolved value
-            // (existing may have 0/-1 from earlier path; resolved value is critical for sorting)
-            val existingBubble = existingEntry.ourBubble
-            if (existingBubble != null && event.timelineRowid > 0 && existingBubble.timelineRowid <= 0) {
-                eventChainMap[event.eventId] = existingEntry.copy(
-                    ourBubble = existingBubble.copy(timelineRowid = event.timelineRowid)
-                )
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Updated eventChainMap timeline_rowid for ${event.eventId} (was ${existingBubble.timelineRowid}, now ${event.timelineRowid})")
-                }
-            }
-            return
-        }
-        
-        // Add regular event to chain mapping
-        eventChainMap[event.eventId] = EventChainEntry(
-            eventId = event.eventId,
-            ourBubble = event,
-            replacedBy = null,
-            originalTimestamp = event.timestamp
-        )
+    private fun addNewEventToChain(event: TimelineEvent) =
+        editVersionCoordinator.addNewEventToChain(event)
 
-    }
-    
     /**
      * Processes edit relationships for new edit events only.
      */
-    private fun processNewEditRelationships(newEditEvents: List<TimelineEvent>) {
-        
-        // Process only the new edit events
-        for (editEvent in newEditEvents) {
-            val editEventId = editEvent.eventId
-            
-            // Get the target event ID from the edit event
-            val relatesTo = when {
-                editEvent.type == "m.room.message" -> editEvent.content?.optJSONObject("m.relates_to")
-                editEvent.type == "m.room.encrypted" && editEvent.decryptedType == "m.room.message" -> editEvent.decrypted?.optJSONObject("m.relates_to")
-                else -> null
-            }
-            
-            val targetEventId = relatesTo?.optString("event_id")
-            if (targetEventId != null) {
-                val targetEntry = eventChainMap[targetEventId]
-                if (targetEntry != null) {
-                    // Check if the target already has a replacement
-                    if (targetEntry.replacedBy != null) {
-                        // Find the end of the current chain and add this edit to the end
-                        val chainEnd = findChainEnd(targetEntry.replacedBy!!)
-                        if (chainEnd != null) {
-                            chainEnd.replacedBy = editEventId
-                        }
-                    } else {
-                        // First edit for this target
-                        targetEntry.replacedBy = editEventId
-                    }
-                } 
-            } 
-        }
-    }
-    
+    private fun processNewEditRelationships(newEditEvents: List<TimelineEvent>) =
+        editVersionCoordinator.processNewEditRelationships(newEditEvents)
+
     /**
      * Processes edit relationships to build the complete edit chain.
      */
-    private fun processEditRelationships() {
-        
-        // Safety check: limit the number of edit events to prevent blocking
-        if (editEventsMap.size > 100) {
-            val limitedEditEvents = editEventsMap
-                .values
-                .sortedByDescending { it.timestamp }
-                .take(100)
-                .associateBy { it.eventId }
-            editEventsMap.clear()
-            editEventsMap.putAll(limitedEditEvents)
-        }
-        
-        //android.util.Log.d("Andromuks", "processEditRelationships: editEventsMap size=${editEventsMap.size}")
-        // NOTE: Edit events should NOT be added to eventChainMap - they are only stored in editEventsMap
-        // Edit events are linked to their original events via the replacedBy field on the original event's entry
-        //android.util.Log.d("Andromuks", "processEditRelationships: eventChainMap now has ${eventChainMap.size} entries")
+    private fun processEditRelationships() = editVersionCoordinator.processEditRelationships()
 
-        // Sort edit events by timestamp to process in chronological order
-        val sortedEditEvents = editEventsMap.values.sortedBy { it.timestamp }
-        //android.util.Log.d("Andromuks", "processEditRelationships: processing ${sortedEditEvents.size} edit events in timestamp order")
-
-        for (editEvent in sortedEditEvents) {
-            val editEventId = editEvent.eventId
-
-            val targetEventId = editTargetEventId(editEvent)
-            if (targetEventId != null) {
-                val targetEntry = eventChainMap[targetEventId]
-                if (targetEntry != null) {
-                    if (BuildConfig.DEBUG) android.util.Log.d(
-                        "Andromuks",
-                        "processEditRelationships: edit ${editEventId} targets ${targetEventId} (current replacedBy=${targetEntry.replacedBy})"
-                    )
-                    if (targetEntry.replacedBy != null) {
-                        val chainEnd = findChainEndOptimized(targetEntry.replacedBy!!, mutableMapOf())
-                        if (chainEnd != null) {
-                            if (BuildConfig.DEBUG) android.util.Log.d(
-                                "Andromuks",
-                                "processEditRelationships: extending chain end ${chainEnd.eventId} with ${editEventId}"
-                            )
-                            chainEnd.replacedBy = editEventId
-                        } else {
-                            android.util.Log.w(
-                                "Andromuks",
-                                "processEditRelationships: could not find chain end for ${targetEntry.replacedBy}; replacing with ${editEventId}"
-                            )
-                            targetEntry.replacedBy = editEventId
-                        }
-                    } else {
-                        if (BuildConfig.DEBUG) android.util.Log.d(
-                            "Andromuks",
-                            "processEditRelationships: first edit for ${targetEventId} is ${editEventId}"
-                        )
-                        targetEntry.replacedBy = editEventId
-                    }
-                } else {
-                    android.util.Log.w(
-                        "Andromuks",
-                        "processEditRelationships: target entry missing for edit ${editEventId} (target=${targetEventId})"
-                    )
-                }
-            } else {
-                android.util.Log.w(
-                    "Andromuks",
-                    "processEditRelationships: edit ${editEventId} missing relates_to event_id"
-                )
-            }
-        }
-    }
-    
     /**
      * Finds the end of an edit chain by following replacedBy links.
      * OPTIMIZED: Now uses memoization to avoid repeated traversals (O(n²) -> O(n))
      */
-    private fun findChainEndOptimized(startEventId: String, cache: MutableMap<String, EventChainEntry?>): EventChainEntry? {
-        // Check cache first
-        if (cache.containsKey(startEventId)) {
-            return cache[startEventId]
-        }
-        
-        var currentId = startEventId
-        var currentEntry = eventChainMap[currentId]
-        
-        // Follow the chain to find the end
-        while (currentEntry?.replacedBy != null) {
-            currentId = currentEntry.replacedBy!!
-            // Check if we've already cached this chain end
-            if (cache.containsKey(currentId)) {
-                val cachedEnd = cache[currentId]
-                cache[startEventId] = cachedEnd
-                return cachedEnd
-            }
-            currentEntry = eventChainMap[currentId]
-        }
-        
-        // Cache the result for future lookups
-        cache[startEventId] = currentEntry
-        return currentEntry
-    }
-    
+    private fun findChainEndOptimized(startEventId: String, cache: MutableMap<String, EventChainEntry?>) =
+        editVersionCoordinator.findChainEndOptimized(startEventId, cache)
+
     /**
      * LEGACY: Finds the end of an edit chain by following replacedBy links.
      * Kept for backward compatibility but should use findChainEndOptimized instead.
      */
-    private fun findChainEnd(startEventId: String): EventChainEntry? {
-        var currentId = startEventId
-        var currentEntry = eventChainMap[currentId]
-        
-        while (currentEntry?.replacedBy != null) {
-            currentId = currentEntry.replacedBy!!
-            currentEntry = eventChainMap[currentId]
-        }
-        
-        return currentEntry
-    }
+    private fun findChainEnd(startEventId: String) = editVersionCoordinator.findChainEnd(startEventId)
+
     
     /**
      * Builds the timeline from the edit chain mapping.
@@ -14300,165 +13948,29 @@ class AppViewModel : ViewModel() {
     /**
      * Gets the final event for a bubble, following the edit chain to the latest edit.
      */
-    private fun getFinalEventForBubble(entry: EventChainEntry): TimelineEvent {
-        // Safety check: ensure ourBubble is not null
-        val initialBubble = entry.ourBubble
-        if (initialBubble == null) {
-            android.util.Log.e("Andromuks", "AppViewModel: getFinalEventForBubble called with null ourBubble for event ${entry.eventId}")
-            throw IllegalStateException("Entry ${entry.eventId} has null ourBubble")
-        }
-        
-        // Explicitly type as non-null since we've checked for null above
-        var currentEvent: TimelineEvent = requireNotNull(initialBubble) { "ourBubble should be non-null after null check" }
-        var currentEntry = entry
-        val visitedEvents = mutableSetOf<String>() // Prevent infinite loops
-        
-        
-        // Follow the edit chain to find the latest edit
-        var chainDepth = 0
-        while (currentEntry.replacedBy != null) {
-            // Safety check: limit chain depth to prevent infinite loops
-            if (chainDepth >= 20) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ChainDepth >= 20, we have to break")
-                break
-            }
-            chainDepth++
-            
-            val editEventId = currentEntry.replacedBy!!
-            
-            // Check for infinite loop - only check if we're trying to visit an event we've already processed in this chain
-            if (visitedEvents.contains(editEventId)) {
-                android.util.Log.w("Andromuks", "AppViewModel: Infinite loop detected! Edit event ${editEventId} already visited in this chain")
-                break
-            }
-            visitedEvents.add(editEventId)
-            
-            val editEventNullable = editEventsMap[editEventId]
-            if (editEventNullable == null) {
-                android.util.Log.w("Andromuks", "AppViewModel: Edit event ${editEventId} not found in edit events map")
-                break
-            }
-            
-            // editEvent is guaranteed non-null here due to the null check above
-            // Use requireNotNull to ensure the compiler recognizes it as non-null
-            val editEvent = requireNotNull(editEventNullable) { "Edit event $editEventId should be non-null after null check" }
-            
-            // Merge the edit content into the current event
-            currentEvent = mergeEditContent(currentEvent, editEvent)
-            
-            // Update current entry to continue following the chain
-            // Edit events have their own chain entries, so we can follow them
-            val nextEntry = eventChainMap[editEventId]
-            if (nextEntry == null) {
-                break
-            }
-            
-            // Check if the next entry is the same as the current entry (infinite loop)
-            if (nextEntry.eventId == currentEntry.eventId) {
-                android.util.Log.w("Andromuks", "AppViewModel: Edit event ${editEventId} points to itself, breaking chain")
-                break
-            }
-            
-            currentEntry = nextEntry
-        }
-        
-        return currentEvent
-    }
+    private fun getFinalEventForBubble(entry: EventChainEntry) =
+        editVersionCoordinator.getFinalEventForBubble(entry)
+
     /**
      * Finds events that are superseded by a new event.
-     * 
+     *
      * @param newEvent The new event that might supersede others
      * @param existingEvents List of existing events to check
      * @return List of event IDs that are superseded by the new event
      */
-    private fun findSupersededEvents(newEvent: TimelineEvent, existingEvents: List<TimelineEvent>): List<String> {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: findSupersededEvents called for event ${newEvent.eventId}")
-        val supersededEventIds = mutableListOf<String>()
-        
-        // Check if this is an edit event (m.replace relationship)
-        val relatesTo = when {
-            newEvent.type == "m.room.message" -> newEvent.content?.optJSONObject("m.relates_to")
-            newEvent.type == "m.room.encrypted" && newEvent.decryptedType == "m.room.message" -> newEvent.decrypted?.optJSONObject("m.relates_to")
-            else -> null
-        }
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: relatesTo for event ${newEvent.eventId}: $relatesTo")
-        
-        val relatesToEventId = relatesTo?.optString("event_id")
-        val relType = relatesTo?.optString("rel_type")
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: relatesToEventId: $relatesToEventId, relType: $relType")
-        
-        if (relType == "m.replace" && relatesToEventId != null) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: This is an edit event targeting $relatesToEventId")
-            // This is an edit event - find the original event it replaces
-            val originalEvent = existingEvents.find { it.eventId == relatesToEventId }
-            if (originalEvent != null) {
-                supersededEventIds.add(originalEvent.eventId)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Edit event ${newEvent.eventId} supersedes original event ${originalEvent.eventId}")
-            } else {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WARNING - Could not find original event $relatesToEventId in existing events")
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Available event IDs: ${existingEvents.map { it.eventId }}")
-            }
-        } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Not an edit event (relType: $relType, relatesToEventId: $relatesToEventId)")
-        }
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Returning superseded event IDs: $supersededEventIds")
-        return supersededEventIds
-    }
-    
+    private fun findSupersededEvents(newEvent: TimelineEvent, existingEvents: List<TimelineEvent>) =
+        editVersionCoordinator.findSupersededEvents(newEvent, existingEvents)
+
     /**
      * Merges edit content into the original event.
-     * 
-     * This function takes the original event and merges the new content from an edit event,
-     * preserving the original event's structure while updating the content.
-     * 
+     *
      * @param originalEvent The original event to be updated
      * @param editEvent The edit event containing the new content
      * @return A new TimelineEvent with merged content
      */
-    private fun mergeEditContent(originalEvent: TimelineEvent, editEvent: TimelineEvent): TimelineEvent {
-        // Create a new content JSON object based on the original event
-        val mergedContent = JSONObject(originalEvent.content.toString())
-        
-        // Get the new content from the edit event
-        // For encrypted rooms, look in decrypted field; for non-encrypted rooms, look in content field
-        val newContent = when {
-            editEvent.type == "m.room.encrypted" -> editEvent.decrypted?.optJSONObject("m.new_content")
-            editEvent.type == "m.room.message" -> editEvent.content?.optJSONObject("m.new_content")
-            else -> null
-        }
-        if (newContent != null) {
-            // Create a completely new decrypted content object with the new content
-            // Use the new content directly as the merged decrypted content
-            val mergedDecrypted = JSONObject(newContent.toString())
+    private fun mergeEditContent(originalEvent: TimelineEvent, editEvent: TimelineEvent) =
+        editVersionCoordinator.mergeEditContent(originalEvent, editEvent)
 
-            // For non-encrypted rooms, also update the content field
-            val finalContent = if (originalEvent.type == "m.room.message") {
-                // For non-encrypted rooms, update the content field with new content
-                val updatedContent = JSONObject(originalEvent.content.toString())
-                updatedContent.put("body", newContent.optString("body", ""))
-                updatedContent.put("msgtype", newContent.optString("msgtype", "m.text"))
-                updatedContent
-            } else {
-                // For encrypted rooms, keep the original content
-                mergedContent
-            }
-            
-            // Create the merged event with updated content
-            // CRITICAL: Preserve redactedBy field when merging edit content
-            val mergedEvent = originalEvent.copy(
-                content = finalContent,
-                decrypted = mergedDecrypted,
-                redactedBy = originalEvent.redactedBy  // Explicitly preserve redactedBy
-            )
-            return mergedEvent
-        }
-        // If no new content, return the original event
-        return originalEvent
-    }
-    
     
     fun markRoomAsRead(roomId: String, eventId: String) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: markRoomAsRead called with roomId: '$roomId', eventId: '$eventId'")
@@ -16889,38 +16401,9 @@ class AppViewModel : ViewModel() {
      * @param clearExisting If true, clears existing eventChainMap before adding new events.
      *                      If false, merges new events with existing ones (for pagination).
      */
-    private fun buildEditChainsFromEvents(timelineList: List<TimelineEvent>, clearExisting: Boolean = true) {
-        if (clearExisting) {
-            eventChainMap.clear()
-            editEventsMap.clear()
-        }
-        
-        for (event in timelineList) {
-            val isEditEvt = isEditEvent(event)
-            
-            if (isEditEvt) {
-                // Always update edit events map (edits can replace older edits)
-                editEventsMap[event.eventId] = event
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added edit event ${event.eventId} to edit events map")
-            } else {
-                // Merge: only add if not present, or if this is a newer version
-                val existingEntry = eventChainMap[event.eventId]
-                if (existingEntry == null || event.timestamp > existingEntry.originalTimestamp) {
-                    eventChainMap[event.eventId] = EventChainEntry(
-                        eventId = event.eventId,
-                        ourBubble = event,
-                        replacedBy = existingEntry?.replacedBy, // Preserve edit chain if merging
-                        originalTimestamp = event.timestamp
-                    )
-                    if (BuildConfig.DEBUG && existingEntry != null) {
-                        android.util.Log.d("Andromuks", "AppViewModel: Updated existing event ${event.eventId} in chain mapping (newer timestamp)")
-                    } else if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "AppViewModel: Added regular event ${event.eventId} to chain mapping")
-                    }
-                }
-            }
-        }
-    }
+    private fun buildEditChainsFromEvents(timelineList: List<TimelineEvent>, clearExisting: Boolean = true) =
+        editVersionCoordinator.buildEditChainsFromEvents(timelineList, clearExisting)
+
     
     /**
      * Handle background prefetch request
