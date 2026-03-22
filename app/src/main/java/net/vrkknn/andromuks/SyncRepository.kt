@@ -32,9 +32,9 @@ sealed class SyncEvent {
 
     /**
      * Primary (or sole) processor finished applying a [sync_complete] to shared stores ([RoomListCache], etc.).
-     * Non-primary [AppViewModel] instances should refresh local [AppViewModel.roomMap] from singletons.
+     * Non-primary [AppViewModel] instances should refresh local state from singletons.
      */
-    data object RoomListSingletonReplicated : SyncEvent()
+    data class RoomListSingletonReplicated(val processorId: String) : SyncEvent()
 
     /**
      * Parsed WebSocket JSON (one direction: NetworkUtils → all attached ViewModels).

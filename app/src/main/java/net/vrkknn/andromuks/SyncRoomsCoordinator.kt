@@ -494,7 +494,7 @@ internal class SyncRoomsCoordinator(
                             vm.roomSummaryUpdateCounter++
                         }
 
-                        SyncRepository.emitEvent(SyncEvent.RoomListSingletonReplicated)
+                        SyncRepository.emitEvent(SyncEvent.RoomListSingletonReplicated(vm.viewModelId))
                         onComplete?.invoke()
                     } catch (e: Exception) {
                         android.util.Log.e("Andromuks", "AppViewModel: Crash applying sync_complete on main: ${e.message}", e)

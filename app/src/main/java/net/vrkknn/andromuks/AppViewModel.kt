@@ -222,10 +222,30 @@ class AppViewModel : ViewModel() {
                         clearAllTimelineCaches()
                     }
                     is SyncEvent.RoomListSingletonReplicated -> {
-                        val pid = SyncRepository.getPrimaryViewModelId()
-                        if (pid != null && viewModelId != pid) {
+                        if (viewModelId != event.processorId) {
+                            // Secondary instances (bubbles) must reload state from replicated singleton caches
+                            
+                            // 1. Refresh room and space lists
                             populateRoomMapFromCache()
+                            populateSpacesFromCache()
                             roomListUpdateCounter++
+                            
+                            // 2. Refresh read receipts and reactions
+                            populateReadReceiptsFromCache()
+                            populateMessageReactionsFromCache()
+                            
+                            // 3. IMPORTANT: Reload current room timeline if one is open.
+                            // The singleton timeline cache was updated by the primary instance;
+                            // we must sync our local snapshot to see new messages.
+                            currentRoomId?.let { roomId ->
+                                if (restoreFromLruCache(roomId)) {
+                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Refreshed timeline for open room $roomId from replicated cache (vmId=$viewModelId)")
+                                    timelineUpdateCounter++
+                                }
+                            }
+                            
+                            // 4. Profiles may have updated too
+                            memberUpdateCounter++
                         }
                     }
                     is SyncEvent.IncomingWebSocketMessage -> {
@@ -5373,6 +5393,11 @@ class AppViewModel : ViewModel() {
             ensureTimelineCacheIsFresh(roomId, limit = INITIAL_ROOM_PAGINATE_LIMIT, isBackground = true)
         }
     }
+
+    /**
+     * Restore timeline from singleton cache (for bubbles/secondary VMs)
+     */
+    fun restoreFromLruCache(roomId: String): Boolean = timelineCacheCoordinator.restoreFromLruCache(roomId)
 
     fun requestRoomTimeline(roomId: String, useLruCache: Boolean = true) =
         timelineCacheCoordinator.requestRoomTimeline(roomId, useLruCache)
