@@ -164,15 +164,17 @@ class SyncBatchProcessor(
         // CRITICAL FIX: Set batch processing flag BEFORE processing starts to ensure
         // appendEventsToCachedRoom() sees it as true. StateFlow is thread-safe, so we can
         // set it from any thread, but we need to ensure it's set before processSyncImmediately() runs.
-        // BATTERY OPTIMIZATION: Only update UI state when foregrounded
+        
+        // Sync these to stateflow even in background to ensure AppViewModel.onEventsForCachedRoom 
+        // knows to defer rebuilds until the batch is complete (saves CPU/battery)
+        _processingBatchSize.value = batchSize
+        _isProcessingBatch.value = true
+        _shouldSkipTimelineRebuild.value = true // CRITICAL: Skip timeline rebuilds during batch processing
+        
         if (appVisible.get()) {
-            // Set synchronously (StateFlow is thread-safe) before processing starts
-            _processingBatchSize.value = batchSize
-            _isProcessingBatch.value = true
-            _shouldSkipTimelineRebuild.value = true // CRITICAL: Skip timeline rebuilds during batch processing
             Log.i(TAG, "Batch processing STARTED ($batchSize messages) - isProcessingBatch set to true, shouldSkipTimelineRebuild set to true (foreground)")
         } else {
-            Log.i(TAG, "Batch processing STARTED ($batchSize messages) (background - skipping UI state updates)")
+            Log.i(TAG, "Batch processing STARTED ($batchSize messages) (background - but still setting flags to defer rebuilds)")
         }
         
         try {
@@ -228,13 +230,14 @@ class SyncBatchProcessor(
         } finally {
             // CRASH FIX: Always reset processing state, even if processing failed or timed out
             // StateFlow is thread-safe, so we can set it from any thread
+            _isProcessingBatch.value = false
+            _processingBatchSize.value = 0
+            _shouldSkipTimelineRebuild.value = false // CRITICAL: Re-enable timeline rebuilds after batch completes
+            
             if (appVisible.get()) {
-                _isProcessingBatch.value = false
-                _processingBatchSize.value = 0
-                _shouldSkipTimelineRebuild.value = false // CRITICAL: Re-enable timeline rebuilds after batch completes
                 Log.i(TAG, "Batch processing COMPLETED - isProcessingBatch set to false, processingBatchSize reset, shouldSkipTimelineRebuild set to false (foreground)")
             } else {
-                Log.i(TAG, "Batch processing COMPLETED (background - skipped UI state updates)")
+                Log.i(TAG, "Batch processing COMPLETED (background)")
             }
         }
         

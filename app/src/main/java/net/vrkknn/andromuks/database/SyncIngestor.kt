@@ -431,32 +431,23 @@ class SyncIngestor(private val context: Context) {
             }
             
             if (BuildConfig.DEBUG) {
-                val cachedRoomsInSync = roomsToProcess.filter { (roomId, _) -> roomId in cachedRoomIds }
-                Log.d(TAG, "SyncIngestor: Processing ${roomsToProcess.size} rooms from sync_complete (${cachedRoomsInSync.size} of these are in cached set: ${cachedRoomsInSync.take(3).map { it.first }.joinToString(", ")})")
+                Log.d(TAG, "SyncIngestor: Processing all ${roomsToProcess.size} rooms from sync_complete")
             }
             
-            // PERFORMANCE: Early return if no rooms are cached - skip all expensive processing
-            val roomsToActuallyProcess = roomsToProcess.filter { (roomId, _) ->
-                roomId in cachedRoomIds
-            }
-            
-            if (roomsToActuallyProcess.isEmpty()) {
+            if (roomsToProcess.isEmpty()) {
                 if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "SyncIngestor: No cached rooms in this sync_complete - skipping event processing")
+                    Log.d(TAG, "SyncIngestor: No rooms in this sync_complete - skipping event processing")
                 }
-                // Still return invites and left_rooms info, just skip room event processing
             } else {
-                if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "SyncIngestor: Processing ${roomsToActuallyProcess.size} cached rooms (${roomsToProcess.size - roomsToActuallyProcess.size} skipped)")
-                }
-                
                 // PERFORMANCE: Process rooms in parallel (maintains order for cache updates)
                 // Use coroutines to parallelize room processing while keeping cache updates sequential
                 coroutineScope {
-                    val roomResults = roomsToActuallyProcess.mapIndexed { index, (roomId, roomObj) ->
+                    val roomResults = roomsToProcess.mapIndexed { index, (roomId, roomObj) ->
                         async(Dispatchers.IO) {
-                            // Process room and return result
-                            val hadEvents = processRoom(roomId, roomObj, isAppVisible, true) // Always cached at this point
+                            // Process ALL rooms that have events. Even if a room is NOT in cachedRoomIds,
+                            // we process it to ensure the cache starts and stays fresh (no message loss).
+                            val wasCached = cachedRoomIds.contains(roomId)
+                            val hadEvents = processRoom(roomId, roomObj, isAppVisible, wasCached)
                             Pair(roomId, hadEvents)
                         }
                     }
@@ -466,11 +457,8 @@ class SyncIngestor(private val context: Context) {
                         val (roomId, hadEvents) = deferred.await()
                         if (hadEvents) {
                             roomsWithEvents.add(roomId)
-                            if (BuildConfig.DEBUG) {
-                                Log.d(TAG, "SyncIngestor: ✓ Room $roomId had events added to cache")
-                            }
                         }
-                        // Yield every 20 rooms to allow other coroutines to run (prevents ANR on reconnect)
+                        // Yield every 20 rooms to allow other coroutines to run
                         if ((index + 1) % 20 == 0) {
                             kotlinx.coroutines.yield()
                         }
@@ -789,16 +777,13 @@ class SyncIngestor(private val context: Context) {
         // LRU CACHE: Notify listener if this room is cached and has new events
         if (hasPersistedEvents && eventsForCacheUpdate.isNotEmpty()) {
             val listener = cacheUpdateListener
-            val isStillCached = listener?.getCachedRoomIds()?.contains(roomId) == true
-            if (listener != null && isStillCached) {
+            if (listener != null) {
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "SyncIngestor: ✓ Notifying cache listener for room $roomId (${eventsForCacheUpdate.size} events, requiresRerender=$hasEditRedactionReaction, reset=$reset)")
                 }
-                // CRITICAL: When reset=true, we've already cleared the cache above, so events will replace (not append)
-                // Pass reset flag as part of requiresFullRerender to ensure cache is properly replaced and UI is rebuilt
+                // CRITICAL: Ensure ALL events for ANY room are passed to the listener (AppViewModel)
+                // so they can be added to RoomTimelineCache. Filtering here causes message loss.
                 listener.onEventsForCachedRoom(roomId, eventsForCacheUpdate, hasEditRedactionReaction || reset)
-            } else if (BuildConfig.DEBUG && eventsForCacheUpdate.isNotEmpty()) {
-                Log.w(TAG, "SyncIngestor: ⚠️ Room $roomId has ${eventsForCacheUpdate.size} events but is NOT in cached set - events will NOT be cached! (listener=${listener != null}, isStillCached=$isStillCached)")
             }
         } else if (BuildConfig.DEBUG && !hasPersistedEvents && eventsForCacheUpdate.isEmpty()) {
             // Log when no events were found for a cached room
