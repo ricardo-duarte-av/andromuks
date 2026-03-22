@@ -833,14 +833,11 @@ fun connectToWebsocket(
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
             Log.i("Andromuks", "NetworkUtils: WebSocket Closing ($code): $reason")
             
-            // REFACTORING: Service handles close events and reconnection strategy
-            // Clear WebSocket in service with close code information, but only if this
-            // is the currently active socket. Stale sockets from previous connections
-            // must not tear down the new active connection.
+            // REFACTORING: Service handles close events and reconnection strategy.
+            // Only the active socket triggers clearWebSocket/scheduleReconnection — stale sockets
+            // (e.g. old CELLULAR socket closing after a WIFI switch) are silently ignored.
+            // ViewModel sync-state reset is triggered from inside clearWebSocket via onWebSocketCleared.
             WebSocketService.handleWebSocketClosing(webSocket, code, reason)
-            
-            // If ViewModel is available, notify it (for UI updates)
-            appViewModel?.handleWebSocketClose(code, reason)
         }
         
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {

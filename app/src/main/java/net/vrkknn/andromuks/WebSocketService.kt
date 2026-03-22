@@ -1020,6 +1020,16 @@ class WebSocketService : Service() {
             
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "WebSocket connection cleared in service")
             logPingStatus()
+
+            // Notify all registered ViewModels to reset their per-connection sync state.
+            // Must run on Main because the flags are read by Compose (e.g. initialSyncPhase,
+            // initializationComplete). We use the service scope so this survives even if a
+            // ViewModel is being destroyed simultaneously.
+            serviceInstance.serviceScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                for (vm in getRegisteredViewModels()) {
+                    vm.onWebSocketCleared(reason)
+                }
+            }
         }
         
         /**
@@ -1091,6 +1101,16 @@ class WebSocketService : Service() {
             return instance?.lastCloseReason
         }
         
+        /**
+         * Returns true if [ws] is the currently active WebSocket tracked by the service.
+         * Use this in OkHttp listener callbacks (onClosing / onClosed) to ignore events from
+         * stale sockets that were replaced by a new connection (e.g. after a network-type switch).
+         */
+        fun isActiveWebSocket(ws: WebSocket): Boolean {
+            val serviceInstance = instance ?: return false
+            return serviceInstance.webSocket === ws
+        }
+
         /**
          * Check if WebSocket is connected and ready
          * 

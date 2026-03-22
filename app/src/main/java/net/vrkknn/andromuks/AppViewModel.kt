@@ -4455,86 +4455,40 @@ class AppViewModel : ViewModel() {
     }
 
     fun clearWebSocket(reason: String = "Unknown", closeCode: Int? = null, closeReason: String? = null) {
-        // REFACTORING: Service now owns WebSocket - no need to clear local reference
-        
-        // Reset initialization flag on disconnect - will be set again when init_complete arrives
+        // Reset per-connection ViewModel state, then delegate the actual socket teardown to the service.
+        onWebSocketCleared(reason)
+        WebSocketService.clearWebSocket(reason, closeCode, closeReason)
+    }
+
+    /**
+     * Called by [WebSocketService.clearWebSocket] (on Main) whenever the active WebSocket is
+     * torn down — whether by a network-type change, ping timeout, or any other trigger.
+     *
+     * This is the single place where the ViewModel resets its per-connection sync state.
+     * It must NOT call back into WebSocketService (no clearWebSocket, no scheduleReconnection)
+     * to avoid reentrancy. All reconnection logic lives in the service.
+     */
+    fun onWebSocketCleared(reason: String) {
+        // Reset initialization flag — will be set again when init_complete arrives.
         if (initializationComplete) {
             initializationComplete = false
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket cleared - resetting initializationComplete flag (reason: $reason)")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket cleared - resetting initializationComplete (reason: $reason)")
         }
-        
-        // CRITICAL FIX: Reset initial sync state on disconnect to prepare for reconnection
-        // On reconnection, we'll receive new sync_complete messages before init_complete
-        // We need to queue them again, so reset the state here
+
+        // Reset initial sync state so we queue sync_completes fresh on the next connection.
         initialSyncPhase = false
         synchronized(initialSyncCompleteQueue) {
             initialSyncCompleteQueue.clear()
         }
         initialSyncProcessingComplete = false
-        // Reset sync progress counters
         pendingSyncCompleteCount = 0
         processedSyncCompleteCount = 0
-        // Don't reset initialSyncComplete here - let setWebSocket handle it when reconnecting
-        // This prevents UI flicker if the app is already showing the room list
+
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: WebSocket cleared - reset initial sync state (reason: $reason, queue cleared)")
-        }
-        
-        // PHASE 4.1: Delegate WebSocket clearing to service with close code information
-        WebSocketService.clearWebSocket(reason, closeCode, closeReason)
-    }
-    
-    /**
-     * PHASE 4.1: Handle WebSocket close with code and reason
-     * Determines reconnection strategy based on close code
-     */
-    fun handleWebSocketClose(code: Int, reason: String) {
-        android.util.Log.i("Andromuks", "AppViewModel: WebSocket closed with code $code: $reason")
-        logActivity("WebSocket Closed - Code $code: $reason", null)
-        
-        // Clear WebSocket connection
-        clearWebSocket("WebSocket closed ($code)", code, reason)
-        
-        // PHASE 4.1: Determine reconnection strategy based on close code
-        when (code) {
-            1000 -> {
-                // Normal closure - don't reconnect immediately, wait for ping timeout
-                android.util.Log.i("Andromuks", "AppViewModel: Normal WebSocket closure (1000) - not reconnecting immediately")
-                // Don't schedule reconnection - let ping/pong detect if connection is truly lost
-            }
-            1001 -> {
-                // Going Away - server restarting, reconnect with short delay
-                android.util.Log.w("Andromuks", "AppViewModel: Server going away (1001) - scheduling reconnection with delay")
-                viewModelScope.launch {
-                    delay(2000L) // 2 second delay for server restart
-                    scheduleReconnection(ReconnectTrigger.WebSocketClosed(1001, reason))
-                }
-            }
-            1006 -> {
-                // Abnormal closure (no close frame) - connection lost, reconnect immediately
-                android.util.Log.e("Andromuks", "AppViewModel: Abnormal WebSocket closure (1006) - reconnecting immediately")
-                scheduleReconnection(ReconnectTrigger.WebSocketClosed(1006, reason))
-            }
-            1012 -> {
-                // Service Restart - backend restarting, reconnect with delay
-                android.util.Log.w("Andromuks", "AppViewModel: Service restart (1012) - scheduling reconnection with delay")
-                viewModelScope.launch {
-                    delay(3000L) // 3 second delay for backend restart
-                    scheduleReconnection(ReconnectTrigger.WebSocketClosed(1012, reason))
-                }
-            }
-            in 4000..4999 -> {
-                // Application-specific codes - log and reconnect
-                android.util.Log.w("Andromuks", "AppViewModel: Application close code $code - reconnecting")
-                scheduleReconnection(ReconnectTrigger.WebSocketClosed(code, reason))
-            }
-            else -> {
-                // Other close codes - reconnect with standard strategy
-                android.util.Log.w("Andromuks", "AppViewModel: WebSocket closed with code $code - reconnecting")
-                scheduleReconnection(ReconnectTrigger.WebSocketClosed(code, reason))
-            }
+            android.util.Log.d("Andromuks", "AppViewModel: onWebSocketCleared - sync state reset (reason: $reason)")
         }
     }
+
     
     /**
      * PHASE 4.2: Handle connection failure with error-specific strategies
