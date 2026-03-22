@@ -9424,7 +9424,7 @@ class AppViewModel : ViewModel() {
 
     fun updateBackgroundPurgeThreshold(count: Int) = settingsCoordinator.updateBackgroundPurgeThreshold(count)
 
-    fun triggerBackgroundBufferPurge() = settingsCoordinator.triggerBackgroundBufferPurge()
+
 
     fun loadSettings(context: Context? = null) = settingsCoordinator.loadSettings(context)
     /**

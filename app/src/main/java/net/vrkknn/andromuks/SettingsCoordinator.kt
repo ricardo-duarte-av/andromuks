@@ -174,9 +174,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             "AppViewModel: backgroundPurgeMessageThreshold=$clamped")
     }
 
-    fun triggerBackgroundBufferPurge() = with(vm) {
-        syncBatchProcessor.backgroundFlush()
-    }
+
 
     fun loadSettings(context: Context? = null) = with(vm) {
         val contextToUse = context ?: appContext
