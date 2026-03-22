@@ -31,17 +31,6 @@ class SyncBatchProcessor(
     private val processSyncImmediately: suspend (JSONObject, Int, String) -> Unit,
     private val onBatchComplete: (suspend () -> Unit)? = null
 ) {
-    private val batchQueue = mutableListOf<SyncMessage>()
-    private val batchLock = Mutex()
-    private var batchJob: Job? = null
-    /**
-     * Must be thread-safe: [onAppVisibilityChanged] runs on the main thread while
-     * [processSyncComplete] runs on dispatcher threads (e.g. after SyncRepository fan-out).
-     * A plain `var` updated under [synchronized] on [batchQueue] was not visible to readers
-     * holding only [batchLock], so backgrounding could keep looking "foreground" → no batching.
-     */
-    private val appVisible = AtomicBoolean(true)
-    
     // CRASH FIX: Track batch processing state to prevent animations during flush
     private var _isProcessingBatch = MutableStateFlow(false)
     val isProcessingBatch = _isProcessingBatch.asStateFlow()
@@ -59,13 +48,26 @@ class SyncBatchProcessor(
     @Volatile var batchIntervalMs: Long = DEFAULT_BATCH_INTERVAL_MS
     @Volatile var maxBatchSize: Int = DEFAULT_MAX_BATCH_SIZE
     
-    private data class SyncMessage(
-        val syncJson: JSONObject,
-        val requestId: Int,
-        val runId: String
-    )
-    
+
     companion object {
+        private data class SyncMessage(
+            val syncJson: JSONObject,
+            val requestId: Int,
+            val runId: String
+        )
+
+        private val batchQueue = mutableListOf<SyncMessage>()
+        private val batchLock = Mutex()
+        private var batchJob: Job? = null
+        
+        /**
+         * Must be thread-safe: [onAppVisibilityChanged] runs on the main thread while
+         * [processSyncComplete] runs on dispatcher threads (e.g. after SyncRepository fan-out).
+         * A plain `var` updated under [synchronized] on [batchQueue] was not visible to readers
+         * holding only [batchLock], so backgrounding could keep looking "foreground" → no batching.
+         */
+        private val appVisible = AtomicBoolean(true)
+
         private const val TAG = "SyncBatchProcessor"
 
         // Defaults – also used as fallbacks in SharedPreferences
