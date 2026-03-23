@@ -206,6 +206,7 @@ fun RoomListScreen(
     // CRASH FIX: Observe "rush" / batch flush state once and reuse everywhere (TabBar + header indicator).
     val isProcessingBatch by appViewModel.isProcessingSyncBatch.collectAsState()
     val processingBatchSize by appViewModel.processingBatchSize.collectAsState()
+    val processedInBatch by appViewModel.processedInBatch.collectAsState()
     val imageToken = uiState.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     var coldStartRefreshing by remember { mutableStateOf(false) }
     var initialLoadComplete by remember { mutableStateOf(false) }
@@ -1599,10 +1600,6 @@ fun RoomListScreen(
                 currentSection = displayedSection,
                 onSectionSelected = { section ->
                     // CRASH FIX: Prevent tab switching during batch processing
-                    if (isProcessingBatch) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Tab switch blocked - batch processing in progress")
-                        return@TabBar
-                    }
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     appViewModel.changeSelectedSection(section)
                     // Force timestamp update when switching tabs

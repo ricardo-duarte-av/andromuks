@@ -1067,6 +1067,7 @@ class AppViewModel : ViewModel() {
     // CRASH FIX: Expose batch processing state to UI to prevent animations during flush
     val isProcessingSyncBatch = syncBatchProcessor.isProcessingBatch
     val processingBatchSize = syncBatchProcessor.processingBatchSize
+    val processedInBatch = syncBatchProcessor.processedInBatch  
     // CRITICAL FIX: Expose flag to bypass timeline rebuilds during batch processing
     private val shouldSkipTimelineRebuild = syncBatchProcessor.shouldSkipTimelineRebuild
     
@@ -6400,22 +6401,11 @@ class AppViewModel : ViewModel() {
                             }
                             // Rebuild timeline for the currently-open room so new events appear immediately
                             if (currentRoomId == roomId) {
-                                // CRITICAL FIX: Defer timeline rebuild during batch processing
-                                val isBatchProcessing = isProcessingSyncBatch.value
-                                if (isBatchProcessing) {
-                                    // Batch is processing - defer rebuild until batch completes
-                                    roomsNeedingRebuildDuringBatch.add(roomId)
-                                    if (BuildConfig.DEBUG) {
-                                        android.util.Log.d("Andromuks", "AppViewModel: Batch processing in progress - deferring full rerender rebuild for $roomId (will rebuild after batch completes)")
-                                    }
-                                } else {
-                                    // Not batch processing - rebuild immediately
-                                    val eventsForChain = RoomTimelineCache.getCachedEventsForTimeline(roomId)
-                                    if (eventsForChain.isNotEmpty()) {
-                                        buildEditChainsFromEvents(eventsForChain, clearExisting = true)
-                                        processEditRelationships()
-                                        buildTimelineFromChain()
-                                    }
+                                val eventsForChain = RoomTimelineCache.getCachedEventsForTimeline(roomId)
+                                if (eventsForChain.isNotEmpty()) {
+                                    buildEditChainsFromEvents(eventsForChain, clearExisting = true)
+                                    processEditRelationships()
+                                    buildTimelineFromChain()
                                 }
                             }
                             return false
@@ -9949,36 +9939,12 @@ class AppViewModel : ViewModel() {
         // instead rebuilding once after all batched sync_completes are processed.
         // We observe both isProcessingSyncBatch and shouldSkipTimelineRebuild to ensure rebuild happens
         viewModelScope.launch {
-            var wasProcessingBatch = false
             var wasSkippingRebuild = false
-            
-            // Observe both flags to catch batch completion
-            kotlinx.coroutines.coroutineScope {
-                launch {
-                    isProcessingSyncBatch.collect { isProcessing ->
-                        if (BuildConfig.DEBUG) {
-                            android.util.Log.d("Andromuks", "AppViewModel: isProcessingSyncBatch changed: wasProcessingBatch=$wasProcessingBatch, isProcessing=$isProcessing")
-                        }
-                        if (wasProcessingBatch && !isProcessing) {
-                            // Batch just completed - trigger rebuild check
-                            triggerDeferredRebuild()
-                        }
-                        wasProcessingBatch = isProcessing
-                    }
+            shouldSkipTimelineRebuild.collect { shouldSkip ->
+                if (wasSkippingRebuild && !shouldSkip) {
+                    triggerDeferredRebuild()
                 }
-                
-                launch {
-                    shouldSkipTimelineRebuild.collect { shouldSkip ->
-                        if (BuildConfig.DEBUG) {
-                            android.util.Log.d("Andromuks", "AppViewModel: shouldSkipTimelineRebuild changed: wasSkippingRebuild=$wasSkippingRebuild, shouldSkip=$shouldSkip")
-                        }
-                        if (wasSkippingRebuild && !shouldSkip) {
-                            // Rebuild flag just cleared - trigger rebuild check
-                            triggerDeferredRebuild()
-                        }
-                        wasSkippingRebuild = shouldSkip
-                    }
-                }
+                wasSkippingRebuild = shouldSkip
             }
         }
     }

@@ -44,6 +44,8 @@ class SyncBatchProcessor(
     // Track the size of the batch being processed
     private var _processingBatchSize = MutableStateFlow(0)
     val processingBatchSize = _processingBatchSize.asStateFlow()
+    private var _processedInBatch = MutableStateFlow(0)
+val processedInBatch = _processedInBatch.asStateFlow()
     
     // ── Configurable knobs (updated from AppViewModel.loadSettings) ──────────
     @Volatile var batchIntervalMs: Long = DEFAULT_BATCH_INTERVAL_MS
@@ -188,6 +190,7 @@ class SyncBatchProcessor(
         _processingBatchSize.value = batchSize
         _isProcessingBatch.value = true
         _shouldSkipTimelineRebuild.value = true // CRITICAL: Skip timeline rebuilds during batch processing
+        _processedInBatch.value = 0 
         
         if (appVisible.get()) {
             Log.i(TAG, "Batch processing STARTED ($batchSize messages) - isProcessingBatch set to true, shouldSkipTimelineRebuild set to true (foreground)")
@@ -228,6 +231,7 @@ class SyncBatchProcessor(
                         Log.e(TAG, "Error processing sync message (requestId=${msg.requestId}): ${e.message}", e)
                         processedCount++
                     }
+                    _processedInBatch.value = processedCount
                 }
             } == null
             
@@ -273,6 +277,7 @@ class SyncBatchProcessor(
             _isProcessingBatch.value = false
             _processingBatchSize.value = 0
             _shouldSkipTimelineRebuild.value = false // CRITICAL: Re-enable timeline rebuilds after batch completes
+            _processedInBatch.value = 0 
             
             if (appVisible.get()) {
                 Log.i(TAG, "Batch processing COMPLETED - isProcessingBatch set to false, processingBatchSize reset, shouldSkipTimelineRebuild set to false (foreground)")
