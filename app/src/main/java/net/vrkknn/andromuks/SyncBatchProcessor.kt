@@ -28,7 +28,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class SyncBatchProcessor(
     private val scope: CoroutineScope,
-    private val processSyncImmediately: suspend (JSONObject, Int, String) -> Unit,
+    private val processSyncImmediately: suspend (JSONObject, Int, String, Boolean) -> SyncUpdateResult?,
+    private val onBatchRoomListApply: (suspend (SyncUpdateResult) -> Unit)? = null,
     private val onBatchComplete: (suspend () -> Unit)? = null
 ) {
     // CRASH FIX: Track batch processing state to prevent animations during flush
@@ -55,6 +56,20 @@ class SyncBatchProcessor(
             val requestId: Int,
             val runId: String
         )
+
+        private data class RoomListAccumulator(
+            val updatedRooms: MutableMap<String, RoomItem> = mutableMapOf(),
+            val newRooms: MutableMap<String, RoomItem> = mutableMapOf(),
+            val removedRoomIds: MutableSet<String> = mutableSetOf()
+        )
+
+        private fun shouldReplaceRoomItem(existing: RoomItem, candidate: RoomItem): Boolean {
+            val candidateHasMessage = candidate.messagePreview != null
+            val existingHasMessage = existing.messagePreview != null
+            if (candidateHasMessage && !existingHasMessage) return true
+            if (!candidateHasMessage && existingHasMessage) return false
+            return (candidate.sortingTimestamp ?: 0L) > (existing.sortingTimestamp ?: 0L)
+        }
 
         private val batchQueue = mutableListOf<SyncMessage>()
         private val batchLock = Mutex()
@@ -97,7 +112,7 @@ class SyncBatchProcessor(
             
             if (appVisible.get() && !isCurrentlyProcessingBatch) {
                 // FOREGROUND: Process immediately (only if not currently processing a batch)
-                processSyncImmediately(syncJson, requestId, runId)
+                processSyncImmediately(syncJson, requestId, runId, true)
                 
                 // RUSH: Also flush any pending batch
                 if (batchQueue.isNotEmpty()) {
@@ -160,6 +175,7 @@ class SyncBatchProcessor(
         
         val startTime = System.currentTimeMillis()
         val batchSize = batchQueue.size
+        val accumulator = RoomListAccumulator()
         
         Log.i(TAG, "Processing batch of $batchSize sync_complete messages (recursionDepth=$recursionDepth)")
         
@@ -194,13 +210,23 @@ class SyncBatchProcessor(
             val timeoutOccurred = withTimeoutOrNull(computedTimeoutMs) {
                 batch.forEach { msg ->
                     try {
-                        processSyncImmediately(msg.syncJson, msg.requestId, msg.runId)
+                        val result = processSyncImmediately(msg.syncJson, msg.requestId, msg.runId, false)
+                        if (result != null) {
+                            for (room in result.updatedRooms) {
+                                val existing = accumulator.updatedRooms[room.id]
+                                if (existing == null || shouldReplaceRoomItem(existing, room)) {
+                                    accumulator.updatedRooms[room.id] = room
+                                }
+                            }
+                            for (room in result.newRooms) {
+                                accumulator.newRooms[room.id] = room
+                            }
+                            accumulator.removedRoomIds.addAll(result.removedRoomIds)
+                        }
                         processedCount++
                     } catch (e: Exception) {
-                        // CRASH FIX: Handle exceptions per message to prevent entire batch from failing
                         Log.e(TAG, "Error processing sync message (requestId=${msg.requestId}): ${e.message}", e)
-                        // Continue processing remaining messages even if one fails
-                        processedCount++ // Count failed messages too
+                        processedCount++
                     }
                 }
             } == null
@@ -222,6 +248,18 @@ class SyncBatchProcessor(
                 if (remainingTime > 0) {
                     delay(remainingTime)
                 }
+            }
+            // Single room list apply for the entire batch
+            if (accumulator.updatedRooms.isNotEmpty() ||
+                accumulator.newRooms.isNotEmpty() ||
+                accumulator.removedRoomIds.isNotEmpty()
+            ) {
+                val mergedResult = SyncUpdateResult(
+                    updatedRooms = accumulator.updatedRooms.values.toList(),
+                    newRooms = accumulator.newRooms.values.toList(),
+                    removedRoomIds = accumulator.removedRoomIds.toList()
+                )
+                onBatchRoomListApply?.invoke(mergedResult)
             }
         } catch (e: TimeoutCancellationException) {
             // This shouldn't happen since we use withTimeoutOrNull, but handle it just in case

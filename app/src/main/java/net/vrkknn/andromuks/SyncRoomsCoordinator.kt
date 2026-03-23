@@ -402,13 +402,14 @@ internal class SyncRoomsCoordinator(
         syncJson: JSONObject,
         requestId: Int,
         runId: String,
+        applyRoomListNow: Boolean = true,
         onComplete: (suspend () -> Unit)? = null
-    ) {
+    ): SyncUpdateResult? {
         val context = vm.appContext
         if (context == null) {
             android.util.Log.w("Andromuks", "AppViewModel: Skipping sync processing because appContext is null")
             onComplete?.invoke()
-            return
+            return null 
         }
 
         try {
@@ -431,7 +432,7 @@ internal class SyncRoomsCoordinator(
             if (ingestor == null) {
                 android.util.Log.w("Andromuks", "AppViewModel: syncIngestor is null - cannot ingest sync_complete")
                 onComplete?.invoke()
-                return
+                return null 
             }
 
             // Capture flags/ids once to keep consistent across background jobs.
@@ -446,8 +447,11 @@ internal class SyncRoomsCoordinator(
                 null
             } ?: run {
                 onComplete?.invoke()
-                return
+                return null 
             }
+
+            // Line 453 — declare result holder before coroutineScope
+            var syncResultForCaller: SyncUpdateResult? = null
 
             kotlinx.coroutines.coroutineScope {
                 val ingestDeferred = async<SyncIngestor.IngestResult>(Dispatchers.IO) {
@@ -474,7 +478,11 @@ internal class SyncRoomsCoordinator(
                 withContext(Dispatchers.Main) {
                     try {
                         val jsonForMain = JSONObject(raw)
-                        processParsedSyncResult(syncResult, jsonForMain)
+                        if (applyRoomListNow) {
+                            processParsedSyncResult(syncResult, jsonForMain)
+                        } else {
+                            syncResultForCaller = syncResult                   // ← correct condition
+                        }
 
                         // Apply invites (in-memory) and UI invalidation flags.
                         val invites = ingestResult?.invites ?: emptyList()
@@ -507,9 +515,17 @@ internal class SyncRoomsCoordinator(
             if (requestId != 0) {
                 WebSocketService.updateLastReceivedRequestId(requestId, context)
             }
+            return syncResultForCaller
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: processSyncCompleteAtomic failed (request_id=$requestId): ${e.message}", e)
             onComplete?.invoke()
+            return null
+        }
+    }
+
+    suspend fun applyBatchedRoomListResult(result: SyncUpdateResult) {
+        withContext(Dispatchers.Main) {
+            processParsedSyncResult(result, JSONObject())
         }
     }
 

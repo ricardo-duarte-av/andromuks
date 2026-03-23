@@ -975,9 +975,19 @@ class AppViewModel : ViewModel() {
     // Must be declared after [syncRoomsCoordinator]: [processSyncImmediately] calls into it.
     internal val syncBatchProcessor = SyncBatchProcessor(
         scope = viewModelScope,
-        processSyncImmediately = { syncJson, requestId, runId ->
-            syncRoomsCoordinator.processSyncCompleteAtomic(syncJson, requestId, runId, onComplete = null)
+        // 1. Lambda now accepts Boolean and returns SyncUpdateResult?
+        processSyncImmediately = { syncJson, requestId, runId, applyRoomListNow ->
+            syncRoomsCoordinator.processSyncCompleteAtomic(
+                syncJson, requestId, runId,
+                applyRoomListNow = applyRoomListNow,
+                onComplete = null
+            )
         },
+        // 2. New lambda: called once after flush with the merged result
+        onBatchRoomListApply = { mergedResult ->
+            syncRoomsCoordinator.applyBatchedRoomListResult(mergedResult)
+        },
+        // 3. onBatchComplete unchanged
         onBatchComplete = {
             // BATTERY OPTIMIZATION: When background batch completes, trigger single UI update
             // This avoids unnecessary state updates during background processing (UI won't recompose anyway)
