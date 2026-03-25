@@ -229,6 +229,18 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                             )
                         // Refresh UI with up-to-date state after batches are processed
                         refreshUIState()
+                        // Re-trigger timeline refresh now that batched events are in cache.
+                        // The earlier timelineRefreshTrigger++ (below) fires before the flush
+                        // completes, so the open room timeline must be rebuilt a second time
+                        // after the batch lands to pick up any events that were buffered.
+                        if (currentRoomId.isNotEmpty()) {
+                            if (BuildConfig.DEBUG)
+                                android.util.Log.d(
+                                    "Andromuks",
+                                    "AppViewModel: Batch flush done, re-triggering timeline refresh for room $currentRoomId",
+                                )
+                            timelineRefreshTrigger++
+                        }
                     } catch (e: Exception) {
                         // Still refresh UI even if batch flush failed
                         refreshUIState()
@@ -244,7 +256,9 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
             // loaded yet
             ensureCurrentUserProfileLoaded()
 
-            // If a room is currently open, trigger timeline refresh to show new events from cache
+            // If a room is currently open, trigger an immediate timeline refresh from whatever
+            // is already in cache. A second refresh fires after the batch flush (above) to pick
+            // up any events that were still buffered at this point.
             if (currentRoomId.isNotEmpty()) {
                 if (BuildConfig.DEBUG)
                     android.util.Log.d(
