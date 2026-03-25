@@ -427,15 +427,20 @@ object RoomTimelineCache {
                     return@sortWith if (a == null && b == null) 0 else if (a == null) 1 else -1
                 }
                 
-                // Sort by timelineRowid first (negative numbers are naturally smaller)
-                val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
-                if (rowIdCompare != 0) {
-                    rowIdCompare
-                } else {
-                    // If timelineRowid is the same, fallback to timestamp, then eventId
-                    val tsCompare = a.timestamp.compareTo(b.timestamp)
-                    if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+                val aInvalid = a.timelineRowid == 0L || a.timelineRowid == -1L
+                val bInvalid = b.timelineRowid == 0L || b.timelineRowid == -1L
+                
+                // If both events have resolved timelineRowids, trust the backend mapping
+                if (!aInvalid && !bInvalid) {
+                    val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
+                    if (rowIdCompare != 0) return@sortWith rowIdCompare
                 }
+                
+                // If one is unresolved (e.g., a new live event), or they are equal, fallback to chronologically sorting by timestamp
+                val tsCompare = a.timestamp.compareTo(b.timestamp)
+                if (tsCompare != 0) return@sortWith tsCompare
+                
+                return@sortWith a.eventId.compareTo(b.eventId)
             }
         }
 
@@ -672,13 +677,19 @@ object RoomTimelineCache {
                 if (a == null || b == null) {
                     return@sortWith if (a == null && b == null) 0 else if (a == null) 1 else -1
                 }
-                val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
-                if (rowIdCompare != 0) {
-                    rowIdCompare
-                } else {
-                    val tsCompare = a.timestamp.compareTo(b.timestamp)
-                    if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+                
+                val aInvalid = a.timelineRowid == 0L || a.timelineRowid == -1L
+                val bInvalid = b.timelineRowid == 0L || b.timelineRowid == -1L
+                
+                if (!aInvalid && !bInvalid) {
+                    val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
+                    if (rowIdCompare != 0) return@sortWith rowIdCompare
                 }
+                
+                val tsCompare = a.timestamp.compareTo(b.timestamp)
+                if (tsCompare != 0) return@sortWith tsCompare
+                
+                return@sortWith a.eventId.compareTo(b.eventId)
             }
             
             val secondOldest = cache.events.getOrNull(1)
@@ -711,13 +722,19 @@ object RoomTimelineCache {
                 if (a == null || b == null) {
                     return@sortWith if (a == null && b == null) 0 else if (a == null) 1 else -1
                 }
-                val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
-                if (rowIdCompare != 0) {
-                    rowIdCompare
-                } else {
-                    val tsCompare = a.timestamp.compareTo(b.timestamp)
-                    if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+                
+                val aInvalid = a.timelineRowid == 0L || a.timelineRowid == -1L
+                val bInvalid = b.timelineRowid == 0L || b.timelineRowid == -1L
+                
+                if (!aInvalid && !bInvalid) {
+                    val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
+                    if (rowIdCompare != 0) return@sortWith rowIdCompare
                 }
+                
+                val tsCompare = a.timestamp.compareTo(b.timestamp)
+                if (tsCompare != 0) return@sortWith tsCompare
+                
+                return@sortWith a.eventId.compareTo(b.eventId)
             }
             
             // CRITICAL FIX: Exclude events with timeline_rowid=0 (invalid, would break pagination)
@@ -766,13 +783,19 @@ object RoomTimelineCache {
                 if (a == null || b == null) {
                     return@sortWith if (a == null && b == null) 0 else if (a == null) 1 else -1
                 }
-                val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
-                if (rowIdCompare != 0) {
-                    rowIdCompare
-                } else {
-                    val tsCompare = a.timestamp.compareTo(b.timestamp)
-                    if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+                
+                val aInvalid = a.timelineRowid == 0L || a.timelineRowid == -1L
+                val bInvalid = b.timelineRowid == 0L || b.timelineRowid == -1L
+                
+                if (!aInvalid && !bInvalid) {
+                    val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
+                    if (rowIdCompare != 0) return@sortWith rowIdCompare
                 }
+                
+                val tsCompare = a.timestamp.compareTo(b.timestamp)
+                if (tsCompare != 0) return@sortWith tsCompare
+                
+                return@sortWith a.eventId.compareTo(b.eventId)
             }
             
             // CRITICAL FIX: Find the oldest event with a positive timeline_rowid (> 0, not 0!)
