@@ -1469,6 +1469,7 @@ class WebSocketService : Service() {
                         val attempt = serviceInstance.reconnectionAttemptCount.coerceAtLeast(0) + 1
                         updateConnectionState(ConnectionState.Connecting(attempt))
                     }
+                    serviceInstance.startHardConnectingTimeout()
                     
                     // STATE A: First step - wait for NET_CAPABILITY_VALIDATED before any DNS/connect.
                     // On cold start, currentNetworkType may still be NONE (NetworkMonitor hasn't fired yet).

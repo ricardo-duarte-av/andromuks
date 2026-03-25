@@ -8502,8 +8502,10 @@ class AppViewModel : ViewModel() {
                 "timelineEvents.size=${timelineEvents.size})"
             )
             
-            // Sort by timestamp (still on Default)
-            val sortedTimelineEvents = timelineEvents.sortedBy { it.timestamp }
+            // Sort by timestamp, then timelineRowid (server ordering), then eventId (deterministic tiebreak)
+            val sortedTimelineEvents = timelineEvents.sortedWith(
+                compareBy({ it.timestamp }, { it.timelineRowid }, { it.eventId })
+            )
             
             // State updates and animation logic must run on Main
             withContext(Dispatchers.Main) {
@@ -8519,8 +8521,10 @@ class AppViewModel : ViewModel() {
                     val currentTime = System.currentTimeMillis()
                     var shouldPlaySound = false
                     var newMessageRoomId: String? = null
+                    // Build lookup map once to avoid O(n²) find() inside forEach
+                    val sortedEventById = sortedTimelineEvents.associateBy { it.eventId }
                     actuallyNewMessages.forEach { eventId ->
-                        val newEvent = sortedTimelineEvents.find { it.eventId == eventId }
+                        val newEvent = sortedEventById[eventId]
                         val isNewMessage = newEvent?.let { it.timestamp > animationCutoverTimestamp } ?: false
                         if (isNewMessage) newMessageAnimations[eventId] = currentTime
                         val isFromOtherUser = newEvent?.let { event ->
