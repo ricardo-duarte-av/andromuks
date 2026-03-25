@@ -54,6 +54,7 @@ import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -305,19 +306,27 @@ fun ThreadViewerScreen(
     val myUserId = appViewModel.currentUserId
     val homeserverUrl = appViewModel.homeserverUrl
     
-    // Track thread messages reactively so new sends/deletes render without reopening
-    var threadMessages by remember(roomId) { mutableStateOf<List<TimelineEvent>>(emptyList()) }
-    LaunchedEffect(roomId) {
-        threadMessages = appViewModel.getThreadMessages(roomId, threadRootEventId)
+    // Derive thread messages directly from timelineEvents using derivedStateOf.
+    // This is the safest pattern: there is no intermediate "loading" window where threadMessages
+    // can be empty while timelineEvents already has the data.  Compose tracks the read of
+    // appViewModel.timelineEvents inside the lambda and recomputes automatically whenever it
+    // changes — no LaunchedEffect, no counter, no race condition.
+    val threadMessages by remember(roomId, threadRootEventId) {
+        derivedStateOf { appViewModel.getThreadMessages(roomId, threadRootEventId) }
     }
-    LaunchedEffect(appViewModel.timelineUpdateCounter, roomId, threadRootEventId) {
-        threadMessages = appViewModel.getThreadMessages(roomId, threadRootEventId)
-    }
+
     // Ensure the ViewModel treats this room as current so timeline updates and send_complete are applied
     LaunchedEffect(roomId) {
         appViewModel.setCurrentRoomIdForTimeline(roomId)
         // Ensure timeline is fresh when opening the thread viewer
         appViewModel.requestRoomTimeline(roomId)
+    }
+
+    // Re-fetch when the app returns to foreground (mirrors RoomTimelineScreen's refresh trigger)
+    LaunchedEffect(appViewModel.timelineRefreshTrigger) {
+        if (appViewModel.timelineRefreshTrigger > 0) {
+            appViewModel.requestRoomTimeline(roomId)
+        }
     }
     // Events are in-memory cache only - no DB observation needed
     // Timeline updates come from sync_complete and pagination
@@ -638,8 +647,8 @@ fun ThreadViewerScreen(
     // PERFORMANCE: Use background processing for heavy filtering and sorting operations
     var sortedEvents by remember { mutableStateOf<List<TimelineEvent>>(emptyList()) }
 
-    // Process thread events in background when dependencies change
-    LaunchedEffect(threadMessages, appViewModel.timelineUpdateCounter) {
+    // Process thread events in background when threadMessages changes
+    LaunchedEffect(threadMessages) {
         sortedEvents = processTimelineEvents(
             timelineEvents = threadMessages,
             allowedEventTypes = allowedEventTypes

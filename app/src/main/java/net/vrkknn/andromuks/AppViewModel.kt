@@ -9515,28 +9515,40 @@ class AppViewModel : ViewModel() {
      */
     fun getThreadMessages(roomId: String, threadRootEventId: String): List<TimelineEvent> {
         val threadMessages = mutableListOf<TimelineEvent>()
-        
+
+        // Use in-memory timelineEvents when available; fall back to LRU cache if cleared
+        // (e.g. RoomTimelineScreen.onDispose clears timelineEvents after ThreadViewerScreen opens)
+        val events = if (timelineEvents.isNotEmpty()) {
+            timelineEvents
+        } else {
+            val cached = RoomTimelineCache.getCachedEvents(roomId) ?: emptyList()
+            if (BuildConfig.DEBUG && cached.isNotEmpty()) {
+                android.util.Log.d("Andromuks", "AppViewModel: getThreadMessages - timelineEvents empty, using cache (${cached.size} events)")
+            }
+            cached
+        }
+
         // Add the thread root message first
-        val rootMessage = timelineEvents.find { it.eventId == threadRootEventId }
+        val rootMessage = events.find { it.eventId == threadRootEventId }
         if (rootMessage != null) {
             threadMessages.add(rootMessage)
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found thread root: $threadRootEventId")
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Thread root not found: $threadRootEventId")
         }
-        
+
         // Add all messages that are part of this thread
-        val threadReplies = timelineEvents.filter { event ->
+        val threadReplies = events.filter { event ->
             event.isThreadMessage() && event.relatesTo == threadRootEventId
         }
-        
+
         threadMessages.addAll(threadReplies)
-        
+
         // Sort by timestamp
         val sortedMessages = threadMessages.sortedBy { it.timestamp }
-        
+
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: getThreadMessages - found ${sortedMessages.size} messages in thread (1 root + ${threadReplies.size} replies)")
-        
+
         return sortedMessages
     }
     
