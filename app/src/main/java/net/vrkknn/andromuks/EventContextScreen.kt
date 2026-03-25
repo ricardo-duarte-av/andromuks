@@ -25,6 +25,7 @@ import android.net.Uri
 import coil.request.ImageRequest
 import coil.request.CachePolicy
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.collect
@@ -57,7 +58,7 @@ fun EventContextScreen(
     // Get room name for header
     val roomItem = appViewModel.getRoomById(roomId)
     val roomDisplayName = roomItem?.name ?: roomId
-    val headerTitle = "$roomDisplayName pinned event"
+    val headerTitle = roomDisplayName
     
     // Fetch event context when screen is created
     LaunchedEffect(roomId, eventId) {
@@ -176,6 +177,7 @@ fun EventContextScreen(
             }
             else -> {
                 val listState = rememberLazyListState()
+                val coroutineScope = rememberCoroutineScope()
                 val timelinePrefetchLoader = remember(context) { ImageLoaderSingleton.get(context) }
                 val prefetchedTimelineMemoryKeys = remember { mutableSetOf<String>() }
                 
@@ -297,6 +299,18 @@ fun EventContextScreen(
                                 isMine = myUserId != null && event.sender == myUserId,
                                 myUserId = myUserId,
                                 appViewModel = appViewModel,
+                                onScrollToMessage = { replyEventId ->
+                                    val index = contextEvents!!.indexOfFirst { it.eventId == replyEventId }
+                                    if (index >= 0) {
+                                        coroutineScope.launch {
+                                            listState.animateScrollToItem(index)
+                                        }
+                                    } else {
+                                        val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+                                        val encodedEventId = java.net.URLEncoder.encode(replyEventId, "UTF-8")
+                                        navController.navigate("event_context/$encodedRoomId/$encodedEventId")
+                                    }
+                                },
                                 onUserClick = { userId ->
                                     navController.navigateToUserInfo(userId, roomId)
                                 }

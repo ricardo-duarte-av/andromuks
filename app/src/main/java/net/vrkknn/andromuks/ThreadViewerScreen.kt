@@ -1283,6 +1283,10 @@ fun ThreadViewerScreen(
                                                     coroutineScope.launch {
                                                         listState.scrollToItem(index)
                                                     }
+                                                } else {
+                                                    val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+                                                    val encodedEventId = java.net.URLEncoder.encode(eventId, "UTF-8")
+                                                    navController.navigate("event_context/$encodedRoomId/$encodedEventId")
                                                 }
                                             },
                                             onReply = { event ->
