@@ -16,6 +16,8 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.Encryption
@@ -68,6 +70,8 @@ class FCMService : FirebaseMessagingService() {
         private const val EXTRA_NOTIFICATION_ID = "extra_notification_id"
     }
     
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
     private var enhancedNotificationDisplay: EnhancedNotificationDisplay? = null
 
     private fun buildRawResourceUri(rawResId: Int): android.net.Uri {
@@ -95,7 +99,12 @@ class FCMService : FirebaseMessagingService() {
             enhancedNotificationDisplay?.createNotificationChannel()
         }
     }
-    
+
+    override fun onDestroy() {
+        serviceScope.cancel()
+        super.onDestroy()
+    }
+
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
         
@@ -152,7 +161,7 @@ class FCMService : FirebaseMessagingService() {
             if (BuildConfig.DEBUG) Log.d(TAG, "Successfully decrypted payload: ${decryptedPayload.take(100)}...")
             
             // Parse the decrypted JSON and handle different payload types
-            CoroutineScope(Dispatchers.Main).launch {
+            serviceScope.launch {
                 try {
                     val jsonObject = JSONObject(decryptedPayload)
                     if (BuildConfig.DEBUG) Log.d(TAG, "Decrypted JSON keys: ${jsonObject.keys().asSequence().toList()}")
@@ -191,7 +200,7 @@ class FCMService : FirebaseMessagingService() {
                                         pendingNotifications.add(notificationData.roomId)
                                     }
                                     
-                                    CoroutineScope(Dispatchers.Main).launch {
+                                    serviceScope.launch {
                                         try {
                                             // Check if notification was cancelled while we were preparing it
                                             val wasCancelled = synchronized(pendingNotificationsLock) {
@@ -411,7 +420,7 @@ class FCMService : FirebaseMessagingService() {
                     pendingNotifications.add(roomId)
                 }
                 
-                CoroutineScope(Dispatchers.Main).launch {
+                serviceScope.launch {
                     try {
                         // Check if notification was cancelled while we were preparing it
                         val wasCancelled = synchronized(pendingNotificationsLock) {
@@ -614,7 +623,7 @@ class FCMService : FirebaseMessagingService() {
         super.onNewToken(token)
         
         // Register the new token with the Matrix backend
-        CoroutineScope(Dispatchers.IO).launch {
+        serviceScope.launch(Dispatchers.IO) {
             registerTokenWithBackend(token)
         }
     }

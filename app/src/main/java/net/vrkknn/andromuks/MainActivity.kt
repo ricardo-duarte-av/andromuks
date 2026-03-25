@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavType
@@ -369,9 +370,10 @@ class MainActivity : ComponentActivity() {
                             // NOTE: This is called AFTER loadSettings to ensure syncIngestor can be initialized
                             // This ensures RoomListScreen shows up-to-date data when app opens
                             // Use a small delay to ensure initialization is complete
-                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                                appViewModel.checkAndProcessPendingItemsOnStartup(this)
-                            }, 500)
+                            lifecycleScope.launch {
+                                delay(500)
+                                appViewModel.checkAndProcessPendingItemsOnStartup(this@MainActivity)
+                            }
                             
                             // BATTERY OPTIMIZATION: Combined health check and auto-restart into single worker
                             // (reduces WorkManager wake-ups from 2 workers to 1)

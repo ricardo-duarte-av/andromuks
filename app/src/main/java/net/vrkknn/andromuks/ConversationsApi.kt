@@ -23,6 +23,7 @@ import coil.decode.ImageDecoderDecoder
 import coil.request.ImageRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.AvatarUtils
@@ -53,6 +54,9 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         private const val MIN_SHORTCUT_UPDATE_INTERVAL_MS = 300000L // 5 minutes: cooldown after actual update to prevent spam (reduced from 1 hour to allow avatar updates)
     }
     
+    // Single shared scope for all shortcut work — avoids creating a new scope on every sync
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     // Debouncing mechanism to prevent excessive shortcut updates
     private var lastShortcutUpdateTime = 0L
     private var lastShortcutUpdateCompletedTime = 0L // Track when update actually finished
@@ -318,10 +322,10 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             // CRITICAL: Initialize cache from Android's ShortcutManager on first call
             // This prevents shortcuts from being replaced on app restart
             if (!cacheInitialized) {
-                CoroutineScope(Dispatchers.IO).launch {
+                scope.launch {
                     initializeShortcutCache()
                     cacheInitialized = true
-                    
+
                     // After cache is initialized, proceed with update
                     performUpdateConversationShortcuts(rooms, replaceAll)
                 }
@@ -346,7 +350,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         
         if (timeSinceLastUpdate < SHORTCUT_UPDATE_DEBOUNCE_MS) {
             //Log.d(TAG, "Debouncing shortcut update (${timeSinceLastUpdate}ms since last update)")
-            pendingShortcutUpdate = CoroutineScope(Dispatchers.IO).launch {
+            pendingShortcutUpdate = scope.launch {
                 kotlinx.coroutines.delay(SHORTCUT_UPDATE_DEBOUNCE_MS - timeSinceLastUpdate)
                 try {
                     val shortcuts = createShortcutsFromRooms(rooms)
@@ -358,7 +362,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             }
         } else {
             // Update immediately
-            CoroutineScope(Dispatchers.IO).launch {
+            scope.launch {
                 try {
                     val shortcuts = createShortcutsFromRooms(rooms)
                     updateShortcuts(shortcuts, replaceAll)
@@ -405,8 +409,8 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             
             // Cancel any pending debounced update
             pendingShortcutUpdate?.cancel()
-            
-            CoroutineScope(Dispatchers.IO).launch {
+
+            scope.launch {
                 try {
                     val shortcuts = createShortcutsFromRooms(rooms)
                     updateShortcuts(shortcuts, replaceAll = true) // Always replace for immediate updates
@@ -529,10 +533,10 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         // CRITICAL: Initialize cache from Android's ShortcutManager on first call
         // This prevents shortcuts from being replaced on app restart
         if (!cacheInitialized) {
-            CoroutineScope(Dispatchers.IO).launch {
+            scope.launch {
                 initializeShortcutCache()
                 cacheInitialized = true
-                
+
                 // After cache is initialized, process the sync rooms
                 processSyncRooms(syncRooms)
             }
@@ -606,8 +610,8 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     private fun processSyncRooms(syncRooms: List<RoomItem>) {
         // Cancel any pending debounced update
         pendingShortcutUpdate?.cancel()
-        
-        CoroutineScope(Dispatchers.IO).launch {
+
+        pendingShortcutUpdate = scope.launch {
             try {
                 // Get current shortcut count from our cache
                 val currentShortcutCount = lastShortcutStableIds.size
@@ -656,7 +660,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             val nameChanged = existingShortcut.roomName != room.name
             val avatarChanged = existingShortcut.roomAvatarUrl != room.avatarUrl
             val avatarNeedsDownload = room.avatarUrl?.let { url ->
-                kotlinx.coroutines.runBlocking { IntelligentMediaCache.getCachedFile(context, url) } == null
+                IntelligentMediaCache.getCachedFile(context, url) == null
             } ?: false
             
             nameChanged || avatarChanged || avatarNeedsDownload
@@ -670,7 +674,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         // Check if we can successfully create an avatar icon (not just if file exists)
         // This detects when avatar becomes available even if file existed but was corrupted before
         val canCreateAvatar = room.avatarUrl?.let { url ->
-            kotlinx.coroutines.runBlocking { canCreateAvatarIcon(url) }
+            canCreateAvatarIcon(url)
         } ?: false
         
         val previouslyHadAvatar = shortcutHasAvatarIcon[room.id] ?: false
@@ -741,7 +745,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         lastNameAvatar = lastNameAvatar + (room.id to (room.name to room.avatarUrl))
         
         val avatarInCache = room.avatarUrl?.let { url ->
-            kotlinx.coroutines.runBlocking { canCreateAvatarIcon(url) }
+            canCreateAvatarIcon(url)
         } ?: false
         lastAvatarCachePresence[room.id] = avatarInCache
         shortcutHasAvatarIcon[room.id] = avatarInCache
@@ -869,7 +873,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         if (!idsChanged && !nameAvatarChanged) {
             for (s in newShortcuts) {
                 if (s.roomAvatarUrl != null) {
-                    val cachedFile = kotlinx.coroutines.runBlocking { IntelligentMediaCache.getCachedFile(context, s.roomAvatarUrl) }
+                    val cachedFile = IntelligentMediaCache.getCachedFile(context, s.roomAvatarUrl)
                     if (cachedFile == null || !cachedFile.exists()) {
                         // Avatar URL exists but not cached - need to download
                         avatarsNeedDownload = true
@@ -917,7 +921,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             // Check if this update is needed for missing avatars (bypass rate limiting)
             val hasMissingAvatars = shortcuts.any { shortcut ->
                 shortcut.roomAvatarUrl != null && 
-                kotlinx.coroutines.runBlocking { IntelligentMediaCache.getCachedFile(context, shortcut.roomAvatarUrl) } == null
+                IntelligentMediaCache.getCachedFile(context, shortcut.roomAvatarUrl) == null
             }
             
             // Rate limiting: enforce cooldown after last completed update
