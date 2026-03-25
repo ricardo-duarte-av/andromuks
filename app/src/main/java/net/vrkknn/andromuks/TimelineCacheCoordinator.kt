@@ -38,10 +38,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // Build redaction events map and mapping from redactionCache
             val redactionEventsMap = mutableMapOf<String, TimelineEvent>()
             val redactionMapping = mutableMapOf<String, String>()
+            val reverseRedactionMapping = mutableMapOf<String, String>()
 
             redactionCache.forEach { (originalEventId, redactionEvent) ->
                 redactionEventsMap[redactionEvent.eventId] = redactionEvent
                 redactionMapping[originalEventId] = redactionEvent.eventId
+                reverseRedactionMapping[redactionEvent.eventId] = originalEventId
             }
 
             // Save processed timeline state to singleton cache (including redactions)
@@ -51,6 +53,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 editEventsMap = editEventsMap.toMap(),
                 redactionEventsMap = redactionEventsMap,
                 redactionMapping = redactionMapping,
+                reverseRedactionMapping = reverseRedactionMapping,
             )
 
             if (BuildConfig.DEBUG)
@@ -84,11 +87,8 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 // Restore redaction events to MessageVersionsCache
                 // This ensures deleted messages can be displayed
                 processedState.redactionEventsMap.forEach { (redactionEventId, redactionEvent) ->
-                    // Find the original event ID from the mapping
-                    val originalEventId =
-                        processedState.redactionMapping.entries
-                            .find { it.value == redactionEventId }
-                            ?.key
+                    // Find the original event ID from the reverse mapping (O(1))
+                    val originalEventId = processedState.reverseRedactionMapping[redactionEventId]
 
                     if (originalEventId != null) {
                         // Update MessageVersionsCache with redaction info

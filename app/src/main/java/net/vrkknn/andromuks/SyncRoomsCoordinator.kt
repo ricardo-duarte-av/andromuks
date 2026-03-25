@@ -531,18 +531,10 @@ internal class SyncRoomsCoordinator(
 
     fun handleClearStateReset() {
         with(vm) {
-                    if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: clear_state=true received - clearing derived room/space state (events preserved)")
-                    clearDerivedStateInMemory()
-        
-                    ensureSyncIngestor()
-        
-                    runCatching {
-                        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-                            syncIngestor?.handleClearStateSignal()
-                        }
-                    }.onFailure {
-                        if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Failed to clear derived state on clear_state: ${it.message}", it)
-                    }
+            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: clear_state=true received - clearing derived room/space state (events preserved)")
+            clearDerivedStateInMemory()
+            // SyncIngestor.handleClearStateSignal() is a no-op stub and is also called
+            // from within SyncIngestor.ingestSyncComplete() — no need to invoke it here.
         }
     }
 

@@ -1,7 +1,6 @@
 package net.vrkknn.andromuks.database
 
 import android.content.Context
-import android.util.Base64
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -11,10 +10,6 @@ import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.TimelineEvent
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
-import java.util.zip.GZIPInputStream
-import java.util.zip.GZIPOutputStream
 
 /**
  * SyncIngestor - Ingests sync_complete messages into in-memory caches
@@ -203,104 +198,6 @@ class SyncIngestor(private val context: Context) {
             Log.w(TAG, "Failed to build JSON for unprocessed TimelineEvent ${eventId}", e)
         }
         return json
-    }
-    
-    /**
-     * Compress pending room JSON before storing to shrink rows and avoid CursorWindow limits.
-     * Falls back to raw JSON if compression fails.
-     */
-    private fun compressPendingRoomJson(rawJson: String): String {
-        return try {
-            val byteStream = ByteArrayOutputStream()
-            GZIPOutputStream(byteStream).use { it.write(rawJson.toByteArray(Charsets.UTF_8)) }
-            Base64.encodeToString(byteStream.toByteArray(), Base64.NO_WRAP)
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to compress pending room JSON, storing raw", e)
-            rawJson
-        }
-    }
-    
-    /**
-     * Decompress pending room JSON; if the payload is not compressed, return as-is.
-     */
-    private fun decompressPendingRoomJson(stored: String): String {
-        return try {
-            val compressed = Base64.decode(stored, Base64.NO_WRAP)
-            GZIPInputStream(ByteArrayInputStream(compressed)).use { input ->
-                input.readBytes().toString(Charsets.UTF_8)
-            }
-        } catch (_: Exception) {
-            // Not compressed (legacy rows) or failed to decode; use raw content
-            stored
-        }
-    }
-
-    /**
-     * Merge a newly deferred room JSON with an existing pending payload to avoid overwriting
-     * older events when multiple syncs are deferred for the same room.
-     * - timeline/events arrays are de-duplicated by event_id (existing order preserved, new appended)
-     * - other top-level keys from the new payload overwrite existing ones
-     */
-    private fun mergePendingRoomJson(existingCompressed: String, newRoomObj: JSONObject): String {
-        return try {
-            val existingObj = JSONObject(decompressPendingRoomJson(existingCompressed))
-            val merged = JSONObject(existingObj.toString())
-
-            fun mergeArray(key: String) {
-                val existingArr = existingObj.optJSONArray(key)
-                val newArr = newRoomObj.optJSONArray(key)
-                if (existingArr == null && newArr == null) return
-
-                val seen = mutableSetOf<String>()
-                val out = mutableListOf<JSONObject>()
-
-                fun addFrom(array: JSONArray?) {
-                    if (array == null) return
-                    for (i in 0 until array.length()) {
-                        val obj = array.optJSONObject(i) ?: continue
-                        val evt = obj.optJSONObject("event") ?: obj
-                        val eventId = evt.optString("event_id")
-                        if (eventId.isNullOrBlank()) {
-                            out.add(JSONObject(obj.toString()))
-                            continue
-                        }
-                        if (seen.add(eventId)) {
-                            out.add(JSONObject(obj.toString()))
-                        }
-                    }
-                }
-
-                addFrom(existingArr)
-                addFrom(newArr)
-
-                merged.put(key, JSONArray(out))
-            }
-
-            // Merge arrays that carry events
-            mergeArray("timeline")
-            mergeArray("events")
-
-            // Overwrite/merge other keys from new payload
-            val newKeys = newRoomObj.keys()
-            while (newKeys.hasNext()) {
-                val key = newKeys.next()
-                if (key == "timeline" || key == "events") continue
-                merged.put(key, newRoomObj.get(key))
-            }
-
-            compressPendingRoomJson(merged.toString())
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to merge pending room JSON, storing new payload only: ${e.message}")
-            compressPendingRoomJson(newRoomObj.toString())
-        }
-    }
-    
-    /**
-     * @deprecated No longer using pending rooms - all data is in-memory only
-     */
-    @Deprecated("All data is in-memory only, no pending rooms to load")
-    private suspend fun loadPendingRoomsSafely(): List<Any> {
-        return emptyList() // No pending rooms - all data is in-memory only
     }
     
     /**
