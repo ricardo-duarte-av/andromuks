@@ -469,7 +469,7 @@ private fun MediaMessageItem(
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Show nested reply preview (also for thread messages so replies render consistently)
-        if (replyInfo != null && originalEvent != null) {
+        if (replyInfo != null) {
             Column {
                 val replyPreviewColors = rememberReplyPreviewColors(
                     colorScheme = colorScheme,
@@ -1490,7 +1490,7 @@ private fun RoomTextMessageContent(
     @Composable
     fun MessageBubble() {
         // Display reply with nested structure if this is a reply (include thread messages too)
-        if (replyInfo != null && originalEvent != null) {
+        if (replyInfo != null) {
             MessageBubbleWithMenu(
                 event = event,
                 bubbleColor = bubbleColor,
@@ -1897,15 +1897,15 @@ private fun rememberReplyTargetEvent(
 private fun rememberReplyPreviewColors(
     colorScheme: ColorScheme,
     replyInfo: ReplyInfo,
-    originalEvent: TimelineEvent,
+    originalEvent: TimelineEvent?,
     myUserId: String?,
     appViewModel: AppViewModel?
 ): BubbleColors {
     val replySenderIsMine = replyInfo.sender == myUserId
-    val replyMentionsMe = isMentioningUser(originalEvent, myUserId)
-    val replyHasSpoiler = originalEvent.containsSpoilerContent()
-    val replyIsThread = originalEvent.isThreadMessage()
-    val replyIsRedacted = originalEvent.redactedBy != null
+    val replyMentionsMe = originalEvent?.let { isMentioningUser(it, myUserId) } ?: false
+    val replyHasSpoiler = originalEvent?.containsSpoilerContent() ?: false
+    val replyIsThread = originalEvent?.isThreadMessage() ?: false
+    val replyIsRedacted = originalEvent?.redactedBy != null
     val replyIsEdited = remember(replyInfo.eventId, appViewModel?.timelineUpdateCounter) {
         appViewModel?.isMessageEdited(replyInfo.eventId) ?: false
     }
@@ -2560,7 +2560,7 @@ private fun EncryptedMessageContent(
 
                 // Display encrypted text message with nested reply structure (but NOT for thread messages)
                 // Thread messages are rendered as normal bubbles with different color
-                if (replyInfo != null && originalEvent != null && !isThreadMessage) {
+                if (replyInfo != null && !isThreadMessage) {
                     MessageBubbleWithMenu(
                         event = event,
                         bubbleColor = bubbleColor,
