@@ -168,18 +168,19 @@ class MainActivity : ComponentActivity() {
         // Initialize crash handler
         CrashHandler.initialize(this)
         
-        // CRITICAL: Clear last_received_request_id on cold start
-        // This ensures we don't use stale values from previous sessions
-        // Only clear if there's no active WebSocket connection (true cold start)
-        val isWebSocketConnected = net.vrkknn.andromuks.WebSocketService.isWebSocketConnected()
-        if (!isWebSocketConnected) {
+        // Only clear last_received_request_id when the service has never run in this process
+        // (true cold start: first launch, after logout, after process kill with no service).
+        // Do NOT clear when the service is running but the WebSocket is mid-reconnect — that
+        // would wipe the resume token and force a full cold sync instead of a delta resume.
+        val isServiceRunning = net.vrkknn.andromuks.WebSocketService.isServiceRunning()
+        if (!isServiceRunning) {
             if (BuildConfig.DEBUG) {
-                Log.d("Andromuks", "MainActivity: Cold start detected (no active WebSocket) - clearing last_received_request_id")
+                Log.d("Andromuks", "MainActivity: Service not running - clearing last_received_request_id (true cold start)")
             }
             net.vrkknn.andromuks.WebSocketService.clearLastReceivedRequestId(this)
         } else {
             if (BuildConfig.DEBUG) {
-                Log.d("Andromuks", "MainActivity: onCreate - WebSocket already connected (not a cold start)")
+                Log.d("Andromuks", "MainActivity: Service already running - preserving last_received_request_id for resume sync")
             }
         }
         
