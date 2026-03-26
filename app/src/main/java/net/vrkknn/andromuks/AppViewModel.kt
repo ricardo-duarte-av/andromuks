@@ -2317,9 +2317,9 @@ class AppViewModel : ViewModel() {
      * Only processes members for rooms that changed, and only every 3rd sync message
      * This prevents 100-300ms delays on every sync for large rooms
      */
-    internal fun populateMemberCacheFromSync(syncJson: JSONObject) {
-        val data = syncJson.optJSONObject("data") ?: return
-        val roomsJson = data.optJSONObject("rooms") ?: return
+    internal fun populateMemberCacheFromSync(syncJson: JSONObject): Boolean {
+        val data = syncJson.optJSONObject("data") ?: return false
+        val roomsJson = data.optJSONObject("rooms") ?: return false
         
         // BATTERY OPTIMIZATION: Only process rooms with member events
         // First pass: Quickly identify which rooms have member events (without processing them)
@@ -2351,11 +2351,12 @@ class AppViewModel : ViewModel() {
         if (roomsWithMemberEvents.isEmpty()) {
             // No rooms with member events - nothing to process
             //if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: MEMBER PROCESSING - No rooms with member events in this sync")
-            return
+            return false
         }
         
         // Removed debug log to reduce log spam during initial sync
         
+        var anyMemberChanged = false
         // Track current sync's room IDs with member events
         val currentSyncRooms = mutableSetOf<String>()
         
@@ -2406,7 +2407,11 @@ class AppViewModel : ViewModel() {
                                 // During initial sync (before initialSyncComplete), all member events are historical and shouldn't trigger UI updates
                                 // After initial sync is complete, only actual state transitions (invite→join, leave→join) should trigger updates
                                 val isActualNewJoin = isNewJoin && (prevMembership == null || prevMembership == "invite" || prevMembership == "leave")
-                                
+
+                                if (isNewJoin || isProfileChange) {
+                                    anyMemberChanged = true
+                                }
+
                                 // BATTERY OPTIMIZATION: Only trigger UI updates when foregrounded AND initial sync is complete
                                 // Cache is still updated (for accuracy), but no recompositions during initial sync or when backgrounded
                                 // CRITICAL: Check initialSyncComplete (not initializationComplete) because we're still processing
@@ -2436,7 +2441,9 @@ class AppViewModel : ViewModel() {
                             }
                             "leave", "ban" -> {
                                 // Remove members who left or were banned from room cache only
-                                memberMap.remove(userId)
+                                if (memberMap.remove(userId) != null) {
+                                    anyMemberChanged = true
+                                }
                                 ProfileCache.removeFlattenedProfile(roomId, userId)
                                 
                                 // OPTIMIZED: Remove from indexed cache
@@ -2472,8 +2479,9 @@ class AppViewModel : ViewModel() {
         // Update tracking set for next sync comparison
         lastProcessedMembers.clear()
         lastProcessedMembers.addAll(currentSyncRooms)
-        
+
         // Removed debug log to reduce log spam during initial sync
+        return anyMemberChanged
     }
     
 

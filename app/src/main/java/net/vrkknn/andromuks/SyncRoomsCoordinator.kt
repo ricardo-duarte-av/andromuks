@@ -477,9 +477,10 @@ internal class SyncRoomsCoordinator(
                 // Apply UI state changes on main thread (Compose safety)
                 withContext(Dispatchers.Main) {
                     try {
-                        val jsonForMain = JSONObject(raw)
                         if (applyRoomListNow) {
-                            processParsedSyncResult(syncResult, jsonForMain)
+                            // syncJson is safe here: both deferred coroutines used their own JSONObject(raw) copies
+                            // and have already completed, so no concurrent access to syncJson exists.
+                            processParsedSyncResult(syncResult, syncJson)
                         } else {
                             syncResultForCaller = syncResult                   // ← correct condition
                         }
@@ -651,10 +652,13 @@ internal class SyncRoomsCoordinator(
                     // CRITICAL FIX: Process read receipts from sync_complete for ALL rooms, not just the currently open one
                     // This ensures receipts are updated even when rooms are not currently open
                     // Receipts are stored globally (by eventId) but should be updated whenever sync_complete arrives
+                    // PERF: Skip during initial sync — no rooms are open/cached yet, so receipt work is entirely wasted.
+                    //       Paginate will provide authoritative receipts when rooms are first opened.
                     val data = syncJson.optJSONObject("data")
-                    if (data != null) {
+                    if (data != null && initialSyncProcessingComplete) {
                         val rooms = data.optJSONObject("rooms")
                         if (rooms != null) {
+                            var anyReceiptsProcessed = false
                             val roomKeys = rooms.keys()
                             while (roomKeys.hasNext()) {
                                 val roomId = roomKeys.next()
@@ -691,15 +695,20 @@ internal class SyncRoomsCoordinator(
                                             },
                                             roomId = roomId // Pass room ID to prevent cross-room corruption
                                         )
+                                    }
+                                    anyReceiptsProcessed = true
+                                }
+                            }
 
-                                        // Update singleton cache after processing receipts
-                                        val receiptsForCache = readReceipts.mapValues { it.value.toList() }
-                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updating ReadReceiptCache with ${receiptsForCache.size} events (${receiptsForCache.values.sumOf { it.size }} total receipts) from sync_complete for room: $roomId")
-                                        ReadReceiptCache.setAll(receiptsForCache)
-                                        if (BuildConfig.DEBUG) {
-                                            val cacheAfter = ReadReceiptCache.getAllReceipts()
-                                            android.util.Log.d("Andromuks", "AppViewModel: ReadReceiptCache after update: ${cacheAfter.size} events (${cacheAfter.values.sumOf { it.size }} total receipts)")
-                                        }
+                            // PERF: Update singleton cache ONCE after all rooms — avoids N full cache rebuilds per sync.
+                            if (anyReceiptsProcessed) {
+                                synchronized(readReceiptsLock) {
+                                    val receiptsForCache = readReceipts.mapValues { it.value.toList() }
+                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updating ReadReceiptCache with ${receiptsForCache.size} events (${receiptsForCache.values.sumOf { it.size }} total receipts) from sync_complete")
+                                    ReadReceiptCache.setAll(receiptsForCache)
+                                    if (BuildConfig.DEBUG) {
+                                        val cacheAfter = ReadReceiptCache.getAllReceipts()
+                                        android.util.Log.d("Andromuks", "AppViewModel: ReadReceiptCache after update: ${cacheAfter.size} events (${cacheAfter.values.sumOf { it.size }} total receipts)")
                                     }
                                 }
                             }
@@ -707,10 +716,7 @@ internal class SyncRoomsCoordinator(
                     }
         
                     // Populate member cache from sync data and check for changes
-                    val oldMemberStateHash = generateMemberStateHash()
-                    populateMemberCacheFromSync(syncJson)
-                    val newMemberStateHash = generateMemberStateHash()
-                    val memberStateChanged = newMemberStateHash != oldMemberStateHash
+                    val memberStateChanged = populateMemberCacheFromSync(syncJson)
                     val hasRoomChanges = syncResult.updatedRooms.isNotEmpty() ||
                             syncResult.newRooms.isNotEmpty() ||
                             syncResult.removedRoomIds.isNotEmpty()
@@ -1104,7 +1110,6 @@ internal class SyncRoomsCoordinator(
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Member state changed, scheduling UI update")
                             needsMemberUpdate = true
                             scheduleUIUpdate("member")
-                            lastMemberStateHash = newMemberStateHash
                         }
                     } else {
                         // BATTERY OPTIMIZATION: App is in background - minimal processing for battery saving
