@@ -27,8 +27,9 @@ object SpaceListCache {
     // Order of space IDs (from top_level_spaces) so list matches server order
     private var spaceOrder = listOf<String>()
     
-    // Thread-safe storage for space_edges JSONObject
-    private var cachedSpaceEdges: JSONObject? = null
+    // Store space_edges as a serialized string to avoid JSONObject deep-copy overhead.
+    // JSONObject.toString() is cheap at write time; we parse back to JSONObject on demand at read time.
+    private var cachedSpaceEdgesJson: String? = null
     
     private val cacheLock = Any()
     
@@ -104,19 +105,19 @@ object SpaceListCache {
      */
     fun setSpaceEdges(spaceEdges: JSONObject?) {
         synchronized(cacheLock) {
-            cachedSpaceEdges = spaceEdges?.let { JSONObject(it.toString()) } // Deep copy
+            cachedSpaceEdgesJson = spaceEdges?.toString()
             if (BuildConfig.DEBUG) {
                 Log.d(TAG, "SpaceListCache: Updated space_edges (${if (spaceEdges != null) "present" else "null"})")
             }
         }
     }
-    
+
     /**
      * Get space_edges JSONObject
      */
     fun getSpaceEdges(): JSONObject? {
         return synchronized(cacheLock) {
-            cachedSpaceEdges?.let { JSONObject(it.toString()) } // Return a copy
+            cachedSpaceEdgesJson?.let { JSONObject(it) }
         }
     }
     
@@ -127,7 +128,7 @@ object SpaceListCache {
         synchronized(cacheLock) {
             spaceCache.clear()
             spaceOrder = emptyList()
-            cachedSpaceEdges = null
+            cachedSpaceEdgesJson = null
             if (BuildConfig.DEBUG) Log.d(TAG, "SpaceListCache: Cleared all spaces and space_edges")
         }
     }

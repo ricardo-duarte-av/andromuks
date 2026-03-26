@@ -3310,10 +3310,11 @@ fun TimelineEventItem(
     }
 
     // Early return for edit events (m.replace relationships) - they should not be displayed as
-    // separate timeline items
-    val isEditEvent =
+    // separate timeline items. Memoized by eventId since an event's relationship type never changes.
+    val isEditEvent = remember(event.eventId) {
         (event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace") ||
             (event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace")
+    }
     if (isEditEvent) {
         return
     }

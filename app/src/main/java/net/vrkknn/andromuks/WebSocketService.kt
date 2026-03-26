@@ -1362,15 +1362,6 @@ class WebSocketService : Service() {
         }
         
         /**
-         * @deprecated No longer used - we never pass last_received_id on connect/reconnect
-         * All timeline caches are cleared on connect/reconnect instead
-         */
-        @Deprecated("No longer used - caches are cleared on connect/reconnect")
-        fun setReconnectionState(lastReceivedId: Int) {
-            // No-op - we no longer track last_received_id
-        }
-        
-        /**
          * Get run_id from SharedPreferences (always use stored value)
          */
         fun getCurrentRunId(): String {
@@ -1521,20 +1512,6 @@ class WebSocketService : Service() {
                 }
                 // Connecting state is cleared by clearWebSocket() on failure or by transition to Ready/Initializing on success
             }
-        }
-        
-        /**
-         * @deprecated No longer used - we never pass last_received_id on connect/reconnect
-         */
-        @Deprecated("No longer used - we no longer track last_received_id")
-        fun getLastReceivedSyncId(): Int = 0
-        
-        /**
-         * @deprecated No longer used - we never pass last_received_id on connect/reconnect
-         */
-        @Deprecated("No longer used - we no longer track last_received_id")
-        fun updateLastReceivedSyncId(syncId: Int) {
-            // No-op
         }
         
         /**
@@ -1720,34 +1697,11 @@ class WebSocketService : Service() {
         }
         
         /**
-         * Mark that at least one sync_complete has been persisted this session.
-         * This unlocks the ability to include last_received_event on reconnections.
-         */
-        /**
-         * @deprecated No longer used - we never pass last_received_id on connect/reconnect
-         */
-        @Deprecated("No longer used - we no longer track last_received_id")
-        fun markInitialSyncPersisted() {
-            // No-op
-        }
-        
-        /**
          * Clear reconnection state (no-op - we no longer track last_received_id)
          */
         fun clearReconnectionState() {
             // No-op - we no longer track last_received_id
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "clearReconnectionState called (no-op - we no longer track last_received_id)")
-        }
-        
-        /**
-         * @deprecated No longer used - we never pass last_received_id on connect/reconnect
-         * Returns: (runId from SharedPreferences, 0, false)
-         */
-        @Deprecated("No longer used - we no longer track last_received_id")
-        fun getReconnectionParameters(): Triple<String, Int, Boolean> {
-            val runId = getCurrentRunId() // Always read from SharedPreferences
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "getReconnectionParameters: runId='$runId' (no last_received_id)")
-            return Triple(runId, 0, false)
         }
         
         /**
