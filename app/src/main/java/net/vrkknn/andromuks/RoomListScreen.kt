@@ -212,8 +212,6 @@ fun RoomListScreen(
     var coldStartRefreshing by remember { mutableStateOf(false) }
     var initialLoadComplete by remember { mutableStateOf(false) }
     val listStates = remember { mutableMapOf<RoomSectionType, LazyListState>() }
-    var missingTimestampsHydrated by remember { mutableStateOf(false) }
-    
     // PERFORMANCE FIX: Smart timestamp updates - only update when displayed unit changes
     // New format: Today shows hh:mm, Yesterday shows "Yesterday", older shows "2d ago", "1w ago", "1y ago"
     // Update intervals:
@@ -454,27 +452,6 @@ fun RoomListScreen(
     // subsets (DMs, Unread, Favourites) inherit that order — no re-sort needed.
     val displayedSection = stableSection
 
-    // One-time hydration: if any rooms lack timestamps, prefetch a small batch from server for all of them.
-    LaunchedEffect(initialLoadComplete, displayedSection.rooms.map { it.id to it.sortingTimestamp }) {
-        if (!initialLoadComplete || missingTimestampsHydrated) return@LaunchedEffect
-
-        val missingTsRooms = displayedSection.rooms
-            .filter { (it.sortingTimestamp ?: 0L) <= 0L }
-
-        if (missingTsRooms.isNotEmpty()) {
-            missingTimestampsHydrated = true
-            // Run sequentially to avoid hammering; this is a one-time bootstrap hydrate.
-            // Disabled, did not solve the problem and is expensive
-            //withContext(Dispatchers.IO) {
-            //    for (room in missingTsRooms) {
-            //        runCatching {
-            //            appViewModel.prefetchRoomSnapshot(room.id, limit = 20, timeoutMs = 4000L)
-            //        }
-            //    }
-            //}
-        }
-    }
-    
     // PERFORMANCE: Preemptively load the first 100 room avatars into memory cache
     // This makes scrolling faster since avatars are already loaded when they come into view
     var avatarsPreloaded by remember { mutableStateOf(false) }
@@ -2910,74 +2887,6 @@ fun RoomListContent(
         }
     }
     
-    // NAVIGATION PERFORMANCE: Add scroll state for prefetching
-    // NAVIGATION PERFORMANCE: Observe scroll state and trigger prefetching for visible rooms
-    // CRITICAL FIX: Prefetch initially visible rooms when tab is first shown, not just on scroll
-    LaunchedEffect(listState, filteredRooms) {
-        val prefetchedIds = mutableSetOf<String>()
-        
-        // Prefetch initially visible rooms when tab is first shown or rooms change
-        // This ensures rooms are prefetched even if user hasn't scrolled yet
-        // Wait a bit for LazyColumn to layout before checking visible items
-        kotlinx.coroutines.delay(100)
-        
-        val layoutInfo = listState.layoutInfo
-        if (filteredRooms.isNotEmpty() && layoutInfo.visibleItemsInfo.isNotEmpty()) {
-            val firstVisibleIndex = listState.firstVisibleItemIndex
-            val visibleIndices = layoutInfo.visibleItemsInfo.map { it.index }
-            
-            val nearbyRangeStart = (firstVisibleIndex - 10).coerceAtLeast(0)
-            val nearbyRangeEnd = (firstVisibleIndex + visibleIndices.size + 10).coerceAtMost(filteredRooms.size - 1)
-            val initiallyVisibleRoomIds = (nearbyRangeStart..nearbyRangeEnd)
-                .filter { it in filteredRooms.indices }
-                .map { filteredRooms[it].id }
-                .distinct()
-            
-            if (initiallyVisibleRoomIds.isNotEmpty()) {
-                prefetchedIds.addAll(initiallyVisibleRoomIds)
-                // DISABLED: prefetchRoomData() is no longer needed - bridge info is already loaded
-                // by loadAllRoomStatesAfterInitComplete() and cached in SharedPreferences
-                // appViewModel.prefetchRoomData(initiallyVisibleRoomIds, firstVisibleIndex)
-                if (ROOM_LIST_VERBOSE_LOGGING && BuildConfig.DEBUG) {
-                    android.util.Log.d(
-                        "Andromuks",
-                        "RoomListScreen: NAVIGATION OPTIMIZATION - Initial prefetch disabled (bridge info already loaded)"
-                    )
-                }
-            }
-        }
-        
-        // Also observe scroll changes to prefetch newly visible rooms
-        snapshotFlow {
-            val layoutInfo = listState.layoutInfo
-            listState.firstVisibleItemIndex to layoutInfo.visibleItemsInfo.map { it.index }
-        }
-            .debounce(280)
-            .collectLatest { (firstVisibleIndex, visibleIndices) ->
-                if (filteredRooms.isEmpty()) return@collectLatest
-                
-                val nearbyRangeStart = (firstVisibleIndex - 10).coerceAtLeast(0)
-                val nearbyRangeEnd = (firstVisibleIndex + visibleIndices.size + 10).coerceAtMost(filteredRooms.size - 1)
-                val nearbyRoomIds = (nearbyRangeStart..nearbyRangeEnd)
-                    .filter { it in filteredRooms.indices }
-                    .map { filteredRooms[it].id }
-                    .filter { it !in prefetchedIds }
-                    .distinct()
-                
-                if (nearbyRoomIds.isNotEmpty()) {
-                    prefetchedIds.addAll(nearbyRoomIds)
-                    // DISABLED: prefetchRoomData() is no longer needed - bridge info is already loaded
-                    // by loadAllRoomStatesAfterInitComplete() and cached in SharedPreferences
-                    // appViewModel.prefetchRoomData(nearbyRoomIds, firstVisibleIndex)
-                    if (ROOM_LIST_VERBOSE_LOGGING && BuildConfig.DEBUG) {
-                        android.util.Log.d(
-                            "Andromuks",
-                            "RoomListScreen: NAVIGATION OPTIMIZATION - Scroll prefetch disabled (bridge info already loaded)"
-                        )
-                    }
-                }
-            }
-    }
     
     val coroutineScope = rememberCoroutineScope()
     var roomOpenInProgress by remember { mutableStateOf<String?>(null) }

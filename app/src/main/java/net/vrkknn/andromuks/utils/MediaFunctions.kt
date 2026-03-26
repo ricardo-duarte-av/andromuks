@@ -206,60 +206,6 @@ object InlineVideoPlayerManager {
 }
 
 /**
- * DEPRECATED: MediaCache has been replaced by IntelligentMediaCache.
- * All functionality has been migrated to IntelligentMediaCache which provides:
- * - Viewport-aware caching
- * - Smart eviction based on usage and visibility
- * - Access count tracking
- * - Better performance and memory management
- * 
- * This object is kept for backward compatibility but should not be used in new code.
- * Use IntelligentMediaCache instead.
- */
-@Deprecated("Use IntelligentMediaCache instead", ReplaceWith("IntelligentMediaCache"))
-object MediaCache {
-    // All methods delegate to IntelligentMediaCache for backward compatibility
-    // This allows old code to continue working while we migrate
-    
-    @Deprecated("Use IntelligentMediaCache.getCacheDir() instead")
-    fun getCacheDir(context: android.content.Context): File {
-        return IntelligentMediaCache.getCacheDir(context)
-    }
-    
-    @Deprecated("Use IntelligentMediaCache.getCacheKey() instead")
-    fun getCacheKey(mxcUrl: String): String {
-        return IntelligentMediaCache.getCacheKey(mxcUrl)
-    }
-    
-    @Deprecated("Use IntelligentMediaCache.getCachedFile() instead")
-    fun getCachedFile(context: android.content.Context, mxcUrl: String): File? {
-        return kotlinx.coroutines.runBlocking {
-            IntelligentMediaCache.getCachedFile(context, mxcUrl)
-        }
-    }
-    
-    @Deprecated("Use IntelligentMediaCache.isCached() instead")
-    fun isCached(context: android.content.Context, mxcUrl: String): Boolean {
-        return IntelligentMediaCache.isCached(context, mxcUrl)
-    }
-    
-    @Deprecated("Use IntelligentMediaCache.downloadAndCache() instead")
-    suspend fun downloadAndCache(
-        context: android.content.Context,
-        mxcUrl: String,
-        httpUrl: String,
-        authToken: String
-    ): File? {
-        return IntelligentMediaCache.downloadAndCache(context, mxcUrl, httpUrl, authToken)
-    }
-    
-    @Deprecated("Use IntelligentMediaCache.cleanupCache() instead")
-    suspend fun cleanupCache(context: android.content.Context) {
-        IntelligentMediaCache.cleanupCache(context)
-    }
-}
-
-/**
  * Format timestamp for media messages
  */
 private fun formatMediaTimestamp(timestamp: Long): String {

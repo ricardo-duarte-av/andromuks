@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package net.vrkknn.andromuks
 
 import android.app.Notification
@@ -33,7 +31,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
-import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.utils.htmlToNotificationText
 import net.vrkknn.andromuks.BuildConfig
@@ -372,7 +369,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val currentUserAvatarIcon = try {
                 val avatarUrl = sharedPrefs.getString("current_user_avatar_url", null)
                 if (!avatarUrl.isNullOrEmpty()) {
-                    val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
+                    val cachedFile = IntelligentMediaCache.getCachedFile(context, avatarUrl)
                     val avatarBitmap = if (cachedFile != null) {
                         if (BuildConfig.DEBUG) Log.d(TAG, "Using cached avatar for current user: $avatarUrl")
                         android.graphics.BitmapFactory.decodeFile(cachedFile.absolutePath)
@@ -475,7 +472,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     
                     if (mxcUrl != null && httpUrl != null) {
                         // Check cache first
-                        val cachedFile = MediaCache.getCachedFile(context, mxcUrl)
+                        val cachedFile = IntelligentMediaCache.getCachedFile(context, mxcUrl)
                         val imageFile = if (cachedFile != null && cachedFile.exists()) {
                             if (BuildConfig.DEBUG) Log.d(TAG, "Using cached image: ${cachedFile.absolutePath}")
                             cachedFile
@@ -1291,7 +1288,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             }
             
             // Check if we have a cached version first
-            val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
+            val cachedFile = IntelligentMediaCache.getCachedFile(context, avatarUrl)
             
             if (cachedFile != null) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Using cached avatar file: ${cachedFile.absolutePath}")
@@ -1454,7 +1451,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val currentUserAvatarIcon = try {
                 val avatarUrl = sharedPrefs.getString("current_user_avatar_url", null)
                 if (!avatarUrl.isNullOrEmpty()) {
-                    val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
+                    // isCached() is synchronous; construct the file path directly to avoid runBlocking.
+                    val cachedFile = if (IntelligentMediaCache.isCached(context, avatarUrl)) {
+                        java.io.File(IntelligentMediaCache.getCacheDir(context), IntelligentMediaCache.getCacheKey(avatarUrl))
+                    } else null
                     val avatarBitmap = if (cachedFile != null) {
                         if (BuildConfig.DEBUG) Log.d(TAG, "Using cached avatar for reply: $avatarUrl")
                         android.graphics.BitmapFactory.decodeFile(cachedFile.absolutePath)
