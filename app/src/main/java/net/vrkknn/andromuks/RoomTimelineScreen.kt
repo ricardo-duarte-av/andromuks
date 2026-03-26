@@ -536,7 +536,7 @@ fun MentionMemberList(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
         ) {
             items(filteredMembers.size) { index ->
-                val (userId, profile) = filteredMembers.toList()[index]
+                val (userId, profile) = filteredMembers[index]
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -3240,6 +3240,10 @@ fun RoomTimelineScreen(
                                 onDispose { TimelineMediaLayoutCallback.callback = null }
                             }
                             Box(modifier = Modifier.fillMaxSize()) {
+                            // PERF: Memoize reversed list — .reversed() allocates a new list on every recomposition.
+                            // Only recompute when timelineItems itself changes.
+                            val reversedTimelineItems = remember(timelineItems) { timelineItems.reversed() }
+
                             LazyColumn(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -3275,7 +3279,7 @@ fun RoomTimelineScreen(
                             // PERFORMANCE: Use stable keys and pre-computed consecutive flags
                             // CRITICAL: Reverse items list since reverseLayout flips rendering order but not data order
                             itemsIndexed(
-                                items = timelineItems.reversed(),
+                                items = reversedTimelineItems,
                                 key = { _, item -> item.stableKey }
                             ) { index, item ->
                                 when (item) {

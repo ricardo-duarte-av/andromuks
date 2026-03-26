@@ -396,7 +396,7 @@ fun BubbleMentionMemberList(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
         ) {
             items(filteredMembers.size) { index ->
-                val (userId, profile) = filteredMembers.toList()[index]
+                val (userId, profile) = filteredMembers[index]
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

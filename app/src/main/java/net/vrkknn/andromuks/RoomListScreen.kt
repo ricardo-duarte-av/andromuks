@@ -1751,12 +1751,14 @@ fun SpaceListItem(
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceListItem: Called for space: ${space.name}")
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceListItem: Using homeserver URL: $homeserverUrl")
     
-    // Calculate unread counts and highlights outside the Row
-    val totalRooms = space.rooms.size
-    val unreadRooms = space.rooms.count { it.unreadCount != null && it.unreadCount > 0 }
-    val highlightRooms = space.rooms.count { it.highlightCount != null && it.highlightCount > 0 }
-    val totalUnreadMessages = space.rooms.sumOf { it.unreadCount ?: 0 }
-    val totalHighlights = space.rooms.sumOf { it.highlightCount ?: 0 }
+    // PERF: Memoize aggregations — space.rooms can be large and these iterate it 4 times per recompose.
+    val (totalRooms, unreadRooms, highlightRooms, totalUnreadMessages, totalHighlights) = remember(space.rooms) {
+        val unread = space.rooms.count { it.unreadCount != null && it.unreadCount > 0 }
+        val highlight = space.rooms.count { it.highlightCount != null && it.highlightCount > 0 }
+        val totalUnread = space.rooms.sumOf { it.unreadCount ?: 0 }
+        val totalHighlight = space.rooms.sumOf { it.highlightCount ?: 0 }
+        listOf(space.rooms.size, unread, highlight, totalUnread, totalHighlight)
+    }
     
     Row(
         modifier = Modifier
