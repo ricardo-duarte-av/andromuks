@@ -605,6 +605,42 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     }
     
     /**
+     * Request Android to pin a shortcut for this room on the home screen.
+     * Ensures the shortcut is registered first, then triggers the system pin dialog.
+     *
+     * @return true if the pin request was sent (system shows dialog), false if unsupported or failed
+     */
+    suspend fun requestPinShortcut(room: RoomItem): Boolean {
+        if (!ShortcutManagerCompat.isRequestPinShortcutSupported(context)) {
+            if (BuildConfig.DEBUG) Log.d(TAG, "requestPinShortcut: pinning not supported on this launcher")
+            return false
+        }
+        return withContext(Dispatchers.IO) {
+            try {
+                // Ensure shortcut is registered/up-to-date before pinning
+                updateShortcutForNotificationSync(room)
+                val shortcut = createShortcutInfoCompat(
+                    ConversationShortcut(
+                        roomId = room.id,
+                        roomName = room.name ?: room.id,
+                        roomAvatarUrl = room.avatarUrl,
+                        lastMessage = null,
+                        unreadCount = 0,
+                        timestamp = room.sortingTimestamp ?: 0L
+                    )
+                )
+                ShortcutManagerCompat.requestPinShortcut(context, shortcut, null)
+                if (BuildConfig.DEBUG) Log.d(TAG, "requestPinShortcut: pin dialog triggered for ${room.id}")
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "requestPinShortcut: failed for ${room.id}", e)
+                false
+            }
+        }
+    }
+
+
+    /**
      * Process sync rooms after cache is initialized
      */
     private fun processSyncRooms(syncRooms: List<RoomItem>) {

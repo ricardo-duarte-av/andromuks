@@ -2241,13 +2241,17 @@ class WebSocketService : Service() {
     private var lastCloseReason: String? = null // Track last WebSocket close reason
     
     // WebSocket connection management
-    private var webSocket: WebSocket? = null
-    private var connectionState: ConnectionState = ConnectionState.Disconnected
+    // @Volatile ensures cross-thread visibility: OkHttp callbacks write these on their own threads;
+    // the health check coroutine reads them on the service dispatcher. Without @Volatile the JVM is
+    // free to serve stale cached values, causing the health check to see Connecting long after
+    // setWebSocket() has already transitioned to Ready.
+    @Volatile private var webSocket: WebSocket? = null
+    @Volatile private var connectionState: ConnectionState = ConnectionState.Disconnected
     private var lastPongTimestamp = 0L // Track last pong for heartbeat monitoring
     private var lastMessageReceivedTimestamp = 0L // Reset on ANY message - 60s without = reconnect
-    private var connectionStartTime: Long = 0 // Track when WebSocket connection was established (0 = not connected)
+    @Volatile private var connectionStartTime: Long = 0 // Track when WebSocket connection was established (0 = not connected)
     /** When we last lost the connection; used to decide cold connect after validation timeout if disconnected > 1 min */
-    private var connectionLostAt: Long = 0
+    @Volatile private var connectionLostAt: Long = 0
     // Reconnection state management
     // run_id is always read from SharedPreferences - not stored in service state
     // NOTE: We no longer track last_received_id - all timeline caches are cleared on connect/reconnect
@@ -2449,7 +2453,23 @@ class WebSocketService : Service() {
                         // Schedule new reconnection
                         scheduleReconnection(ReconnectTrigger.HealthCheckRecovery(stuckReason))
                     }
-                    
+
+                    // 4b. Stuck-DISCONNECTED recovery: if we are Disconnected with no active
+                    // reconnection job, network available, and credentials present, something went
+                    // wrong (e.g. a stale "forced DISCONNECTED" from a reconnection finally-block).
+                    // Wait >5s after the last loss before recovering to avoid tight retry loops.
+                    val noReconnectJob = synchronized(reconnectionLock) { reconnectionJob?.isActive != true }
+                    if (currentState.isDisconnected() &&
+                        noReconnectJob &&
+                        currentNetworkType != NetworkType.NONE &&
+                        hasReconnectionSignal() &&
+                        connectionLostAt > 0 && currentTime - connectionLostAt > 5_000
+                    ) {
+                        android.util.Log.w("WebSocketService", "Health check: Stuck in DISCONNECTED with no active reconnection — scheduling recovery")
+                        logActivity("Health Check - Stuck DISCONNECTED (no reconnection job)", currentNetworkType.name)
+                        scheduleReconnection(ReconnectTrigger.HealthCheckRecovery("Stuck in DISCONNECTED with no active reconnection job"))
+                    }
+
                     // 5. Notification staleness check (every 30s)
                     // Ensures notification is updated for non-READY states
                     val timeSinceNotificationUpdate = currentTime - lastNotificationUpdateTime

@@ -7298,10 +7298,33 @@ class AppViewModel : ViewModel() {
     }
     
     /**
+     * Request Android to pin a home-screen shortcut for the given room.
+     * Runs in viewModelScope so it survives composition teardown.
+     * Shows a Toast on failure.
+     */
+    fun requestPinShortcut(room: RoomItem) {
+        val api = conversationsApi ?: return
+        val ctx = appContext ?: return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val ok = api.requestPinShortcut(room)
+            if (!ok) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    android.widget.Toast.makeText(
+                        ctx,
+                        "Pinning shortcuts is not supported by your launcher",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+    }
+
+
+    /**
      * Refresh shortcuts on app startup from current room list
      * This ensures shortcuts are up-to-date when the app starts, but doesn't update on every sync_complete
      * Only called once per app session after init_complete
-     * 
+     *
      * Waits for initial sync processing to complete so rooms have their timestamps set
      */
     private fun refreshShortcutsOnStartup() {

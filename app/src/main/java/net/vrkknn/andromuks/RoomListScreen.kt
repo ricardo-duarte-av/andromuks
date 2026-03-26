@@ -143,6 +143,7 @@ import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.AddToHomeScreen
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
@@ -2414,7 +2415,45 @@ fun RoomListItem(
                                     color = MaterialTheme.colorScheme.outlineVariant,
                                     modifier = Modifier.padding(vertical = 8.dp)
                                 )
-                                
+
+                                // Add room shortcut
+                                Surface(
+                                    onClick = {
+                                        appViewModel.requestPinShortcut(room)
+                                        dismissMenu {}
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainerHighest
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.AddToHomeScreen,
+                                            contentDescription = "Add room shortcut",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(16.dp))
+                                        Text(
+                                            text = "Add room shortcut",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+
+
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant,
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                )
+
                                 // Room Info menu item with ripple effect
                                 Surface(
                                     onClick = {
