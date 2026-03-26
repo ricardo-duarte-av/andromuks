@@ -88,6 +88,7 @@ import net.vrkknn.andromuks.utils.ProgressiveImageLoader
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.DownloadDeduplicationManager
 import net.vrkknn.andromuks.utils.BubblePalette
+import net.vrkknn.andromuks.ui.components.ContainedExpressiveLoadingIndicator
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.compose.runtime.rememberCoroutineScope
 import java.text.SimpleDateFormat
@@ -2699,6 +2700,7 @@ internal fun ImageViewerDialog(
                         .background(Color.Black.copy(alpha = 0.72f * openProgress))
                         .clickable(onClick = { requestClose() }) // Tap background to dismiss
                 ) {
+                var fullImageLoaded by remember(imageUrl) { mutableStateOf(false) }
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 // Image with zoom and pan
                 val density = LocalDensity.current
@@ -2759,7 +2761,6 @@ internal fun ImageViewerDialog(
                         imageUrl
                     }
                 }
-                var fullImageLoaded by remember(imageUrl) { mutableStateOf(false) }
                 val fullImageAlpha by animateFloatAsState(
                     targetValue = if (fullImageLoaded) 1f else 0f,
                     animationSpec = tween(durationMillis = 220),
@@ -2968,6 +2969,22 @@ internal fun ImageViewerDialog(
                                 modifier = Modifier.size(24.dp)
                             )
                         }
+                    }
+
+                    // Spinner in the bottom-left corner while the full image is downloading.
+                    // The thumbnail renders behind it; this disappears once the full image is ready.
+                    AnimatedVisibility(
+                        visible = !fullImageLoaded,
+                        enter = fadeIn(),
+                        exit = fadeOut(),
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .padding(start = 16.dp, bottom = 16.dp)
+                    ) {
+                        ContainedExpressiveLoadingIndicator(
+                            modifier = Modifier.size(40.dp)
+                        )
                     }
                 }
             }
