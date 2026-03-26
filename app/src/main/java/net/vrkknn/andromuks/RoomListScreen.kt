@@ -2846,12 +2846,14 @@ fun RoomListContent(
     var previousSearchQuery by remember { mutableStateOf(searchQuery) }
     // PERFORMANCE: Use a cheap structural hash instead of building a giant joinToString.
     // RoomItem is @Immutable data class, so its hashCode() is stable and fast.
-    val targetHash = remember(filteredRooms) {
-        var h = filteredRooms.size
-        for (room in filteredRooms) {
-            h = h * 31 + room.hashCode()
+    val targetHash by remember {
+        derivedStateOf {
+            var h = filteredRooms.size
+            for (room in filteredRooms) {
+                h = h * 31 + room.hashCode()
+            }
+            h
         }
-        h
     }
     
     LaunchedEffect(targetHash, searchQuery) {

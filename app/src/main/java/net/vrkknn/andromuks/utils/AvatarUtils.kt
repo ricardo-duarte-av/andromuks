@@ -18,6 +18,7 @@ object AvatarUtils {
     // Eliminates Mutex contention, SHA-256 hashing, and file I/O on repeated lookups.
     // Only used for the room-list path (useCircleCache = true).
     private val resolvedUrlCache = ConcurrentHashMap<String, String>(256)
+    private const val MAX_RESOLVED_URL_CACHE_SIZE = 1000
     private const val FALLBACK_COLOR_COUNT = 10
     
     // Fallback colors matching the web client (hex codes converted to Color objects)
@@ -216,15 +217,15 @@ object AvatarUtils {
         val circleCachedFile = CircleAvatarCache.getCachedFile(context, mxcUrl)
         if (circleCachedFile != null) {
             val path = circleCachedFile.absolutePath
-            resolvedUrlCache[mxcUrl] = path
+            if (resolvedUrlCache.size < MAX_RESOLVED_URL_CACHE_SIZE) resolvedUrlCache[mxcUrl] = path
             return path
         }
-        
+
         // 2. Check IntelligentMediaCache (original images)
         val cachedFile = IntelligentMediaCache.getCachedFile(context, mxcUrl)
         if (cachedFile != null) {
             val path = cachedFile.absolutePath
-            resolvedUrlCache[mxcUrl] = path
+            if (resolvedUrlCache.size < MAX_RESOLVED_URL_CACHE_SIZE) resolvedUrlCache[mxcUrl] = path
             return path
         }
         
@@ -240,7 +241,7 @@ object AvatarUtils {
      * are instant.
      */
     fun updateResolvedUrl(mxcUrl: String, localPath: String) {
-        resolvedUrlCache[mxcUrl] = localPath
+        if (resolvedUrlCache.size < MAX_RESOLVED_URL_CACHE_SIZE) resolvedUrlCache[mxcUrl] = localPath
     }
 
     // MXC URLs are immutable for content; use removeResolvedUrl when a cached file path
