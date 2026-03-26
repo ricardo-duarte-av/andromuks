@@ -64,9 +64,9 @@ object RoomListCache {
      * Get all rooms from the cache
      */
     fun getAllRooms(): Map<String, RoomItem> {
-        return synchronized(cacheLock) {
-            HashMap(roomCache) // Return a copy to avoid concurrent modification
-        }
+        // ConcurrentHashMap is already thread-safe; return an unmodifiable view to prevent
+        // callers from mutating the cache without paying the O(N) copy cost.
+        return java.util.Collections.unmodifiableMap(roomCache)
     }
     
     /**

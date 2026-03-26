@@ -94,7 +94,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     // Track rooms that are currently processing a reply to prevent notification updates
     // during Android's reply processing window (prevents race condition that causes duplicate sends)
     // Key: roomId, Value: timestamp when reply processing started
-    private val roomsProcessingReply = Collections.synchronizedMap<String, Long>(mutableMapOf())
+    private val roomsProcessingReply = java.util.concurrent.ConcurrentHashMap<String, Long>()
     
     /**
      * Get or create a lock object for a specific room
