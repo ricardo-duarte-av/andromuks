@@ -3472,7 +3472,17 @@ fun RoomTimelineScreen(
                                                         appViewModel.requestReactionDetails(roomId, menuConfig.event.eventId)
                                                         reactionsEventId = menuConfig.event.eventId
                                                         showReactionsDialog = true
-                                                    }
+                                                    },
+                                                    onViewInThread = if (menuConfig.event.isThreadMessage()) {
+                                                        {
+                                                            val threadInfo = menuConfig.event.getThreadInfo()
+                                                            if (threadInfo != null) {
+                                                                val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+                                                                val encodedThreadRoot = java.net.URLEncoder.encode(threadInfo.threadRootEventId, "UTF-8")
+                                                                navController.navigate("thread_viewer/$encodedRoomId/$encodedThreadRoot")
+                                                            }
+                                                        }
+                                                    } else null
                                                 )
                                                 },
                                                 onShowReactions = {

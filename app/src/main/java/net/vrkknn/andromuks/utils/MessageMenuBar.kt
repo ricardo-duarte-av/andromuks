@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.Forum
 import kotlin.math.max
 import kotlin.math.min
 
@@ -84,7 +85,8 @@ data class MessageMenuConfig(
     val appViewModel: net.vrkknn.andromuks.AppViewModel?,
     val onViewSource: ((String) -> Unit)? = null,
     val onViewRenderedText: ((String) -> Unit)? = null,
-    val onShowReactions: (() -> Unit)? = null
+    val onShowReactions: (() -> Unit)? = null,
+    val onViewInThread: (() -> Unit)? = null
 )
 
 /**
@@ -391,6 +393,19 @@ fun MessageMenuBar(
                                     Icon(Icons.Filled.TextFields, contentDescription = null)
                                 }
                             )
+                            if (menuConfig.onViewInThread != null) {
+                                DropdownMenuItem(
+                                    text = { Text("View in thread") },
+                                    onClick = {
+                                        moreExpanded = false
+                                        onDismiss()
+                                        menuConfig.onViewInThread.invoke()
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Forum, contentDescription = null)
+                                    }
+                                )
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
