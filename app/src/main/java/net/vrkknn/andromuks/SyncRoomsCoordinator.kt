@@ -1037,8 +1037,14 @@ internal class SyncRoomsCoordinator(
                     
                                 // Only update if there are actual changes (new rooms or updated rooms)
                                 if (newRooms.isNotEmpty() || hasChanges) {
-                                    // Combine existing (in current order) with new rooms (will be sorted on next reorder)
-                                    allRooms = updatedExistingRooms + newRooms
+                                    // If new rooms arrived, sort the combined list immediately so the
+                                    // room list is ordered on first render.  For existing-only updates
+                                    // keep the current order (the debounced reorder handles re-sorting).
+                                    allRooms = if (newRooms.isNotEmpty()) {
+                                        (updatedExistingRooms + newRooms).sortedByDescending { it.sortingTimestamp ?: 0L }
+                                    } else {
+                                        updatedExistingRooms
+                                    }
                                     invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
                         
                                     // Mark for batched UI update (for badges/timestamps - no sorting)

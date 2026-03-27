@@ -108,7 +108,9 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
                     "AppViewModel: registerFCMWithGomuksBackend called (forceRegistrationOnConnect=$forceRegistrationOnConnect, forceNow=$forceNow)"
                 )
 
-            if (!forceNow) {
+            // forceRegistrationOnConnect guarantees re-registration on every (re)connection;
+            // bypass the debounce so a quick reconnect doesn't silently skip registration.
+            if (!forceNow && !forceRegistrationOnConnect) {
                 val now = System.currentTimeMillis()
                 val timeSinceLastRegistration = now - lastFCMRegistrationTime
                 if (timeSinceLastRegistration < AppViewModel.FCM_REGISTRATION_DEBOUNCE_MS) {

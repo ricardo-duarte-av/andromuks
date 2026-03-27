@@ -1867,16 +1867,35 @@ fun RoomTimelineScreen(
         )
     }
 
+    // Get base member map that observes memberUpdateCounter.
+    // Declared here (before the profile-loading LaunchedEffect below) so the LaunchedEffect
+    // lambda can reference it to detect senders whose profile is cached but not yet in the map.
+    // CRITICAL FIX: Don't depend on sortedEvents directly to avoid infinite recomposition loop
+    val memberMap = remember(roomId, appViewModel.memberUpdateCounter) {
+        appViewModel.getMemberMap(roomId)
+    }
+
     // PERFORMANCE: Pre-load all user profiles when timeline loads
     LaunchedEffect(timelineEvents) {
         if (appViewModel.isAppVisible && appViewModel.currentRoomId == roomId) {
             val uniqueSenders = timelineEvents.map { it.sender }.toSet()
-            
+            var needsMemberMapRefresh = false
+
             uniqueSenders.forEach { sender ->
                 val existingProfile = appViewModel.getUserProfile(sender, roomId)
                 if (existingProfile == null || existingProfile.displayName.isNullOrBlank()) {
                     appViewModel.requestUserProfileOnDemand(sender, roomId)
+                } else if (!memberMap.containsKey(sender)) {
+                    // Profile is cached but sender is not yet in memberMap (e.g. first message
+                    // from this user in the current session). requestUserProfileOnDemand would
+                    // skip the request, so memberUpdateCounter would never increment to include
+                    // this sender. Force a recompute here instead.
+                    needsMemberMapRefresh = true
                 }
+            }
+
+            if (needsMemberMapRefresh) {
+                appViewModel.memberUpdateCounter++
             }
         }
     }
@@ -1935,12 +1954,6 @@ fun RoomTimelineScreen(
     }
     var lastInitialScrollSize by remember(roomId) { mutableStateOf(0) }
 
-    // Get base member map that observes memberUpdateCounter
-    // CRITICAL FIX: Don't depend on sortedEvents directly to avoid infinite recomposition loop
-    val memberMap = remember(roomId, appViewModel.memberUpdateCounter) {
-        appViewModel.getMemberMap(roomId)
-    }
-    
     // CRITICAL FIX: Use simple size-based key to avoid expensive operations during composition
     // Processing all senders with map/distinct/sorted can block UI thread and cause ANR
     // Using just size is sufficient - if size changes, we need to recompute anyway
