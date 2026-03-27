@@ -374,9 +374,9 @@ fun RoomListScreen(
             return@LaunchedEffect
         }
 
-        // ── Fine-grained diff: unread counts, names, order, spaces ──────────
-        val oldSig = stableSection.rooms.map { "${it.id}:${it.unreadCount}:${it.highlightCount}:${it.name}" }
-        val newSig = newSection.rooms.map { "${it.id}:${it.unreadCount}:${it.highlightCount}:${it.name}" }
+        // ── Fine-grained diff: unread counts, names, order, spaces, previews ──────────
+        val oldSig = stableSection.rooms.map { "${it.id}:${it.unreadCount}:${it.highlightCount}:${it.name}:${it.messagePreview}:${it.sortingTimestamp}" }
+        val newSig = newSection.rooms.map { "${it.id}:${it.unreadCount}:${it.highlightCount}:${it.name}:${it.messagePreview}:${it.sortingTimestamp}" }
         val roomsChanged = oldSig != newSig
         val orderChanged = stableSection.rooms.map { it.id } != newSection.rooms.map { it.id }
         val spacesChanged = stableSection.spaces.map { "${it.id}:${it.name}" } !=
@@ -2837,42 +2837,14 @@ fun RoomListContent(
         }
     }
     
-    // Debounced, meaningful-diff snapshot for the displayed rooms to reduce flicker.
-    // We hash the fields that matter for rendering/sorting; unchanged hash => skip swap.
-    // CRITICAL FIX: Include bridgeProtocolAvatarUrl in hash so UI updates when bridge badges arrive
-    // CRITICAL FIX: Skip debounce when rooms go from empty to non-empty (entering a space) to make animation visible
-    // CRITICAL FIX: Skip debounce when searchQuery changes to make search responsive
+    // Snapshot of filteredRooms that drives the LazyColumn.  Updated whenever filteredRooms
+    // changes so that room reordering and preview updates are visible immediately.
+    // NOTE: derivedStateOf cannot be used here because its lambda closes over filteredRooms
+    // at first composition and never sees later values.  LaunchedEffect evaluates its key in
+    // the current composition scope, so it correctly detects every change.
     var debouncedRooms by remember { mutableStateOf(filteredRooms) }
-    var previousSearchQuery by remember { mutableStateOf(searchQuery) }
-    // PERFORMANCE: Use a cheap structural hash instead of building a giant joinToString.
-    // RoomItem is @Immutable data class, so its hashCode() is stable and fast.
-    val targetHash by remember {
-        derivedStateOf {
-            var h = filteredRooms.size
-            for (room in filteredRooms) {
-                h = h * 31 + room.hashCode()
-            }
-            h
-        }
-    }
-    
-    LaunchedEffect(targetHash, searchQuery) {
-        val wasEmpty = debouncedRooms.isEmpty()
-        val isNowPopulated = wasEmpty && filteredRooms.isNotEmpty()
-        val searchQueryChanged = searchQuery != previousSearchQuery
-        
-        // Update previous search query
-        previousSearchQuery = searchQuery
-        
-        if (isNowPopulated || searchQueryChanged) {
-            // Rooms just populated (entering a space) OR search query changed - update immediately without debounce
-            // This ensures the animation is visible when entering a space and search is responsive
-            debouncedRooms = filteredRooms
-        } else {
-            // Normal case - debounce to coalesce rapid sync_complete updates
-            kotlinx.coroutines.delay(1000L)
-            debouncedRooms = filteredRooms
-        }
+    LaunchedEffect(filteredRooms) {
+        debouncedRooms = filteredRooms
     }
     
     // STICKY TOP: Whenever the 'top' room ID changes, snap to the top

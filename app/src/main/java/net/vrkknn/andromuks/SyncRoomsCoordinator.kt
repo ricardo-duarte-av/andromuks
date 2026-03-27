@@ -1053,9 +1053,13 @@ internal class SyncRoomsCoordinator(
                                 }
                             }
                 
-                            // PERFORMANCE: Use debounced room reordering (30 seconds) to prevent "room jumping"
-                            // This allows real-time badge/timestamp updates while only re-sorting periodically
-                            scheduleRoomReorder()
+                            // Re-sort immediately when new messages arrived so rooms move to their correct
+                            // position without waiting for the 30-second debounce.  Receipt-only syncs
+                            // (messageSender == null on all updated rooms) still use the debounce to
+                            // avoid unnecessary churn.
+                            val hasNewMessages = syncResult.updatedRooms.any { !it.messageSender.isNullOrBlank() } ||
+                                syncResult.newRooms.isNotEmpty()
+                            scheduleRoomReorder(forceImmediate = hasNewMessages)
                 
                             lastRoomStateHash = newRoomStateHash
                 
