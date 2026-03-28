@@ -306,19 +306,25 @@ internal class SyncRoomsCoordinator(
                     }
                     // If key is missing, don't process it (preserve existing state)
         
-                    // Process im.ponies.emote_rooms for custom emoji packs
-                    if (accountDataJson.has("im.ponies.emote_rooms")) {
-                        val emoteRoomsData = accountDataJson.optJSONObject("im.ponies.emote_rooms")
+                    // Process custom emoji/sticker packs.
+                    // Prefer the official m.image_pack.rooms key (MSC2545) over the legacy
+                    // im.ponies.emote_rooms key.  If both keys are present, only the official
+                    // one is used.  Both keys share the same structure and room-state logic;
+                    // the only difference is the room state event type that is requested.
+                    val hasOfficialKey = accountDataJson.has("m.image_pack.rooms")
+                    val hasLegacyKey = accountDataJson.has("im.ponies.emote_rooms")
+                    if (hasOfficialKey || hasLegacyKey) {
+                        val activeAccountDataKey = if (hasOfficialKey) "m.image_pack.rooms" else "im.ponies.emote_rooms"
+                        val activeStateEventType = if (hasOfficialKey) "m.image_pack" else "im.ponies.room_emotes"
+                        val emoteRoomsData = accountDataJson.optJSONObject(activeAccountDataKey)
                         if (emoteRoomsData != null) {
                             val content = emoteRoomsData.optJSONObject("content")
                             val rooms = content?.optJSONObject("rooms")
                             if (BuildConfig.DEBUG) {
-                                android.util.Log.d("Andromuks", "AppViewModel: processAccountData - Found im.ponies.emote_rooms, content=${content != null}, rooms=${rooms != null}, rooms length=${rooms?.length() ?: 0}")
+                                android.util.Log.d("Andromuks", "AppViewModel: processAccountData - Found $activeAccountDataKey, content=${content != null}, rooms=${rooms != null}, rooms length=${rooms?.length() ?: 0}")
                             }
                             if (rooms != null && rooms.length() > 0) {
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found im.ponies.emote_rooms account data with ${rooms.length()} rooms")
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found rooms object in emote_rooms, requesting emoji pack data")
-                                // Request emoji pack data for each room/pack combination
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found $activeAccountDataKey account data with ${rooms.length()} rooms (stateType=$activeStateEventType)")
                                 val keys = rooms.names()
                                 if (keys != null) {
                                     var packCount = 0
@@ -330,8 +336,8 @@ internal class SyncRoomsCoordinator(
                                             if (packNames != null) {
                                                 for (j in 0 until packNames.length()) {
                                                     val packName = packNames.optString(j)
-                                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting emoji pack data for pack $packName in room $roomId")
-                                                    requestEmojiPackData(roomId, packName)
+                                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting emoji pack data for pack $packName in room $roomId (type=$activeStateEventType)")
+                                                    requestEmojiPackData(roomId, packName, activeStateEventType)
                                                     packCount++
                                                 }
                                             }
@@ -339,29 +345,28 @@ internal class SyncRoomsCoordinator(
                                     }
                                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requested emoji pack data for $packCount packs across ${keys.length()} rooms")
                                 } else {
-                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No room keys found in emote_rooms")
+                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No room keys found in $activeAccountDataKey")
                                 }
                             } else {
                                 // Key is present but rooms is null or empty - clear emoji/sticker packs
                                 EmojiPacksCache.clear()
                                 StickerPacksCache.clear()
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: im.ponies.emote_rooms is present but empty/null, cleared emoji/sticker packs")
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: $activeAccountDataKey is present but empty/null, cleared emoji/sticker packs")
                             }
                         } else {
                             // Key is present but value is null - clear emoji/sticker packs
                             EmojiPacksCache.clear()
                             StickerPacksCache.clear()
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: im.ponies.emote_rooms is null, cleared emoji/sticker packs")
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: $activeAccountDataKey is null, cleared emoji/sticker packs")
                         }
                     } else {
-                        // Key is missing from incoming account_data - preserve existing state
-                        // Only reload from storage if we have no packs loaded (e.g., after clear_state)
-                        // Account data is fully populated on every websocket reconnect (clear_state: true)
-                        // No need to reload from storage - if packs are missing, they'll come on next reconnect
+                        // Neither key is present - preserve existing state.
+                        // Account data is fully re-sent on every WebSocket reconnect (clear_state: true),
+                        // so missing packs will be populated on the next reconnect.
                         if (customEmojiPacks.isEmpty() && stickerPacks.isEmpty()) {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No im.ponies.emote_rooms in incoming sync and no packs loaded - will be populated on next reconnect")
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No emoji pack account data in incoming sync and no packs loaded - will be populated on next reconnect")
                         } else {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No im.ponies.emote_rooms in incoming sync, preserving existing ${customEmojiPacks.size} emoji packs and ${stickerPacks.size} sticker packs")
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No emoji pack account data in incoming sync, preserving existing ${customEmojiPacks.size} emoji packs and ${stickerPacks.size} sticker packs")
                         }
                     }
         

@@ -655,7 +655,7 @@ class AppViewModel : ViewModel() {
     var isMentionsLoading by mutableStateOf(false)
         private set
     
-    // Custom emoji packs from im.ponies.emote_rooms
+    // Custom emoji packs from im.ponies.emote_rooms / m.image_pack.rooms
     data class CustomEmoji(
         val name: String,
         val mxcUrl: String,
@@ -697,7 +697,7 @@ class AppViewModel : ViewModel() {
     private val emojiPackRequests = mutableMapOf<Int, Pair<String, String>>()
     
     // Queue for emoji pack requests that were deferred because WebSocket wasn't ready
-    private val deferredEmojiPackRequests = mutableListOf<Pair<String, String>>() // (roomId, packName)
+    private val deferredEmojiPackRequests = mutableListOf<Triple<String, String, String>>() // (roomId, packName, stateEventType)
     
     // Cache for DM room IDs from m.direct account data
     internal var directMessageRoomIds by mutableStateOf(setOf<String>())
@@ -4385,11 +4385,11 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing ${deferredEmojiPackRequests.size} deferred emoji pack requests after WebSocket connection")
             val requests = deferredEmojiPackRequests.toList()
             deferredEmojiPackRequests.clear()
-            for ((roomId, packName) in requests) {
-                requestEmojiPackData(roomId, packName)
+            for ((roomId, packName, stateEventType) in requests) {
+                requestEmojiPackData(roomId, packName, stateEventType)
             }
         }
-        
+
         // PHASE 4: Register this ViewModel to receive WebSocket messages
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Registering $viewModelId to receive WebSocket messages")
         WebSocketService.registerReceiveCallback(viewModelId, this)
@@ -4793,11 +4793,11 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing ${deferredEmojiPackRequests.size} deferred emoji pack requests")
             val requests = deferredEmojiPackRequests.toList()
             deferredEmojiPackRequests.clear()
-            for ((roomId, packName) in requests) {
-                requestEmojiPackData(roomId, packName)
+            for ((roomId, packName, stateEventType) in requests) {
+                requestEmojiPackData(roomId, packName, stateEventType)
             }
         }
-        
+
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Run ID stored and service updated")
     }
     
@@ -5864,28 +5864,31 @@ class AppViewModel : ViewModel() {
     /**
      * Request emoji pack data from a room using get_specific_room_state
      */
-    internal fun requestEmojiPackData(roomId: String, packName: String) {
+    internal fun requestEmojiPackData(
+        roomId: String,
+        packName: String,
+        stateEventType: String = "im.ponies.room_emotes"
+    ) {
         if (!isWebSocketConnected()) {
             // CRITICAL FIX: Queue emoji pack requests when WebSocket isn't ready
             // They will be processed when WebSocket connects
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket not connected, queuing emoji pack request for $packName in $roomId")
-            deferredEmojiPackRequests.add(Pair(roomId, packName))
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket not connected, queuing emoji pack request for $packName in $roomId (type=$stateEventType)")
+            deferredEmojiPackRequests.add(Triple(roomId, packName, stateEventType))
             return
         }
-        
+
         val requestId = requestIdCounter++
         emojiPackRequests[requestId] = Pair(roomId, packName)
         roomSpecificStateRequests[requestId] = roomId
-        
-        // REFACTORING: Use sendWebSocketCommand() instead of direct ws.send()
+
         val keysList = listOf(mapOf(
             "room_id" to roomId,
-            "type" to "im.ponies.room_emotes",
+            "type" to stateEventType,
             "state_key" to packName
         ))
         sendWebSocketCommand("get_specific_room_state", requestId, mapOf("keys" to keysList))
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent emoji pack request with ID $requestId for pack $packName in room $roomId")
+
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent emoji pack request with ID $requestId for pack $packName in room $roomId (type=$stateEventType)")
     }
     
     /**
