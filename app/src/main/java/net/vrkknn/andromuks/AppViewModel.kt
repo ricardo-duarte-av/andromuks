@@ -593,7 +593,23 @@ class AppViewModel : ViewModel() {
     
     // Track processed reaction events to prevent duplicate processing
     internal val processedReactions = mutableSetOf<String>()
-    
+
+    // Bridge send status: eventId -> "sent" | "delivered"
+    // "sent" = bridge confirmed message reached the other network
+    // "delivered" = other network confirmed delivery to a recipient device
+    var messageBridgeSendStatus by mutableStateOf(mapOf<String, String>())
+        internal set
+    var bridgeSendStatusCounter by mutableIntStateOf(0)
+        internal set
+
+    fun processBridgeSendStatus(relatedEventId: String, hasDeliveredToUsers: Boolean) {
+        val newStatus = if (hasDeliveredToUsers) "delivered" else "sent"
+        // Never downgrade from "delivered" back to "sent"
+        if (messageBridgeSendStatus[relatedEventId] == "delivered") return
+        messageBridgeSendStatus = messageBridgeSendStatus + (relatedEventId to newStatus)
+        bridgeSendStatusCounter++
+    }
+
     // Track pending message sends for send button animation
     var pendingSendCount by mutableStateOf(0)
         internal set
@@ -1309,6 +1325,7 @@ class AppViewModel : ViewModel() {
         roomsWithLoadedReactions.clear()
         MessageReactionsCache.clear()
         messageReactions = emptyMap()
+        messageBridgeSendStatus = emptyMap()
         readReceiptsUpdateCounter++
         
         // 3. Reset requestIdCounter to 1
@@ -5418,7 +5435,8 @@ class AppViewModel : ViewModel() {
         // redactionCache is computed from messageVersions, no need to clear separately
         MessageReactionsCache.clear()
         messageReactions = emptyMap()
-        
+        messageBridgeSendStatus = emptyMap()
+
         // Clear new message tracking and room-open timestamp
         newMessageAnimations.clear()
         timelineEntrancePlayed.clear()
@@ -8248,7 +8266,21 @@ class AppViewModel : ViewModel() {
             } else if (event.type == "m.room.pinned_events" || event.type == "m.room.name" || event.type == "m.room.topic" || event.type == "m.room.avatar") {
                 // System events that should appear in timeline
                 addNewEventToChain(event)
-            } 
+            } else if (event.type == "com.beeper.message_send_status") {
+                // Bridge delivery confirmation — update status on the original message bubble
+                val content = event.content
+                if (content != null) {
+                    val relatesTo = content.optJSONObject("m.relates_to")
+                    val relType = relatesTo?.optString("rel_type")
+                    val relatedEventId = relatesTo?.optString("event_id")?.takeIf { it.isNotBlank() }
+                    val status = content.optString("status")
+                    if (relType == "m.reference" && relatedEventId != null && status == "SUCCESS") {
+                        val deliveredToUsers = content.optJSONArray("delivered_to_users")
+                        val hasDeliveredToUsers = deliveredToUsers != null && deliveredToUsers.length() > 0
+                        processBridgeSendStatus(relatedEventId, hasDeliveredToUsers)
+                    }
+                }
+            }
         }
         
         // Summary of what was processed

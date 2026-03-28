@@ -23,6 +23,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
@@ -3814,15 +3816,26 @@ fun TimelineEventItem(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = timestampModifier
                 )
+                val bridgeSendStatus = remember(appViewModel?.bridgeSendStatusCounter, event.eventId) {
+                    appViewModel?.messageBridgeSendStatus?.get(event.eventId)
+                }
+                if (bridgeSendStatus != null) {
+                    Icon(
+                        imageVector = if (bridgeSendStatus == "delivered") Icons.Filled.DoneAll else Icons.Filled.Check,
+                        contentDescription = if (bridgeSendStatus == "delivered") "Delivered to network" else "Sent to network",
+                        modifier = Modifier.size(10.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             // Trailing gap to mirror the left-side inset on others
             Spacer(modifier = Modifier.width(AvatarGap))
         } else if (actualIsMine && isConsecutive && !isEmoteMessage) {
             // Maintain the same footprint (AvatarColumnWidth + AvatarGap) for consecutive own messages
             Spacer(modifier = Modifier.width(AvatarGap))
-            Box(
+            Column(
                 modifier = Modifier.width(AvatarPlaceholderWidth),
-                contentAlignment = Alignment.BottomCenter
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 val timestampText = if (editedBy != null) {
                     "${formatTimestamp(event.timestamp)} (edited at ${formatTimestamp(editedBy.timestamp)})"
@@ -3840,6 +3853,17 @@ fun TimelineEventItem(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = timestampModifier
                 )
+                val bridgeSendStatus = remember(appViewModel?.bridgeSendStatusCounter, event.eventId) {
+                    appViewModel?.messageBridgeSendStatus?.get(event.eventId)
+                }
+                if (bridgeSendStatus != null) {
+                    Icon(
+                        imageVector = if (bridgeSendStatus == "delivered") Icons.Filled.DoneAll else Icons.Filled.Check,
+                        contentDescription = if (bridgeSendStatus == "delivered") "Delivered to network" else "Sent to network",
+                        modifier = Modifier.size(10.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }

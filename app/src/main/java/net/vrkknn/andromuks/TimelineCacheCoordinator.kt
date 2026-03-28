@@ -1169,6 +1169,21 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                     reactionProcessedCount++
                                 }
                                 filteredByType++
+                            } else if (event.type == "com.beeper.message_send_status") {
+                                // Bridge delivery confirmation from paginated history
+                                val content = event.content
+                                if (content != null) {
+                                    val relatesTo = content.optJSONObject("m.relates_to")
+                                    val relType = relatesTo?.optString("rel_type")
+                                    val relatedEventId = relatesTo?.optString("event_id")?.takeIf { it.isNotBlank() }
+                                    val status = content.optString("status")
+                                    if (relType == "m.reference" && relatedEventId != null && status == "SUCCESS") {
+                                        val deliveredToUsers = content.optJSONArray("delivered_to_users")
+                                        val hasDeliveredToUsers = deliveredToUsers != null && deliveredToUsers.length() > 0
+                                        vm.processBridgeSendStatus(relatedEventId, hasDeliveredToUsers)
+                                    }
+                                }
+                                filteredByType++
                             } else {
                                 // Define allowed event types that should appear in timeline
                                 // These match the allowedEventTypes in RoomTimelineScreen and
