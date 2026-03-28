@@ -78,7 +78,17 @@ object SpaceRoomParser {
             }
             "m.room.encrypted" -> {
                 val decryptedType = event.optString("decrypted_type")
-                val decrypted = event.optJSONObject("decrypted") ?: return null
+                val decrypted = event.optJSONObject("decrypted")
+                if (decrypted == null) {
+                    // Server didn't provide decrypted content. Return a generic label so the
+                    // preview updates (rather than preserving stale text from a previous message).
+                    // Skip reaction/redaction events — they must not replace the message preview.
+                    return when (decryptedType) {
+                        "m.reaction", "m.room.redaction" -> null
+                        "m.sticker" -> Triple(previewFromMsgtype("m.sticker", null) ?: "Sticker", sender, eventId)
+                        else -> Triple("Encrypted message", sender, eventId)
+                    }
+                }
                 if (decryptedType == "m.room.message" || decryptedType == "m.text") {
                     val relatesTo = decrypted.optJSONObject("m.relates_to")
                     val isEdit = relatesTo?.optString("rel_type") == "m.replace"
