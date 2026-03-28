@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Forum
 import kotlin.math.max
 import kotlin.math.min
@@ -87,7 +88,8 @@ data class MessageMenuConfig(
     val onViewSource: ((String) -> Unit)? = null,
     val onViewRenderedText: ((String) -> Unit)? = null,
     val onShowReactions: (() -> Unit)? = null,
-    val onViewInThread: (() -> Unit)? = null
+    val onViewInThread: (() -> Unit)? = null,
+    val onShowBridgeDeliveryInfo: (() -> Unit)? = null
 )
 
 /**
@@ -405,6 +407,19 @@ fun MessageMenuBar(
                                     },
                                     leadingIcon = {
                                         Icon(Icons.Filled.Forum, contentDescription = null)
+                                    }
+                                )
+                            }
+                            if (menuConfig.onShowBridgeDeliveryInfo != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Delivery Info") },
+                                    onClick = {
+                                        moreExpanded = false
+                                        onDismiss()
+                                        menuConfig.onShowBridgeDeliveryInfo.invoke()
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.DoneAll, contentDescription = null)
                                     }
                                 )
                             }

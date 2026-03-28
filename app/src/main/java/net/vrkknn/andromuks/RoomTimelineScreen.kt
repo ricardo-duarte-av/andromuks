@@ -1051,6 +1051,8 @@ fun RoomTimelineScreen(
     var retainedMessageMenuConfig by remember { mutableStateOf<MessageMenuConfig?>(null) }
     var showReactionsDialog by remember { mutableStateOf(false) }
     var reactionsEventId by remember { mutableStateOf<String?>(null) }
+    var showBridgeDeliveryDialog by remember { mutableStateOf(false) }
+    var bridgeDeliveryEventId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(messageMenuConfig) {
         if (messageMenuConfig != null) {
             retainedMessageMenuConfig = messageMenuConfig
@@ -3495,6 +3497,12 @@ fun RoomTimelineScreen(
                                                                 navController.navigate("thread_viewer/$encodedRoomId/$encodedThreadRoot")
                                                             }
                                                         }
+                                                    } else null,
+                                                    onShowBridgeDeliveryInfo = if (appViewModel.messageBridgeSendStatus.containsKey(menuConfig.event.eventId)) {
+                                                        {
+                                                            bridgeDeliveryEventId = menuConfig.event.eventId
+                                                            showBridgeDeliveryDialog = true
+                                                        }
                                                     } else null
                                                 )
                                                 },
@@ -5729,6 +5737,23 @@ fun RoomTimelineScreen(
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
                         onDismiss = { showReactionsDialog = false },
+                        appViewModel = appViewModel,
+                        roomId = roomId
+                    )
+                }
+
+                if (showBridgeDeliveryDialog && bridgeDeliveryEventId != null) {
+                    val eventId = bridgeDeliveryEventId!!
+                    val deliveryInfo = appViewModel.messageBridgeDeliveryInfo[eventId] ?: net.vrkknn.andromuks.BridgeDeliveryInfo()
+                    val deliveryStatus = appViewModel.messageBridgeSendStatus[eventId] ?: "sent"
+                    val networkName = appViewModel.currentRoomState?.bridgeInfo?.displayName
+                    net.vrkknn.andromuks.utils.BridgeDeliveryInfoDialog(
+                        deliveryInfo = deliveryInfo,
+                        status = deliveryStatus,
+                        networkName = networkName,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        onDismiss = { showBridgeDeliveryDialog = false },
                         appViewModel = appViewModel,
                         roomId = roomId
                     )

@@ -123,64 +123,14 @@ Power levels are parsed from `m.room.power_levels` state events into `PowerLevel
 
 ## Bridge Support (Mautrix / Beeper)
 
-The app has first-class support for Matrix bridges (e.g. Mautrix bridges for WhatsApp, Telegram, etc.).
+See **[docs/bridges.md](docs/bridges.md)** for full documentation.
 
-### Bridge Detection
-
-Bridge info is parsed from `m.bridge` / `uk.half-shot.bridge` state events inside `AppViewModel.parseBridgeInfoEvent()` and `parseRoomStateFromEvents()`. The result is a `BridgeInfo` object stored on `RoomState.bridgeInfo`. Key fields:
-
-- `BridgeInfo.protocol` — network protocol info (id, displayName, avatarUrl, externalUrl)
-- `BridgeInfo.channel` — individual channel within the protocol
-- `BridgeInfo.roomType` / `roomTypeV2` — `"dm"` means it's a DM-style bridge room (`com.beeper.room_type` / `.v2` in the event content)
-- `BridgeInfo.hasRenderableIcon` — true if the bridge has either an avatarUrl or displayName to render
-
-Bridge info (avatar URL + display name) is also persisted to `SharedPreferences` via `BridgeInfoCache` (keyed by `roomId`), so it survives app restarts without re-fetching room state.
-
-`RoomItem.bridgeProtocolAvatarUrl` stores the mxc:// URL of the bridge protocol avatar for the room (null for non-bridged rooms). This is the field used to identify bridged rooms throughout the UI.
-
-### Bridges Tab in RoomListScreen
-
-In `RoomListScreen`, the **Bridges** tab (`RoomSectionType.BRIDGES`) groups bridged rooms by their `bridgeProtocolAvatarUrl`. Each unique avatar URL becomes a pseudo-space (a `SpaceItem`) representing one bridge network. Tapping a bridge network (`currentBridgeId`) filters the room list to show only rooms on that network. `AppViewModel.exitBridge()` clears `currentBridgeId`. The tab animates between the bridge network list and the filtered room list using `AnimatedVisibility`. Room items in this tab show a badge with the bridge protocol icon overlaid on the room avatar (rendered in `BridgeDecorations.kt` via `BridgeNetworkBadge`).
-
-### Bridge Icon in Timeline Top Bar
-
-In `RoomTimelineScreen` and `BubbleTimelineScreen`, the top bar normally shows a **Refresh** icon button. When the current room is bridged (`roomState?.bridgeInfo?.hasRenderableIcon == true`), the refresh icon is replaced by a `BridgeNetworkBadge` (from `ui/components/BridgeDecorations.kt`). The badge shows the bridge protocol avatar and still triggers `onRefreshClick` when tapped. `BridgeNetworkBadge` also has an optional non-clickable variant (no `onClick`). Additionally, `BridgeBackgroundLayer` renders a blurred, low-opacity version of the bridge avatar as a subtle background in the timeline.
-
-### Per-Message Bridge Profiles
-
-Mautrix bridges can attach `com.beeper.per_message_profile` to individual message events, overriding the sender's display name and avatar for that specific message (used for ghost users representing external network contacts). Handled in `TimelineEventItem`, `RoomTimelineScreen`, `BubbleTimelineScreen`, `ThreadViewerScreen`, and `ChatBubbleScreen`.
-
-### Bridge Send Status (`com.beeper.message_send_status`)
-
-Some bridges (when configured) send `com.beeper.message_send_status` events to confirm that a message sent from Matrix has reached the other network. These are **not** displayed in the timeline — they update the sender's message bubble with a delivery status icon.
-
-**Event structure:**
-```json
-{
-  "type": "com.beeper.message_send_status",
-  "content": {
-    "m.relates_to": { "rel_type": "m.reference", "event_id": "$original-event-id" },
-    "status": "SUCCESS",
-    "delivered_to_users": ["@bridgeuser:homeserver"]  // only present on delivery confirmation
-  }
-}
-```
-
-**Two status levels:**
-- **`"sent"`** — bridge confirmed the message reached the other network (`status == "SUCCESS"`, no `delivered_to_users`). Shown as a single `Check` icon.
-- **`"delivered"`** — other network confirmed delivery to at least one recipient device (`status == "SUCCESS"` + non-empty `delivered_to_users`). Shown as a `DoneAll` (double-check) icon.
-
-**Status is never downgraded** — once "delivered", a second "sent" event is ignored.
-
-**Implementation:**
-- `AppViewModel.messageBridgeSendStatus: Map<String, String>` — eventId → status, observed by Compose.
-- `AppViewModel.bridgeSendStatusCounter` — incremented on every update to trigger recomposition.
-- `AppViewModel.processBridgeSendStatus(relatedEventId, hasDeliveredToUsers)` — called from both live sync and paginated history.
-- **Live sync:** handled in `AppViewModel.processSyncEventsArray()` — the `com.beeper.message_send_status` branch.
-- **Paginated history:** handled in `TimelineCacheCoordinator.processEventsArray()` — after the `m.reaction` branch, before `allowedEventTypes` filtering.
-- **UI:** `TimelineEventItem` reads `appViewModel.messageBridgeSendStatus[event.eventId]` (keyed on `bridgeSendStatusCounter`) and renders a small icon below the timestamp in the avatar column for own messages. Applies to both non-consecutive (with avatar) and consecutive messages.
-- **State cleared** on full reset and on per-room cache clear alongside `messageReactions`.
-- These events are **not** stored in the timeline or added to `allowedEventTypes` — they are side-effect-only.
+The app has first-class support for Matrix bridges (e.g. Mautrix bridges for WhatsApp, Telegram, etc.). Key areas covered in that doc:
+- Bridge detection (`BridgeInfo`, `BridgeInfoCache`, `parseBridgeInfoEvent`)
+- Bridges tab in `RoomListScreen` (`RoomSectionType.BRIDGES`)
+- Bridge icon / background in timeline top bar (`BridgeNetworkBadge`, `BridgeBackgroundLayer`)
+- Per-message bridge profiles (`com.beeper.per_message_profile`)
+- Bridge send status (`com.beeper.message_send_status`) — delivery icons, Delivery Info dialog, functional members (`io.element.functional_members` / MSC4171)
 
 ## Version Management
 

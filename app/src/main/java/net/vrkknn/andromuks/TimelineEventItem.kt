@@ -25,6 +25,8 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
@@ -3820,11 +3822,17 @@ fun TimelineEventItem(
                     appViewModel?.messageBridgeSendStatus?.get(event.eventId)
                 }
                 if (bridgeSendStatus != null) {
+                    val (bridgeStatusIcon, bridgeStatusTint, bridgeStatusDesc) = when (bridgeSendStatus) {
+                        "delivered"       -> Triple(Icons.Filled.DoneAll, MaterialTheme.colorScheme.onSurfaceVariant, "Delivered to network")
+                        "sent"            -> Triple(Icons.Filled.Check,   MaterialTheme.colorScheme.onSurfaceVariant, "Sent to network")
+                        "error_retriable" -> Triple(Icons.Filled.Warning, MaterialTheme.colorScheme.error,            "Send failed (will retry)")
+                        else              -> Triple(Icons.Filled.Error,   MaterialTheme.colorScheme.error,            "Send failed")
+                    }
                     Icon(
-                        imageVector = if (bridgeSendStatus == "delivered") Icons.Filled.DoneAll else Icons.Filled.Check,
-                        contentDescription = if (bridgeSendStatus == "delivered") "Delivered to network" else "Sent to network",
+                        imageVector = bridgeStatusIcon,
+                        contentDescription = bridgeStatusDesc,
                         modifier = Modifier.size(10.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = bridgeStatusTint
                     )
                 }
             }
@@ -3857,11 +3865,17 @@ fun TimelineEventItem(
                     appViewModel?.messageBridgeSendStatus?.get(event.eventId)
                 }
                 if (bridgeSendStatus != null) {
+                    val (bridgeStatusIcon, bridgeStatusTint, bridgeStatusDesc) = when (bridgeSendStatus) {
+                        "delivered"       -> Triple(Icons.Filled.DoneAll, MaterialTheme.colorScheme.onSurfaceVariant, "Delivered to network")
+                        "sent"            -> Triple(Icons.Filled.Check,   MaterialTheme.colorScheme.onSurfaceVariant, "Sent to network")
+                        "error_retriable" -> Triple(Icons.Filled.Warning, MaterialTheme.colorScheme.error,            "Send failed (will retry)")
+                        else              -> Triple(Icons.Filled.Error,   MaterialTheme.colorScheme.error,            "Send failed")
+                    }
                     Icon(
-                        imageVector = if (bridgeSendStatus == "delivered") Icons.Filled.DoneAll else Icons.Filled.Check,
-                        contentDescription = if (bridgeSendStatus == "delivered") "Delivered to network" else "Sent to network",
+                        imageVector = bridgeStatusIcon,
+                        contentDescription = bridgeStatusDesc,
                         modifier = Modifier.size(10.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = bridgeStatusTint
                     )
                 }
             }

@@ -594,18 +594,97 @@ class AppViewModel : ViewModel() {
     // Track processed reaction events to prevent duplicate processing
     internal val processedReactions = mutableSetOf<String>()
 
-    // Bridge send status: eventId -> "sent" | "delivered"
-    // "sent" = bridge confirmed message reached the other network
-    // "delivered" = other network confirmed delivery to a recipient device
+    // Functional (service) members per room — from io.element.functional_members state events (MSC4171).
+    // These are bridge bots / service accounts that must be excluded from delivery calculations.
+    internal val functionalMembersCache = mutableMapOf<String, Set<String>>()
+
+    // Detailed bridge delivery info for showing the "Delivery Info" dialog.
+    // eventId → BridgeDeliveryInfo (sentAt timestamp + per-user delivery timestamps).
+    // Plain map — not Compose state; only read when the dialog opens.
+    internal val messageBridgeDeliveryInfo = mutableMapOf<String, BridgeDeliveryInfo>()
+
+    // Bridge send status: eventId -> "sent" | "delivered" | "error_retriable" | "error_permanent"
+    // "sent"            = bridge confirmed message reached the other network (SUCCESS, no/empty delivery list)
+    // "delivered"       = all expected recipients confirmed delivery (SUCCESS + full delivered_to_users)
+    // "error_retriable" = transient failure, bridge will retry (FAIL_RETRIABLE)
+    // "error_permanent" = unrecoverable failure (FAIL_PERMANENT)
     var messageBridgeSendStatus by mutableStateOf(mapOf<String, String>())
         internal set
     var bridgeSendStatusCounter by mutableIntStateOf(0)
         internal set
 
-    fun processBridgeSendStatus(relatedEventId: String, hasDeliveredToUsers: Boolean) {
-        val newStatus = if (hasDeliveredToUsers) "delivered" else "sent"
-        // Never downgrade from "delivered" back to "sent"
-        if (messageBridgeSendStatus[relatedEventId] == "delivered") return
+    /**
+     * Process a com.beeper.message_send_status event and update the in-memory status and
+     * delivery-info maps.
+     *
+     * @param roomId         The room the original message was sent in.
+     * @param relatedEventId The event ID of the original message.
+     * @param bridgeBotId    The sender of the status event (= the bridge bot user ID).
+     * @param status         Raw "status" field from the event content.
+     * @param deliveredToUsers Null when the field is absent (no delivery tracking expected).
+     *                         Empty list when the field is present but empty (tracking in progress).
+     *                         Non-empty when delivery was confirmed for those users.
+     * @param eventTimestamp Timestamp (ms) of the status event itself.
+     */
+    fun processBridgeSendStatus(
+        roomId: String,
+        relatedEventId: String,
+        bridgeBotId: String,
+        status: String,
+        deliveredToUsers: List<String>?,
+        eventTimestamp: Long
+    ) {
+        val currentStatus = messageBridgeSendStatus[relatedEventId]
+
+        val newStatus = when (status) {
+            "SUCCESS" -> {
+                val isDelivered = when {
+                    deliveredToUsers.isNullOrEmpty() -> false
+                    else -> {
+                        // Build the exclusion set: us + bridge bot + any io.element.functional_members
+                        val functionalMembers = functionalMembersCache[roomId] ?: emptySet()
+                        val excluded = functionalMembers + currentUserId + bridgeBotId
+
+                        val isDm = getRoomById(roomId)?.isDirectMessage ?: false
+                        val deliveredSet = deliveredToUsers.toSet()
+                        if (isDm) {
+                            // DM: any delivery to a non-excluded user = delivered
+                            deliveredSet.any { it !in excluded }
+                        } else {
+                            // Group: every joined member not in the exclusion set must be in deliveredToUsers
+                            val members = RoomMemberCache.getRoomMembers(roomId)
+                            val expectedRecipients = members.keys.filter { it !in excluded }
+                            expectedRecipients.isNotEmpty() && expectedRecipients.all { it in deliveredSet }
+                        }
+                    }
+                }
+                if (isDelivered) {
+                    "delivered"
+                } else {
+                    // Never downgrade from "delivered" back to "sent"
+                    if (currentStatus == "delivered") return
+                    "sent"
+                }
+            }
+            "FAIL_RETRIABLE" -> "error_retriable"
+            "FAIL_PERMANENT" -> "error_permanent"
+            else -> return // PENDING or unknown: wait for the final status event
+        }
+
+        // Update detailed delivery info for the dialog (SUCCESS only)
+        if (status == "SUCCESS") {
+            val prev = messageBridgeDeliveryInfo[relatedEventId] ?: BridgeDeliveryInfo()
+            val newSentAt = if (prev.sentAt == null) eventTimestamp else minOf(prev.sentAt, eventTimestamp)
+            val newDeliveries = if (!deliveredToUsers.isNullOrEmpty()) {
+                val map = prev.deliveries.toMutableMap()
+                deliveredToUsers.forEach { userId -> map.putIfAbsent(userId, eventTimestamp) }
+                map.toMap()
+            } else {
+                prev.deliveries
+            }
+            messageBridgeDeliveryInfo[relatedEventId] = BridgeDeliveryInfo(sentAt = newSentAt, deliveries = newDeliveries)
+        }
+
         messageBridgeSendStatus = messageBridgeSendStatus + (relatedEventId to newStatus)
         bridgeSendStatusCounter++
     }
@@ -1326,6 +1405,8 @@ class AppViewModel : ViewModel() {
         MessageReactionsCache.clear()
         messageReactions = emptyMap()
         messageBridgeSendStatus = emptyMap()
+        functionalMembersCache.clear()
+        messageBridgeDeliveryInfo.clear()
         readReceiptsUpdateCounter++
         
         // 3. Reset requestIdCounter to 1
@@ -5436,6 +5517,8 @@ class AppViewModel : ViewModel() {
         MessageReactionsCache.clear()
         messageReactions = emptyMap()
         messageBridgeSendStatus = emptyMap()
+        functionalMembersCache.remove(roomId)
+        messageBridgeDeliveryInfo.clear()
 
         // Clear new message tracking and room-open timestamp
         newMessageAnimations.clear()
@@ -6998,9 +7081,18 @@ class AppViewModel : ViewModel() {
                         bridgeInfo = parsedBridge
                     }
                 }
+                "io.element.functional_members" -> {
+                    val arr = content.optJSONArray("service_members")
+                    if (arr != null) {
+                        val members = (0 until arr.length()).mapNotNull {
+                            arr.optString(it).takeIf { s -> s.isNotBlank() }
+                        }.toSet()
+                        functionalMembersCache[roomId] = members
+                    }
+                }
             }
         }
-        
+
         // Create room state object
         val roomState = RoomState(
             roomId = roomId,
@@ -8266,6 +8358,15 @@ class AppViewModel : ViewModel() {
             } else if (event.type == "m.room.pinned_events" || event.type == "m.room.name" || event.type == "m.room.topic" || event.type == "m.room.avatar") {
                 // System events that should appear in timeline
                 addNewEventToChain(event)
+            } else if (event.type == "io.element.functional_members") {
+                // Update functional (service) members cache — these are excluded from delivery checks
+                val arr = event.content?.optJSONArray("service_members")
+                if (arr != null) {
+                    val members = (0 until arr.length()).mapNotNull {
+                        arr.optString(it).takeIf { s -> s.isNotBlank() }
+                    }.toSet()
+                    functionalMembersCache[roomId] = members
+                }
             } else if (event.type == "com.beeper.message_send_status") {
                 // Bridge delivery confirmation — update status on the original message bubble
                 val content = event.content
@@ -8274,15 +8375,17 @@ class AppViewModel : ViewModel() {
                     val relType = relatesTo?.optString("rel_type")
                     val relatedEventId = relatesTo?.optString("event_id")?.takeIf { it.isNotBlank() }
                     val status = content.optString("status")
-                    if (relType == "m.reference" && relatedEventId != null && status == "SUCCESS") {
-                        val deliveredToUsers = content.optJSONArray("delivered_to_users")
-                        val hasDeliveredToUsers = deliveredToUsers != null && deliveredToUsers.length() > 0
-                        processBridgeSendStatus(relatedEventId, hasDeliveredToUsers)
+                    if (relType == "m.reference" && relatedEventId != null && status.isNotBlank()) {
+                        val deliveredToUsers = if (content.has("delivered_to_users")) {
+                            content.optJSONArray("delivered_to_users")
+                                ?.let { arr -> (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } } }
+                        } else null
+                        processBridgeSendStatus(roomId, relatedEventId, event.sender, status, deliveredToUsers, event.timestamp)
                     }
                 }
             }
         }
-        
+
         // Summary of what was processed
         val addedToTimeline = events.count { event ->
             (event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker") ||

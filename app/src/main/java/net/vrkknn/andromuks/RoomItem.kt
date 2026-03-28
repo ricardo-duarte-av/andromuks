@@ -97,3 +97,15 @@ data class RoomAnimationState(
     val previousPosition: Int? = null,
     val currentPosition: Int? = null
 )
+
+/**
+ * Bridge delivery info for a single message sent via a Mautrix bridge.
+ *
+ * @param sentAt     Timestamp (ms) of the first SUCCESS com.beeper.message_send_status event —
+ *                   i.e. when the bridge confirmed the message reached the other network.
+ * @param deliveries Map of userId → timestamp (ms) for each user confirmed to have received it.
+ */
+data class BridgeDeliveryInfo(
+    val sentAt: Long? = null,
+    val deliveries: Map<String, Long> = emptyMap()
+)

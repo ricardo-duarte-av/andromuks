@@ -1177,10 +1177,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                     val relType = relatesTo?.optString("rel_type")
                                     val relatedEventId = relatesTo?.optString("event_id")?.takeIf { it.isNotBlank() }
                                     val status = content.optString("status")
-                                    if (relType == "m.reference" && relatedEventId != null && status == "SUCCESS") {
-                                        val deliveredToUsers = content.optJSONArray("delivered_to_users")
-                                        val hasDeliveredToUsers = deliveredToUsers != null && deliveredToUsers.length() > 0
-                                        vm.processBridgeSendStatus(relatedEventId, hasDeliveredToUsers)
+                                    if (relType == "m.reference" && relatedEventId != null && status.isNotBlank()) {
+                                        val deliveredToUsers = if (content.has("delivered_to_users")) {
+                                            content.optJSONArray("delivered_to_users")
+                                                ?.let { arr -> (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } } }
+                                        } else null
+                                        vm.processBridgeSendStatus(roomId, relatedEventId, event.sender, status, deliveredToUsers, event.timestamp)
                                     }
                                 }
                                 filteredByType++
