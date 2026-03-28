@@ -85,7 +85,8 @@ data class PowerLevelsInfo(
     val kick: Int = 50, // Default kick power level
     val ban: Int = 50, // Default ban power level
     val events: Map<String, Int> = emptyMap(),
-    val eventsDefault: Int = 0
+    val eventsDefault: Int = 0,
+    val stateDefault: Int = 50 // Per Matrix spec: default PL for state events not in events map
 )
 
 @Immutable

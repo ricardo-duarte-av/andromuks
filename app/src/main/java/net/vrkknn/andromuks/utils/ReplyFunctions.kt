@@ -924,17 +924,16 @@ fun MessageBubbleWithMenu(
     val isPinned = remember(roomId, currentRoomState?.pinnedEventIds, event.eventId) {
         currentRoomState?.pinnedEventIds?.contains(event.eventId) ?: false
     }
-    val pinnedEventsCount = remember(roomId, currentRoomState?.pinnedEventIds) {
-        currentRoomState?.pinnedEventIds?.size ?: 0
-    }
     val pinnedEventsPowerLevel = remember(effectivePowerLevels) {
-        effectivePowerLevels?.events?.get("m.room.pinned_events") ?: effectivePowerLevels?.eventsDefault ?: 50
+        // m.room.pinned_events is a state event: fall back to state_default (50), not events_default (0)
+        effectivePowerLevels?.events?.get("m.room.pinned_events")
+            ?: effectivePowerLevels?.stateDefault
+            ?: 50
     }
-    val canPin = remember(myPowerLevel, pinnedEventsPowerLevel, pinnedEventsCount, isPinned) {
-        val hasPermission = myPowerLevel >= pinnedEventsPowerLevel
-        val hasSpace = pinnedEventsCount < 100
-        hasPermission && hasSpace
+    val canPin = remember(myPowerLevel, pinnedEventsPowerLevel) {
+        myPowerLevel >= pinnedEventsPowerLevel
     }
+    val canUnpin = canPin
     
     // Watch external trigger and show menu when it changes
     LaunchedEffect(externalMenuTrigger) {
@@ -950,6 +949,7 @@ fun MessageBubbleWithMenu(
                 canViewOriginal = viewOriginalButtonEnabled,
                 canViewEditHistory = historyButtonEnabled,
                 canPin = canPin,
+                canUnpin = canUnpin,
                 isPinned = isPinned,
                 onReply = onReply,
                 onReact = onReact,
@@ -1096,6 +1096,7 @@ fun MessageBubbleWithMenu(
                             canViewOriginal = viewOriginalButtonEnabled,
                             canViewEditHistory = historyButtonEnabled,
                             canPin = canPin,
+                            canUnpin = canUnpin,
                             isPinned = isPinned,
                             onReply = onReply,
                             onReact = onReact,

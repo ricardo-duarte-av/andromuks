@@ -6956,7 +6956,8 @@ class AppViewModel : ViewModel() {
                             kick = content.optInt("kick", 50),
                             ban = content.optInt("ban", 50),
                             events = eventsMap,
-                            eventsDefault = content.optInt("events_default", 0)
+                            eventsDefault = content.optInt("events_default", 0),
+                            stateDefault = content.optInt("state_default", 50)
                         )
                     }
                 }

@@ -74,6 +74,7 @@ data class MessageMenuConfig(
     val canViewOriginal: Boolean,
     val canViewEditHistory: Boolean,
     val canPin: Boolean,
+    val canUnpin: Boolean = canPin,
     val isPinned: Boolean,
     val onReply: () -> Unit,
     val onReact: () -> Unit,
@@ -321,7 +322,8 @@ fun MessageMenuBar(
                                 text = { Text(if (menuConfig.isPinned) "Unpin" else "Pin") },
                                 onClick = {
                                     moreExpanded = false
-                                    if (menuConfig.canPin) {
+                                    val allowed = if (menuConfig.isPinned) menuConfig.canUnpin else menuConfig.canPin
+                                    if (allowed) {
                                         onDismiss()
                                         if (menuConfig.isPinned) menuConfig.onUnpin() else menuConfig.onPin()
                                     }
@@ -329,7 +331,7 @@ fun MessageMenuBar(
                                 leadingIcon = {
                                     Icon(Icons.Filled.PushPin, contentDescription = null)
                                 },
-                                enabled = menuConfig.canPin
+                                enabled = if (menuConfig.isPinned) menuConfig.canUnpin else menuConfig.canPin
                             )
                             // Reactions option
                             val hasReactions = remember(event.eventId, menuConfig.appViewModel?.reactionUpdateCounter) {

@@ -194,18 +194,17 @@ fun SystemEventNarrator(
     val isPinned = remember(roomId, currentRoomState?.pinnedEventIds, event.eventId) {
         currentRoomState?.pinnedEventIds?.contains(event.eventId) ?: false
     }
-    val pinnedEventsCount = remember(roomId, currentRoomState?.pinnedEventIds) {
-        currentRoomState?.pinnedEventIds?.size ?: 0
-    }
     val pinnedEventsPowerLevel = remember(effectivePowerLevels) {
-        effectivePowerLevels?.events?.get("m.room.pinned_events") ?: effectivePowerLevels?.eventsDefault ?: 50
+        // m.room.pinned_events is a state event: fall back to state_default (50), not events_default (0)
+        effectivePowerLevels?.events?.get("m.room.pinned_events")
+            ?: effectivePowerLevels?.stateDefault
+            ?: 50
     }
-    val canPin = remember(myPowerLevel, pinnedEventsPowerLevel, pinnedEventsCount, isPinned) {
-        val hasPermission = myPowerLevel >= pinnedEventsPowerLevel
-        val hasSpace = pinnedEventsCount < 100
-        hasPermission && hasSpace
+    val canPin = remember(myPowerLevel, pinnedEventsPowerLevel) {
+        myPowerLevel >= pinnedEventsPowerLevel
     }
-    
+    val canUnpin = canPin
+
     val triggerNarratorMenu = {
         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
         if (onShowMenu != null) {
@@ -216,6 +215,7 @@ fun SystemEventNarrator(
                 canViewOriginal = false,
                 canViewEditHistory = false,
                 canPin = canPin,
+                canUnpin = canUnpin,
                 isPinned = isPinned,
                 onReply = { onReply(event) },
                 onReact = {},
