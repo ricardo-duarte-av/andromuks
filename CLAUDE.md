@@ -121,6 +121,14 @@ Power levels are parsed from `m.room.power_levels` state events into `PowerLevel
 
 **Known gap:** live `m.room.power_levels` timeline events are not yet propagated to update `currentRoomState.powerLevels`. Power levels are only set on initial room state load via `parseRoomStateFromEvents`.
 
+## Message Sending
+
+See **[docs/MESSAGE_SENDING.md](docs/MESSAGE_SENDING.md)** for full documentation.
+
+Covers the 4-stage protocol flow (`send_message` → `response` → `send_complete` → `sync_complete`), local echo (pending placeholder bubbles with `~`-prefixed `event_id`), visual states (pending/failed/confirmed), sort position fix for `timelineRowid=0`, and user actions on pending/failed echoes.
+
+**Critical invariant:** `send_error: "not sent"` inside an event is a backend placeholder — it is **not** a send failure. Real failures come from the outer `error` field in `send_complete`.
+
 ## Bridge Support (Mautrix / Beeper)
 
 See **[docs/bridges.md](docs/bridges.md)** for full documentation.
