@@ -700,6 +700,30 @@ internal class SyncRoomsCoordinator(
                                             },
                                             roomId = roomId // Pass room ID to prevent cross-room corruption
                                         )
+
+                                        // Remap any receipts that landed on bridge status event IDs.
+                                        // Bridge bots (e.g. mautrix) send m.read for their own
+                                        // com.beeper.message_send_status events; those events are
+                                        // never in the timeline so the receipt would be invisible.
+                                        // Move them to the original message event ID instead.
+                                        if (bridgeStatusEventToMessageId.isNotEmpty()) {
+                                            var remapped = false
+                                            bridgeStatusEventToMessageId.forEach { (statusEventId, originalMessageId) ->
+                                                val displaced = readReceipts.remove(statusEventId)
+                                                if (!displaced.isNullOrEmpty()) {
+                                                    val target = readReceipts.getOrPut(originalMessageId) { mutableListOf() }
+                                                    displaced.forEach { r ->
+                                                        if (target.none { it.userId == r.userId }) {
+                                                            target.add(r.copy(eventId = originalMessageId))
+                                                        }
+                                                    }
+                                                    remapped = true
+                                                    if (BuildConfig.DEBUG)
+                                                        android.util.Log.d("Andromuks", "BridgeReceipt: remapped ${displaced.size} receipt(s) from status event $statusEventId → $originalMessageId (sync_complete)")
+                                                }
+                                            }
+                                            if (remapped) readReceiptsUpdateCounter++
+                                        }
                                     }
                                     anyReceiptsProcessed = true
                                 }

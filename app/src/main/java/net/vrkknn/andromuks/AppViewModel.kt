@@ -603,6 +603,11 @@ class AppViewModel : ViewModel() {
     // Plain map — not Compose state; only read when the dialog opens.
     internal val messageBridgeDeliveryInfo = mutableMapOf<String, BridgeDeliveryInfo>()
 
+    // Maps com.beeper.message_send_status event IDs → their related original message event IDs.
+    // Bridge bots send m.read receipts for status event IDs, not the original message. This map
+    // lets us remap those receipts to the original message so they render on the correct bubble.
+    internal val bridgeStatusEventToMessageId = mutableMapOf<String, String>()
+
     // Bridge send status: eventId -> "sent" | "delivered" | "error_retriable" | "error_permanent"
     // "sent"            = bridge confirmed message reached the other network (SUCCESS, no/empty delivery list)
     // "delivered"       = all expected recipients confirmed delivery (SUCCESS + full delivered_to_users)
@@ -1407,6 +1412,7 @@ class AppViewModel : ViewModel() {
         messageBridgeSendStatus = emptyMap()
         functionalMembersCache.clear()
         messageBridgeDeliveryInfo.clear()
+        bridgeStatusEventToMessageId.clear()
         readReceiptsUpdateCounter++
         
         // 3. Reset requestIdCounter to 1
@@ -5519,6 +5525,7 @@ class AppViewModel : ViewModel() {
         messageBridgeSendStatus = emptyMap()
         functionalMembersCache.remove(roomId)
         messageBridgeDeliveryInfo.clear()
+        bridgeStatusEventToMessageId.clear()
 
         // Clear new message tracking and room-open timestamp
         newMessageAnimations.clear()
@@ -8381,6 +8388,11 @@ class AppViewModel : ViewModel() {
                                 ?.let { arr -> (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } } }
                         } else null
                         processBridgeSendStatus(roomId, relatedEventId, event.sender, status, deliveredToUsers, event.timestamp)
+                        // Track status eventId → original message eventId so bridge bot receipts
+                        // that land on the status event ID can be remapped to the original message.
+                        if (event.eventId.isNotBlank()) {
+                            bridgeStatusEventToMessageId[event.eventId] = relatedEventId
+                        }
                     }
                 }
             }

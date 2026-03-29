@@ -1183,6 +1183,10 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                                 ?.let { arr -> (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } } }
                                         } else null
                                         vm.processBridgeSendStatus(roomId, relatedEventId, event.sender, status, deliveredToUsers, event.timestamp)
+                                        // Track status eventId → original message eventId for receipt remapping.
+                                        if (event.eventId.isNotBlank()) {
+                                            vm.bridgeStatusEventToMessageId[event.eventId] = relatedEventId
+                                        }
                                     }
                                 }
                                 filteredByType++
@@ -1713,6 +1717,30 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                                     "Andromuks",
                                                     "AppViewModel: Event $eventId has no receipts array - marking as empty",
                                                 )
+                                        }
+                                    }
+
+                                    // Remap any receipts that landed on bridge status event IDs to
+                                    // their original message event IDs. Bridge bots send m.read
+                                    // receipts for their own com.beeper.message_send_status events,
+                                    // not for the original message, so those receipts would otherwise
+                                    // be invisible (status events never appear in the timeline).
+                                    if (vm.bridgeStatusEventToMessageId.isNotEmpty()) {
+                                        val remapEntries = authoritativeReceipts.entries
+                                            .filter { vm.bridgeStatusEventToMessageId.containsKey(it.key) }
+                                            .toList()
+                                        for ((statusEventId, receipts) in remapEntries) {
+                                            val originalMessageId = vm.bridgeStatusEventToMessageId[statusEventId] ?: continue
+                                            authoritativeReceipts.remove(statusEventId)
+                                            if (receipts.isNotEmpty()) {
+                                                val remapped = receipts.map { r -> r.copy(eventId = originalMessageId) }
+                                                val existing = authoritativeReceipts.getOrPut(originalMessageId) { mutableListOf() }
+                                                remapped.forEach { r ->
+                                                    if (existing.none { it.userId == r.userId }) existing.add(r)
+                                                }
+                                                if (BuildConfig.DEBUG)
+                                                    android.util.Log.d("Andromuks", "BridgeReceipt: remapped ${receipts.size} receipt(s) from status event $statusEventId → $originalMessageId")
+                                            }
                                         }
                                     }
 
