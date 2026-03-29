@@ -3809,7 +3809,34 @@ class AppViewModel : ViewModel() {
                 initializationComplete = true  // CRITICAL: init_complete was already received by primary instance
                 initialSyncComplete = true
                 android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: initializationComplete=$initializationComplete, initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, profile=${currentUserProfile != null}")
-                
+
+                // Drain any sync_complete messages that arrived in the window between this VM
+                // becoming primary in SyncRepository and initialSyncPhase being set to true above.
+                // Without this drain those messages stay in initialSyncCompleteQueue permanently:
+                // no new init_complete is ever sent on an already-established connection, so
+                // onInitComplete() is never called on this VM and the room summaries / timeline
+                // updates carried by the stranded messages are silently lost.
+                val strandedMessages = synchronized(initialSyncCompleteQueue) {
+                    if (initialSyncCompleteQueue.isEmpty()) emptyList()
+                    else initialSyncCompleteQueue.toList().also { initialSyncCompleteQueue.clear() }
+                }
+                if (strandedMessages.isNotEmpty()) {
+                    android.util.Log.w("Andromuks", "🟣 attachToExistingWebSocket: draining ${strandedMessages.size} stranded message(s) from initialSyncCompleteQueue")
+                    viewModelScope.launch(Dispatchers.Default) {
+                        initialSyncProcessingMutex.withLock {
+                            for (syncJson in strandedMessages) {
+                                val requestId = syncJson.optInt("request_id", 0)
+                                val runId = syncJson.optJSONObject("data")?.optString("run_id", "") ?: ""
+                                try {
+                                    syncRoomsCoordinator.processSyncCompleteAtomic(syncJson, requestId, runId)
+                                } catch (e: Exception) {
+                                    android.util.Log.e("Andromuks", "🟣 attachToExistingWebSocket: error processing stranded message requestId=$requestId: ${e.message}", e)
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // CRITICAL FIX: Populate roomMap from cache when attaching to existing WebSocket
                 // This ensures the new AppViewModel instance has room data from previous instances
                 populateRoomMapFromCache()
@@ -9146,16 +9173,14 @@ class AppViewModel : ViewModel() {
         }
         
         viewModelScope.launch(Dispatchers.Default) {
-            // Grace period so roomMap / follow-up work from sync can settle before snapshotting (was 2000ms).
-            delay(1000)
             val allRoomIds = synchronized(roomMap) {
                 roomMap.keys.toList()
             }
-            
+
             if (BuildConfig.DEBUG) {
                 android.util.Log.d("Andromuks", "AppViewModel: loadAllRoomStatesAfterInitComplete - Found ${allRoomIds.size} rooms in roomMap")
             }
-            
+
             if (allRoomIds.isEmpty()) {
                 // No rooms - allow commands immediately
                 allRoomStatesLoaded = true
@@ -9167,21 +9192,23 @@ class AppViewModel : ViewModel() {
                 }
                 return@launch
             }
-            
+
             // CRITICAL OPTIMIZATION: Check SharedPreferences cache to skip rooms we already know about
             // Only request get_room_state for rooms not in cache (new rooms)
             val context = appContext ?: return@launch
             val uncachedRoomIds = allRoomIds.filter { roomId ->
                 !net.vrkknn.andromuks.utils.BridgeInfoCache.isCached(context, roomId)
             }
-            
-            // Load cached bridge info into roomMap for rooms that are cached
+
+            // Load cached bridge info into roomMap for rooms that are cached — batch all updates
+            // then re-sort once instead of once per room.
             val cachedCount = allRoomIds.size - uncachedRoomIds.size
             if (cachedCount > 0) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d("Andromuks", "AppViewModel: Loading ${cachedCount} cached bridge info entries from SharedPreferences")
                 }
-                
+
+                var anyUpdated = false
                 allRoomIds.forEach { roomId ->
                     if (net.vrkknn.andromuks.utils.BridgeInfoCache.isCached(context, roomId)) {
                         val cachedAvatarUrl = net.vrkknn.andromuks.utils.BridgeInfoCache.getBridgeAvatarUrl(context, roomId)
@@ -9191,20 +9218,23 @@ class AppViewModel : ViewModel() {
                         } else {
                             null
                         }
-                        
+
                         // Update roomMap with cached bridge info
                         val existing = roomMap[roomId]
                         if (existing != null && existing.bridgeProtocolAvatarUrl != bridgeAvatarUrl) {
-                            val updatedRoom = existing.copy(bridgeProtocolAvatarUrl = bridgeAvatarUrl)
-                            roomMap[roomId] = updatedRoom
-                            allRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
-                            invalidateRoomSectionCache()
-                            roomListUpdateCounter++
+                            roomMap[roomId] = existing.copy(bridgeProtocolAvatarUrl = bridgeAvatarUrl)
+                            anyUpdated = true
                         }
                     }
                 }
+                // Single sort + invalidation pass after all updates
+                if (anyUpdated) {
+                    allRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
+                    invalidateRoomSectionCache()
+                    roomListUpdateCounter++
+                }
             }
-            
+
             if (uncachedRoomIds.isEmpty()) {
                 // All rooms are cached - no need to request room states
                 allRoomStatesLoaded = true
@@ -9218,6 +9248,11 @@ class AppViewModel : ViewModel() {
                 return@launch
             }
             
+            // Grace period so any remaining roomMap follow-up work after sync can settle
+            // before we snapshot the room list and start firing network requests.
+            // Only applies when there are actually uncached rooms that need get_room_state calls.
+            delay(1000)
+
             // Mark that we're requesting room states (only for uncached rooms)
             allRoomStatesRequested = true
             totalRoomStateRequests = uncachedRoomIds.size
