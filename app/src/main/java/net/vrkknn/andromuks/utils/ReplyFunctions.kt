@@ -820,9 +820,8 @@ fun MessageBubbleWithMenu(
     var bubbleBounds by remember { mutableStateOf(Rect.Zero) }
     val hapticFeedback = LocalHapticFeedback.current
 
-    // Local echoes removed; treat all bubbles as normal
     val isRedacted = event.redactedBy != null
-    val isPendingEcho = false
+    val isPendingEcho = event.eventId.startsWith("~")
     val isFailedEcho = false
     val deletedBody = event.localContent?.optString("deleted_body")?.takeIf { it.isNotBlank() }
     val deletedFormattedBody = event.localContent?.optString("deleted_formatted_body")?.takeIf { it.isNotBlank() }

@@ -4255,6 +4255,7 @@ class AppViewModel : ViewModel() {
     internal val profileRequestRooms = mutableMapOf<Int, String>() // requestId -> roomId (for profile requests initiated from a specific room)
     internal val roomStateRequests = mutableMapOf<Int, String>() // requestId -> roomId
     internal val messageRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    internal val pendingEchoMap = mutableMapOf<String, String>() // transactionId -> pending ~eventId
     
     // PERFORMANCE: Track pending room state requests to prevent duplicate WebSocket commands
     internal val pendingRoomStateRequests = mutableSetOf<String>() // roomId that have pending state requests
@@ -6732,7 +6733,17 @@ class AppViewModel : ViewModel() {
         try {
             val event = TimelineEvent.fromJson(eventData)
             android.util.Log.d("Andromuks", "AppViewModel: Created timeline event from send_complete: ${event.eventId}, type=${event.type}, eventRoomId=${event.roomId}, sender=${event.sender}, currentRoomId=$currentRoomId, currentUserId=$currentUserId")
-            
+
+            // Evict the pending echo (~-prefixed) now that we have the real event_id.
+            val echoTxId = event.transactionId
+            if (echoTxId != null) {
+                val pendingId = pendingEchoMap.remove(echoTxId)
+                if (pendingId != null) {
+                    eventChainMap.remove(pendingId)
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Evicted pending echo $pendingId for txId=$echoTxId")
+                }
+            }
+
             // SHORTCUT OPTIMIZATION: Update shortcut for this room when user sends a message
             // This drastically reduces shortcut updates - only when user actively sends messages
             // Update shortcuts BEFORE room check so it works for any room, not just current room
@@ -7423,6 +7434,25 @@ class AppViewModel : ViewModel() {
             }
         }
         
+        // Pending echo: show the message immediately in the timeline with the ~-prefixed local ID.
+        // It will be replaced when send_complete arrives with the real $-prefixed event_id.
+        if (data is JSONObject && !isError && roomId == currentRoomId) {
+            try {
+                val echoEvent = TimelineEvent.fromJson(data)
+                val echoTxId = echoEvent.transactionId
+                if (echoTxId != null && echoEvent.eventId.startsWith("~") &&
+                    (echoEvent.type == "m.room.message" || echoEvent.type == "m.room.encrypted" || echoEvent.type == "m.sticker")
+                ) {
+                    pendingEchoMap[echoTxId] = echoEvent.eventId
+                    addNewEventToChain(echoEvent)
+                    buildTimelineFromChain()
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Pending echo inserted for txId=$echoTxId eventId=${echoEvent.eventId}")
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("Andromuks", "AppViewModel: Failed to insert pending echo", e)
+            }
+        }
+
         // NOTE: We receive send_complete for sent messages, so we don't need to process
         // the response here to avoid duplicates. send_complete will add the event to timeline.
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Message response received, waiting for send_complete for actual event")
