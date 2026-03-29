@@ -8314,8 +8314,8 @@ class AppViewModel : ViewModel() {
         }
         
         for (event in events) {          
-            if (event.type == "m.room.member" && event.timelineRowid == -1L) {
-                // State member event; update cache only
+            if (event.type == "m.room.member" && event.timelineRowid <= 0L) {
+                // State member event or profile-hint (timeline_rowid=0 or -1); update cache only
                 val userId = event.stateKey ?: event.sender
                 val content = event.content
                 if (content != null) {
@@ -8328,7 +8328,7 @@ class AppViewModel : ViewModel() {
                         ProfileCache.setGlobalProfile(userId, ProfileCache.CachedProfileEntry(profile, System.currentTimeMillis()))
                     }
                 }
-            } else if (event.type == "m.room.member" && event.timelineRowid >= 0L) {
+            } else if (event.type == "m.room.member" && event.timelineRowid > 0L) {
                 // Timeline member event (join/leave that should show in timeline)
                 // Also extract and update member profile if display name/avatar changed
                 updateMemberProfileFromTimelineEvent(roomId, event)
@@ -8491,12 +8491,12 @@ class AppViewModel : ViewModel() {
         // Summary of what was processed
         val addedToTimeline = events.count { event ->
             (event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker") ||
-            (event.type == "m.room.member" && event.timelineRowid >= 0L) ||
+            (event.type == "m.room.member" && event.timelineRowid > 0L) ||
             (event.type == "m.room.redaction") ||
             (event.type == "m.room.pinned_events" || event.type == "m.room.name" || event.type == "m.room.topic" || event.type == "m.room.avatar")
         }
         val memberStateUpdates = events.count { event ->
-            event.type == "m.room.member" && event.timelineRowid == -1L
+            event.type == "m.room.member" && event.timelineRowid <= 0L
         }
         val reactions = events.count { it.type == "m.reaction" }
         val unhandled = events.size - addedToTimeline - memberStateUpdates - reactions

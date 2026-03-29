@@ -121,6 +121,14 @@ Power levels are parsed from `m.room.power_levels` state events into `PowerLevel
 
 **Known gap:** live `m.room.power_levels` timeline events are not yet propagated to update `currentRoomState.powerLevels`. Power levels are only set on initial room state load via `parseRoomStateFromEvents`.
 
+## Timeline Event Rendering
+
+See **[docs/TIMELINE_EVENTS.md](docs/TIMELINE_EVENTS.md)** for full documentation.
+
+**Critical rule:** only events with `timelineRowid > 0` are rendered. `timelineRowid = 0` means "not a timeline event" — the backend sends events with `timeline_rowid: 0` as profile hints alongside messages (e.g. `m.room.member` for sender lookup). These must update caches only and never be added to `eventChainMap`. `resolveTimelineRowidsFromRoomData` resolves the real `timeline_rowid` from the room's `timeline` mapping before events are processed; events not present in that mapping stay at `0`.
+
+**Exception:** `updateMemberProfilesFromEvents` intentionally uses `>= 0L` — profile hints should update the member cache. Do not change that filter.
+
 ## Message Sending
 
 See **[docs/MESSAGE_SENDING.md](docs/MESSAGE_SENDING.md)** for full documentation.
