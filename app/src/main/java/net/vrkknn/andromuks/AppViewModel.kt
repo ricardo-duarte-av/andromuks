@@ -6728,15 +6728,48 @@ class AppViewModel : ViewModel() {
         // Local echo handling removed; real events will arrive via sync.
     }
 
-    fun processSendCompleteEvent(eventData: JSONObject) {
+    fun dismissPendingEcho(eventId: String) {
+        eventChainMap.remove(eventId)
+        val txId = pendingEchoMap.entries.firstOrNull { it.value == eventId }?.key
+        if (txId != null) pendingEchoMap.remove(txId)
+        buildTimelineFromChain()
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Dismissed pending echo $eventId")
+    }
+
+    fun processSendCompleteEvent(eventData: JSONObject, error: String? = null) {
         android.util.Log.d("Andromuks", "AppViewModel: processSendCompleteEvent called")
         try {
             val event = TimelineEvent.fromJson(eventData)
             android.util.Log.d("Andromuks", "AppViewModel: Created timeline event from send_complete: ${event.eventId}, type=${event.type}, eventRoomId=${event.roomId}, sender=${event.sender}, currentRoomId=$currentRoomId, currentUserId=$currentUserId")
 
-            // Evict the pending echo (~-prefixed) now that we have the real event_id.
             val echoTxId = event.transactionId
-            if (echoTxId != null) {
+            // "not sent" is the backend's placeholder meaning "still in flight" — not a real error.
+            // A real send_error contains the actual rejection reason (e.g. M_FORBIDDEN).
+            val sendErrorRaw = eventData.optString("send_error", "")
+            val hasError = sendErrorRaw.isNotBlank() && sendErrorRaw != "not sent"
+
+            if (hasError && echoTxId != null) {
+                // Error: mark the pending echo as failed instead of replacing it.
+                val pendingId = pendingEchoMap.remove(echoTxId)
+                if (pendingId != null) {
+                    val existingEntry = eventChainMap[pendingId]
+                    val existingBubble = existingEntry?.ourBubble
+                    if (existingEntry != null && existingBubble != null) {
+                        val updatedLocalContent = (existingBubble.localContent
+                            ?.let { org.json.JSONObject(it.toString()) }
+                            ?: org.json.JSONObject()).apply {
+                            put("send_error", sendErrorRaw)
+                        }
+                        eventChainMap[pendingId] = existingEntry.copy(
+                            ourBubble = existingBubble.copy(localContent = updatedLocalContent)
+                        )
+                        buildTimelineFromChain()
+                    }
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Echo $pendingId marked failed: $sendErrorRaw")
+                }
+                return
+            } else if (echoTxId != null) {
+                // Success: evict the ~-prefixed pending echo so the real event takes over.
                 val pendingId = pendingEchoMap.remove(echoTxId)
                 if (pendingId != null) {
                     eventChainMap.remove(pendingId)
@@ -7443,8 +7476,8 @@ class AppViewModel : ViewModel() {
                 if (echoTxId != null && echoEvent.eventId.startsWith("~") &&
                     (echoEvent.type == "m.room.message" || echoEvent.type == "m.room.encrypted" || echoEvent.type == "m.sticker")
                 ) {
-                    pendingEchoMap[echoTxId] = echoEvent.eventId
-                    addNewEventToChain(echoEvent)
+                    addNewEventToChain(echoEvent)            // eventChainMap first
+                    pendingEchoMap[echoTxId] = echoEvent.eventId  // then pendingEchoMap
                     buildTimelineFromChain()
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Pending echo inserted for txId=$echoTxId eventId=${echoEvent.eventId}")
                 }

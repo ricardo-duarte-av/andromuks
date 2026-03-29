@@ -822,7 +822,7 @@ fun MessageBubbleWithMenu(
 
     val isRedacted = event.redactedBy != null
     val isPendingEcho = event.eventId.startsWith("~")
-    val isFailedEcho = false
+    val isFailedEcho = event.localContent?.optString("send_error")?.isNotBlank() == true
     val deletedBody = event.localContent?.optString("deleted_body")?.takeIf { it.isNotBlank() }
     val deletedFormattedBody = event.localContent?.optString("deleted_formatted_body")?.takeIf { it.isNotBlank() }
     val deletedMsgType = event.localContent?.optString("deleted_msgtype")?.takeIf { it.isNotBlank() }
@@ -910,12 +910,23 @@ fun MessageBubbleWithMenu(
     // Determine which buttons to show (same logic for m.room.message and m.room.encrypted)
     // Own messages: always edit/delete (server allows redacting own events without redact PL).
     // Others' messages: delete only when we have redact PL or above.
-    val canEdit = isMine
-    val canDelete = if (isMine) {
+    // Failed/pending echoes only allow dismiss (local-only removal); all other actions are blocked.
+    val canEdit = isMine && !isFailedEcho && !isPendingEcho
+    val canDelete = if (isFailedEcho || isPendingEcho) {
+        true // dismiss is always available
+    } else if (isMine) {
         true
     } else {
         canRedactOthersMessages
     }
+    val effectiveOnDelete: () -> Unit = if (isFailedEcho || isPendingEcho) {
+        { appViewModel?.dismissPendingEcho(event.eventId) }
+    } else {
+        onDelete
+    }
+    val effectiveOnReply: () -> Unit = if (isFailedEcho || isPendingEcho) { {} } else onReply
+    val effectiveOnReact: () -> Unit = if (isFailedEcho || isPendingEcho) { {} } else onReact
+    val effectiveOnEdit: () -> Unit = if (isFailedEcho || isPendingEcho) { {} } else onEdit
     
     // Calculate pin/unpin permissions
     val roomId = event.roomId
@@ -947,13 +958,13 @@ fun MessageBubbleWithMenu(
                 canDelete = canDelete,
                 canViewOriginal = viewOriginalButtonEnabled,
                 canViewEditHistory = historyButtonEnabled,
-                canPin = canPin,
-                canUnpin = canUnpin,
+                canPin = canPin && !isFailedEcho && !isPendingEcho,
+                canUnpin = canPin && !isFailedEcho && !isPendingEcho,
                 isPinned = isPinned,
-                onReply = onReply,
-                onReact = onReact,
-                onEdit = onEdit,
-                onDelete = onDelete,
+                onReply = effectiveOnReply,
+                onReact = effectiveOnReact,
+                onEdit = effectiveOnEdit,
+                onDelete = effectiveOnDelete,
                 onPin = {
                     appViewModel?.pinUnpinEvent(roomId, event.eventId, pin = true)
                 },
@@ -967,7 +978,7 @@ fun MessageBubbleWithMenu(
             onShowMenu?.invoke(menuConfig)
         }
     }
-    
+
     //android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: isMine=$isMine, myPL=$myPowerLevel, redactPL=$redactPowerLevel, canEdit=$canEdit, canDelete=$canDelete")
     
     // Detect dark mode for custom shadow/glow
@@ -1062,8 +1073,8 @@ fun MessageBubbleWithMenu(
     
     // Adjust bubble color based on local echo state
     val bubbleColorAdjusted = when {
-        isPendingEcho -> MaterialTheme.colorScheme.tertiaryContainer // warning tone, softer than error
         isFailedEcho -> MaterialTheme.colorScheme.errorContainer
+        isPendingEcho -> MaterialTheme.colorScheme.tertiaryContainer
         else -> bubbleColor
     }
 
@@ -1094,13 +1105,13 @@ fun MessageBubbleWithMenu(
                             canDelete = canDelete,
                             canViewOriginal = viewOriginalButtonEnabled,
                             canViewEditHistory = historyButtonEnabled,
-                            canPin = canPin,
-                            canUnpin = canUnpin,
+                            canPin = canPin && !isFailedEcho && !isPendingEcho,
+                            canUnpin = canPin && !isFailedEcho && !isPendingEcho,
                             isPinned = isPinned,
-                            onReply = onReply,
-                            onReact = onReact,
-                            onEdit = onEdit,
-                            onDelete = onDelete,
+                            onReply = effectiveOnReply,
+                            onReact = effectiveOnReact,
+                            onEdit = effectiveOnEdit,
+                            onDelete = effectiveOnDelete,
                             onPin = {
                                 appViewModel?.pinUnpinEvent(roomId, event.eventId, pin = true)
                             },

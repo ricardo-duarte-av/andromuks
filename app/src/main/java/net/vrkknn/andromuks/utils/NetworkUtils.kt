@@ -208,7 +208,7 @@ fun applyIncomingWebSocketMessageForViewModel(
             viewModel.viewModelScope.launch(Dispatchers.IO) {
                 if (event != null) {
                     viewModel.handleSendComplete(event, error)
-                    viewModel.processSendCompleteEvent(event)
+                    viewModel.processSendCompleteEvent(event, error)
                 } else {
                     Log.w("Andromuks", "NetworkUtils: send_complete had null event, nothing to distribute")
                 }
