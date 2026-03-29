@@ -5695,7 +5695,7 @@ class AppViewModel : ViewModel() {
         
         // Track this request to prevent duplicates
         pendingRoomStateRequests.add(roomId)
-        roomStateRequests[stateRequestId] = roomId
+        synchronized(roomStateRequests) { roomStateRequests[stateRequestId] = roomId }
         
         sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
             "room_id" to roomId,
