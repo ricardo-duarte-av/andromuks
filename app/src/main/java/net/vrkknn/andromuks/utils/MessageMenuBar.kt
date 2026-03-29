@@ -62,6 +62,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.Warning
 import kotlin.math.max
 import kotlin.math.min
 
@@ -110,6 +111,8 @@ fun MessageMenuBar(
     val coroutineScope = rememberCoroutineScope()
     var showRawJsonDialog by remember { mutableStateOf(false) }
     var rawJsonToShow by remember { mutableStateOf<String?>(null) }
+    var showSendErrorDialog by remember { mutableStateOf(false) }
+    val sendError = event.localContent?.optString("send_error")?.takeIf { it.isNotBlank() }
     var showDeletedDialog by remember { mutableStateOf(false) }
     var deletedDialogText by remember { mutableStateOf<String?>(null) }
     var deletedReason by remember { mutableStateOf<String?>(null) }
@@ -423,6 +426,18 @@ fun MessageMenuBar(
                                     }
                                 )
                             }
+                            if (sendError != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Send Error", color = MaterialTheme.colorScheme.error) },
+                                    onClick = {
+                                        moreExpanded = false
+                                        showSendErrorDialog = true
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                    }
+                                )
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
@@ -510,6 +525,20 @@ fun MessageMenuBar(
                 )
             }
         }
+    }
+
+    if (showSendErrorDialog && sendError != null) {
+        AlertDialog(
+            onDismissRequest = { showSendErrorDialog = false },
+            icon = { Icon(Icons.Filled.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Message not sent") },
+            text = { Text(sendError) },
+            confirmButton = {
+                TextButton(onClick = { showSendErrorDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
     }
 }
 
