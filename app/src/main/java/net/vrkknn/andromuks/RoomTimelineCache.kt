@@ -1204,27 +1204,32 @@ object RoomTimelineCache {
                     for (roomId in roomsToClear) {
                         roomEventsCache.remove(roomId)
                         roomsInitialized.remove(roomId)
-                        activelyCachedRooms.remove(roomId)
-                        
+
                         // Clear all related caches for this room
                         ProfileCache.clearRoom(roomId)
                         RoomMemberCache.clearRoom(roomId)
                         ReadReceiptCache.clearRoom(roomId)
                     }
-                    
+
+                    // Clear activelyCachedRooms for ALL non-opened rooms, not just those
+                    // that happen to have a roomEventsCache entry. Rooms marked by preemptive
+                    // pagination (no cache entry yet) must also be cleared so they stop
+                    // receiving sync_complete event appends until the user explicitly opens them.
+                    activelyCachedRooms.retainAll(openedRooms)
+
                     // Clear event-specific caches for all cleared rooms' events
                     if (eventIdsToClear.isNotEmpty()) {
                         ReadReceiptCache.clearForEventIds(eventIdsToClear)
                         MessageReactionsCache.clearForEventIds(eventIdsToClear)
                         MessageVersionsCache.clearForEventIds(eventIdsToClear)
                     }
-                
+
                     // Preserve opened rooms:
                     // - Keep cache (roomEventsCache) - already preserved by not removing
                     // - Keep roomsInitialized flag - already preserved by not removing
-                    // - Keep activelyCachedRooms - already preserved by not removing
+                    // - Keep activelyCachedRooms - already retained above
                     // Opened rooms continue receiving events from sync_complete and remain actively cached
-                
+
                     if (BuildConfig.DEBUG) {
                         Log.d(TAG, "Cleared caches for ${roomsToClear.size} rooms, preserved ${roomsToPreserve.size} opened rooms: ${roomsToPreserve.joinToString(", ")}")
                     }

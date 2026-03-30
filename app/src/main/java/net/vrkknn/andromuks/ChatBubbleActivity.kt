@@ -5,17 +5,23 @@ import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import androidx.navigation.compose.NavHost
@@ -436,6 +442,93 @@ fun ChatBubbleNavigation(
                     }
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun ChatBubbleLoadingScreen(
+    navController: NavController,
+    modifier: Modifier = Modifier,
+    appViewModel: AppViewModel,
+    onCloseBubble: () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
+    val token = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", null) }
+    val homeserverUrl = remember(sharedPreferences) { sharedPreferences.getString("homeserver_url", null) }
+
+    BackHandler {
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: Back button pressed - minimizing bubble")
+        onCloseBubble()
+    }
+
+    LaunchedEffect(Unit) {
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: ═══ BUBBLE LOADING STARTED ═══")
+
+        if (token != null && homeserverUrl != null) {
+            appViewModel.initializeFCM(context, homeserverUrl, token)
+            appViewModel.updateHomeserverUrl(homeserverUrl)
+            appViewModel.updateAuthToken(token)
+            appViewModel.loadSettings(context)
+            appViewModel.loadStateFromStorage(context)
+
+            val roomId = (context as? ComponentActivity)?.intent?.getStringExtra("room_id")
+                ?: extractBubbleRoomIdFromIntent((context as? ComponentActivity)?.intent)
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: Room ID: $roomId")
+
+            if (roomId == null) {
+                Log.e("Andromuks", "ChatBubbleLoadingScreen: ✗ No room ID found in intent!")
+                return@LaunchedEffect
+            }
+
+            appViewModel.setPendingBubbleNavigation(roomId)
+
+            var isWebSocketConnected = appViewModel.isWebSocketConnected()
+            if (!isWebSocketConnected) {
+                Log.w("Andromuks", "ChatBubbleLoadingScreen: WebSocket not connected - starting foreground service and connecting")
+                appViewModel.startWebSocketService()
+                WebSocketService.setAppVisibility(true)
+                WebSocketService.connectWebSocket(
+                    homeserverUrl,
+                    token,
+                    appViewModel,
+                    trigger = ReconnectTrigger.Unclassified("chat_bubble_launch")
+                )
+                var pollCount = 0
+                while (!isWebSocketConnected && pollCount < 50) {
+                    kotlinx.coroutines.delay(100)
+                    isWebSocketConnected = appViewModel.isWebSocketConnected()
+                    pollCount++
+                }
+            } else {
+                WebSocketService.setAppVisibility(true)
+            }
+
+            val pendingBubbleId = appViewModel.getPendingBubbleNavigation() ?: roomId
+            appViewModel.clearPendingBubbleNavigation()
+            if (!isWebSocketConnected) {
+                Log.w("Andromuks", "ChatBubbleLoadingScreen: WebSocket not connected after timeout - navigating anyway")
+            }
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: Navigating to bubble $pendingBubbleId")
+            kotlinx.coroutines.delay(100)
+            navController.navigate("chat_bubble/$pendingBubbleId") {
+                popUpTo("chat_bubble_loading") { inclusive = true }
+            }
+        } else {
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: No token or server URL, navigating to login")
+            navController.navigate("login")
+        }
+    }
+
+    AndromuksTheme {
+        Surface {
+            Box(
+                modifier = modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Loading chat bubble...")
+            }
         }
     }
 }
