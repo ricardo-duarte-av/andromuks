@@ -1421,24 +1421,25 @@ object RoomTimelineCache {
                 
                 // Check if this is a kick (leave event where sender != state_key)
                 // Kicks should appear in timeline even with negative timelineRowid
-                val isKick = event.type == "m.room.member" && 
-                            event.timelineRowid < 0 && 
+                val isKick = event.type == "m.room.member" &&
+                            event.timelineRowid <= 0 &&
                             event.stateKey != null &&
                             event.sender != event.stateKey &&
                             event.content?.optString("membership") == "leave"
-                
+
                 // Filtering logic:
                 // 1. Store reaction events separately (they're filtered from timeline but needed to restore reactions)
-                // 2. Filter out member state events (timelineRowid < 0) UNLESS they're kicks
+                // 2. Filter out member state/profile-hint events (timelineRowid <= 0) UNLESS they're kicks
+                //    timelineRowid=0 means the event was not in the timeline mapping (profile hint);
+                //    timelineRowid<0 is the old sentinel for state-only events.
                 // 3. Store redaction events separately (they're needed to show deleted messages)
-                // 4. Allow all other allowed event types regardless of timelineRowid
-                //    (timelineRowid can be negative for many valid timeline events, including messages)
+                // 4. Allow all other allowed event types with a positive timelineRowid
                 val shouldCache = when {
                     event.type == "m.reaction" -> {
                         // Store reaction events separately - they're needed to restore reactions when reopening a room
                         true // Will be handled separately in addEventsToCache
                     }
-                    event.type == "m.room.member" && event.timelineRowid < 0 && !isKick -> false
+                    event.type == "m.room.member" && event.timelineRowid <= 0 && !isKick -> false
                     event.type == "m.room.redaction" ||
                     (event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction") -> {
                         // Store redaction events separately - they're needed to show deleted messages
@@ -1477,7 +1478,7 @@ object RoomTimelineCache {
                     // Log why event was filtered
                     val reason = when {
                         event.type == "m.reaction" -> "type = m.reaction"
-                        event.type == "m.room.member" && event.timelineRowid < 0 -> "type = m.room.member (state event, not a kick)"
+                        event.type == "m.room.member" && event.timelineRowid <= 0 -> "type = m.room.member (state/profile-hint event, not a kick)"
                         else -> "type not in allowed event types"
                     }
                     filteredCount++

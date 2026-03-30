@@ -61,6 +61,19 @@ Key properties at insertion time:
 - `timelineRowid = 0` (not in DB)
 - `timestamp` = time of send (used as tiebreak in the sort above)
 
+## The `timelineRowid <= 0` Gate — Two Enforcement Points
+
+The "do not render" rule for `timelineRowid <= 0` member events is enforced in **two independent places**. Both must use `<= 0`, not `< 0`:
+
+1. **`RoomTimelineCache.parseEventsFromArray`** — filters events before they enter the in-memory cache.
+   Guard: `event.type == "m.room.member" && event.timelineRowid <= 0 && !isKick -> false`
+   The `isKick` exception also uses `<= 0`.
+
+2. **`AppViewModel.processSyncEventsArray`** — processes events into `eventChainMap` for the active room.
+   Guard: `event.type == "m.room.member" && event.timelineRowid <= 0` → cache-only path.
+
+Using `< 0` at either point lets `timelineRowid = 0` profile-hint events slip through and appear as stale join/name-change rows at the bottom of the timeline.
+
 ## `eventChainMap` — Central Data Structure
 
 `eventChainMap` is a `LinkedHashMap<String, TimelineEvent>` keyed by `eventId`. It is the single source of truth for everything `buildTimelineFromChain()` renders.
