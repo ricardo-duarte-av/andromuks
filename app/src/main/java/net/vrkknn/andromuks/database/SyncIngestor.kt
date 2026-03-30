@@ -843,7 +843,7 @@ class SyncIngestor(private val context: Context) {
             ?: unsigned?.optString("transaction_id")?.takeIf { it.isNotBlank() }
 
         return TimelineEvent(
-            rowid = resolvedTimelineRowId,
+            rowid = eventJson.optLong("rowid", 0),
             timelineRowid = resolvedTimelineRowId,
             roomId = roomId,
             eventId = eventId,

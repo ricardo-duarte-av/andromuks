@@ -68,7 +68,9 @@ OkHttp WebSocket (Matrix protocol) + SQLite (BootstrapLoader)
 
 ### Key Screens
 
-`LoginScreen` → `RoomListScreen` (or `SimplerRoomListScreen`) → `RoomTimelineScreen` / `BubbleTimelineScreen` / `ThreadViewerScreen` / `MentionsScreen`
+`LoginScreen` → `RoomListScreen` (or `SimplerRoomListScreen`) → `RoomTimelineScreen` / `ThreadViewerScreen` / `MentionsScreen`
+
+Android chat bubbles use `ChatBubbleActivity` → `BubbleTimelineScreen`.
 
 ### State Management
 

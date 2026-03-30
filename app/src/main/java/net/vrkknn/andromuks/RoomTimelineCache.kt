@@ -261,7 +261,17 @@ object RoomTimelineCache {
         var addedCount = 0
         for (event in filteredEvents) {
             if (event.eventId.isBlank()) continue
-            
+
+            // Drop m.room.member events that are not real timeline entries.
+            // timelineRowid <= 0 means state-only or profile-hint (rowid=-1 or 0).
+            // Exception: kicks (sender != stateKey, membership=leave) may arrive via state.
+            if (event.type == "m.room.member" && event.timelineRowid <= 0L) {
+                val isKick = event.stateKey != null &&
+                    event.sender != event.stateKey &&
+                    event.content?.optString("membership") == "leave"
+                if (!isKick) continue
+            }
+
             // Handle redaction events separately (both encrypted and non-encrypted for E2EE rooms)
             val isRedaction = event.type == "m.room.redaction" ||
                 (event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction")

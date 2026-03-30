@@ -485,15 +485,14 @@ suspend fun processTimelineEvents(
 
     if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: After edit filtering: ${eventsWithoutEdits.size} events")
 
-    // Sort by timeline_rowid (server order), not timestamp - timestamps can be out of order
-    // (e.g. bridge backdates messages, or state events arrive after messages they precede)
-    // Pending echoes have timelineRowid=0; treat as Long.MAX_VALUE so they sort after all real
-    // events (newest position) rather than before them (oldest position).
-    val sorted = eventsWithoutEdits.sortedWith(compareBy(
-        { if (it.timelineRowid > 0L) it.timelineRowid else Long.MAX_VALUE },
-        { it.timestamp },
-        { it.eventId }
-    ))
+    // Sort by timeline_rowid (server order) when positive; fall back to timestamp when 0 or -1.
+    val sorted = eventsWithoutEdits.sortedWith(Comparator { a, b ->
+        if (a.timelineRowid > 0L && b.timelineRowid > 0L) {
+            val cmp = a.timelineRowid.compareTo(b.timelineRowid)
+            if (cmp != 0) return@Comparator cmp
+        }
+        compareValuesBy(a, b, { it.timestamp }, { it.eventId })
+    })
     if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Final sorted events: ${sorted.size} events")
 
     sorted

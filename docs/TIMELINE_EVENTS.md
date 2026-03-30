@@ -34,23 +34,21 @@ In `sync_complete`, many events arrive with `timeline_rowid: 0`. The room data i
 
 ## Sort Order
 
-Timeline events are sorted by:
+Timeline events are sorted by `timelineRowid` when it is positive (server-defined order); when `timelineRowid` is 0 or -1 (unresolved), events fall back to `timestamp` ordering. Applied in both `RoomTimelineScreen.kt` and `BubbleTimelineScreen.kt`:
 
 ```kotlin
-compareBy(
-    { if (it.timelineRowid > 0L) it.timelineRowid else Long.MAX_VALUE },
-    { it.timestamp },
-    { it.eventId }
-)
+Comparator { a, b ->
+    if (a.timelineRowid > 0L && b.timelineRowid > 0L) {
+        val cmp = a.timelineRowid.compareTo(b.timelineRowid)
+        if (cmp != 0) return@Comparator cmp
+    }
+    compareValuesBy(a, b, { it.timestamp }, { it.eventId })
+}
 ```
 
-The `Long.MAX_VALUE` substitution for `timelineRowid <= 0` places **pending local echoes** (which have `timelineRowid = 0` because they are not yet persisted) at the **newest end** of the timeline. Without this, they would sort to position 0 — the oldest position — and scroll off screen (the `LazyColumn` uses `reverseLayout = true`).
+Pending echoes (`~`-prefixed `eventId`) have `timelineRowid = 0` and are therefore sorted by timestamp until `sync_complete` delivers their confirmed event with a real rowid — no special-casing needed.
 
-This sort is applied in:
-- `RoomTimelineScreen.kt` — `processTimelineEvents`
-- `BubbleTimelineScreen.kt` — `bubbleProcessTimelineEvents`
-
-Note: `ChatBubbleScreen.kt` still uses the old simple sort (`compareBy({ it.timelineRowid }, ...)`) — pending echoes are not expected in that screen.
+Note: `EventContextScreen.kt` uses a simpler `compareBy({ it.timelineRowid }, ...)` sort — no pending echoes expected there.
 
 ## Pending Local Echoes
 
@@ -61,18 +59,38 @@ Key properties at insertion time:
 - `timelineRowid = 0` (not in DB)
 - `timestamp` = time of send (used as tiebreak in the sort above)
 
-## The `timelineRowid <= 0` Gate — Two Enforcement Points
+## The `timelineRowid <= 0` Gate — Enforcement Points
 
-The "do not render" rule for `timelineRowid <= 0` member events is enforced in **two independent places**. Both must use `<= 0`, not `< 0`:
+The "do not render" rule for `timelineRowid <= 0` member events is enforced at three levels:
 
-1. **`RoomTimelineCache.parseEventsFromArray`** — filters events before they enter the in-memory cache.
-   Guard: `event.type == "m.room.member" && event.timelineRowid <= 0 && !isKick -> false`
-   The `isKick` exception also uses `<= 0`.
+### 1. `RoomTimelineCache.addEventsToCache` (primary gate — all paths hit this)
 
-2. **`AppViewModel.processSyncEventsArray`** — processes events into `eventChainMap` for the active room.
-   Guard: `event.type == "m.room.member" && event.timelineRowid <= 0` → cache-only path.
+The central choke point. Every event that enters `cache.events` passes through here, regardless of whether it came from `addEventsFromSync`, `mergePaginatedEvents`, `appendEventsToCachedRoom`, or `seedCacheWithPaginatedEvents`.
 
-Using `< 0` at either point lets `timelineRowid = 0` profile-hint events slip through and appear as stale join/name-change rows at the bottom of the timeline.
+```kotlin
+if (event.type == "m.room.member" && event.timelineRowid <= 0L) {
+    val isKick = event.stateKey != null &&
+        event.sender != event.stateKey &&
+        event.content?.optString("membership") == "leave"
+    if (!isKick) continue
+}
+```
+
+### 2. `RoomTimelineCache.parseEventsFromArray` (pre-filter for the `addEventsFromSync` path)
+
+Redundant with the gate above, but kept as an early exit. Uses the same `<= 0` and kick-exception logic.
+
+### 3. `AppViewModel.processSyncEventsArray` (live-sync path for the currently open room)
+
+Routes `timelineRowid <= 0` member events to a cache-only update (display name / avatar) instead of `addNewEventToChain`.
+
+### Why `SyncIngestor` does not filter
+
+`SyncIngestor.processRoom` collects **all** parsed events into `eventsForCacheUpdate` before passing them to `onEventsForCachedRoom` → `addEventsToCache`. Filtering was intentionally not added there to keep the ingestor simple; the gate in `addEventsToCache` handles it.
+
+### The kick exception
+
+Kicks (`sender != stateKey` + `membership=leave`) with `timelineRowid <= 0` are allowed through. These are state events that represent a user being kicked and should appear as a narrator row in the timeline.
 
 ## `eventChainMap` — Central Data Structure
 

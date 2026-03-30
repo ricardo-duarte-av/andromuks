@@ -217,8 +217,18 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             val cachedEvents = RoomTimelineCache.getCachedEvents(roomId) ?: return false
 
             // Append new events and re-sort
+            // IMPORTANT: existingEventIds is derived from getCachedEvents(), which excludes
+            // m.room.member events with timelineRowid<=0 (they are dropped by addEventsToCache).
+            // Re-filter using the same guard so those events don't slip into eventChainMap below.
             val existingEventIds = cachedEvents.map { it.eventId }.toSet()
             val trulyNewEvents = newEvents.filter { it.eventId !in existingEventIds }
+                .filter { event ->
+                    if (event.type != "m.room.member" || event.timelineRowid > 0L) return@filter true
+                    // Keep kicks (sender != stateKey, membership=leave) even with timelineRowid<=0
+                    event.stateKey != null &&
+                        event.sender != event.stateKey &&
+                        event.content?.optString("membership") == "leave"
+                }
 
             if (trulyNewEvents.isEmpty()) return true
 
