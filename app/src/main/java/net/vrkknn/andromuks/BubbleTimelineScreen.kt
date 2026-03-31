@@ -2198,13 +2198,15 @@ fun BubbleTimelineScreen(
                         "BubbleTimelineScreen: Attached but not at bottom (firstVisible=$currentFirstVisible). animateScrollToItem to bottom (index=0)."
                     )
                     coroutineScope.launch {
-                        animatedScrollTo(0)
+                        // New-message scroll is a short hop — don't suppress images for it.
+                        listState.animateScrollToItem(0)
                     }
                 }
             } else {
                 // Fallback: just scroll if we can't verify position
                 coroutineScope.launch {
-                    animatedScrollTo(0)
+                    // New-message scroll is a short hop — don't suppress images for it.
+                    listState.animateScrollToItem(0)
                 }
             }
             lastKnownTimelineEventId = lastEventId

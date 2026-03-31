@@ -16,9 +16,11 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.Encryption
 import net.vrkknn.andromuks.BuildConfig
@@ -212,11 +214,12 @@ class FCMService : FirebaseMessagingService() {
                                                 return@launch
                                             }
                                             
-                                            enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
-                                            
-                                            // Remove from pending after notification is shown
-                                            synchronized(pendingNotificationsLock) {
-                                                pendingNotifications.remove(notificationData.roomId)
+                                            withContext(NonCancellable) {
+                                                enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
+                                                // Remove from pending after notification is shown
+                                                synchronized(pendingNotificationsLock) {
+                                                    pendingNotifications.remove(notificationData.roomId)
+                                                }
                                             }
                                         } catch (e: Exception) {
                                             Log.e(TAG, "Error showing enhanced notification", e)
@@ -432,11 +435,12 @@ class FCMService : FirebaseMessagingService() {
                             return@launch
                         }
                         
-                        enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
-                        
-                        // Remove from pending after notification is shown
-                        synchronized(pendingNotificationsLock) {
-                            pendingNotifications.remove(roomId)
+                        withContext(NonCancellable) {
+                            enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
+                            // Remove from pending after notification is shown
+                            synchronized(pendingNotificationsLock) {
+                                pendingNotifications.remove(roomId)
+                            }
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Error showing enhanced notification", e)

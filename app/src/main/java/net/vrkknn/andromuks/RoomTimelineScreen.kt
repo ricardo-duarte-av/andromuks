@@ -2646,7 +2646,8 @@ fun RoomTimelineScreen(
                 !isKeyboardOpen // ONLY handle when keyboard is CLOSED
         ) {
             coroutineScope.launch {
-                animatedScrollTo(0)
+                // New-message scroll is a short hop — don't suppress images for it.
+                listState.animateScrollToItem(0)
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: New message arrived (keyboard closed), animateScrollToItem to bottom (index=0, attached=$isAttachedToBottom)")
             }
             lastKnownTimelineEventId = lastEventId
