@@ -115,13 +115,17 @@ fun AvatarImage(
         mutableStateOf(avatarUrl != null && isVisible)
     }
     
+    // Combine the caller-supplied flag with the CompositionLocal provided by the timeline screen.
+    // Either source can suppress loading; once an image has loaded it stays visible regardless.
+    val effectiveScrollingFast = LocalIsScrollingFast.current || isScrollingFast
+
     // AVATAR LOADING OPTIMIZATION: Update shouldLoadImage when visibility or avatarUrl changes
     // PERFORMANCE: Only prevent LOADING during fast scrolling, not DISPLAY of already-loaded images
-    LaunchedEffect(isVisible, avatarUrl, isScrollingFast) {
+    LaunchedEffect(isVisible, avatarUrl, effectiveScrollingFast) {
         if (isVisible && avatarUrl != null) {
             // Only allow loading if not fast scrolling OR image has already loaded
             // Once loaded, image stays visible even during fast scrolling
-            shouldLoadImage = !isScrollingFast || imageHasLoaded
+            shouldLoadImage = !effectiveScrollingFast || imageHasLoaded
         }
         // Don't reset shouldLoadImage when item becomes invisible - keep it true
         // This ensures cached images show instantly when scrolling back into view

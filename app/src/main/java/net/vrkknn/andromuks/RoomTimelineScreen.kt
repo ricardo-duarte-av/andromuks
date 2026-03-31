@@ -1993,6 +1993,21 @@ fun RoomTimelineScreen(
     // List state and auto-scroll to bottom when data loads/changes
     val listState = rememberLazyListState()
 
+    // True only during programmatic animated scrolls (FAB, keyboard, etc.).
+    // Used by LocalIsScrollingFast so that image loading is suspended only during those scrolls,
+    // NOT during slow manual scrolling where the user actually wants to see content.
+    var isAnimatedScrolling by remember { mutableStateOf(false) }
+
+    // Wrapper for every animateScrollToItem call site — sets/clears the flag atomically.
+    suspend fun animatedScrollTo(index: Int, offset: Int = 0) {
+        isAnimatedScrolling = true
+        try {
+            listState.animateScrollToItem(index, offset)
+        } finally {
+            isAnimatedScrolling = false
+        }
+    }
+
     // Prefetch guardband assets around the viewport (+50 above, +50 below).
     // Coil handles eviction naturally; we remove these keyed entries when leaving the room.
     val timelinePrefetchLoader = remember(context) { ImageLoaderSingleton.get(context) }
@@ -2239,7 +2254,7 @@ fun RoomTimelineScreen(
             // With reverseLayout, index 0 is bottom
             if (timelineItems.isNotEmpty()) {
                 coroutineScope.launch {
-                    listState.animateScrollToItem(0)
+                    animatedScrollTo(0)
                     if (BuildConfig.DEBUG) Log.d(
                         "Andromuks",
                         "RoomTimelineScreen: App resumed, animating scroll to bottom (index=0, items=${timelineItems.size}) - reverseLayout"
@@ -2258,7 +2273,7 @@ fun RoomTimelineScreen(
                 if (!actuallyAtBottom) {
                     // Still not at bottom after batch processing - animate scroll again
                     coroutineScope.launch {
-                        listState.animateScrollToItem(0)
+                        animatedScrollTo(0)
                         if (BuildConfig.DEBUG) Log.d(
                             "Andromuks",
                             "RoomTimelineScreen: App resumed, adjusted animated scroll after batch (was at index=$currentFirstVisible, scrolled to 0)"
@@ -2419,10 +2434,7 @@ fun RoomTimelineScreen(
                 // Use animateScrollToItem with smooth animation for smooth UX
                 // scrollOffset = 0 ensures the item is at the top of the viewport
                 // The animation duration is controlled by Compose's default animation
-                listState.animateScrollToItem(
-                    index = targetIndex,
-                    scrollOffset = 0
-                )
+                animatedScrollTo(targetIndex, 0)
                 
                 if (BuildConfig.DEBUG) Log.d(
                     "Andromuks",
@@ -2634,7 +2646,7 @@ fun RoomTimelineScreen(
                 !isKeyboardOpen // ONLY handle when keyboard is CLOSED
         ) {
             coroutineScope.launch {
-                listState.animateScrollToItem(0, scrollOffset = 0)
+                animatedScrollTo(0)
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: New message arrived (keyboard closed), animateScrollToItem to bottom (index=0, attached=$isAttachedToBottom)")
             }
             lastKnownTimelineEventId = lastEventId
@@ -3110,7 +3122,7 @@ fun RoomTimelineScreen(
                     // We were attached to bottom - with reverseLayout, bottom anchor stays fixed automatically
                     // But we can explicitly scroll to 0 to ensure we're at bottom
                     coroutineScope.launch {
-                        listState.animateScrollToItem(0)
+                        animatedScrollTo(0)
                         if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Keyboard opened, animated scroll to bottom (index=0) after layout settled - reverseLayout")
                     }
                 } else {
@@ -3121,7 +3133,7 @@ fun RoomTimelineScreen(
                     if (validIndex >= 0) {
                         coroutineScope.launch {
                             // Try to maintain the same item visible, but adjust if needed
-                            listState.animateScrollToItem(validIndex, savedOffset)
+                            animatedScrollTo(validIndex, savedOffset)
                             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Keyboard opened, maintained scroll position: index=$validIndex, offset=$savedOffset after layout settled")
                         }
                     }
@@ -3152,7 +3164,7 @@ fun RoomTimelineScreen(
                 if (wasAttachedBeforeKeyboard) {
                     // We were attached to bottom - with reverseLayout, index 0 is bottom
                     coroutineScope.launch {
-                        listState.animateScrollToItem(0)
+                        animatedScrollTo(0)
                         isAttachedToBottom = true
                         if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Keyboard closed, animated scroll to bottom (index=0) - reverseLayout")
                     }
@@ -3164,7 +3176,7 @@ fun RoomTimelineScreen(
                     val validIndex = savedIndex.coerceIn(0, timelineItems.lastIndex.coerceAtLeast(0))
                     if (validIndex >= 0) {
                         coroutineScope.launch {
-                            listState.animateScrollToItem(validIndex, savedOffset)
+                            animatedScrollTo(validIndex, savedOffset)
                             isAttachedToBottom = false // Keep detached state
                             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Keyboard closed, restored scroll position: index=$validIndex, offset=$savedOffset (was NOT attached)")
                         }
@@ -3182,7 +3194,8 @@ fun RoomTimelineScreen(
             eventId = highlightedEventId,
             requestId = highlightRequestId
         ),
-        LocalActiveMessageMenuEventId provides messageMenuConfig?.event?.eventId
+        LocalActiveMessageMenuEventId provides messageMenuConfig?.event?.eventId,
+        net.vrkknn.andromuks.ui.components.LocalIsScrollingFast provides isAnimatedScrolling
     ) {
         AndromuksTheme {
             Surface {
@@ -3315,7 +3328,7 @@ fun RoomTimelineScreen(
                                         if (listState.firstVisibleItemIndex == 0 &&
                                             listState.firstVisibleItemScrollOffset < 100
                                         ) {
-                                            listState.animateScrollToItem(0, scrollOffset = 0)
+                                            animatedScrollTo(0)
                                         }
                                     }
                                 }
@@ -4704,7 +4717,7 @@ fun RoomTimelineScreen(
                             coroutineScope.launch {
                                 // Animated scroll to bottom, then re-attach (FAB hides once settled)
                                 // With reverseLayout, index 0 is bottom
-                                listState.animateScrollToItem(0, scrollOffset = 0)
+                                animatedScrollTo(0)
                                 isAttachedToBottom = true
                                 if (BuildConfig.DEBUG) Log.d(
                                     "Andromuks",

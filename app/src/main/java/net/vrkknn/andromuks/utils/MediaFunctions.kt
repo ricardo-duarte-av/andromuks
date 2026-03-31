@@ -815,6 +815,9 @@ private fun MediaContent(
 ) {
     val density = LocalDensity.current
     
+    // Suspend disk/network loads while the timeline is scrolling; memory cache still serves instantly.
+    val isScrollingFast = net.vrkknn.andromuks.ui.components.LocalIsScrollingFast.current
+
     // Determine if we're using thumbnails
     // MSC4230: Skip thumbnails for animated images (GIF, animated PNG, animated WebP) to ensure animation plays
     // Thumbnails for animated images are typically static JPG/PNG, so we need to use the original
@@ -1214,7 +1217,8 @@ private fun MediaContent(
                                     }
                                 }
                                 .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                .diskCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                                .diskCachePolicy(if (bypassCoilCache || isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                                .networkCachePolicy(if (isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
                                 .size(600, 600) // QUALITY IMPROVEMENT: Larger size for better quality
                                 .build(),
                             imageLoader = imageLoader,
@@ -1497,7 +1501,8 @@ private fun MediaContent(
                                             .data(thumbnailFinalUrl)
                                             .addHeader("Cookie", "gomuks_auth=$authToken")
                                             .memoryCachePolicy(if (bypassCoilCacheForVideoThumb) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                            .diskCachePolicy(if (bypassCoilCacheForVideoThumb) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                                            .diskCachePolicy(if (bypassCoilCacheForVideoThumb || isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                                            .networkCachePolicy(if (isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
                                             .size(600, 600) // QUALITY IMPROVEMENT: Larger size for better quality
                                             .build(),
                                     imageLoader = imageLoader,

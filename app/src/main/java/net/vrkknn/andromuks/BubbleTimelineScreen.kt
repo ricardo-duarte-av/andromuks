@@ -1621,8 +1621,19 @@ fun BubbleTimelineScreen(
     }
 
     // List state and auto-scroll to bottom when data loads/changes
-    // List state and auto-scroll to bottom when data loads/changes
     val listState = rememberLazyListState()
+
+    // True only during programmatic animated scrolls (FAB, keyboard, etc.).
+    var isAnimatedScrolling by remember { mutableStateOf(false) }
+
+    suspend fun animatedScrollTo(index: Int, offset: Int = 0) {
+        isAnimatedScrolling = true
+        try {
+            listState.animateScrollToItem(index, offset)
+        } finally {
+            isAnimatedScrolling = false
+        }
+    }
 
     // Prefetch guardband assets around the viewport (+50 above, +50 below).
     // Coil handles eviction naturally; we remove these keyed entries when bubble closes.
@@ -1939,7 +1950,7 @@ fun BubbleTimelineScreen(
             // With reverseLayout, index 0 is bottom
             if (timelineItems.isNotEmpty()) {
                 coroutineScope.launch {
-                    listState.animateScrollToItem(0)
+                    animatedScrollTo(0)
                     if (BuildConfig.DEBUG) Log.d(
                         "Andromuks",
                         "BubbleTimelineScreen: App resumed, animating scroll to bottom (index=0, items=${timelineItems.size}) - reverseLayout"
@@ -1959,7 +1970,7 @@ fun BubbleTimelineScreen(
                 if (!actuallyAtBottom) {
                     // Still not at bottom after batch processing - animate scroll again
                     coroutineScope.launch {
-                        listState.animateScrollToItem(0)
+                        animatedScrollTo(0)
                         if (BuildConfig.DEBUG) Log.d(
                             "Andromuks",
                             "BubbleTimelineScreen: App resumed, adjusted animated scroll after batch (was at index=$currentFirstVisible, scrolled to 0)"
@@ -2022,10 +2033,7 @@ fun BubbleTimelineScreen(
                 // Use animateScrollToItem with smooth animation for smooth UX
                 // scrollOffset = 0 ensures the item is at the top of the viewport
                 // The animation duration is controlled by Compose's default animation
-                listState.animateScrollToItem(
-                    index = targetIndex,
-                    scrollOffset = 0
-                )
+                animatedScrollTo(targetIndex, 0)
                 
                 if (BuildConfig.DEBUG) Log.d(
                     "Andromuks",
@@ -2190,13 +2198,13 @@ fun BubbleTimelineScreen(
                         "BubbleTimelineScreen: Attached but not at bottom (firstVisible=$currentFirstVisible). animateScrollToItem to bottom (index=0)."
                     )
                     coroutineScope.launch {
-                        listState.animateScrollToItem(0, scrollOffset = 0)
+                        animatedScrollTo(0)
                     }
                 }
             } else {
                 // Fallback: just scroll if we can't verify position
                 coroutineScope.launch {
-                    listState.animateScrollToItem(0, scrollOffset = 0)
+                    animatedScrollTo(0)
                 }
             }
             lastKnownTimelineEventId = lastEventId
@@ -2254,7 +2262,7 @@ fun BubbleTimelineScreen(
             
             // Animate scroll to bottom for smooth transition
             coroutineScope.launch {
-                listState.animateScrollToItem(0, scrollOffset = 0)
+                animatedScrollTo(0)
                 isAttachedToBottom = true // Update state
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Keyboard opened, animated scroll to bottom (index=0) after layout settled - reverseLayout")
             }
@@ -2525,7 +2533,8 @@ fun BubbleTimelineScreen(
             eventId = highlightedEventId,
             requestId = highlightRequestId
         ),
-        LocalActiveMessageMenuEventId provides messageMenuConfig?.event?.eventId
+        LocalActiveMessageMenuEventId provides messageMenuConfig?.event?.eventId,
+        net.vrkknn.andromuks.ui.components.LocalIsScrollingFast provides isAnimatedScrolling
     ) {
         AndromuksTheme {
             Surface {
@@ -2642,7 +2651,7 @@ fun BubbleTimelineScreen(
                                         if (listState.firstVisibleItemIndex == 0 &&
                                             listState.firstVisibleItemScrollOffset < 100
                                         ) {
-                                            listState.animateScrollToItem(0, scrollOffset = 0)
+                                            animatedScrollTo(0)
                                         }
                                     }
                                 }
@@ -3562,7 +3571,7 @@ fun BubbleTimelineScreen(
                             coroutineScope.launch {
                                 // Animated scroll to bottom, then re-attach (FAB hides once settled)
                                 // With reverseLayout, index 0 is bottom
-                                listState.animateScrollToItem(0, scrollOffset = 0)
+                                animatedScrollTo(0)
                                 isAttachedToBottom = true
                                 if (BuildConfig.DEBUG) Log.d(
                                     "Andromuks",
