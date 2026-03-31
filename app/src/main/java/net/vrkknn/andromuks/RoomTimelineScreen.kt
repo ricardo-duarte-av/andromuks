@@ -2098,6 +2098,7 @@ fun RoomTimelineScreen(
     var anchorScrollOffsetForRestore by remember { mutableStateOf(0) }
     var pendingScrollRestoration by remember { mutableStateOf(false) }
     var expectedTimelineSizeBeforePagination by remember { mutableStateOf<Int?>(null) }
+
     
     // Pull-to-refresh state
     var isRefreshingPull by remember { mutableStateOf(false) }
@@ -2160,14 +2161,20 @@ fun RoomTimelineScreen(
     var hasSetInitialScrollPosition by remember(roomId) { mutableStateOf(false) }
     LaunchedEffect(timelineItems.size, roomId) {
         if (timelineItems.isNotEmpty() && !hasSetInitialScrollPosition) {
-            // With reverseLayout, index 0 is the bottom (newest message)
-            listState.scrollToItem(0)
-            isAttachedToBottom = true
+            val threadReturnEventId = appViewModel.threadReturnScrollEventId
+            if (threadReturnEventId != null) {
+                // Returning from thread viewer — don't scroll to bottom here; the main
+                // initial-scroll LaunchedEffect below will handle positioning.
+            } else {
+                // With reverseLayout, index 0 is the bottom (newest message)
+                listState.scrollToItem(0)
+                isAttachedToBottom = true
+                if (BuildConfig.DEBUG) Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Set initial scroll position to bottom (index=0, items=${timelineItems.size}) - reverseLayout anchors at bottom"
+                )
+            }
             hasSetInitialScrollPosition = true
-            if (BuildConfig.DEBUG) Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Set initial scroll position to bottom (index=0, items=${timelineItems.size}) - reverseLayout anchors at bottom"
-            )
         }
     }
     
@@ -2177,6 +2184,13 @@ fun RoomTimelineScreen(
     LaunchedEffect(timelineItems.size, isAttachedToBottom) {
         if (pendingScrollRestoration) {
             return@LaunchedEffect // Don't scroll during pagination scroll restoration
+        }
+        // This effect fires before the main initial-scroll effect (lower line number), so
+        // pendingScrollRestoration isn't set yet on thread-viewer return. Check the event ID
+        // directly — it's still non-null at this point because the initial-scroll effect
+        // hasn't cleared it yet.
+        if (appViewModel.threadReturnScrollEventId != null) {
+            return@LaunchedEffect
         }
         if (timelineItems.isNotEmpty() && isAttachedToBottom && hasSetInitialScrollPosition) {
             val currentFirstVisible = listState.firstVisibleItemIndex
@@ -2549,15 +2563,53 @@ fun RoomTimelineScreen(
                     return@launch
                 }
                 
-                // With reverseLayout, index 0 is bottom (newest message)
-                listState.scrollToItem(0)
-                isAttachedToBottom = true
+                // Check if we're returning from a thread viewer — scroll to the tapped message
+                // instead of jumping to the bottom. The event ID survives composable recreation
+                // because it's stored in AppViewModel.
+                val threadReturnEventId = appViewModel.threadReturnScrollEventId
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Initial scroll check - threadReturnScrollEventId=$threadReturnEventId, timelineItems=${timelineItems.size}")
+                if (threadReturnEventId != null) {
+                    // Suppress all other scroll effects BEFORE suspending at scrollToItem.
+                    // Without this, the readinessCheckComplete LaunchedEffect races us: it wakes
+                    // up while we're suspended at scrollToItem(targetIndex), sees the event ID
+                    // already cleared, and calls scrollToItem(0) — overriding our restoration.
+                    pendingScrollRestoration = true
+                    appViewModel.threadReturnScrollEventId = null
+                    val targetIndex = timelineItems.indexOfFirst {
+                        (it as? TimelineItem.Event)?.event?.eventId == threadReturnEventId
+                    }
+                    if (targetIndex >= 0) {
+                        // timelineItems is oldest-first, but the LazyColumn renders reversedTimelineItems
+                        // (timelineItems.reversed()) with reverseLayout=true so index 0 = newest (visual bottom).
+                        // Convert: reversedIndex = timelineItems.size - 1 - targetIndex
+                        val reversedIndex = timelineItems.size - 1 - targetIndex
+                        listState.scrollToItem(reversedIndex)
+                        isAttachedToBottom = false
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: ✅ Restored scroll to thread-tapped event $threadReturnEventId at index=$targetIndex (reversedIndex=$reversedIndex) after returning from thread viewer")
+                    } else {
+                        // Event not found (e.g. paginated away) — fall back to bottom
+                        pendingScrollRestoration = false
+                        listState.scrollToItem(0)
+                        isAttachedToBottom = true
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Thread return event $threadReturnEventId not found, falling back to bottom")
+                    }
+                } else {
+                    // Normal initial load — scroll to bottom (newest message)
+                    listState.scrollToItem(0)
+                    isAttachedToBottom = true
+                }
                 hasInitialSnapCompleted = true
                 hasLoadedInitialBatch = true
                 previousItemCount = timelineItems.size
                 lastKnownTimelineEventId = lastEventId
                 lastKnownTimelineUpdateCounter = appViewModel.timelineUpdateCounter
-                
+
+                // Release suppression after a brief settle period so normal scroll tracking resumes.
+                if (pendingScrollRestoration) {
+                    kotlinx.coroutines.delay(150)
+                    pendingScrollRestoration = false
+                }
+
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items, index=0, updateCounter: ${appViewModel.timelineUpdateCounter}) - reverseLayout")
             }
             return@LaunchedEffect
@@ -2605,9 +2657,13 @@ fun RoomTimelineScreen(
         if (pendingInitialScroll && readinessCheckComplete && timelineItems.isNotEmpty() &&
             timelineItems.size != lastInitialScrollSize) {
             coroutineScope.launch {
-                // With reverseLayout, index 0 is bottom
-                listState.scrollToItem(0)
-                isAttachedToBottom = true
+                // Skip bottom-scroll if the main initial-scroll effect is already handling
+                // thread-return restoration (it sets pendingScrollRestoration before suspending).
+                if (!pendingScrollRestoration) {
+                    // With reverseLayout, index 0 is bottom
+                    listState.scrollToItem(0)
+                    isAttachedToBottom = true
+                }
                 hasInitialSnapCompleted = true
                 pendingInitialScroll = false
                 lastInitialScrollSize = timelineItems.size
@@ -2616,6 +2672,8 @@ fun RoomTimelineScreen(
     }
 
     LaunchedEffect(roomId) {
+        // Capture before any suspension — the big initial-scroll effect clears this after it fires.
+        val isThreadViewerReturn = appViewModel.threadReturnScrollEventId != null
         val isWarmTimelineReturn = appViewModel.currentRoomId == roomId && appViewModel.timelineEvents.isNotEmpty()
         readinessCheckComplete = isWarmTimelineReturn
         pendingInitialScroll = !isWarmTimelineReturn
@@ -2658,13 +2716,17 @@ fun RoomTimelineScreen(
         // This is also done in setCurrentRoomIdForTimeline, but we ensure it here too
         RoomTimelineCache.addOpenedRoom(roomId)
         
-        // Reset state for new room
-        pendingScrollRestoration = false
+        // Reset state for new room.
+        // Skip the scroll-related resets when returning from thread viewer — the big
+        // initial-scroll LaunchedEffect already restored the position and owns those flags.
+        if (!isThreadViewerReturn) {
+            pendingScrollRestoration = false
+            isAttachedToBottom = true
+            isInitialLoad = true
+            hasInitialSnapCompleted = false
+        }
         highestVisibleIndexBeforePagination = null
         hasLoadedInitialBatch = false
-        isAttachedToBottom = true
-        isInitialLoad = true
-        hasInitialSnapCompleted = false
         
         // CRITICAL FIX: Ensure loading state is set early when opening a new room
         // This ensures "Room loading..." shows immediately while room data is being loaded/processed
@@ -3468,6 +3530,8 @@ fun RoomTimelineScreen(
                                                     if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Thread message clicked, opening thread for root: ${threadInfo.threadRootEventId}")
                                                     val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
                                                     val encodedThreadRoot = java.net.URLEncoder.encode(threadInfo.threadRootEventId, "UTF-8")
+                                                    appViewModel.threadReturnScrollEventId = threadEvent.eventId
+                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Set threadReturnScrollEventId=${threadEvent.eventId}")
                                                     navController.navigate("thread_viewer/$encodedRoomId/$encodedThreadRoot")
                                                 }
                                                 },
@@ -3499,6 +3563,7 @@ fun RoomTimelineScreen(
                                                             if (threadInfo != null) {
                                                                 val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
                                                                 val encodedThreadRoot = java.net.URLEncoder.encode(threadInfo.threadRootEventId, "UTF-8")
+                                                                appViewModel.threadReturnScrollEventId = menuConfig.event.eventId
                                                                 navController.navigate("thread_viewer/$encodedRoomId/$encodedThreadRoot")
                                                             }
                                                         }

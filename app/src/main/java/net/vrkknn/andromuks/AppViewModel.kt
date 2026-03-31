@@ -3566,6 +3566,10 @@ class AppViewModel : ViewModel() {
 
     // Pending highlight targets (e.g., notification taps)
     internal val pendingHighlightEvents = ConcurrentHashMap<String, String>()
+
+    // Thread viewer return scroll target: event ID to scroll to when returning from thread viewer.
+    // Stored here (not in composable remember) so it survives composable recreation on back-navigation.
+    var threadReturnScrollEventId: String? = null
     
     // Websocket restart callback
     var onRestartWebSocket: ((ReconnectTrigger) -> Unit)? = null
