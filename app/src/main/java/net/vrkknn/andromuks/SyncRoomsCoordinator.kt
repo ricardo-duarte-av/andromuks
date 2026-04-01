@@ -705,7 +705,7 @@ internal class SyncRoomsCoordinator(
                                         // Bridge bots (e.g. mautrix) send m.read for their own
                                         // com.beeper.message_send_status events; those events are
                                         // never in the timeline so the receipt would be invisible.
-                                        // Move them to the original message event ID instead.
+                                        // Move them to the original message event ID instead (and mark as delivered).
                                         if (bridgeStatusEventToMessageId.isNotEmpty()) {
                                             var remapped = false
                                             bridgeStatusEventToMessageId.forEach { (statusEventId, originalMessageId) ->
@@ -718,11 +718,25 @@ internal class SyncRoomsCoordinator(
                                                         }
                                                     }
                                                     remapped = true
+                                                    
+                                                    // (3) IMPLICIT DELIVERY: Receipt on status event implies delivery of original
+                                                    updateBridgeStatus(originalMessageId, "delivered")
+                                                    
                                                     if (BuildConfig.DEBUG)
-                                                        android.util.Log.d("Andromuks", "BridgeReceipt: remapped ${displaced.size} receipt(s) from status event $statusEventId → $originalMessageId (sync_complete)")
+                                                        android.util.Log.d("Andromuks", "BridgeReceipt: remapped ${displaced.size} receipt(s) from status event $statusEventId → $originalMessageId (sync_complete, marked delivered)")
                                                 }
                                             }
                                             if (remapped) readReceiptsUpdateCounter++
+                                        }
+
+                                        // Also check for regular receipts on our messages
+                                        val receiptsKeys = receipts.keys()
+                                        while (receiptsKeys.hasNext()) {
+                                            val eventId = receiptsKeys.next()
+                                            if (messageBridgeSendStatus.containsKey(eventId)) {
+                                                // (3) IMPLICIT DELIVERY: Receipt on message implies delivery
+                                                updateBridgeStatus(eventId, "delivered")
+                                            }
                                         }
                                     }
                                     anyReceiptsProcessed = true

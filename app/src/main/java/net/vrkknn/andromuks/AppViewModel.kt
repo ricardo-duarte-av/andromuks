@@ -619,6 +619,22 @@ class AppViewModel : ViewModel() {
         internal set
 
     /**
+     * Internal helper to update bridge status and notify UI.
+     * Prevents logical downgrades (e.g., from "delivered" back to "sent").
+     */
+    fun updateBridgeStatus(relatedEventId: String, status: String) {
+        val currentStatus = messageBridgeSendStatus[relatedEventId]
+        if (currentStatus == status) return
+        
+        // Never downgrade from "delivered" back to "sent" or error
+        if (currentStatus == "delivered") return
+
+        messageBridgeSendStatus = messageBridgeSendStatus + (relatedEventId to status)
+        bridgeSendStatusCounter++
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "BridgeStatus: $relatedEventId -> $status (counter=$bridgeSendStatusCounter)")
+    }
+
+    /**
      * Process a com.beeper.message_send_status event and update the in-memory status and
      * delivery-info maps.
      *
@@ -639,9 +655,10 @@ class AppViewModel : ViewModel() {
         deliveredToUsers: List<String>?,
         eventTimestamp: Long
     ) {
-        val currentStatus = messageBridgeSendStatus[relatedEventId]
+        // (1) IMPLICIT SUCCESS: Presence of deliveredToUsers implies SUCCESS
+        val effectiveStatus = if (!deliveredToUsers.isNullOrEmpty()) "SUCCESS" else status
 
-        val newStatus = when (status) {
+        val newStatus = when (effectiveStatus) {
             "SUCCESS" -> {
                 val isDelivered = when {
                     deliveredToUsers.isNullOrEmpty() -> false
@@ -663,21 +680,15 @@ class AppViewModel : ViewModel() {
                         }
                     }
                 }
-                if (isDelivered) {
-                    "delivered"
-                } else {
-                    // Never downgrade from "delivered" back to "sent"
-                    if (currentStatus == "delivered") return
-                    "sent"
-                }
+                if (isDelivered) "delivered" else "sent"
             }
             "FAIL_RETRIABLE" -> "error_retriable"
             "FAIL_PERMANENT" -> "error_permanent"
             else -> return // PENDING or unknown: wait for the final status event
         }
 
-        // Update detailed delivery info for the dialog (SUCCESS only)
-        if (status == "SUCCESS") {
+        // Update detailed delivery info for the dialog (SUCCESS case)
+        if (effectiveStatus == "SUCCESS") {
             val prev = messageBridgeDeliveryInfo[relatedEventId] ?: BridgeDeliveryInfo()
             val newSentAt = if (prev.sentAt == null) eventTimestamp else minOf(prev.sentAt, eventTimestamp)
             val newDeliveries = if (!deliveredToUsers.isNullOrEmpty()) {
@@ -690,8 +701,7 @@ class AppViewModel : ViewModel() {
             messageBridgeDeliveryInfo[relatedEventId] = BridgeDeliveryInfo(sentAt = newSentAt, deliveries = newDeliveries)
         }
 
-        messageBridgeSendStatus = messageBridgeSendStatus + (relatedEventId to newStatus)
-        bridgeSendStatusCounter++
+        updateBridgeStatus(relatedEventId, newStatus)
     }
 
     // Track pending message sends for send button animation

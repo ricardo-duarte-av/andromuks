@@ -81,6 +81,13 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
                                         readReceipts[eventId] =
                                             (existingReceipts + newReceipts).toMutableList()
                                         hasChanges = true
+                                        
+                                        // (3) IMPLICIT DELIVERY: Receipt in cache implies delivery
+                                        val targetMessageId = bridgeStatusEventToMessageId[eventId] ?: eventId
+                                        if (messageBridgeSendStatus.containsKey(targetMessageId)) {
+                                            updateBridgeStatus(targetMessageId, "delivered")
+                                        }
+
                                         if (BuildConfig.DEBUG)
                                             android.util.Log.d(
                                                 "Andromuks",

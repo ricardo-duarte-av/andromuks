@@ -1840,6 +1840,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                                                 )
                                                         } else {
                                                             readReceipts[eventId] = receipts
+
+                                                            // (3) IMPLICIT DELIVERY: Receipt in paginate implies delivery
+                                                            if (messageBridgeSendStatus.containsKey(eventId)) {
+                                                                updateBridgeStatus(eventId, "delivered")
+                                                            }
+
                                                             if (BuildConfig.DEBUG)
                                                                 android.util.Log.d(
                                                                     "Andromuks",
