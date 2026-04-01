@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
@@ -497,14 +498,15 @@ fun InlineReadReceiptAvatars(
         // Build list of items to display (avatars + optional + indicator)
         // IMPORTANT: + indicator must be last in the list so it's drawn on top
         val itemsToDisplay = mutableListOf<Pair<ReadReceipt?, Int>>() // (receipt, index) or (null, index) for + indicator
+        val totalItems = avatarsToShow.size + (if (remainingCount > 0) 1 else 0)
         if (isMine) {
-            // For "my messages": show + on the left (index 0), then avatars
-            // But draw + last so it appears on top
-            avatarsToShow.forEachIndexed { index, receipt ->
-                itemsToDisplay.add(Pair(receipt, index + 1)) // Avatars start at index 1
+            // For "my messages": avatar0 is rightmost (closest to bubble), "+" is leftmost (index 0), drawn last = on top.
+            // Higher index = further right. Avatar0 gets the highest index so it sits closest to the bubble.
+            avatarsToShow.forEachIndexed { i, receipt ->
+                itemsToDisplay.add(Pair(receipt, totalItems - 1 - i))
             }
             if (remainingCount > 0) {
-                itemsToDisplay.add(Pair(null, 0)) // + at index 0, but added last to draw on top
+                itemsToDisplay.add(Pair(null, 0)) // "+" at leftmost, drawn last = on top
             }
         } else {
             // For "others' messages": show avatars first, then + on the right (last index)
@@ -516,15 +518,19 @@ fun InlineReadReceiptAvatars(
                 itemsToDisplay.add(Pair(null, avatarsToShow.size)) // + at last index, added last to draw on top
             }
         }
-        
+
         // Circle diameter and overlap calculation
         val circleSize = 22.dp // Reduced from 24.dp to make fallback text fit better
         val avatarSize = 14.dp // Reduced from 16.dp to make fallback text fit better
         val plusCircleSize = 16.dp // Smaller circle for + indicator
         val overlap = circleSize * 0.4f // More compact overlap (8.8.dp)
-        
+        // Reserve exact width so the Row allocates correct space and items don't overflow into the bubble
+        val totalWidth = overlap * maxOf(0f, (totalItems - 1).toFloat()) + circleSize
+
         Box(
-            modifier = Modifier.padding(top = 4.dp) // Align with the top of message bubble
+            modifier = Modifier
+                .width(totalWidth)
+                .padding(top = 4.dp) // Align with the top of message bubble
         ) {
             itemsToDisplay.forEachIndexed { displayIndex, (receipt, originalIndex) ->
                 val offsetX = (originalIndex * overlap.value).dp
@@ -677,14 +683,15 @@ fun AnimatedInlineReadReceiptAvatars(
         // Build list of items to display (avatars + optional + indicator)
         // IMPORTANT: + indicator must be last in the list so it's drawn on top
         val itemsToDisplay = mutableListOf<Pair<ReadReceipt?, Int>>() // (receipt, index) or (null, index) for + indicator
+        val totalItems = avatarsToShow.size + (if (remainingCount > 0) 1 else 0)
         if (isMine) {
-            // For "my messages": show + on the left (index 0), then avatars
-            // But draw + last so it appears on top
-            avatarsToShow.forEachIndexed { index, receipt ->
-                itemsToDisplay.add(Pair(receipt, index + 1)) // Avatars start at index 1
+            // For "my messages": avatar0 is rightmost (closest to bubble), "+" is leftmost (index 0), drawn last = on top.
+            // Higher index = further right. Avatar0 gets the highest index so it sits closest to the bubble.
+            avatarsToShow.forEachIndexed { i, receipt ->
+                itemsToDisplay.add(Pair(receipt, totalItems - 1 - i))
             }
             if (remainingCount > 0) {
-                itemsToDisplay.add(Pair(null, 0)) // + at index 0, but added last to draw on top
+                itemsToDisplay.add(Pair(null, 0)) // "+" at leftmost, drawn last = on top
             }
         } else {
             // For "others' messages": show avatars first, then + on the right (last index)
@@ -696,15 +703,19 @@ fun AnimatedInlineReadReceiptAvatars(
                 itemsToDisplay.add(Pair(null, avatarsToShow.size)) // + at last index, added last to draw on top
             }
         }
-        
+
         // Circle diameter and overlap calculation
         val circleSize = 22.dp // Reduced from 24.dp to make fallback text fit better
         val avatarSize = 14.dp // Reduced from 16.dp to make fallback text fit better
         val plusCircleSize = 16.dp // Smaller circle for + indicator
         val overlap = circleSize * 0.4f // More compact overlap (8.8.dp)
-        
+        // Reserve exact width so the Row allocates correct space and items don't overflow into the bubble
+        val totalWidth = overlap * maxOf(0f, (totalItems - 1).toFloat()) + circleSize
+
         Box(
-            modifier = Modifier.padding(top = 4.dp) // Align with the top of message bubble
+            modifier = Modifier
+                .width(totalWidth)
+                .padding(top = 4.dp) // Align with the top of message bubble
         ) {
             itemsToDisplay.forEachIndexed { displayIndex, (receipt, originalIndex) ->
                 val offsetX = (originalIndex * overlap.value).dp
