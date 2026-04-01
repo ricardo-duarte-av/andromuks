@@ -162,6 +162,11 @@ class MainActivity : ComponentActivity() {
     private var viewModelVisibilitySynced = false
     private var pendingShareIntent: Intent? = null
     private var pendingReplyIntent: Intent? = null
+    // Set by onUserLeaveHint (HOME / recents) and consumed in onStop.
+    // onUserLeaveHint is NOT called when we launch a child activity from within the app,
+    // so this flag is only true when the user genuinely left the task.
+    private var userLeftTask = false
+    private var hasBeenStopped = false
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -782,6 +787,12 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
 
+        // A new explicit intent arrived — cancel any pending "go back to room_list" redirect
+        // that was queued when the app was backgrounded in a notification-opened room.
+        if (::appViewModel.isInitialized) {
+            appViewModel.returnToRoomListOnResume = false
+        }
+
         // Handle ACTION_REPLY from notification when MainActivity is already running
         if (intent.action == "net.vrkknn.andromuks.ACTION_REPLY") {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - ACTION_REPLY received")
@@ -912,9 +923,13 @@ class MainActivity : ComponentActivity() {
     
     override fun onStop() {
         super.onStop()
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onStop called")
+        if (userLeftTask) {
+            hasBeenStopped = true
+        }
+        userLeftTask = false
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onStop called (hasBeenStopped=$hasBeenStopped)")
     }
-    
+
     override fun onPause() {
         super.onPause()
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onPause called")
@@ -938,6 +953,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        // Mark that the user left via HOME / recents (not via launching a child activity).
+        userLeftTask = true
         if (::appViewModel.isInitialized && appViewModel.isCallActive() && appViewModel.isCallReadyForPip()) {
             if (canEnterPip()) {
                 try {
@@ -948,10 +965,18 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    
+
     override fun onStart() {
         super.onStart()
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onStart called")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onStart called (hasBeenStopped=$hasBeenStopped)")
+        if (hasBeenStopped && ::appViewModel.isInitialized && appViewModel.openedViaDirectNotification) {
+            // The app was foregrounded from the background (app-icon or recents) while showing
+            // a room opened directly from a notification with no room_list in the Compose back
+            // stack.  Signal AppNavigation to navigate to room_list so the user lands on the
+            // expected screen rather than the notification room.
+            appViewModel.returnToRoomListOnResume = true
+        }
+        hasBeenStopped = false
     }
 
     private fun canEnterPip(): Boolean {
@@ -1041,6 +1066,19 @@ fun AppNavigation(
                 launchSingleTop = true
             }
             appViewModel.markPendingShareNavigationHandled()
+        }
+    }
+
+    // When the user foregrounds the app via the app icon after it was opened into a room
+    // directly from a notification (no room_list in the back stack), navigate to room_list
+    // so the app behaves as expected rather than re-showing the notification room.
+    LaunchedEffect(appViewModel.returnToRoomListOnResume) {
+        if (appViewModel.returnToRoomListOnResume) {
+            appViewModel.returnToRoomListOnResume = false
+            appViewModel.openedViaDirectNotification = false
+            navController.navigate("room_list") {
+                popUpTo(0) { inclusive = true }
+            }
         }
     }
     

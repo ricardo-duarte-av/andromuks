@@ -149,7 +149,13 @@ class AppViewModel : ViewModel() {
     fun setOpenedFromExternalApp(value: Boolean) {
         _openedFromExternalApp = value
     }
-    
+
+    // Set when AuthCheck navigates directly to room_timeline without room_list in the back stack
+    // (i.e. the app was cold-started from a notification). Cleared once the user is sent back to
+    // room_list on the next foreground resume (app-icon tap after minimising).
+    var openedViaDirectNotification: Boolean = false
+    var returnToRoomListOnResume: Boolean by mutableStateOf(false)
+
     // Tracks which sender profiles have been processed per room to avoid duplicate fetches.
     // Used by RoomListScreen opportunistic profile loading.
     val processedSendersByRoom = mutableStateMapOf<String, MutableSet<String>>()

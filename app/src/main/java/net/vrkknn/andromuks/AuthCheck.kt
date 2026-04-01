@@ -343,6 +343,9 @@ fun AuthCheckScreen(
                     navController.navigate("room_timeline/$encodedRoomId") {
                         popUpTo("auth_check") { inclusive = true }
                     }
+                    // Mark that room_list is not in the back stack so MainActivity can redirect
+                    // to room_list the next time the app is foregrounded via the app icon.
+                    appViewModel.openedViaDirectNotification = true
                     return@setNavigationCallback
                 }
                 

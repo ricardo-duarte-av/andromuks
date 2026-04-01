@@ -41,13 +41,21 @@ import androidx.activity.compose.BackHandler
  * - Optimized for single-room focus
  */
 class ShortcutActivity : ComponentActivity() {
-    
+
+    private var currentRoomId: String? = null
+    // Set by onUserLeaveHint (HOME / recents navigation) and consumed in onStop to arm the
+    // "finish on next foreground" flag.  onUserLeaveHint is NOT called when we launch a
+    // child activity (e.g. an image viewer) from within the app, so this correctly ignores
+    // child-activity open/close cycles.
+    private var userLeftTask = false
+    private var hasBeenStopped = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
         // Initialize crash handler
         net.vrkknn.andromuks.utils.CrashHandler.initialize(this)
-        
+
         // Extract room ID from intent
         val roomId = extractRoomIdFromIntent(intent)
         if (roomId == null) {
@@ -55,9 +63,10 @@ class ShortcutActivity : ComponentActivity() {
             finish()
             return
         }
-        
+        currentRoomId = roomId
+
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Direct shortcut navigation to room: $roomId")
-        
+
         setContent {
             AndromuksTheme {
                 Surface(
@@ -67,6 +76,56 @@ class ShortcutActivity : ComponentActivity() {
                     ShortcutNavigation(roomId = roomId)
                 }
             }
+        }
+    }
+
+    // singleTop: called instead of onCreate when this activity is already at the top of the
+    // task and a new shortcut/widget intent arrives.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val newRoomId = extractRoomIdFromIntent(intent) ?: return
+        if (newRoomId != currentRoomId) {
+            // Different room — finish and let Android start a fresh instance so the
+            // Compose NavController is rebuilt for the new room.
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: onNewIntent - different room ($currentRoomId → $newRoomId), restarting")
+            finish()
+            startActivity(Intent(this, ShortcutActivity::class.java).apply {
+                putExtra("room_id", newRoomId)
+            })
+        }
+        // Same room: activity is already showing it, nothing to do.
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // Called only when the user leaves the task via HOME or recents — NOT when we launch
+        // a child activity from within the app (startActivity from our own code keeps the flag
+        // false).  Arm the flag so onStop can mark us as "backgrounded by user".
+        userLeftTask = true
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (userLeftTask) {
+            hasBeenStopped = true
+        }
+        userLeftTask = false
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: onStop called (hasBeenStopped=$hasBeenStopped)")
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (hasBeenStopped) {
+            hasBeenStopped = false
+            // The user foregrounded the app (app-icon or recents) after leaving via HOME from a
+            // pinned shortcut / conversation widget.  Finish this activity so MainActivity (which
+            // lives below in the same task) becomes the visible screen, preserving wherever the
+            // user left it.  If MainActivity is not in the task (pure-shortcut first launch),
+            // finishing here returns to the home screen; a subsequent app-icon tap starts
+            // MainActivity normally.
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: onStart after user-leave background — finishing to reveal MainActivity")
+            finish()
         }
     }
     
@@ -113,113 +172,79 @@ fun ShortcutNavigation(roomId: String) {
     val navController = rememberNavController()
     val appViewModel: AppViewModel = viewModel()
     val context = androidx.compose.ui.platform.LocalContext.current
-    
-    // CRITICAL FIX #3: Track navigation state to prevent multiple navigations
+
+    // Fast path: if the WebSocket is already connected (app was running in the background)
+    // skip the loading spinner entirely and go straight to the room.
+    val alreadyConnected = remember { WebSocketService.isWebSocketConnected() }
     var hasNavigated by remember { mutableStateOf(false) }
-    var showLoading by remember { mutableStateOf(true) }
-    
-    // Initialize AppViewModel like MainActivity does
+    // Only show the loading screen when we actually need to wait for the connection.
+    var showLoading by remember { mutableStateOf(!alreadyConnected) }
+
+    // Initialize AppViewModel (runs regardless of fast/slow path).
     LaunchedEffect(Unit) {
-        // Get homeserver URL and auth token from SharedPreferences (needed for initializeFCM)
         val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
         val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
         val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
-        
-        // Initialize FCM to set appContext (required for cache access)
-        // This is critical for loading events when RAM cache is empty
+
         appViewModel.initializeFCM(context, homeserverUrl, authToken)
-        
-        // CRITICAL: Do NOT mark as primary - only MainActivity's AppViewModel should be primary
-        // This ensures only AppViewModel_0 creates WebSocket connections, which are then maintained by the Foreground service
-        // ShortcutActivity instances should attach to existing connections created by the primary instance
-        // appViewModel.markAsPrimaryInstance() // REMOVED - ShortcutActivity is secondary
-        
-        // Load cached user profiles on app startup
-        // This restores previously saved user profile data from disk
         appViewModel.loadCachedProfiles(context)
-        
-        // Load app settings from SharedPreferences
         appViewModel.loadSettings(context)
-        
-        // Re-attach to existing WebSocket connection if the service already has one
         appViewModel.attachToExistingWebSocketIfAvailable()
-        
-        // CRITICAL FIX #3: Load spaces from storage if not already loaded
-        // This ensures spacesLoaded is true even if primary AppViewModel hasn't loaded yet
+
         if (!appViewModel.spacesLoaded) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: Spaces not loaded, loading from storage...")
             appViewModel.loadStateFromStorage(context)
         }
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: AppViewModel initialized with profiles, settings, and FCM")
+
+        // Fast path: WebSocket was already up when the composable was first created —
+        // set up room state now (init above has finished) and mark navigation done so
+        // the slow-path LaunchedEffects below do nothing.
+        if (alreadyConnected && !hasNavigated) {
+            appViewModel.setCurrentRoomIdForTimeline(roomId)
+            appViewModel.navigateToRoomWithCache(roomId)
+            hasNavigated = true
+            showLoading = false
+        }
     }
-    
-    // CRITICAL FIX #3: Wait for WebSocket connection and spacesLoaded before navigating
-    // This ensures proper state before showing room timeline (prevents unpredictable behavior)
+
+    // Slow path: wait for WebSocket connection and spacesLoaded before navigating.
     LaunchedEffect(appViewModel.spacesLoaded) {
         if (hasNavigated) return@LaunchedEffect
-        
-        val spacesReady = appViewModel.spacesLoaded
-        
-        if (spacesReady) {
-            // Poll WebSocket connection status (check every 100ms, max 100 times = 10 seconds)
+
+        if (appViewModel.spacesLoaded) {
             var websocketConnected = appViewModel.isWebSocketConnected()
             var pollCount = 0
             while (!websocketConnected && pollCount < 100) {
-                kotlinx.coroutines.delay(100) // Check every 100ms
+                kotlinx.coroutines.delay(100)
                 websocketConnected = appViewModel.isWebSocketConnected()
                 pollCount++
             }
-            
+
             if (websocketConnected || pollCount >= 100) {
-                // WebSocket connected OR timeout - proceed with navigation
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: CRITICAL FIX #3 - WebSocket connected=$websocketConnected (pollCount=$pollCount) and spaces loaded, navigating to: $roomId")
-                
-                // CRITICAL FIX: Set currentRoomId immediately for shortcut navigation
-                // This ensures state is consistent even though ShortcutActivity uses a separate AppViewModel instance
-                // The state will be synchronized via SharedPreferences
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: WebSocket connected=$websocketConnected (pollCount=$pollCount), navigating to: $roomId")
                 appViewModel.setCurrentRoomIdForTimeline(roomId)
-                
-                // Use cache-first navigation for instant loading
-                // This will fall back to network loading if RAM cache is empty
                 appViewModel.navigateToRoomWithCache(roomId)
-                
-                // Navigate directly to room timeline
                 navController.navigate("room_timeline/$roomId")
                 hasNavigated = true
                 showLoading = false
-            } else {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: CRITICAL FIX #3 - WebSocket not connected after polling, will use timeout fallback")
             }
-        } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: CRITICAL FIX #3 - Waiting for spacesLoaded before navigating")
         }
     }
-    
-    // CRITICAL FIX #3: Timeout fallback - navigate after 10 seconds even if WebSocket never connects
-    // This prevents infinite waiting when WebSocket can't connect (e.g., airplane mode)
+
+    // Timeout fallback: navigate after 10 s even if WebSocket never connects.
     LaunchedEffect(Unit) {
         if (hasNavigated) return@LaunchedEffect
-        
-        kotlinx.coroutines.delay(10000) // 10 second timeout
-        
+        kotlinx.coroutines.delay(10000)
         if (!hasNavigated) {
-            android.util.Log.w("Andromuks", "ShortcutActivity: CRITICAL FIX #3 - Navigation timeout (10s) for $roomId - WebSocket may not be connected, navigating anyway")
-            
-            // CRITICAL FIX: Set currentRoomId immediately for shortcut navigation
+            android.util.Log.w("Andromuks", "ShortcutActivity: Navigation timeout (10 s) for $roomId — proceeding without WebSocket")
             appViewModel.setCurrentRoomIdForTimeline(roomId)
-            
-            // Use cache-first navigation for instant loading
             appViewModel.navigateToRoomWithCache(roomId)
-            
-            // Navigate directly to room timeline
             navController.navigate("room_timeline/$roomId")
             hasNavigated = true
             showLoading = false
         }
     }
-    
-    // Show loading screen while waiting for WebSocket/spaces
+
+    // Show loading screen only while waiting for a slow/cold connection.
     if (showLoading && !hasNavigated) {
         Column(
             modifier = Modifier.fillMaxSize(),
