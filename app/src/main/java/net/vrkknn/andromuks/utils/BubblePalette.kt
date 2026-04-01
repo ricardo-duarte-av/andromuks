@@ -46,8 +46,21 @@ object BubblePalette {
         mentionsMe: Boolean = false,
         isThreadMessage: Boolean = false,
         hasSpoiler: Boolean = false,
-        isRedacted: Boolean = false
+        isRedacted: Boolean = false,
+        isSoftFailed: Boolean = false
     ): BubbleColors {
+        // Soft-failed events: Use error colors to indicate server rejection
+        if (isSoftFailed) {
+            return BubbleColors(
+                container = colorScheme.errorContainer,
+                content = colorScheme.onErrorContainer,
+                accent = colorScheme.error,
+                stripe = colorScheme.error.copy(alpha = 0.85f),
+                mentionBorder = null,
+                threadBorder = null
+            )
+        }
+
         // Redacted messages: Use normal colors (not error colors - deletion is not an error)
         // The deletion message text itself indicates the message was removed
         if (isRedacted) {

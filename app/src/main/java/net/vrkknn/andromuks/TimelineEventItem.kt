@@ -1463,7 +1463,10 @@ private fun RoomTextMessageContent(
     
     // Check if message is redacted
     val isRedacted = event.redactedBy != null
-    
+
+    // Soft-failed events are tagged by Synapse in the unsigned block
+    val isSoftFailed = event.unsigned?.optBoolean("io.element.synapse.soft_failed", false) == true
+
     val containsSpoiler = event.containsSpoilerContent()
     val colorScheme = MaterialTheme.colorScheme
     val bubbleColors = remember(
@@ -1473,7 +1476,8 @@ private fun RoomTextMessageContent(
         mentionsMe,
         isThreadMessage,
         containsSpoiler,
-        isRedacted
+        isRedacted,
+        isSoftFailed
     ) {
         BubblePalette.colors(
             colorScheme = colorScheme,
@@ -1482,7 +1486,8 @@ private fun RoomTextMessageContent(
             mentionsMe = mentionsMe,
             isThreadMessage = isThreadMessage,
             hasSpoiler = containsSpoiler,
-            isRedacted = isRedacted
+            isRedacted = isRedacted,
+            isSoftFailed = isSoftFailed
         )
     }
     val bubbleColor = bubbleColors.container
