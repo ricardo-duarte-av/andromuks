@@ -231,16 +231,8 @@ fun AuthCheckScreen(
             
             if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Notification permission granted. Attempting auto WebSocket connect.")
             
-            // Try to load cached state first for instant UI
-            val hasCachedState = appViewModel.loadStateFromStorage(context)
-            if (hasCachedState) {
-                if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Loaded cached state - showing UI immediately")
-                // Cached state loaded, UI will show rooms immediately
-                // WebSocket will reconnect with run_id and last_received_id to get only missing events
-            } else {
-                if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "No cached state available - will load full initial payload")
-            }
-            
+            appViewModel.loadStateFromStorage(context)
+
             // Initialize FCM with homeserver URL and auth token
             appViewModel.initializeFCM(context, homeserverUrl, token)
             // Set homeserver URL and auth token in ViewModel for avatar loading

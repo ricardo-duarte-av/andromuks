@@ -804,22 +804,6 @@ internal class SyncRoomsCoordinator(
                         return
                     }
         
-                    // BATTERY OPTIMIZATION: Auto-save state periodically for crash recovery
-                    // Foreground: Save every 10 syncs (user might close app)
-                    // Background: Save every 50 syncs (less frequent to reduce I/O)
-                    if (syncMessageCount > 0) {
-                        val shouldSave = if (isAppVisible) {
-                            syncMessageCount % 10 == 0
-                        } else {
-                            syncMessageCount % 50 == 0
-                        }
-                        if (shouldSave) {
-                            appContext?.let { context ->
-                                saveStateToStorage(context)
-                            }
-                        }
-                    }
-        
                     // BATTERY OPTIMIZATION: This loop only processes rooms that actually changed in this sync (not all 588 rooms)
                     // syncResult.updatedRooms typically contains 1-10 rooms per sync, not all rooms
                     // Total cost: ~0.01-0.1ms per sync (much better than processing all 588 rooms)

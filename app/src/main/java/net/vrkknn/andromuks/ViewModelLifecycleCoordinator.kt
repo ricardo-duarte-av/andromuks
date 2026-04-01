@@ -298,10 +298,6 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 clearCurrentRoomId(shouldRestoreOnVisible = true)
             }
 
-            // Save state to storage for crash recovery (preserves run_id and last_received_sync_id)
-            // This allows seamless resumption if app is killed by system
-            appContext?.let { context -> saveStateToStorage(context) }
-
             // Cancel any existing shutdown job (no shutdown needed - service maintains connection)
             appInvisibleJob?.cancel()
             appInvisibleJob = null

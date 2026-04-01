@@ -4991,10 +4991,7 @@ class AppViewModel : ViewModel() {
      * Check if an event is pinned in the current room
      */
     
-    fun saveStateToStorage(context: android.content.Context) = persistenceCoordinator.saveStateToStorage(context)
-
-    /** Load minimal state from SharedPreferences (run_id and vapid_key only). */
-    fun loadStateFromStorage(context: android.content.Context): Boolean =
+    fun loadStateFromStorage(context: android.content.Context) =
         persistenceCoordinator.loadStateFromStorage(context)
     
     /**
@@ -5018,11 +5015,8 @@ class AppViewModel : ViewModel() {
             editor.remove("gomuks_auth_token")
             editor.remove("homeserver_url")
             
-            // Clear run_id and related WebSocket state
+            // Clear run_id
             editor.remove("ws_run_id")
-            editor.remove("ws_vapid_key")
-            editor.remove("cached_rooms")
-            editor.remove("state_saved_timestamp")
             
             // CRITICAL FIX: Use commit() instead of apply() to ensure credentials are cleared synchronously
             // This prevents credential loss if the app crashes/terminates right after 401 error

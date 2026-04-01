@@ -2,11 +2,11 @@ package net.vrkknn.andromuks
 
 import android.content.Context
 import androidx.lifecycle.viewModelScope
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.ConcurrentModificationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import org.json.JSONArray
-import org.json.JSONObject
 
 /**
  * SharedPreferences state, pending WebSocket op queue, and retry — for [AppViewModel].
@@ -424,59 +424,8 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
         }
     }
 
-    fun saveStateToStorage(context: Context) = with(vm) {
-        try {
-            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            val editor = prefs.edit()
-
-            editor.putString("ws_run_id", currentRunId)
-            editor.putString("ws_vapid_key", vapidKey)
-
-            val roomsArray = JSONArray()
-            for (room in allRooms) {
-                val roomJson = JSONObject()
-                roomJson.put("id", room.id)
-                roomJson.put("name", room.name)
-                roomJson.put("avatarUrl", room.avatarUrl ?: "")
-                roomJson.put("messagePreview", room.messagePreview ?: "")
-                roomJson.put("messageSender", room.messageSender ?: "")
-                roomJson.put("sortingTimestamp", room.sortingTimestamp ?: 0L)
-                roomJson.put("unreadCount", room.unreadCount ?: 0)
-                roomJson.put("highlightCount", room.highlightCount ?: 0)
-                roomJson.put("isDirectMessage", room.isDirectMessage)
-                roomsArray.put(roomJson)
-            }
-            editor.putString("cached_rooms", roomsArray.toString())
-
-            editor.putLong("state_saved_timestamp", System.currentTimeMillis())
-
-            editor.apply()
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to save state to storage", e)
-        }
-    }
-
-    fun loadStateFromStorage(context: Context): Boolean = with(vm) {
-        try {
-            diagnosticsCoordinator.loadActivityLogFromStorage(context)
-
-            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            val runId = prefs.getString("ws_run_id", "") ?: ""
-            val savedVapidKey = prefs.getString("ws_vapid_key", "") ?: ""
-
-            if (runId.isNotEmpty()) {
-                currentRunId = runId
-                vapidKey = savedVapidKey
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored WebSocket state from SharedPreferences - run_id: $runId")
-                return@with true
-            }
-
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No run_id found in SharedPreferences")
-            false
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to load state from storage", e)
-            false
-        }
+    fun loadStateFromStorage(context: Context) {
+        vm.diagnosticsCoordinator.loadActivityLogFromStorage(context)
     }
 
     internal fun handleMessageAcknowledgmentByRequestId(requestId: Int) = with(vm) {
