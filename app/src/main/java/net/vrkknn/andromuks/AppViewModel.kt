@@ -6800,6 +6800,10 @@ class AppViewModel : ViewModel() {
                 val pendingId = pendingEchoMap.remove(echoTxId)
                 if (pendingId != null) {
                     eventChainMap.remove(pendingId)
+                    // Pre-mark the confirmed event's entrance as played. The pending echo already
+                    // ran the slide-in animation; the $-prefixed replacement should just swap its
+                    // color in place with no second entrance animation.
+                    markTimelineEntrancePlayed(event.eventId)
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Evicted pending echo $pendingId for txId=$echoTxId")
                 }
             }

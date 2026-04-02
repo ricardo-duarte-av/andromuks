@@ -59,7 +59,8 @@ Write order matters (race-condition guard): `eventChainMap` is written **before*
 **On success** (`error == null`):
 1. Look up `pendingEchoMap.remove(transactionId)` → `pendingEventId`
 2. Remove `eventChainMap[pendingEventId]` (evict the `~`-prefixed placeholder)
-3. Proceed normally — `addNewEventToChain(event)` inserts the `$`-prefixed confirmed event
+3. Call `markTimelineEntrancePlayed(event.eventId)` for the confirmed `$`-prefixed ID — pre-marks the entrance as already played so the confirmed event swaps its bubble color in place without re-running the slide-in animation (the pending echo already played it)
+4. Proceed normally — `addNewEventToChain(event)` inserts the `$`-prefixed confirmed event
 
 **On failure** (`error != null`):
 1. Look up the pending echo in `eventChainMap` via `pendingEchoMap`
