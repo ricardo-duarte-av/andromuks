@@ -629,13 +629,13 @@ fun AuthCheckScreen(
             if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Spaces loaded from cache - navigating to room_list (isWebSocketConnected=$isWebSocketConnected, network=$currentNetworkType)")
             appViewModel.isLoading = false
             val currentRoute = navController.currentBackStackEntry?.destination?.route
-            if (currentRoute != null && currentRoute != "simple_room_list" && 
-                !currentRoute.startsWith("room_timeline/") && 
+            if (currentRoute != null && currentRoute != "simple_room_list" &&
+                !currentRoute.startsWith("room_timeline/") &&
                 !currentRoute.startsWith("chat_bubble/")) {
                 showStartupMorphOverlay = false
                 navController.navigate("room_list")
+                navigationHandled = true
             }
-            navigationHandled = true
         }
     }
     

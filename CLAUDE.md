@@ -66,6 +66,14 @@ OkHttp WebSocket (Matrix protocol) + SQLite (BootstrapLoader)
 - **`ChatBubbleActivity`** — Hosts chat bubble windows (Android 11+).
 - **`FCMService`** — Handles Firebase push notifications when app is backgrounded.
 
+### Startup & Navigation Gate
+
+See **[docs/AUTHCHECK.md](docs/AUTHCHECK.md)** for full documentation.
+
+`AuthCheckScreen` (`AuthCheck.kt`) is the first screen shown after launch. It validates credentials, connects the WebSocket, and navigates to the correct destination once startup is complete. It owns the `navigationHandled` guard and registers the navigation callback with `AppViewModel` before initiating the WebSocket connection.
+
+**Critical invariant:** `AppViewModel.setNavigationCallback()` resets `navigationCallbackTriggered = false` on every call. This is intentional — it allows a retained ViewModel to fire navigation again after activity recreation. Do not remove that reset.
+
 ### Key Screens
 
 `LoginScreen` → `RoomListScreen` (or `SimplerRoomListScreen`) → `RoomTimelineScreen` / `ThreadViewerScreen` / `MentionsScreen`

@@ -3600,7 +3600,14 @@ class AppViewModel : ViewModel() {
     fun setNavigationCallback(callback: () -> Unit) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Navigation callback set")
         onNavigateToRoomList = callback
-        
+
+        // Reset the triggered flag so that the next onInitComplete() or
+        // attachToExistingWebSocketIfAvailable() can fire navigation again.
+        // This handles activity recreation where the ViewModel is retained with
+        // navigationCallbackTriggered=true from the previous session but navigation
+        // needs to run again for the new Activity.
+        navigationCallbackTriggered = false
+
         // If we have a pending navigation, trigger it now
         if (pendingNavigation) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Triggering pending navigation")
@@ -3610,7 +3617,7 @@ class AppViewModel : ViewModel() {
         }
         // If spaces are already loaded (from cached state), DON'T trigger yet
         // Wait for WebSocket to connect and init_complete to trigger it
-        else if (spacesLoaded && !navigationCallbackTriggered) {
+        else if (spacesLoaded) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Spaces already loaded from cache, but waiting for WebSocket connection before navigating")
             // Don't trigger here - let onInitComplete() or WebSocket connection handle it
         }
@@ -3915,10 +3922,16 @@ class AppViewModel : ViewModel() {
                 
                 // If spaces are loaded, trigger navigation immediately
                 if (spacesLoaded && !navigationCallbackTriggered) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Spaces loaded and WebSocket connected - triggering navigation callback immediately")
-                navigationCallbackTriggered = true
-                onNavigateToRoomList?.invoke()
-            }
+                    if (onNavigateToRoomList != null) {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Spaces loaded and WebSocket connected - triggering navigation callback immediately")
+                        navigationCallbackTriggered = true
+                        onNavigateToRoomList?.invoke()
+                    } else {
+                        // Callback not yet registered — mark as pending so setNavigationCallback fires it
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Spaces loaded but no navigation callback registered yet - setting pendingNavigation=true")
+                        pendingNavigation = true
+                    }
+                }
             }
             // CRITICAL FIX: Don't set initialSyncComplete = true if WebSocket is not connected
             // Even if spacesLoaded is true, we should wait for the connection to be established
