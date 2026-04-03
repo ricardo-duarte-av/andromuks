@@ -219,6 +219,7 @@ internal class WebSocketCommandSender(
                 send(command, requestId, data)
             }
         }
+
     }
 
     fun queueOfflineRetry(command: String, requestId: Int, data: Map<String, Any>) {

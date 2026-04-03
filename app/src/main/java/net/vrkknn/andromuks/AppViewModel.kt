@@ -9246,6 +9246,10 @@ class AppViewModel : ViewModel() {
 
     private fun flushPendingCommandsQueue() {
         webSocketCommands.flushPendingQueue()
+        // Drain offline ops queued while the WebSocket was fully down.
+        // canSendCommandsToBackend is true here so commands go directly to the socket,
+        // not back into pendingCommandsQueue, preventing double-sends.
+        persistenceCoordinator.retryPendingWebSocketOperations(bypassTimeout = true)
     }
     
     /**

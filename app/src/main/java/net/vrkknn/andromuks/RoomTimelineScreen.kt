@@ -767,21 +767,13 @@ fun RoomTimelineScreen(
         myPl >= required
     }
     
-    // Track websocket connection state
-    var websocketConnected by remember { mutableStateOf(appViewModel.isWebSocketConnected()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            websocketConnected = appViewModel.isWebSocketConnected()
-            kotlinx.coroutines.delay(500) // Poll every 500ms
-        }
-    }
-    
     // Track batch processing state (Catching up)
     val isProcessingBatch by appViewModel.isProcessingSyncBatch.collectAsState()
     val processingBatchSize by appViewModel.processingBatchSize.collectAsState()
-    
-    // Combined input enabled state (permission, websocket connection, AND not rushing)
-    val isInputEnabled = canSendMessage && websocketConnected && !isProcessingBatch
+
+    // Messages typed while the WebSocket is down are buffered and sent on reconnect,
+    // so we no longer gate the input on connectivity — only on permission and batch-catch-up.
+    val isInputEnabled = canSendMessage && !isProcessingBatch
 
     // Log timeline events count only when it actually changes (not on every recomposition)
     // This prevents excessive logging during scroll
@@ -3939,7 +3931,6 @@ fun RoomTimelineScreen(
                                             text = when {
                                                 !canSendMessage -> "You don't have permission to send messages"
                                                 isProcessingBatch -> if (processingBatchSize > 0) "Rushing $processingBatchSize messages..." else "Rushing messages..."
-                                                !websocketConnected -> "Waiting for connection..."
                                                 else -> {
                                                     val networkName = currentRoomState?.bridgeInfo?.displayName
                                                     if (networkName != null && networkName.isNotBlank()) {
@@ -4011,7 +4002,6 @@ fun RoomTimelineScreen(
                                                 android.widget.Toast.makeText(
                                                 context,
                                                 when {
-                                                    !websocketConnected -> "Waiting for connection..."
                                                     isProcessingBatch -> "Catching up on messages..."
                                                     else -> "You don't have permission to send messages"
                                                 },
@@ -4117,9 +4107,9 @@ fun RoomTimelineScreen(
                             }
                         }
                         Spacer(modifier = Modifier.width(8.dp))
-                        // Show expressive indicator when uploads or sends are in progress
-                        val isSending = appViewModel.pendingSendCount > 0
-                        val showSendIndicator = isSending || isUploading
+                        // Show expressive indicator when an upload is in progress.
+                        // Message sends use local echo in the timeline instead of a button spinner.
+                        val showSendIndicator = isUploading
                         
                         Button(
                             onClick = {
@@ -4127,7 +4117,6 @@ fun RoomTimelineScreen(
                                     android.widget.Toast.makeText(
                                         context,
                                         when {
-                                            !websocketConnected -> "Waiting for connection..."
                                             isProcessingBatch -> "Catching up on messages..."
                                             else -> "You don't have permission to send messages"
                                         },

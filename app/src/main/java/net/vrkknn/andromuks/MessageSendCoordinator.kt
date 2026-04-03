@@ -56,20 +56,16 @@ internal class MessageSendCoordinator(
 
         val result = sendMessageInternal(roomId, text)
 
+        // Offline/not-ready cases are already covered:
+        //   - WebSocket fully down → queueOfflineRetry stored it as offline_send_message
+        //   - canSendCommandsToBackend=false → pendingCommandsQueue holds it for flushPendingQueue
+        // Adding a sendMessage op here on top of those would produce a duplicate send on reconnect
+        // (offline_send_message retries via sendWebSocketCommand while sendMessage retries via
+        // sendMessageInternal, which creates a new echo with a new transaction_id → two server events).
         if (result != WebSocketResult.SUCCESS) {
             android.util.Log.w(
                 "Andromuks",
-                "AppViewModel: sendMessage failed with result: $result - queuing for retry when connection is restored"
-            )
-            vm.addPendingOperation(
-                AppViewModel.PendingWebSocketOperation(
-                    type = "sendMessage",
-                    data = mapOf(
-                        "roomId" to roomId,
-                        "text" to text
-                    )
-                ),
-                saveToStorage = true
+                "AppViewModel: sendMessage not sent immediately (result: $result) — will be retried via offline queue or pendingCommandsQueue"
             )
         }
     }

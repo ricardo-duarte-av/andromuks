@@ -61,13 +61,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
@@ -576,17 +571,8 @@ fun ThreadViewerScreen(
         }
     }
     
-    // Track websocket connection state
-    var websocketConnected by remember { mutableStateOf(appViewModel.isWebSocketConnected()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            websocketConnected = appViewModel.isWebSocketConnected()
-            kotlinx.coroutines.delay(500) // Poll every 500ms
-        }
-    }
-    
-    // Combined input enabled state (threads allow all members to reply, so only check websocket)
-    val isInputEnabled = websocketConnected
+    // Messages typed while the WebSocket is down are buffered and sent on reconnect.
+    val isInputEnabled = true
     
     // Text input state (moved here to be accessible by mention handler)
     var draft by remember { mutableStateOf("") }
@@ -1783,15 +1769,13 @@ fun ThreadViewerScreen(
                                         },
                                         placeholder = {
                                             Text(
-                                                text = if (websocketConnected) {
+                                                text = run {
                                                     val networkName = appViewModel.currentRoomState?.bridgeInfo?.displayName
                                                     if (networkName != null && networkName.isNotBlank()) {
                                                         "Reply in $networkName thread..."
                                                     } else {
                                                         "Reply in thread..."
                                                     }
-                                                } else {
-                                                    "Waiting for connection..."
                                                 },
                                                 style = MaterialTheme.typography.bodySmall,
                                                 fontStyle = FontStyle.Italic,
@@ -1919,17 +1903,6 @@ fun ThreadViewerScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             
                             // Send button
-                            val isSending = appViewModel.pendingSendCount > 0
-                            val infiniteTransition = rememberInfiniteTransition(label = "send_rotation")
-                            val rotation by infiniteTransition.animateFloat(
-                                initialValue = 0f,
-                                targetValue = if (isSending) 360f else 0f,
-                                animationSpec = infiniteRepeatable(
-                                    animation = tween(1000, easing = LinearEasing),
-                                    repeatMode = RepeatMode.Restart
-                                ),
-                                label = "rotation"
-                            )
                             
                             Button(
                                 onClick = {
@@ -2014,7 +1987,7 @@ fun ThreadViewerScreen(
                                     tint =
                                         if (draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary
                                         else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = if (isSending) Modifier.rotate(rotation) else Modifier
+                                    modifier = Modifier
                                 )
                             }
                         }

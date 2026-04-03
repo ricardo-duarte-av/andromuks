@@ -154,10 +154,10 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
         lastReconnectionTime = System.currentTimeMillis()
 
         vm.viewModelScope.launch {
-            delay(2000L)
+            delay(300L)
 
             android.util.Log.i("Andromuks", "AppViewModel: Starting retry of pending operations (new commands can be sent immediately)")
-            retryPendingWebSocketOperations()
+            retryPendingWebSocketOperations(bypassTimeout = true)
 
             delay(500L)
 
@@ -166,7 +166,15 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
         }
     }
 
-    internal fun retryPendingWebSocketOperations() = with(vm) {
+    internal fun retryPendingWebSocketOperations(bypassTimeout: Boolean = false) = with(vm) {
+        // Guard: if the backend isn't ready yet, sendWebSocketCommand would queue the command in
+        // pendingCommandsQueue and return NOT_CONNECTED, which would re-add the op here too —
+        // double-queuing the same message. Wait until flushPendingQueue() signals readiness.
+        if (!canSendCommandsToBackend) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Deferring offline ops retry — canSendCommandsToBackend=false, will retry from flushPendingQueue()")
+            return@with
+        }
+
         val pendingSize = synchronized(pendingOperationsLock) { pendingWebSocketOperations.size }
         if (pendingSize == 0) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No pending WebSocket operations to retry")
@@ -175,11 +183,24 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
 
         val currentTime = System.currentTimeMillis()
 
+        // Select AND remove in one synchronized block to prevent two concurrent callers from both
+        // selecting the same ops before either has had a chance to remove them (which would send
+        // each offline message twice and crash the LazyColumn with duplicate keys).
         val operationsToRetry = synchronized(pendingOperationsLock) {
-            pendingWebSocketOperations
-                .filter { !it.acknowledged && currentTime >= it.acknowledgmentTimeout }
+            val selected = pendingWebSocketOperations
+                .filter { op ->
+                    if (op.acknowledged) return@filter false
+                    // bypassTimeout only applies to offline-queued ops; command_* ops represent
+                    // in-flight sends waiting for server ack and must respect their timeout to
+                    // avoid re-sending a message that the server already received.
+                    val effectiveBypass = bypassTimeout && !op.type.startsWith("command_")
+                    effectiveBypass || currentTime >= op.acknowledgmentTimeout
+                }
                 .sortedBy { it.timestamp }
                 .take(10)
+            // Atomically claim the selected ops so no other concurrent call can pick them up.
+            selected.forEach { pendingWebSocketOperations.remove(it) }
+            selected
         }
 
         if (operationsToRetry.isEmpty()) {
@@ -196,10 +217,6 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
         }
 
         android.util.Log.i("Andromuks", "AppViewModel: PHASE 5.4 - Retrying ${operationsToRetry.size} pending WebSocket operations (oldest first, batch limited to 10)")
-
-        synchronized(pendingOperationsLock) {
-            operationsToRetry.forEach { pendingWebSocketOperations.remove(it) }
-        }
         savePendingOperationsToStorage()
 
         vm.viewModelScope.launch {
@@ -211,15 +228,11 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
 
                     when (operation.type) {
                         "sendMessage" -> {
-                            val roomId = operation.data["roomId"] as String?
-                            val text = operation.data["text"] as String?
-                            if (roomId != null && text != null) {
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Retrying sendMessage for room $roomId (attempt ${operation.retryCount + 1})")
-                                val result = messageSendCoordinator.sendMessageInternal(roomId, text)
-                                if (result != WebSocketResult.SUCCESS && operation.retryCount < maxRetryAttempts) {
-                                    this@PersistenceCoordinator.addPendingOperation(operation.copy(retryCount = operation.retryCount + 1), saveToStorage = true)
-                                }
-                            }
+                            // Legacy op type — no longer created. sendMessage failures are now
+                            // handled by offline_send_message (WebSocket down) or pendingCommandsQueue
+                            // (!canSendCommandsToBackend). Retrying via sendMessageInternal here would
+                            // create a new echo with a new transaction_id, duplicating the message.
+                            android.util.Log.w("Andromuks", "AppViewModel: Dropping legacy sendMessage op (type retired, message already in offline queue)")
                         }
                         "sendReply" -> {
                             android.util.Log.w("Andromuks", "AppViewModel: Skipping retry of sendReply operation (complex to serialize)")
@@ -241,7 +254,11 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
 
                                 if (command != null && requestId != null && data != null) {
                                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Retrying offline command: $command (attempt ${operation.retryCount + 1})")
-                                    sendWebSocketCommand(command, requestId, data)
+                                    val newRequestId = requestIdCounter++
+                                    val result = sendWebSocketCommand(command, newRequestId, data)
+                                    if (result != WebSocketResult.SUCCESS && operation.retryCount < maxRetryAttempts) {
+                                        this@PersistenceCoordinator.addPendingOperation(operation.copy(retryCount = operation.retryCount + 1), saveToStorage = true)
+                                    }
                                 }
                             } else if (operation.type.startsWith("command_")) {
                                 val command = operation.type.removePrefix("command_")
@@ -330,8 +347,9 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
             }
         }
 
+        // offline_* ops are re-added only on send failure (checked in the send loop below)
         operationsToRetry
-            .filterNot { it.type.startsWith("command_") }
+            .filterNot { it.type.startsWith("command_") || it.type.startsWith("offline_") }
             .forEach { this@PersistenceCoordinator.addPendingOperation(it, saveToStorage = true) }
 
         if (operationsToRetry.isNotEmpty()) {
@@ -339,11 +357,8 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
             operationsToRetry.forEach { operation ->
                 when {
                     operation.type == "sendMessage" -> {
-                        val roomId = operation.data["roomId"] as? String
-                        val text = operation.data["text"] as? String
-                        if (roomId != null && text != null) {
-                            messageSendCoordinator.sendMessageInternal(roomId, text)
-                        }
+                        // Legacy op type — dropped to avoid duplicate sends (see MessageSendCoordinator).
+                        android.util.Log.w("Andromuks", "AppViewModel: Dropping legacy sendMessage op from timeout check")
                     }
                     operation.type == "sendReply" -> {
                         android.util.Log.w("Andromuks", "AppViewModel: Skipping retry of sendReply (originalEvent not stored)")
@@ -364,7 +379,10 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                         if (command != null && requestId != null && data != null) {
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Retrying offline command: $command (attempt ${operation.retryCount + 1})")
                             val newRequestId = requestIdCounter++
-                            sendWebSocketCommand(command, newRequestId, data)
+                            val result = sendWebSocketCommand(command, newRequestId, data)
+                            if (result != WebSocketResult.SUCCESS && operation.retryCount < maxRetryAttempts) {
+                                this@PersistenceCoordinator.addPendingOperation(operation, saveToStorage = true)
+                            }
                         } else {
                             android.util.Log.w("Andromuks", "AppViewModel: Invalid offline operation data - command: $command, requestId: $requestId, data: ${data != null}")
                         }

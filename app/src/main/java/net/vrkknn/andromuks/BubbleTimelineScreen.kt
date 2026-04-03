@@ -584,21 +584,13 @@ fun BubbleTimelineScreen(
         myPl >= required
     }
     
-    // Track websocket connection state
-    var websocketConnected by remember { mutableStateOf(appViewModel.isWebSocketConnected()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            websocketConnected = appViewModel.isWebSocketConnected()
-            kotlinx.coroutines.delay(500) // Poll every 500ms
-        }
-    }
-    
-    // Combined input enabled state (permission AND websocket connection)
-    val isInputEnabled = canSendMessage && websocketConnected
+    // Messages typed while the WebSocket is down are buffered and sent on reconnect,
+    // so only gate the input on permission, not on connectivity.
+    val isInputEnabled = canSendMessage
 
     if (BuildConfig.DEBUG) Log.d(
         "Andromuks",
-        "BubbleTimelineScreen: Timeline events count: ${timelineEvents.size}, isLoading: $isLoading, websocketConnected: $websocketConnected"
+        "BubbleTimelineScreen: Timeline events count: ${timelineEvents.size}, isLoading: $isLoading"
     )
 
     // Reply state
@@ -3242,7 +3234,6 @@ fun BubbleTimelineScreen(
                                         Text(
                                             text = when {
                                                 !canSendMessage -> "You don't have permission to send messages"
-                                                !websocketConnected -> "Waiting for connection..."
                                                 else -> {
                                                     val networkName = appViewModel.currentRoomState?.bridgeInfo?.displayName
                                                     if (networkName != null && networkName.isNotBlank()) {
@@ -3313,7 +3304,7 @@ fun BubbleTimelineScreen(
                                             if (!isInputEnabled) {
                                                 android.widget.Toast.makeText(
                                                     context,
-                                                    if (!websocketConnected) "Waiting for connection..." else "You don't have permission to send messages",
+                                                    "You don't have permission to send messages",
                                                     android.widget.Toast.LENGTH_SHORT
                                                 ).show()
                                                 return@KeyboardActions
@@ -3416,16 +3407,16 @@ fun BubbleTimelineScreen(
                             }
                         }
                         Spacer(modifier = Modifier.width(8.dp))
-                        // Expressive indicator for uploads/sends
-                        val isSending = appViewModel.pendingSendCount > 0
-                        val showSendIndicator = isSending || isUploading
-                        
+                        // Show expressive indicator only when an upload is in progress.
+                        // Message sends use local echo in the timeline instead of a button spinner.
+                        val showSendIndicator = isUploading
+
                         Button(
                             onClick = {
                                 if (!isInputEnabled) {
                                     android.widget.Toast.makeText(
                                         context,
-                                        if (!websocketConnected) "Waiting for connection..." else "You don't have permission to send messages",
+                                        "You don't have permission to send messages",
                                         android.widget.Toast.LENGTH_SHORT
                                     ).show()
                                     return@Button
