@@ -176,7 +176,10 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                     "🔵 navigateToRoomWithCache: Cache check - roomId=$roomId, cachedEventCount=$cachedEventCount, isActivelyCached=${RoomTimelineCache.isRoomActivelyCached(roomId)}",
                 )
 
-                val cacheSufficientThreshold = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT / 2
+                // Require a full page of cached events before bypassing requestRoomTimeline.
+                // Rooms with fewer than INITIAL_ROOM_PAGINATE_LIMIT events must go through
+                // requestRoomTimeline so a background paginate is issued for the missing history.
+                val cacheSufficientThreshold = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT
                 if (cachedEventCount >= cacheSufficientThreshold) {
                     android.util.Log.d(
                         "Andromuks",
@@ -249,12 +252,20 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                                     "Andromuks",
                                     "🔵 navigateToRoomWithCache: Background merge paginate sent - showing ${partialCachedEvents.size} cached events immediately, history will merge seamlessly (reqId=$paginateRequestId)",
                                 )
-                            } else {
+                            } else if (!isWebSocketConnected()) {
+                                // Truly not connected — drop tracking.
                                 backgroundPrefetchRequests.remove(paginateRequestId)
                                 roomsWithPendingPaginate.remove(roomId)
                                 android.util.Log.w(
                                     "Andromuks",
-                                    "🔵 navigateToRoomWithCache: Failed to send background merge paginate for $roomId: $result",
+                                    "🔵 navigateToRoomWithCache: Failed to send background merge paginate for $roomId (not connected): $result",
+                                )
+                            } else {
+                                // Queued (canSendCommandsToBackend=false) — keep tracking so the
+                                // response is handled when flushPendingQueue() re-sends after init.
+                                android.util.Log.d(
+                                    "Andromuks",
+                                    "🔵 navigateToRoomWithCache: Background merge paginate queued for $roomId (reqId=$paginateRequestId) — keeping tracking",
                                 )
                             }
                         }

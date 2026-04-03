@@ -865,13 +865,23 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         )
 
                     if (result != WebSocketResult.SUCCESS) {
-                        // Remove from tracking if send failed
-                        timelineRequests.remove(paginateRequestId)
-                        roomsWithPendingPaginate.remove(roomId)
-                        android.util.Log.w(
-                            "Andromuks",
-                            "AppViewModel: Failed to send paginate request for newer events for $roomId: $result",
-                        )
+                        if (!isWebSocketConnected()) {
+                            // Truly not connected — drop tracking; will retry on next room open.
+                            timelineRequests.remove(paginateRequestId)
+                            roomsWithPendingPaginate.remove(roomId)
+                            android.util.Log.w(
+                                "Andromuks",
+                                "AppViewModel: Failed to send paginate for newer events for $roomId (not connected): $result",
+                            )
+                        } else {
+                            // Connected but canSendCommandsToBackend=false: command was queued in
+                            // pendingCommandsQueue. Keep tracking so the response is handled when
+                            // flushPendingQueue() re-sends it after init_complete completes.
+                            android.util.Log.d(
+                                "Andromuks",
+                                "AppViewModel: Paginate for newer events queued (canSendCommandsToBackend=false) for $roomId (reqId=$paginateRequestId) — keeping tracking",
+                            )
+                        }
                     }
                 } else if (!wasAdded && BuildConfig.DEBUG) {
                     android.util.Log.d(
@@ -967,14 +977,26 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         "Andromuks",
                         "🟢 requestRoomTimeline: Paginate sent successfully - roomId=$roomId, requestId=$paginateRequestId, marked as actively cached, waiting for response...",
                     )
-                } else {
+                } else if (!isWebSocketConnected()) {
+                    // Truly not connected — drop tracking and clear loading state.
                     android.util.Log.w(
                         "Andromuks",
-                        "🟢 requestRoomTimeline: FAILED to send paginate - roomId=$roomId, requestId=$paginateRequestId, result=$result, removing from tracking",
+                        "🟢 requestRoomTimeline: FAILED to send paginate (not connected) - roomId=$roomId, requestId=$paginateRequestId, result=$result, removing from tracking",
                     )
                     timelineRequests.remove(paginateRequestId)
                     roomsWithPendingPaginate.remove(roomId)
                     isTimelineLoading = false
+                } else {
+                    // Connected but canSendCommandsToBackend=false: command was queued in
+                    // pendingCommandsQueue. Keep tracking so the response is handled when
+                    // flushPendingQueue() re-sends it after init_complete completes.
+                    // Keep isTimelineLoading=true so the user sees the loading indicator.
+                    RoomTimelineCache.markRoomAsCached(roomId)
+                    markInitialPaginate(roomId, "cache_insufficient_queued")
+                    android.util.Log.d(
+                        "Andromuks",
+                        "🟢 requestRoomTimeline: Paginate queued (canSendCommandsToBackend=false) - roomId=$roomId, requestId=$paginateRequestId — keeping tracking",
+                    )
                 }
 
                 // Reset pagination state for new room
