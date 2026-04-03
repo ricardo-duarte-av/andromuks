@@ -2,6 +2,7 @@ package net.vrkknn.andromuks.utils
 
 import android.media.MediaPlayer
 import android.net.Uri
+import android.view.WindowManager
 import android.widget.VideoView
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -28,10 +29,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import net.vrkknn.andromuks.SharedMediaItem
@@ -76,6 +80,14 @@ fun MediaPreviewDialogMultiple(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
+        val dialogWindowProvider = LocalView.current.parent as? DialogWindowProvider
+        SideEffect {
+            dialogWindowProvider?.window?.let { window ->
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                @Suppress("DEPRECATION")
+                window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            }
+        }
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -86,6 +98,7 @@ fun MediaPreviewDialogMultiple(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .imePadding()
                     .padding(16.dp)
             ) {
                 Row(
@@ -219,9 +232,17 @@ fun MediaPreviewDialog(
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
-            usePlatformDefaultWidth = false // Allow full-width dialog
+            usePlatformDefaultWidth = false
         )
     ) {
+        val dialogWindowProvider = LocalView.current.parent as? DialogWindowProvider
+        SideEffect {
+            dialogWindowProvider?.window?.let { window ->
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                @Suppress("DEPRECATION")
+                window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            }
+        }
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -232,6 +253,7 @@ fun MediaPreviewDialog(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .imePadding()
                     .padding(16.dp)
             ) {
                 // Top bar with close button
