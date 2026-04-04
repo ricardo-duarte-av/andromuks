@@ -305,7 +305,8 @@ fun ThreadViewerScreen(
         remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
     val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     val myUserId = appViewModel.currentUserId
-    val homeserverUrl = appViewModel.homeserverUrl
+    val homeserverUrlFromPrefs = remember(sharedPreferences) { sharedPreferences.getString("homeserver_url", "") ?: "" }
+    val homeserverUrl = appViewModel.homeserverUrl.ifEmpty { homeserverUrlFromPrefs }
     
     // Derive thread messages directly from timelineEvents using derivedStateOf.
     // This is the safest pattern: there is no intermediate "loading" window where threadMessages

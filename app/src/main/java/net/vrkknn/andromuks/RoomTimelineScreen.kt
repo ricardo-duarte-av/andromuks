@@ -716,7 +716,8 @@ fun RoomTimelineScreen(
         remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
     val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     val myUserId = appViewModel.currentUserId
-    val homeserverUrl = appViewModel.homeserverUrl
+    val homeserverUrlFromPrefs = remember(sharedPreferences) { sharedPreferences.getString("homeserver_url", "") ?: "" }
+    val homeserverUrl = appViewModel.homeserverUrl.ifEmpty { homeserverUrlFromPrefs }
     //Log.d("Andromuks", "RoomTimelineScreen: appViewModel instance: $appViewModel")
     // PERFORMANCE FIX: Use timelineEvents directly instead of pre-rendered flow.
     // Pre-rendering on every sync was causing heavy CPU load with 580+ rooms.

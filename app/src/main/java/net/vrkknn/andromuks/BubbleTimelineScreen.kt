@@ -535,7 +535,8 @@ fun BubbleTimelineScreen(
         sharedPreferences.getString("current_user_id", "") ?: ""
     }
     val myUserId = appViewModel.currentUserId.ifBlank { storedUserId }
-    val homeserverUrl = appViewModel.homeserverUrl
+    val homeserverUrlFromPrefs = remember(sharedPreferences) { sharedPreferences.getString("homeserver_url", "") ?: "" }
+    val homeserverUrl = appViewModel.homeserverUrl.ifEmpty { homeserverUrlFromPrefs }
     if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: appViewModel instance: $appViewModel")
     // PERFORMANCE FIX: Use timelineEvents directly instead of pre-rendered flow.
     // Pre-rendering on every sync was causing heavy CPU load with 580+ rooms.

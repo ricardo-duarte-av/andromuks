@@ -1241,23 +1241,22 @@ private fun MediaContent(
                                         val painter = state.painter
                                         val intrinsicSize = painter.intrinsicSize
                                         if (intrinsicSize.width > 0 && intrinsicSize.height > 0 && !hasLoadedDimensions) {
+                                            hasLoadedDimensions = true
                                             val actualAspectRatio = intrinsicSize.width / intrinsicSize.height
                                             if (BuildConfig.DEBUG) Log.d(
                                                 "Andromuks",
                                                 "Image loaded with dimensions: ${intrinsicSize.width}x${intrinsicSize.height}, aspectRatio=$actualAspectRatio (original from JSON: $aspectRatio, hasValidJsonDimensions: $hasValidJsonDimensions)"
                                             )
-                                            // Only update if we didn't have valid dimensions from JSON
-                                            // This means JSON width/height were missing or invalid
+                                            // Only update aspect ratio and re-scroll if JSON dimensions were missing/invalid
                                             if (!hasValidJsonDimensions) {
                                                 loadedAspectRatio = actualAspectRatio
-                                                hasLoadedDimensions = true
                                                 if (BuildConfig.DEBUG) Log.d(
                                                     "Andromuks",
                                                     "Updated aspect ratio from loaded image: $actualAspectRatio"
                                                 )
+                                                // E2EE/portrait: async decode changes height — re-scroll if timeline registered callback
+                                                TimelineMediaLayoutCallback.notifyAfterLayoutSettled()
                                             }
-                                            // E2EE/portrait: async decode changes height — re-scroll if timeline registered callback
-                                            TimelineMediaLayoutCallback.notifyAfterLayoutSettled()
                                         }
                             },
                             onError = {
