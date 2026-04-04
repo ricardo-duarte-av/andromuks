@@ -16,6 +16,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -64,6 +68,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.Launch
@@ -4530,6 +4535,7 @@ fun BubbleRoomHeader(
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "BubbleRoomHeader: fallbackName = $fallbackName")
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "BubbleRoomHeader: homeserverUrl = $homeserverUrl")
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "BubbleRoomHeader: authToken = ${authToken.take(10)}...")
+    val connectionState by SyncRepository.connectionState.collectAsState()
     Surface(
         modifier =
             Modifier.fillMaxWidth()
@@ -4590,6 +4596,28 @@ fun BubbleRoomHeader(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                AnimatedVisibility(
+                    visible = !connectionState.isReady(),
+                    enter = fadeIn(animationSpec = tween(300)),
+                    exit = fadeOut(animationSpec = tween(300))
+                ) {
+                    val offlinePulse = rememberInfiniteTransition(label = "offline_pulse")
+                    val offlineAlpha by offlinePulse.animateFloat(
+                        initialValue = 0.4f,
+                        targetValue = 1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(800, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "offline_alpha"
+                    )
+                    Icon(
+                        imageVector = Icons.Filled.CloudOff,
+                        contentDescription = "No server connection",
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = offlineAlpha),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
                 IconButton(onClick = onOpenInApp) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Launch,

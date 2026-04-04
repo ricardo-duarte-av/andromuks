@@ -35,6 +35,9 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -90,6 +93,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
@@ -5861,6 +5865,7 @@ fun RoomHeader(
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomHeader: fallbackName = $fallbackName")
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomHeader: homeserverUrl = $homeserverUrl")
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomHeader: authToken = ${authToken.take(10)}...")
+    val connectionState by SyncRepository.connectionState.collectAsState()
     Surface(
         modifier =
             Modifier.fillMaxWidth()
@@ -5966,6 +5971,28 @@ fun RoomHeader(
             }
             
             val bridgeInfo = roomState?.bridgeInfo
+            AnimatedVisibility(
+                visible = !connectionState.isReady(),
+                enter = fadeIn(animationSpec = tween(300)),
+                exit = fadeOut(animationSpec = tween(300))
+            ) {
+                val offlinePulse = rememberInfiniteTransition(label = "offline_pulse")
+                val offlineAlpha by offlinePulse.animateFloat(
+                    initialValue = 0.4f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(800, easing = FastOutSlowInEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "offline_alpha"
+                )
+                Icon(
+                    imageVector = Icons.Filled.CloudOff,
+                    contentDescription = "No server connection",
+                    tint = MaterialTheme.colorScheme.error.copy(alpha = offlineAlpha),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
             IconButton(onClick = onCallClick) {
                 Icon(
                     imageVector = androidx.compose.material.icons.Icons.Filled.Videocam,

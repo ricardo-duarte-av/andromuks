@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material3.Button
@@ -57,12 +58,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
@@ -1180,9 +1186,33 @@ fun ThreadViewerScreen(
                                     )
                                 }
                             }
+                            // Offline indicator - shows when websocket is not connected
+                            val connectionState by SyncRepository.connectionState.collectAsState()
+                            AnimatedVisibility(
+                                visible = !connectionState.isReady(),
+                                enter = fadeIn(animationSpec = tween(300)),
+                                exit = fadeOut(animationSpec = tween(300))
+                            ) {
+                                val offlinePulse = rememberInfiniteTransition(label = "offline_pulse")
+                                val offlineAlpha by offlinePulse.animateFloat(
+                                    initialValue = 0.4f,
+                                    targetValue = 1f,
+                                    animationSpec = infiniteRepeatable(
+                                        animation = tween(800, easing = FastOutSlowInEasing),
+                                        repeatMode = RepeatMode.Reverse
+                                    ),
+                                    label = "offline_alpha"
+                                )
+                                Icon(
+                                    imageVector = Icons.Filled.CloudOff,
+                                    contentDescription = "No server connection",
+                                    tint = MaterialTheme.colorScheme.error.copy(alpha = offlineAlpha),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
-                    
+
                     // Show upload status when uploads are in progress
                     if (appViewModel.hasUploadInProgress(roomId)) {
                         val uploadType = appViewModel.getUploadType(roomId)

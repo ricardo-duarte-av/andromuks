@@ -144,6 +144,7 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.AddToHomeScreen
+import androidx.compose.material.icons.filled.CloudOff
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
@@ -208,6 +209,7 @@ fun RoomListScreen(
     val isProcessingBatch by appViewModel.isProcessingSyncBatch.collectAsState()
     val processingBatchSize by appViewModel.processingBatchSize.collectAsState()
     val processedInBatch by appViewModel.processedInBatch.collectAsState()
+    val connectionState by SyncRepository.connectionState.collectAsState()
     val imageToken = uiState.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     var coldStartRefreshing by remember { mutableStateOf(false) }
     var initialLoadComplete by remember { mutableStateOf(false) }
@@ -1158,12 +1160,36 @@ fun RoomListScreen(
                         }
                     }
                 }
-                
+
+                // Offline indicator - shows when websocket is not connected
+                AnimatedVisibility(
+                    visible = !connectionState.isReady(),
+                    enter = fadeIn(animationSpec = tween(300)),
+                    exit = fadeOut(animationSpec = tween(300))
+                ) {
+                    val offlinePulse = rememberInfiniteTransition(label = "offline_pulse")
+                    val offlineAlpha by offlinePulse.animateFloat(
+                        initialValue = 0.4f,
+                        targetValue = 1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(800, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "offline_alpha"
+                    )
+                    Icon(
+                        imageVector = Icons.Filled.CloudOff,
+                        contentDescription = "No server connection",
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = offlineAlpha),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
                 // Mentions button (Bell icon)
                 IconButton(
-                    onClick = { 
+                    onClick = {
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        navController.navigate("mentions") 
+                        navController.navigate("mentions")
                     }
                 ) {
                     Icon(
