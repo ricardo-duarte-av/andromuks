@@ -205,10 +205,7 @@ sealed class BubbleTimelineItem {
         val hasPerMessageProfile: Boolean = false
     ) : BubbleTimelineItem() {
         override val stableKey: String
-            get() = event.transactionId
-                ?: event.localContent?.optString("transaction_id")?.takeIf { it.isNotBlank() }
-                ?: event.unsigned?.optString("transaction_id")?.takeIf { it.isNotBlank() }
-                ?: event.eventId
+            get() = event.eventId
     }
 
     data class DateDivider(val date: String) : BubbleTimelineItem() {

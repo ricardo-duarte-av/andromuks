@@ -70,7 +70,21 @@ Write order matters (race-condition guard): `eventChainMap` is written **before*
 
 ### Deduplication (step 4 — sync_complete)
 
-`addNewEventToChain` already deduplicates by `eventId`. When `sync_complete` re-delivers the `$`-prefixed event that `send_complete` already inserted, the guard returns early. No special handling needed.
+`addNewEventToChain` deduplicates by `eventId`. When `sync_complete` re-delivers the `$`-prefixed event that `send_complete` already inserted, the guard returns early.
+
+**`timeline_rowid` upgrade**: `send_complete` delivers the confirmed event with `timeline_rowid: 0`. `sync_complete` delivers the same event with a real rowid (e.g. `207133`) resolved from the room's `timeline` mapping. The deduplication guard upgrades the stored entry when `event.timelineRowid > 0 && existingBubble.timelineRowid <= 0`, so the final entry always ends up with the real rowid regardless of arrival order.
+
+### Race condition — sync_complete arrives before send_complete
+
+`sync_complete` can arrive before `send_complete` (their request IDs are consecutive and the network can reorder them). When this happens:
+
+1. `response` (step 2) inserts the `~`-prefixed pending echo into `eventChainMap` and `pendingEchoMap`.
+2. `sync_complete` (step 4) calls `addNewEventToChain` for the `$`-prefixed confirmed event. Without a guard, both the `~` echo and the `$` event now coexist in `eventChainMap`. Both share the same `transactionId`, so they produce the same `stableKey` in the `LazyColumn` → **crash**: `IllegalArgumentException: Key was already used`.
+3. `send_complete` (step 3) would have evicted the echo, but it arrives too late.
+
+**Fix (applied in `EditVersionCoordinator.addNewEventToChain`)**: Before inserting a confirmed (`$`-prefixed) event, check whether its `transactionId` matches a pending echo in `pendingEchoMap`. If so, evict the echo from both `eventChainMap` and `pendingEchoMap` immediately, and pre-mark the entrance as played. When `send_complete` later arrives, `pendingEchoMap.remove(txId)` returns null and the eviction block is skipped harmlessly.
+
+**Fix (applied in `RoomTimelineScreen.kt` and `BubbleTimelineScreen.kt` `stableKey`)**: Changed from `transactionId ?: ... ?: eventId` to simply `eventId`. Since `eventId` is unique per event, duplicate `LazyColumn` keys are structurally impossible even if both a `~` echo and its `$` confirmation are transiently present in the list.
 
 ## Visual States
 
@@ -117,8 +131,9 @@ Applied in both `RoomTimelineScreen.kt` (`processTimelineEvents`) and `BubbleTim
 | File | Role |
 |------|------|
 | `AppViewModel.kt` | `pendingEchoMap` declaration; `handleMessageResponse` (echo insertion); `processSendCompleteEvent` (eviction/failure); `dismissPendingEcho` |
+| `EditVersionCoordinator.kt` | `addNewEventToChain` — deduplication + pending echo eviction when confirmed event arrives via sync before send_complete |
 | `utils/NetworkUtils.kt` | Calls `processSendCompleteEvent(event, error)` — passes outer `error` field from `send_complete` |
 | `utils/ReplyFunctions.kt` | Derives `isPendingEcho`, `isFailedEcho`; applies bubble colors; disables actions; wires `effectiveOnDelete` |
 | `utils/MessageMenuBar.kt` | "Send Error" dropdown item + `AlertDialog` |
-| `RoomTimelineScreen.kt` | Sort fix for `timelineRowid = 0` |
-| `BubbleTimelineScreen.kt` | Sort fix for `timelineRowid = 0` |
+| `RoomTimelineScreen.kt` | Sort fix for `timelineRowid = 0`; `stableKey` uses `eventId` (not `transactionId`) to prevent duplicate LazyColumn keys |
+| `BubbleTimelineScreen.kt` | Sort fix for `timelineRowid = 0`; `stableKey` uses `eventId` (not `transactionId`) to prevent duplicate LazyColumn keys |

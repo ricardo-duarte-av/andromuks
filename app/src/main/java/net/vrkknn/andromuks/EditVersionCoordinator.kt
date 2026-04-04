@@ -566,6 +566,18 @@ internal class EditVersionCoordinator(
     }
 
     fun addNewEventToChain(event: TimelineEvent) {
+        // If sync_complete delivers a confirmed ($) event before send_complete evicts the pending
+        // echo, both would coexist in eventChainMap with the same transactionId. Evict the echo
+        // here so we never have a duplicate-key situation in the LazyColumn.
+        val txId = event.transactionId
+        if (txId != null && !event.eventId.startsWith("~")) {
+            val pendingId = vm.pendingEchoMap.remove(txId)
+            if (pendingId != null) {
+                vm.eventChainMap.remove(pendingId)
+                vm.markTimelineEntrancePlayed(event.eventId)
+            }
+        }
+
         val existingEntry = vm.eventChainMap[event.eventId]
         if (existingEntry != null) {
             val existingBubble = existingEntry.ourBubble
