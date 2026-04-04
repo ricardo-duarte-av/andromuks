@@ -158,6 +158,18 @@ The app has first-class support for Matrix bridges (e.g. Mautrix bridges for Wha
 - Per-message bridge profiles (`com.beeper.per_message_profile`)
 - Bridge send status (`com.beeper.message_send_status`) — delivery icons, Delivery Info dialog, functional members (`io.element.functional_members` / MSC4171)
 
+## Offline Connection Indicator
+
+A pulsing `CloudOff` icon in `MaterialTheme.colorScheme.error` is shown in every screen's header when the WebSocket is not in `ConnectionState.Ready`. It is driven by `SyncRepository.connectionState.collectAsState()` and uses an `infiniteRepeatable` alpha animation (0.4 → 1.0, 800 ms, `RepeatMode.Reverse`) inside an `AnimatedVisibility`.
+
+**Placement per screen:**
+- `RoomListScreen` — between the user Column and the Mentions icon button in the top bar Row
+- `RoomTimelineScreen` (`RoomHeader`) — to the left of the video call (`Videocam`) icon button
+- `BubbleTimelineScreen` (`BubbleRoomHeader`) — first item in the trailing icons Row, before the "Open in app" button
+- `ThreadViewerScreen` — trailing item in the header Row, after the thread title Column
+
+The connection state is sourced directly from `SyncRepository.connectionState` (a `StateFlow<ConnectionState>`). `isReady()` is the extension function in `ConnectionState.kt` that returns `true` only for `ConnectionState.Ready`.
+
 ## Version Management
 
 `versionCode` is computed dynamically in `app/build.gradle.kts` based on seconds since 2024-01-01 epoch, plus a Play Store offset. `versionName` (e.g., `1.0.73`) is set manually. Bump `versionName` in `app/build.gradle.kts` for releases.

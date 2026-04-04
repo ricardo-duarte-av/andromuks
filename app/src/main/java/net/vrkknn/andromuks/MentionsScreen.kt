@@ -165,17 +165,27 @@ fun MentionsScreen(
                             .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
                         color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
                     ) {
-                        Box(
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 16.dp),
-                            contentAlignment = Alignment.Center
+                                .padding(horizontal = 4.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
+                            IconButton(onClick = { navController.popBackStack() }) {
+                                Icon(
+                                    imageVector = Icons.Filled.ArrowBack,
+                                    contentDescription = "Back"
+                                )
+                            }
                             Text(
                                 text = "Mentions",
                                 style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
+                            // Spacer to balance the back button and keep title visually centered
+                            Spacer(modifier = Modifier.size(48.dp))
                         }
                     }
                     
