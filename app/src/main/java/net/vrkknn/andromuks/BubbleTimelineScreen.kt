@@ -542,6 +542,25 @@ fun BubbleTimelineScreen(
     // Pre-rendering on every sync was causing heavy CPU load with 580+ rooms.
     // Timeline is now rendered lazily when room is opened via processCachedEvents().
     val timelineEvents = appViewModel.timelineEvents
+    val editEventsByTargetId: Map<String, TimelineEvent> = remember(timelineEvents) {
+        val map = mutableMapOf<String, TimelineEvent>()
+        for (event in timelineEvents) {
+            val targetId =
+                event.content?.optJSONObject("m.relates_to")
+                    ?.takeIf { it.optString("rel_type") == "m.replace" }
+                    ?.optString("event_id")?.takeIf { it.isNotBlank() }
+                    ?: event.decrypted?.optJSONObject("m.relates_to")
+                        ?.takeIf { it.optString("rel_type") == "m.replace" }
+                        ?.optString("event_id")?.takeIf { it.isNotBlank() }
+            if (targetId != null) {
+                val existing = map[targetId]
+                if (existing == null || event.timestamp > existing.timestamp) {
+                    map[targetId] = event
+                }
+            }
+        }
+        map
+    }
     val isLoading = appViewModel.isTimelineLoading
     var readinessCheckComplete by remember { mutableStateOf(false) }
 
@@ -1544,6 +1563,7 @@ fun BubbleTimelineScreen(
             var lastDate: String? = null
             var previousEvent: TimelineEvent? = null
 
+            val formatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
             for (event in sortedEvents) {
                 if (event.type == "m.reaction") {
                     // Reactions mutate their target event and should not render as standalone timeline items
@@ -1551,9 +1571,7 @@ fun BubbleTimelineScreen(
                 }
 
                 // Format date inline to avoid @Composable context issue
-                val date = Date(event.timestamp)
-                val formatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
-                val eventDate = formatter.format(date)
+                val eventDate = formatter.format(Date(event.timestamp))
 
                 // Add date divider if this is a new date
                 if (lastDate == null || eventDate != lastDate) {
@@ -2719,6 +2737,7 @@ fun BubbleTimelineScreen(
                                             TimelineEventItem(
                                                 event = event,
                                                 timelineEvents = timelineEvents,
+                                                editsByTargetId = editEventsByTargetId,
                                                 homeserverUrl = homeserverUrl,
                                                 authToken = authToken,
                                                 userProfileCache = memberMap,

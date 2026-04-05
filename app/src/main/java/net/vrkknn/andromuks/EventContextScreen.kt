@@ -125,6 +125,26 @@ fun EventContextScreen(
     
     // Find the target event in the context events
     val targetEvent = contextEvents?.find { it.eventId == eventId }
+    val editEventsByTargetId: Map<String, TimelineEvent> = remember(contextEvents) {
+        val events = contextEvents ?: return@remember emptyMap()
+        val map = mutableMapOf<String, TimelineEvent>()
+        for (event in events) {
+            val targetId =
+                event.content?.optJSONObject("m.relates_to")
+                    ?.takeIf { it.optString("rel_type") == "m.replace" }
+                    ?.optString("event_id")?.takeIf { it.isNotBlank() }
+                    ?: event.decrypted?.optJSONObject("m.relates_to")
+                        ?.takeIf { it.optString("rel_type") == "m.replace" }
+                        ?.optString("event_id")?.takeIf { it.isNotBlank() }
+            if (targetId != null) {
+                val existing = map[targetId]
+                if (existing == null || event.timestamp > existing.timestamp) {
+                    map[targetId] = event
+                }
+            }
+        }
+        map
+    }
     
     Scaffold(
         topBar = {
@@ -293,6 +313,7 @@ fun EventContextScreen(
                             TimelineEventItem(
                                 event = event,
                                 timelineEvents = contextEvents!!,
+                                editsByTargetId = editEventsByTargetId,
                                 homeserverUrl = homeserverUrl,
                                 authToken = imageToken,
                                 userProfileCache = memberMap,

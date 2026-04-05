@@ -316,6 +316,25 @@ fun ThreadViewerScreen(
     val threadMessages by remember(roomId, threadRootEventId) {
         derivedStateOf { appViewModel.getThreadMessages(roomId, threadRootEventId) }
     }
+    val editEventsByTargetId: Map<String, TimelineEvent> = remember(threadMessages) {
+        val map = mutableMapOf<String, TimelineEvent>()
+        for (event in threadMessages) {
+            val targetId =
+                event.content?.optJSONObject("m.relates_to")
+                    ?.takeIf { it.optString("rel_type") == "m.replace" }
+                    ?.optString("event_id")?.takeIf { it.isNotBlank() }
+                    ?: event.decrypted?.optJSONObject("m.relates_to")
+                        ?.takeIf { it.optString("rel_type") == "m.replace" }
+                        ?.optString("event_id")?.takeIf { it.isNotBlank() }
+            if (targetId != null) {
+                val existing = map[targetId]
+                if (existing == null || event.timestamp > existing.timestamp) {
+                    map[targetId] = event
+                }
+            }
+        }
+        map
+    }
 
     // Ensure the ViewModel treats this room as current so timeline updates and send_complete are applied
     LaunchedEffect(roomId) {
@@ -1296,6 +1315,7 @@ fun ThreadViewerScreen(
                                         TimelineEventItem(
                                             event = event,
                                             timelineEvents = threadMessages,
+                                            editsByTargetId = editEventsByTargetId,
                                             homeserverUrl = homeserverUrl,
                                             authToken = authToken,
                                             userProfileCache = memberMap,
