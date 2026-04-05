@@ -2108,10 +2108,11 @@ private fun EncryptedMessageContent(
 
         // Check if this is a reply message
         val replyInfo = event.getReplyInfo()
-        val originalEvent =
+        val originalEvent = remember(replyInfo?.eventId, timelineEvents) {
             replyInfo?.let { reply ->
-                timelineEvents.find<TimelineEvent> { it.eventId == reply.eventId }
+                timelineEvents.find { it.eventId == reply.eventId }
             }
+        }
 
         // CRITICAL: Check if message is redacted BEFORE checking media type
         // Redacted messages should show deletion message, not original content (including media)
