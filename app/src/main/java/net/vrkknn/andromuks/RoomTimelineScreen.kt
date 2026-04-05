@@ -414,11 +414,11 @@ sealed class TimelineItem {
     }
 }
 
+private val dateFormatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
+
 /** Format timestamp to date string (dd / MM / yyyy) */
 internal fun formatDate(timestamp: Long): String {
-    val date = Date(timestamp)
-    val formatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
-    return formatter.format(date)
+    return dateFormatter.format(Date(timestamp))
 }
 
 /** PERFORMANCE: Helper function to process timeline events in background */
@@ -1912,6 +1912,7 @@ fun RoomTimelineScreen(
             val items = mutableListOf<TimelineItem>()
             var lastDate: String? = null
             var previousEvent: TimelineEvent? = null
+            val formatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
 
             for (event in sortedEvents) {
                 if (event.type == "m.reaction") {
@@ -1920,9 +1921,7 @@ fun RoomTimelineScreen(
                 }
 
                 // Format date inline to avoid @Composable context issue
-                val date = Date(event.timestamp)
-                val formatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
-                val eventDate = formatter.format(date)
+                val eventDate = formatter.format(Date(event.timestamp))
 
                 // Add date divider if this is a new date
                 if (lastDate == null || eventDate != lastDate) {
