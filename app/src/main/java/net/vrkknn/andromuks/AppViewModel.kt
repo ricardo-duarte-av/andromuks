@@ -1948,13 +1948,6 @@ class AppViewModel : ViewModel() {
                 .map { it.eventId to originalId }
         }.toMap()
     
-    internal val redactionCache: Map<String, TimelineEvent>
-        get() = MessageVersionsCache.getAllVersions()
-            .filter { it.value.redactionEvent != null }
-            .mapNotNull { (eventId, versioned) ->
-                versioned.redactionEvent?.let { eventId to it }
-            }.toMap()
-    
     private fun clearMessageVersions() {
         MessageVersionsCache.clear()
     }
@@ -2032,15 +2025,6 @@ class AppViewModel : ViewModel() {
         return messageVersions[originalEventId]
     }
     
-    
-    /**
-     * Gets the redaction event for a deleted message (O(1) lookup)
-     * @param eventId The event ID that was redacted
-     * @return The redaction event, or null if not redacted
-     */
-    fun getRedactionEvent(eventId: String): TimelineEvent? {
-        return redactionCache[eventId]
-    }
     
     /**
      * Checks if a message has been edited (O(1) lookup from memory)
@@ -5574,7 +5558,6 @@ class AppViewModel : ViewModel() {
         editEventsMap.clear()
         MessageVersionsCache.clear()
         // editToOriginal is computed from messageVersions, no need to clear separately
-        // redactionCache is computed from messageVersions, no need to clear separately
         MessageReactionsCache.clear()
         messageReactions = emptyMap()
         messageBridgeSendStatus = emptyMap()
@@ -8670,6 +8653,7 @@ class AppViewModel : ViewModel() {
         try {
             val timelineEvents = mutableListOf<TimelineEvent>()
             val redactionMap = mutableMapOf<String, String>() // Map of target eventId -> redaction eventId
+            val redactionEventByOriginal = mutableMapOf<String, TimelineEvent>() // target eventId -> redaction event
         
             // THREAD SAFETY: Create snapshot of map entries to prevent ConcurrentModificationException
             // This prevents crashes when the map is modified concurrently (e.g., by background coroutines)
@@ -8712,6 +8696,7 @@ class AppViewModel : ViewModel() {
                         
                         if (redactsEventId != null) {
                             redactionMap[redactsEventId] = redactionEvent.eventId
+                            redactionEventByOriginal[redactsEventId] = redactionEvent
                             if (BuildConfig.DEBUG) android.util.Log.d(
                                 "Andromuks",
                                 "buildTimelineFromChain: redaction ${redactionEvent.eventId} (type=${redactionEvent.type}, decryptedType=${redactionEvent.decryptedType}) targets $redactsEventId"
@@ -8773,7 +8758,23 @@ class AppViewModel : ViewModel() {
                                 "buildTimelineFromChain: applying redaction $finalRedactedBy to event $eventId (from $source)"
                             )
                         }
-                        baseEvent.copy(redactedBy = finalRedactedBy)
+                        val redEvt = redactionEventByOriginal[eventId]
+                        // Fallback: unsigned.redacted_because is included by servers in paginate
+                        // responses when the redaction event itself is not in the same batch.
+                        val redactedBecause = if (redEvt == null) baseEvent.unsigned?.optJSONObject("redacted_because") else null
+                        baseEvent.copy(
+                            redactedBy = finalRedactedBy,
+                            redactionSender = redEvt?.sender
+                                ?: baseEvent.redactionSender
+                                ?: redactedBecause?.optString("sender")?.takeIf { it.isNotBlank() },
+                            redactionReason = (redEvt?.let { e ->
+                                (e.content?.optString("reason") ?: e.decrypted?.optString("reason"))?.takeIf { it.isNotBlank() }
+                            } ?: baseEvent.redactionReason
+                                ?: redactedBecause?.optJSONObject("content")?.optString("reason")?.takeIf { it.isNotBlank() }),
+                            redactionTimestamp = redEvt?.timestamp
+                                ?: baseEvent.redactionTimestamp
+                                ?: redactedBecause?.optLong("origin_server_ts", 0L)?.takeIf { it > 0L }
+                        )
                     } else {
                         baseEvent
                     }

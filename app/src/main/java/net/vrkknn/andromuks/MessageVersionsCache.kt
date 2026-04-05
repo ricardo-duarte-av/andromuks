@@ -20,10 +20,7 @@ object MessageVersionsCache {
     
     // Maps edit event ID back to original event ID for quick lookup
     private val editToOriginal = ConcurrentHashMap<String, String>()
-    
-    // Maps redacted event ID to the redaction event
-    private val redactionCache = ConcurrentHashMap<String, TimelineEvent>()
-    
+
     private val cacheLock = Any()
     
     /**
@@ -40,10 +37,6 @@ object MessageVersionsCache {
                 }
             }
             
-            // Update redaction cache if redacted
-            if (versionedMessage.redactedBy != null && versionedMessage.redactionEvent != null) {
-                redactionCache[originalEventId] = versionedMessage.redactionEvent
-            }
         }
     }
     
@@ -66,15 +59,6 @@ object MessageVersionsCache {
     }
     
     /**
-     * Get redaction event for an event
-     */
-    fun getRedactionEvent(eventId: String): TimelineEvent? {
-        return synchronized(cacheLock) {
-            redactionCache[eventId]
-        }
-    }
-    
-    /**
      * Get all versions from the cache
      */
     fun getAllVersions(): Map<String, VersionedMessage> {
@@ -90,7 +74,6 @@ object MessageVersionsCache {
         synchronized(cacheLock) {
             versionsCache.clear()
             editToOriginal.clear()
-            redactionCache.clear()
             if (BuildConfig.DEBUG) Log.d(TAG, "MessageVersionsCache: Cleared all versions")
         }
     }
@@ -113,34 +96,29 @@ object MessageVersionsCache {
         synchronized(cacheLock) {
             var removedVersions = 0
             var removedEdits = 0
-            var removedRedactions = 0
-            
+
             // Clear versions for the specified event IDs
             eventIds.forEach { eventId ->
                 if (versionsCache.remove(eventId) != null) {
                     removedVersions++
                 }
-                // Also remove from redaction cache
-                if (redactionCache.remove(eventId) != null) {
-                    removedRedactions++
-                }
             }
-            
+
             // Remove edit-to-original mappings where the original event was cleared
             val editKeysToRemove = editToOriginal.entries.filter { it.value in eventIds }.map { it.key }
             editKeysToRemove.forEach { editEventId ->
                 editToOriginal.remove(editEventId)
                 removedEdits++
             }
-            
+
             // Also remove edit-to-original mappings where the edit event itself was cleared
             eventIds.forEach { eventId ->
                 if (editToOriginal.remove(eventId) != null) {
                     removedEdits++
                 }
             }
-            
-            if (BuildConfig.DEBUG) Log.d(TAG, "MessageVersionsCache: Cleared versions for ${removedVersions} events, ${removedEdits} edit mappings, ${removedRedactions} redactions (out of ${eventIds.size} requested)")
+
+            if (BuildConfig.DEBUG) Log.d(TAG, "MessageVersionsCache: Cleared versions for ${removedVersions} events, ${removedEdits} edit mappings (out of ${eventIds.size} requested)")
         }
     }
 }

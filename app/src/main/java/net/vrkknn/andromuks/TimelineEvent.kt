@@ -22,7 +22,12 @@ data class TimelineEvent(
     val relationType: String? = null, // "m.thread" for thread messages
     val relatesTo: String? = null, // Thread root event ID for thread messages
     val aggregatedReactions: JSONObject? = null,
-    val transactionId: String? = null
+    val transactionId: String? = null,
+    // Redaction metadata — populated during timeline build from the redaction event.
+    // Stored directly on the event so rendering never needs a secondary cache lookup.
+    val redactionSender: String? = null,
+    val redactionReason: String? = null,
+    val redactionTimestamp: Long? = null
 ) {
     /**
      * Best-effort reconstruction of the raw event JSON for inspection/debugging UI.
@@ -50,6 +55,9 @@ data class TimelineEvent(
         if (relatesTo != null) json.put("relates_to", relatesTo)
         if (aggregatedReactions != null) json.put("reactions", aggregatedReactions)
         if (transactionId != null) json.put("transaction_id", transactionId)
+        if (redactionSender != null) json.put("redaction_sender", redactionSender)
+        if (redactionReason != null) json.put("redaction_reason", redactionReason)
+        if (redactionTimestamp != null) json.put("redaction_timestamp", redactionTimestamp)
 
         return json
     }
@@ -93,7 +101,10 @@ data class TimelineEvent(
                 relationType = json.optString("relation_type")?.takeIf { it.isNotBlank() },
                 relatesTo = json.optString("relates_to")?.takeIf { it.isNotBlank() },
                 aggregatedReactions = aggregatedReactions,
-                transactionId = transactionId
+                transactionId = transactionId,
+                redactionSender = json.optString("redaction_sender").takeIf { it.isNotBlank() },
+                redactionReason = json.optString("redaction_reason").takeIf { it.isNotBlank() },
+                redactionTimestamp = json.optLong("redaction_timestamp", 0L).takeIf { it > 0L }
             )
         }
     }

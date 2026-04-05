@@ -57,13 +57,6 @@ object RoomTimelineCache {
     data class ProcessedTimelineState(
         val eventChainMap: MutableMap<String, AppViewModel.EventChainEntry> = mutableMapOf(),
         val editEventsMap: MutableMap<String, TimelineEvent> = mutableMapOf(),
-        // Store redaction events: redactionEventId -> redactionEvent
-        // This allows us to show deleted messages similar to how we show edits
-        val redactionEventsMap: MutableMap<String, TimelineEvent> = mutableMapOf(),
-        // Store redaction mapping: originalEventId -> redactionEventId (for quick lookup)
-        val redactionMapping: MutableMap<String, String> = mutableMapOf(),
-        // Reverse map: redactionEventId -> originalEventId (O(1) reverse lookup)
-        val reverseRedactionMapping: MutableMap<String, String> = mutableMapOf(),
         var lastAccessedAt: Long = System.currentTimeMillis()
     )
     
@@ -302,10 +295,16 @@ object RoomTimelineCache {
                     val originalEventId = redactsString ?: redactsObject
                     
                     if (originalEventId != null) {
-                        synchronized(cacheStateLock) {
-                            cache.processedState.redactionMapping[originalEventId] = event.eventId
-                            cache.processedState.reverseRedactionMapping[event.eventId] = originalEventId
-                            cache.processedState.redactionEventsMap[event.eventId] = event
+                        // Enrich the original event in cache.events with redaction metadata so
+                        // it is available immediately on cache restore (no secondary lookup needed).
+                        val originalIndex = cache.events.indexOfFirst { it.eventId == originalEventId }
+                        if (originalIndex >= 0) {
+                            val orig = cache.events[originalIndex]
+                            cache.events[originalIndex] = orig.copy(
+                                redactionSender = event.sender,
+                                redactionReason = (event.content?.optString("reason") ?: event.decrypted?.optString("reason"))?.takeIf { it.isNotBlank() },
+                                redactionTimestamp = event.timestamp
+                            )
                         }
                     }
                 }
@@ -328,8 +327,30 @@ object RoomTimelineCache {
             } else {
                 // Regular events
                 if (cache.eventIds.add(event.eventId)) {
-                    // New event - add it
-                    cache.events.add(event)
+                    // New event - add it.
+                    // If already redacted, try to enrich with redaction metadata:
+                    // 1. Redaction event already in cache.redactionEvents (same batch, arrived first)
+                    // 2. unsigned.redacted_because (Matrix spec fallback for paginate responses)
+                    val eventToAdd = if (event.redactedBy != null && event.redactionSender == null) {
+                        val redEvt = cache.redactionEvents.find { it.eventId == event.redactedBy }
+                        if (redEvt != null) {
+                            event.copy(
+                                redactionSender = redEvt.sender,
+                                redactionReason = (redEvt.content?.optString("reason") ?: redEvt.decrypted?.optString("reason"))?.takeIf { it.isNotBlank() },
+                                redactionTimestamp = redEvt.timestamp
+                            )
+                        } else {
+                            val redactedBecause = event.unsigned?.optJSONObject("redacted_because")
+                            if (redactedBecause != null) {
+                                event.copy(
+                                    redactionSender = redactedBecause.optString("sender").takeIf { it.isNotBlank() },
+                                    redactionReason = redactedBecause.optJSONObject("content")?.optString("reason")?.takeIf { it.isNotBlank() },
+                                    redactionTimestamp = redactedBecause.optLong("origin_server_ts", 0L).takeIf { it > 0L }
+                                )
+                            } else event
+                        }
+                    } else event
+                    cache.events.add(eventToAdd)
                     addedCount++
                 } else {
                     // Event already exists - merge aggregatedReactions and/or redactedBy if present
@@ -355,6 +376,30 @@ object RoomTimelineCache {
                             needsUpdate = true
                             if (BuildConfig.DEBUG) {
                                 Log.d(TAG, "RoomTimelineCache: Updated redactedBy for existing event ${event.eventId} in room $roomId (redactedBy=${event.redactedBy})")
+                            }
+                        }
+                        // Enrich redaction metadata when the original arrives with redactedBy but
+                        // new fields are still missing. Check cache.redactionEvents first, then
+                        // fall back to unsigned.redacted_because (present in paginate responses).
+                        if (updatedEvent.redactedBy != null && updatedEvent.redactionSender == null) {
+                            val redEvt = cache.redactionEvents.find { it.eventId == updatedEvent.redactedBy }
+                            if (redEvt != null) {
+                                updatedEvent = updatedEvent.copy(
+                                    redactionSender = redEvt.sender,
+                                    redactionReason = (redEvt.content?.optString("reason") ?: redEvt.decrypted?.optString("reason"))?.takeIf { it.isNotBlank() },
+                                    redactionTimestamp = redEvt.timestamp
+                                )
+                                needsUpdate = true
+                            } else {
+                                val redactedBecause = event.unsigned?.optJSONObject("redacted_because")
+                                if (redactedBecause != null) {
+                                    updatedEvent = updatedEvent.copy(
+                                        redactionSender = redactedBecause.optString("sender").takeIf { it.isNotBlank() },
+                                        redactionReason = redactedBecause.optJSONObject("content")?.optString("reason")?.takeIf { it.isNotBlank() },
+                                        redactionTimestamp = redactedBecause.optLong("origin_server_ts", 0L).takeIf { it > 0L }
+                                    )
+                                    needsUpdate = true
+                                }
                             }
                         }
                         // CRITICAL: Update timeline_rowid when incoming has resolved value (positive) and
@@ -504,14 +549,6 @@ object RoomTimelineCache {
             removedEventIds.forEach { eventId ->
                 cache.processedState.eventChainMap.remove(eventId)
                 cache.processedState.editEventsMap.remove(eventId)
-                cache.processedState.redactionEventsMap.remove(eventId)
-                // Case 1: eventId was an original event — remove its forward + reverse redaction entries
-                val redactionEventIdForRemoved = cache.processedState.redactionMapping.remove(eventId)
-                if (redactionEventIdForRemoved != null) cache.processedState.reverseRedactionMapping.remove(redactionEventIdForRemoved)
-                // Case 2: eventId was itself a redaction event — remove its reverse + forward entries
-                cache.processedState.reverseRedactionMapping.remove(eventId)?.let { origId ->
-                    cache.processedState.redactionMapping.remove(origId)
-                }
             }
         }
         // Remove redaction events that target a trimmed original (keep list consistent with main events)
@@ -941,16 +978,13 @@ object RoomTimelineCache {
     }
     
     /**
-     * Save processed timeline state (eventChainMap, editEventsMap, and redactionEventsMap) for a room
-     * Used for quick room switching - stores processed state alongside raw events
+     * Save processed timeline state (eventChainMap, editEventsMap) for a room.
+     * Used for quick room switching — stores processed state alongside raw events.
      */
     fun saveProcessedTimelineState(
         roomId: String,
         eventChainMap: Map<String, AppViewModel.EventChainEntry>,
-        editEventsMap: Map<String, TimelineEvent>,
-        redactionEventsMap: Map<String, TimelineEvent>? = null,
-        redactionMapping: Map<String, String>? = null,
-        reverseRedactionMapping: Map<String, String>? = null
+        editEventsMap: Map<String, TimelineEvent>
     ) {
         synchronized(cacheLock) {
             val cache = roomEventsCache[roomId] ?: return
@@ -959,56 +993,32 @@ object RoomTimelineCache {
                 cache.processedState.eventChainMap.putAll(eventChainMap)
                 cache.processedState.editEventsMap.clear()
                 cache.processedState.editEventsMap.putAll(editEventsMap)
-
-                // Save redaction events and mapping if provided
-                if (redactionEventsMap != null) {
-                    cache.processedState.redactionEventsMap.clear()
-                    cache.processedState.redactionEventsMap.putAll(redactionEventsMap)
-                }
-                if (redactionMapping != null) {
-                    cache.processedState.redactionMapping.clear()
-                    cache.processedState.redactionMapping.putAll(redactionMapping)
-                }
-                if (reverseRedactionMapping != null) {
-                    cache.processedState.reverseRedactionMapping.clear()
-                    cache.processedState.reverseRedactionMapping.putAll(reverseRedactionMapping)
-                }
-            
                 cache.processedState.lastAccessedAt = System.currentTimeMillis()
                 cache.lastAccessedAt = System.currentTimeMillis()
             }
-            val redactionCount = redactionEventsMap?.size ?: 0
-            if (BuildConfig.DEBUG) Log.d(TAG, "Saved processed timeline state for room $roomId (${eventChainMap.size} chains, ${editEventsMap.size} edits, $redactionCount redactions)")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Saved processed timeline state for room $roomId (${eventChainMap.size} chains, ${editEventsMap.size} edits)")
         }
     }
     
     /**
-     * Get processed timeline state (eventChainMap, editEventsMap, redactionEventsMap, redactionMapping) for a room
-     * Returns null if room not cached or no processed state available
+     * Get processed timeline state (eventChainMap, editEventsMap) for a room.
+     * Returns null if room not cached or no processed state available.
      */
     data class ProcessedTimelineStateResult(
         val eventChainMap: Map<String, AppViewModel.EventChainEntry>,
-        val editEventsMap: Map<String, TimelineEvent>,
-        val redactionEventsMap: Map<String, TimelineEvent>,
-        val redactionMapping: Map<String, String>,
-        val reverseRedactionMapping: Map<String, String>
+        val editEventsMap: Map<String, TimelineEvent>
     )
-    
+
     fun getProcessedTimelineState(roomId: String): ProcessedTimelineStateResult? {
         synchronized(cacheLock) {
             val cache = roomEventsCache[roomId] ?: return null
             return synchronized(cacheStateLock) {
-                if (cache.processedState.eventChainMap.isEmpty() && 
-                    cache.processedState.editEventsMap.isEmpty() &&
-                    cache.processedState.redactionEventsMap.isEmpty()) {
+                if (cache.processedState.eventChainMap.isEmpty() && cache.processedState.editEventsMap.isEmpty()) {
                     null
                 } else {
                     ProcessedTimelineStateResult(
                         eventChainMap = cache.processedState.eventChainMap.toMap(),
-                        editEventsMap = cache.processedState.editEventsMap.toMap(),
-                        redactionEventsMap = cache.processedState.redactionEventsMap.toMap(),
-                        redactionMapping = cache.processedState.redactionMapping.toMap(),
-                        reverseRedactionMapping = cache.processedState.reverseRedactionMapping.toMap()
+                        editEventsMap = cache.processedState.editEventsMap.toMap()
                     )
                 }
             }
@@ -1024,9 +1034,6 @@ object RoomTimelineCache {
             synchronized(cacheStateLock) {
                 cache.processedState.eventChainMap.clear()
                 cache.processedState.editEventsMap.clear()
-                cache.processedState.redactionEventsMap.clear()
-                cache.processedState.redactionMapping.clear()
-                cache.processedState.reverseRedactionMapping.clear()
             }
             if (BuildConfig.DEBUG) Log.d(TAG, "Cleared processed timeline state for room $roomId")
         }
@@ -1038,26 +1045,29 @@ object RoomTimelineCache {
     fun addRedactionEvent(roomId: String, redactionEvent: TimelineEvent) {
         synchronized(cacheLock) {
             val cache = roomEventsCache.getOrPut(roomId) { RoomCache() }
-            synchronized(cacheStateLock) {
-                // Store redaction event separately
-                if (cache.redactionEvents.none { it.eventId == redactionEvent.eventId }) {
-                    cache.redactionEvents.add(redactionEvent)
+
+            if (cache.redactionEvents.none { it.eventId == redactionEvent.eventId }) {
+                cache.redactionEvents.add(redactionEvent)
+            }
+
+            val redactsString = redactionEvent.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+            val redactsObject = redactionEvent.content?.optJSONObject("redacts")?.optString("event_id")?.takeIf { it.isNotBlank() }
+            val originalEventId = redactsString ?: redactsObject
+
+            if (originalEventId != null) {
+                // Enrich the original event in cache.events with redaction metadata
+                val originalIndex = cache.events.indexOfFirst { it.eventId == originalEventId }
+                if (originalIndex >= 0) {
+                    val orig = cache.events[originalIndex]
+                    cache.events[originalIndex] = orig.copy(
+                        redactionSender = redactionEvent.sender,
+                        redactionReason = (redactionEvent.content?.optString("reason") ?: redactionEvent.decrypted?.optString("reason"))?.takeIf { it.isNotBlank() },
+                        redactionTimestamp = redactionEvent.timestamp
+                    )
                 }
-            
-                // Extract the event ID being redacted
-                val redactsString = redactionEvent.content?.optString("redacts")?.takeIf { it.isNotBlank() }
-                val redactsObject = redactionEvent.content?.optJSONObject("redacts")?.optString("event_id")?.takeIf { it.isNotBlank() }
-                val originalEventId = redactsString ?: redactsObject
-            
-                if (originalEventId != null) {
-                    // Store mapping: originalEventId -> redactionEventId (and reverse)
-                    cache.processedState.redactionMapping[originalEventId] = redactionEvent.eventId
-                    cache.processedState.reverseRedactionMapping[redactionEvent.eventId] = originalEventId
-                    cache.processedState.redactionEventsMap[redactionEvent.eventId] = redactionEvent
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Added redaction event ${redactionEvent.eventId} for room $roomId (redacts: $originalEventId)")
-                } else {
-                    if (BuildConfig.DEBUG) Log.w(TAG, "Added redaction event ${redactionEvent.eventId} for room $roomId but could not extract original event ID")
-                }
+                if (BuildConfig.DEBUG) Log.d(TAG, "Added redaction event ${redactionEvent.eventId} for room $roomId (redacts: $originalEventId)")
+            } else {
+                if (BuildConfig.DEBUG) Log.w(TAG, "Added redaction event ${redactionEvent.eventId} for room $roomId but could not extract original event ID")
             }
         }
     }
@@ -1070,19 +1080,6 @@ object RoomTimelineCache {
             val cache = roomEventsCache[roomId] ?: return emptyList()
             return synchronized(cacheStateLock) {
                 cache.redactionEvents.toList()
-            }
-        }
-    }
-    
-    /**
-     * Get redaction event for a specific original event
-     */
-    fun getRedactionEventForOriginal(roomId: String, originalEventId: String): TimelineEvent? {
-        synchronized(cacheLock) {
-            val cache = roomEventsCache[roomId] ?: return null
-            return synchronized(cacheStateLock) {
-                val redactionEventId = cache.processedState.redactionMapping[originalEventId]
-                redactionEventId?.let { cache.processedState.redactionEventsMap[it] }
             }
         }
     }

@@ -150,14 +150,7 @@ fun ReplyPreview(
     val originalBody = latestOriginalEvent?.let { event ->
         // OPTIMIZED: Check if redacted using O(1) lookup
         if (event.redactedBy != null) {
-            // Latest version was deleted - use O(1) cached redaction event
-            val redactionEvent = appViewModel?.getRedactionEvent(event.eventId)
-            if (redactionEvent != null) {
-                RedactionUtils.createDeletionMessageFromEvent(redactionEvent, userProfileCache)
-            } else {
-                // Fallback to scanning if cache unavailable
-                RedactionUtils.createDeletionMessageForEvent(event, timelineEvents, userProfileCache)
-            }
+            RedactionUtils.createDeletionMessage(event.redactionSender, event.redactionReason, event.redactionTimestamp, userProfileCache)
         } else {
             // Latest version is still available - show its content
             when {

@@ -35,31 +35,16 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
         with(vm) {
             if (roomId.isBlank() || timelineEvents.isEmpty()) return
 
-            // Build redaction events map and mapping from redactionCache
-            val redactionEventsMap = mutableMapOf<String, TimelineEvent>()
-            val redactionMapping = mutableMapOf<String, String>()
-            val reverseRedactionMapping = mutableMapOf<String, String>()
-
-            redactionCache.forEach { (originalEventId, redactionEvent) ->
-                redactionEventsMap[redactionEvent.eventId] = redactionEvent
-                redactionMapping[originalEventId] = redactionEvent.eventId
-                reverseRedactionMapping[redactionEvent.eventId] = originalEventId
-            }
-
-            // Save processed timeline state to singleton cache (including redactions)
             RoomTimelineCache.saveProcessedTimelineState(
                 roomId = roomId,
                 eventChainMap = eventChainMap.toMap(),
-                editEventsMap = editEventsMap.toMap(),
-                redactionEventsMap = redactionEventsMap,
-                redactionMapping = redactionMapping,
-                reverseRedactionMapping = reverseRedactionMapping,
+                editEventsMap = editEventsMap.toMap()
             )
 
             if (BuildConfig.DEBUG)
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Saved processed timeline state for room $roomId (${eventChainMap.size} chains, ${editEventsMap.size} edits, ${redactionEventsMap.size} redactions)",
+                    "AppViewModel: Saved processed timeline state for room $roomId (${eventChainMap.size} chains, ${editEventsMap.size} edits)",
                 )
         }
     }
@@ -70,8 +55,6 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // Get cached events from RoomTimelineCache
             val cachedEvents = RoomTimelineCache.getCachedEvents(roomId) ?: return false
 
-            // Get processed timeline state (eventChainMap, editEventsMap, redactionEventsMap,
-            // redactionMapping)
             val processedState = RoomTimelineCache.getProcessedTimelineState(roomId)
 
             // Restore events
@@ -84,65 +67,10 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 editEventsMap.clear()
                 editEventsMap.putAll(processedState.editEventsMap)
 
-                // Restore redaction events to MessageVersionsCache
-                // This ensures deleted messages can be displayed
-                processedState.redactionEventsMap.forEach { (redactionEventId, redactionEvent) ->
-                    // Find the original event ID from the reverse mapping (O(1))
-                    val originalEventId = processedState.reverseRedactionMapping[redactionEventId]
-
-                    if (originalEventId != null) {
-                        // Update MessageVersionsCache with redaction info
-                        val versioned = messageVersions[originalEventId]
-                        if (versioned != null) {
-                            MessageVersionsCache.updateVersion(
-                                originalEventId,
-                                versioned.copy(
-                                    redactedBy = redactionEvent.sender,
-                                    redactionEvent = redactionEvent,
-                                ),
-                            )
-                        } else {
-                            // Redaction came before original - try to find original event in cached
-                            // events
-                            val originalEvent =
-                                timelineEvents.find { it.eventId == originalEventId }
-                                    ?: RoomTimelineCache.getCachedEvents(roomId)?.find {
-                                        it.eventId == originalEventId
-                                    }
-
-                            if (originalEvent != null) {
-                                // Found original event - create VersionedMessage with it
-                                MessageVersionsCache.updateVersion(
-                                    originalEventId,
-                                    VersionedMessage(
-                                        originalEventId = originalEventId,
-                                        originalEvent = originalEvent,
-                                        versions = emptyList(),
-                                        redactedBy = redactionEvent.sender,
-                                        redactionEvent = redactionEvent,
-                                    ),
-                                )
-                            } else {
-                                // Original event not found - skip for now, will be handled when
-                                // original arrives
-                                // via processVersionedMessages
-                                // This is OK - processVersionedMessages will handle it when the
-                                // original event
-                                // arrives
-                                if (BuildConfig.DEBUG)
-                                    android.util.Log.d(
-                                        "Andromuks",
-                                        "AppViewModel: Redaction event ${redactionEvent.eventId} for original $originalEventId but original not found - will be handled when original arrives",
-                                    )
-                            }
-                        }
-                    }
-                }
-
                 if (BuildConfig.DEBUG)
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Restored room $roomId from cache (${timelineEvents.size} events, ${processedState.eventChainMap.size} chains, ${processedState.editEventsMap.size} edits, ${processedState.redactionEventsMap.size} redactions)",
+                        "AppViewModel: Restored room $roomId from cache (${timelineEvents.size} events, ${processedState.eventChainMap.size} chains, ${processedState.editEventsMap.size} edits)",
                     )
             } else {
                 // No processed state - will be rebuilt from events
@@ -474,7 +402,6 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             editEventsMap.clear()
             MessageVersionsCache.clear()
             // editToOriginal is computed from messageVersions, no need to clear separately
-            // redactionCache is computed from messageVersions, no need to clear separately
             MessageReactionsCache.clear()
             messageReactions = emptyMap()
             roomsWithLoadedReceipts.remove(roomId)
@@ -1257,6 +1184,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                         "m.room.pinned_events",
                                         "m.room.tombstone",
                                         "m.sticker",
+                                        "m.room.redaction", // Needed so redaction events reach cache (addEventsToCache stores them in cache.redactionEvents for sender lookup)
                                     )
 
                                 // Check if this is a kick (leave event where sender != state_key)
@@ -2240,8 +2168,6 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                     }
                                 }
                             if (redactsEventId != null) {
-                                // redactionCache is computed from messageVersions, handled by
-                                // MessageVersionsCache.updateVersion
                                 val versioned = messageVersions[redactsEventId]
                                 if (versioned != null) {
                                     MessageVersionsCache.updateVersion(

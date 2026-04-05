@@ -833,28 +833,16 @@ private fun RoomMessageContent(
         return
     }
 
-    // OPTIMIZED: Check if this message has been redacted using O(1) lookup
     val isRedacted = event.redactedBy != null
-    val redactionEvent = if (isRedacted && appViewModel != null) {
-        appViewModel.getRedactionEvent(event.eventId)  // O(1) lookup!
-    } else null
-    
-    // Fallback: MessageVersionsCache can be empty when loading from timeline cache (redaction events
-    // are stored separately and not in appViewModel.timelineEvents). Use RoomTimelineCache directly.
-    val finalRedactionEvent = redactionEvent ?: if (isRedacted) {
-        net.vrkknn.andromuks.RoomTimelineCache.getRedactionEventForOriginal(event.roomId, event.eventId)
-    } else null
 
-    val redactionSender = finalRedactionEvent?.sender
-
-    // Request profile if redaction sender is missing from cache
-    if (isRedacted && redactionSender != null && appViewModel != null) {
-        if (!userProfileCache.containsKey(redactionSender)) {
+    // Request profile for the redaction sender if missing from cache
+    if (isRedacted && event.redactionSender != null && appViewModel != null) {
+        if (!userProfileCache.containsKey(event.redactionSender)) {
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
-                "RoomTimelineScreen: Requesting profile for redaction sender: $redactionSender in room ${event.roomId}"
+                "RoomTimelineScreen: Requesting profile for redaction sender: ${event.redactionSender} in room ${event.roomId}"
             )
-            appViewModel.requestUserProfile(redactionSender, event.roomId)
+            appViewModel.requestUserProfile(event.redactionSender, event.roomId)
         }
     }
 
@@ -862,9 +850,10 @@ private fun RoomMessageContent(
     // Use finalBody which already includes edit content if the message was edited
     val displayBody =
         if (isRedacted) {
-            // Create deletion message using cached redaction event (or fallback to timeline search)
-            net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
-                finalRedactionEvent,
+            net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(
+                event.redactionSender,
+                event.redactionReason,
+                event.redactionTimestamp,
                 userProfileCache
             )
         } else {
@@ -896,16 +885,13 @@ private fun RoomMessageContent(
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TimelineEventItem: Detected m.sticker message in m.room.message event ${event.eventId}, isConsecutive=$isConsecutive")
         val stickerMessage = extractStickerFromEvent(event)
         val isRedacted = event.redactedBy != null
-        val redactionEvent = if (isRedacted && appViewModel != null) appViewModel.getRedactionEvent(event.eventId) else null
-        
-        val finalRedactionEvent = redactionEvent ?: if (isRedacted) {
-            net.vrkknn.andromuks.RoomTimelineCache.getRedactionEventForOriginal(event.roomId, event.eventId)
-        } else null
 
         if (isRedacted) {
             val deletionMessage =
-                net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
-                    finalRedactionEvent,
+                net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(
+                    event.redactionSender,
+                    event.redactionReason,
+                    event.redactionTimestamp,
                     userProfileCache
                 )
 
@@ -1011,7 +997,6 @@ private fun RoomMessageContent(
             actualIsMine = actualIsMine,
             mentionsMe = mentionsMe,
             isRedacted = isRedacted,
-            redactionEvent = redactionEvent,
             userProfileCache = userProfileCache,
             replyInfo = replyInfo,
             originalEvent = originalEvent,
@@ -1077,7 +1062,6 @@ private fun RoomMediaMessageContent(
     actualIsMine: Boolean,
     mentionsMe: Boolean,
     isRedacted: Boolean,
-    redactionEvent: TimelineEvent?,
     userProfileCache: Map<String, MemberProfile>,
     replyInfo: ReplyInfo?,
     originalEvent: TimelineEvent?,
@@ -1107,13 +1091,11 @@ private fun RoomMediaMessageContent(
 
     // If media message is redacted, show deletion message instead of media
     if (isRedacted) {
-        val finalRedactionEvent = redactionEvent
-            ?: net.vrkknn.andromuks.RoomTimelineCache.getRedactionEventForOriginal(event.roomId, event.eventId)
-        
-        // Display deletion message for media using cached redaction event (or fallback to timeline search)
         val deletionMessage =
-            net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
-                finalRedactionEvent,
+            net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(
+                event.redactionSender,
+                event.redactionReason,
+                event.redactionTimestamp,
                 userProfileCache
             )
 
@@ -2041,24 +2023,14 @@ private fun EncryptedMessageContent(
         if (BuildConfig.DEBUG && isRedacted) {
             Log.d("Andromuks", "EncryptedMessageContent: Event ${event.eventId} is redacted (redactedBy=${event.redactedBy}), msgType=$msgType")
         }
-        val redactionEvent = if (isRedacted && appViewModel != null) {
-            appViewModel.getRedactionEvent(event.eventId)  // O(1) lookup!
-        } else null
-        
-        val finalRedactionEvent = redactionEvent ?: if (isRedacted) {
-            net.vrkknn.andromuks.RoomTimelineCache.getRedactionEventForOriginal(event.roomId, event.eventId)
-        } else null
-
-        val redactionSender = finalRedactionEvent?.sender
-
-        // Request profile if redaction sender is missing from cache
-        if (isRedacted && redactionSender != null && appViewModel != null) {
-            if (!userProfileCache.containsKey(redactionSender)) {
+        // Request profile for the redaction sender if missing from cache
+        if (isRedacted && event.redactionSender != null && appViewModel != null) {
+            if (!userProfileCache.containsKey(event.redactionSender)) {
                 if (BuildConfig.DEBUG) android.util.Log.d(
                     "Andromuks",
-                    "RoomTimelineScreen: Requesting profile for encrypted message redaction sender: $redactionSender in room ${event.roomId}"
+                    "RoomTimelineScreen: Requesting profile for encrypted message redaction sender: ${event.redactionSender} in room ${event.roomId}"
                 )
-                appViewModel.requestUserProfile(redactionSender, event.roomId)
+                appViewModel.requestUserProfile(event.redactionSender, event.roomId)
             }
         }
 
@@ -2074,9 +2046,10 @@ private fun EncryptedMessageContent(
         // Use edit content if this message is being edited, or show deletion message if redacted
         val finalBody =
             if (isRedacted) {
-                // Create deletion message using cached redaction event (or fallback to timeline search)
-                net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
-                    finalRedactionEvent,
+                net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(
+                    event.redactionSender,
+                    event.redactionReason,
+                    event.redactionTimestamp,
                     userProfileCache
                 )
             } else if (editedBy != null && editedBy.decrypted != null) {
@@ -2853,14 +2826,11 @@ private fun StickerMessageContent(
 
     // Show deletion bubble if redacted
     if (event.redactedBy != null) {
-        val redactionEvent = appViewModel?.getRedactionEvent(event.eventId)
-        
-        val finalRedactionEvent = redactionEvent
-            ?: net.vrkknn.andromuks.RoomTimelineCache.getRedactionEventForOriginal(event.roomId, event.eventId)
-        
         val deletionMessage =
-            net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
-                finalRedactionEvent,
+            net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(
+                event.redactionSender,
+                event.redactionReason,
+                event.redactionTimestamp,
                 userProfileCache
             )
 
