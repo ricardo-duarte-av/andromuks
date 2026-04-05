@@ -8659,12 +8659,13 @@ class AppViewModel : ViewModel() {
      * @param rebuildComplete If non-null, completed on Main after state is updated (so callers can run post-rebuild steps).
      */
     private suspend fun executeTimelineRebuild(rebuildComplete: CompletableDeferred<Unit>? = null) {
-        // DIAGNOSTIC: Track when this is called
-        val callStack = Thread.currentThread().stackTrace.take(5).joinToString(" -> ") { it.methodName }
-        if (BuildConfig.DEBUG) android.util.Log.d(
-            "Andromuks",
-            "buildTimelineFromChain: Called (eventChainMap.size=${eventChainMap.size}, currentRoomId=$currentRoomId, callStack=$callStack)"
-        )
+        if (BuildConfig.DEBUG) {
+            val callStack = Thread.currentThread().stackTrace.take(5).joinToString(" -> ") { it.methodName }
+            android.util.Log.d(
+                "Andromuks",
+                "buildTimelineFromChain: Called (eventChainMap.size=${eventChainMap.size}, currentRoomId=$currentRoomId, callStack=$callStack)"
+            )
+        }
         
         try {
             val timelineEvents = mutableListOf<TimelineEvent>()
