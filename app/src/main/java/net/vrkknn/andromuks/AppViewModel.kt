@@ -2626,7 +2626,7 @@ class AppViewModel : ViewModel() {
      * Generate a hash for timeline state to detect actual changes
      */
     private fun generateTimelineStateHash(events: List<TimelineEvent>): String {
-        return events.takeLast(50).joinToString("|") { "${it.eventId}:${it.timestamp}:${it.content?.toString()}" }
+        return events.takeLast(50).joinToString("|") { "${it.eventId}:${it.timestamp}:${it.redactedBy}" }
     }
     
     /**
