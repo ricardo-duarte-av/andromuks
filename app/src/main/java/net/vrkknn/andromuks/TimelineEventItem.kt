@@ -839,12 +839,12 @@ private fun RoomMessageContent(
         appViewModel.getRedactionEvent(event.eventId)  // O(1) lookup!
     } else null
     
-    // Fallback: If cache lookup failed (e.g., for pagination events), search timeline events
+    // Fallback: MessageVersionsCache can be empty when loading from timeline cache (redaction events
+    // are stored separately and not in appViewModel.timelineEvents). Use RoomTimelineCache directly.
     val finalRedactionEvent = redactionEvent ?: if (isRedacted) {
-        @Suppress("DEPRECATION")
-        net.vrkknn.andromuks.utils.RedactionUtils.findLatestRedactionEvent(event.eventId, timelineEvents)
+        net.vrkknn.andromuks.RoomTimelineCache.getRedactionEventForOriginal(event.roomId, event.eventId)
     } else null
-    
+
     val redactionSender = finalRedactionEvent?.sender
 
     // Request profile if redaction sender is missing from cache
@@ -898,10 +898,8 @@ private fun RoomMessageContent(
         val isRedacted = event.redactedBy != null
         val redactionEvent = if (isRedacted && appViewModel != null) appViewModel.getRedactionEvent(event.eventId) else null
         
-        // Fallback: If cache lookup failed (e.g., for pagination events), search timeline events
         val finalRedactionEvent = redactionEvent ?: if (isRedacted) {
-            @Suppress("DEPRECATION")
-            net.vrkknn.andromuks.utils.RedactionUtils.findLatestRedactionEvent(event.eventId, timelineEvents)
+            net.vrkknn.andromuks.RoomTimelineCache.getRedactionEventForOriginal(event.roomId, event.eventId)
         } else null
 
         if (isRedacted) {
@@ -1109,11 +1107,8 @@ private fun RoomMediaMessageContent(
 
     // If media message is redacted, show deletion message instead of media
     if (isRedacted) {
-        // Fallback: If cache lookup failed (e.g., for pagination events), search timeline events
-        val finalRedactionEvent = redactionEvent ?: run {
-            @Suppress("DEPRECATION")
-            net.vrkknn.andromuks.utils.RedactionUtils.findLatestRedactionEvent(event.eventId, timelineEvents)
-        }
+        val finalRedactionEvent = redactionEvent
+            ?: net.vrkknn.andromuks.RoomTimelineCache.getRedactionEventForOriginal(event.roomId, event.eventId)
         
         // Display deletion message for media using cached redaction event (or fallback to timeline search)
         val deletionMessage =
@@ -2050,12 +2045,10 @@ private fun EncryptedMessageContent(
             appViewModel.getRedactionEvent(event.eventId)  // O(1) lookup!
         } else null
         
-        // Fallback: If cache lookup failed (e.g., for pagination events), search timeline events
         val finalRedactionEvent = redactionEvent ?: if (isRedacted) {
-            @Suppress("DEPRECATION")
-            net.vrkknn.andromuks.utils.RedactionUtils.findLatestRedactionEvent(event.eventId, timelineEvents)
+            net.vrkknn.andromuks.RoomTimelineCache.getRedactionEventForOriginal(event.roomId, event.eventId)
         } else null
-        
+
         val redactionSender = finalRedactionEvent?.sender
 
         // Request profile if redaction sender is missing from cache
@@ -2861,16 +2854,8 @@ private fun StickerMessageContent(
     if (event.redactedBy != null) {
         val redactionEvent = appViewModel?.getRedactionEvent(event.eventId)
         
-        // Fallback: If cache lookup failed (e.g., for pagination events), search cached timeline events
-        val finalRedactionEvent = redactionEvent ?: run {
-            val cachedEvents = net.vrkknn.andromuks.RoomTimelineCache.getCachedEvents(event.roomId)
-            if (cachedEvents != null) {
-                @Suppress("DEPRECATION")
-                net.vrkknn.andromuks.utils.RedactionUtils.findLatestRedactionEvent(event.eventId, cachedEvents)
-            } else {
-                null
-            }
-        }
+        val finalRedactionEvent = redactionEvent
+            ?: net.vrkknn.andromuks.RoomTimelineCache.getRedactionEventForOriginal(event.roomId, event.eventId)
         
         val deletionMessage =
             net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
@@ -3081,6 +3066,7 @@ private fun StickerMessageContent(
 fun TimelineEventItem(
     event: TimelineEvent,
     timelineEvents: List<TimelineEvent>,
+    editsByTargetId: Map<String, TimelineEvent> = emptyMap(),
     homeserverUrl: String,
     authToken: String,
     userProfileCache: Map<String, MemberProfile>,
@@ -3207,29 +3193,24 @@ fun TimelineEventItem(
     // Check if this message is being edited by another event (moved to function start)
     // Try getMessageVersions first (most reliable), then fallback to searching timelineEvents
     // This ensures we get the latest edit even if edit events are filtered from display
-    val editedBy = remember(event.eventId, appViewModel?.timelineUpdateCounter, timelineEvents) {
+    val editedBy = remember(event.eventId, appViewModel?.timelineUpdateCounter, editsByTargetId) {
         // First try getMessageVersions (most reliable, uses cached version data)
         val versioned = appViewModel?.getMessageVersions(event.eventId)
         // Find the first version that is NOT the original (i.e., an edit)
         // Versions are sorted by timestamp (newest first), so the first non-original is the latest edit
         val editFromVersions = versioned?.versions?.firstOrNull { !it.isOriginal }?.event
-        
-        if (editFromVersions != null) {
-            editFromVersions
-        } else {
-            // Fallback: search timelineEvents directly (unfiltered list should contain edit events)
-            // This works even if getMessageVersions isn't populated yet
-            val editsFromTimeline = timelineEvents.filter {
-                (it.content?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
-                    it.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace") ||
-                    (it.decrypted?.optJSONObject("m.relates_to")?.optString("event_id") ==
-                        event.eventId &&
-                        it.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") ==
-                            "m.replace")
-            }
-            val latestEdit = editsFromTimeline.maxByOrNull { it.timestamp }
-            latestEdit
-        }
+
+        editFromVersions
+            ?: editsByTargetId[event.eventId]  // O(1) lookup from pre-built map
+            ?: if (editsByTargetId.isEmpty()) {
+                // Legacy fallback for callers that don't provide editsByTargetId
+                timelineEvents.filter {
+                    (it.content?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
+                        it.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace") ||
+                        (it.decrypted?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
+                            it.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace")
+                }.maxByOrNull { it.timestamp }
+            } else null
     }
 
     var showEditHistoryDialog by remember(event.eventId) { mutableStateOf(false) }

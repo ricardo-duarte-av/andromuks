@@ -723,6 +723,27 @@ fun RoomTimelineScreen(
     // Pre-rendering on every sync was causing heavy CPU load with 580+ rooms.
     // Timeline is now rendered lazily when room is opened via processCachedEvents().
     val timelineEvents = appViewModel.timelineEvents
+    // Pre-build edit lookup map once per timeline update: O(n) here instead of O(n²) across items.
+    // Maps targetEventId -> latest edit event. Each TimelineEventItem can do an O(1) lookup.
+    val editEventsByTargetId: Map<String, TimelineEvent> = remember(timelineEvents) {
+        val map = mutableMapOf<String, TimelineEvent>()
+        for (event in timelineEvents) {
+            val targetId =
+                event.content?.optJSONObject("m.relates_to")
+                    ?.takeIf { it.optString("rel_type") == "m.replace" }
+                    ?.optString("event_id")?.takeIf { it.isNotBlank() }
+                    ?: event.decrypted?.optJSONObject("m.relates_to")
+                        ?.takeIf { it.optString("rel_type") == "m.replace" }
+                        ?.optString("event_id")?.takeIf { it.isNotBlank() }
+            if (targetId != null) {
+                val existing = map[targetId]
+                if (existing == null || event.timestamp > existing.timestamp) {
+                    map[targetId] = event
+                }
+            }
+        }
+        map
+    }
     val isLoading = appViewModel.isTimelineLoading
     val currentRoomState = appViewModel.currentRoomState
     var readinessCheckComplete by remember { mutableStateOf(false) }
@@ -3429,6 +3450,7 @@ fun RoomTimelineScreen(
                                             TimelineEventItem(
                                                 event = event,
                                                 timelineEvents = timelineEvents,
+                                                editsByTargetId = editEventsByTargetId,
                                                 homeserverUrl = homeserverUrl,
                                                 authToken = authToken,
                                                 userProfileCache = memberMapWithFallback,
