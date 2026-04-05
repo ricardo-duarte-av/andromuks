@@ -59,6 +59,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.collectAsState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
@@ -4598,17 +4600,30 @@ fun BubbleRoomHeader(
                     softWrap = false
                 )
 
-                // Room topic (below display name)
+                // Room topic / encryption indicator (below display name)
                 val roomTopic = roomState?.topic
-                if (roomTopic != null && roomTopic.isNotBlank()) {
-                    Text(
-                        text = roomTopic,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 2.dp)
+                val isRoomEncrypted = roomState?.isEncrypted ?: false
+                val iconSize = with(LocalDensity.current) { MaterialTheme.typography.bodySmall.fontSize.toDp() }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 2.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isRoomEncrypted) Icons.Filled.Lock else Icons.Filled.LockOpen,
+                        contentDescription = if (isRoomEncrypted) "Encrypted room" else "Unencrypted room",
+                        modifier = Modifier.size(iconSize),
+                        tint = if (isRoomEncrypted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                     )
+                    if (roomTopic != null && roomTopic.isNotBlank()) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = roomTopic,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
             

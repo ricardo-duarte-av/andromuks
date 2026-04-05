@@ -34,6 +34,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.AudioFile
@@ -1185,25 +1187,36 @@ fun ThreadViewerScreen(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                // Show thread root preview (sender + first part of body)
-                                if (threadRootEvent != null) {
-                                    val senderProfile = appViewModel.getMemberMap(roomId)[threadRootEvent.sender]
-                                    val senderName = senderProfile?.displayName ?: threadRootEvent.sender
-                                    val body = when {
-                                        threadRootEvent.type == "m.room.message" ->
-                                            threadRootEvent.content?.optString("body", "")
-                                        threadRootEvent.type == "m.room.encrypted" &&
-                                            threadRootEvent.decryptedType == "m.room.message" ->
-                                            threadRootEvent.decrypted?.optString("body", "")
-                                        else -> ""
-                                    } ?: ""
-                                    Text(
-                                        text = "$senderName: ${body.take(50)}${if (body.length > 50) "..." else ""}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                // Encryption indicator + thread root preview
+                                val isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted ?: false
+                                val iconSize = with(LocalDensity.current) { MaterialTheme.typography.bodySmall.fontSize.toDp() }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = if (isRoomEncrypted) Icons.Filled.Lock else Icons.Filled.LockOpen,
+                                        contentDescription = if (isRoomEncrypted) "Encrypted room" else "Unencrypted room",
+                                        modifier = Modifier.size(iconSize),
+                                        tint = if (isRoomEncrypted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                                     )
+                                    if (threadRootEvent != null) {
+                                        val senderProfile = appViewModel.getMemberMap(roomId)[threadRootEvent.sender]
+                                        val senderName = senderProfile?.displayName ?: threadRootEvent.sender
+                                        val body = when {
+                                            threadRootEvent.type == "m.room.message" ->
+                                                threadRootEvent.content?.optString("body", "")
+                                            threadRootEvent.type == "m.room.encrypted" &&
+                                                threadRootEvent.decryptedType == "m.room.message" ->
+                                                threadRootEvent.decrypted?.optString("body", "")
+                                            else -> ""
+                                        } ?: ""
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "$senderName: ${body.take(50)}${if (body.length > 50) "..." else ""}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
                             }
                             // Offline indicator - shows when websocket is not connected

@@ -8250,6 +8250,7 @@ class AppViewModel : ViewModel() {
                                 canonicalAlias = canonicalAlias,
                                 topic = topic,
                                 avatarUrl = avatarUrl,
+                                isEncrypted = currentRoomState?.isEncrypted ?: false, // Preserve existing encryption state
                                 powerLevels = currentRoomState?.powerLevels, // Preserve existing power levels
                                 pinnedEventIds = currentRoomState?.pinnedEventIds ?: emptyList(), // Preserve existing pinned events
                                 bridgeInfo = currentRoomState?.bridgeInfo
