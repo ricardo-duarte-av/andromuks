@@ -370,6 +370,18 @@ class FCMService : FirebaseMessagingService() {
                 // Extract room avatar
                 val roomAvatar = message.optString("room_avatar").takeIf { it.isNotEmpty() }
                 
+                // Verify notification is for the current account via the "self" field
+                val selfObject = message.optJSONObject("self")
+                val selfId = selfObject?.optString("id", "") ?: ""
+                if (selfId.isNotEmpty()) {
+                    val sharedPrefsForSelf = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                    val currentUserId = sharedPrefsForSelf.getString("current_user_id", "") ?: ""
+                    if (currentUserId.isNotEmpty() && selfId != currentUserId) {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Discarding notification for wrong account: self.id=$selfId, our userId=$currentUserId")
+                        continue
+                    }
+                }
+
                 // Extract image field for image notifications
                 val image = message.optString("image").takeIf { it.isNotEmpty() }
                 if (BuildConfig.DEBUG) Log.d(TAG, "Extracted image field: $image")
