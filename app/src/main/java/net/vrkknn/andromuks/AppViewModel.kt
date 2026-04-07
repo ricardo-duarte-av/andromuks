@@ -3858,6 +3858,16 @@ class AppViewModel : ViewModel() {
                     spacesLoaded = true
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Set spacesLoaded=true (have ${roomMap.size} rooms)")
                 }
+                // CRITICAL FIX: Mark initialSyncComplete when attaching to an existing WebSocket.
+                // This ViewModel will never receive init_complete (the service already processed it),
+                // so initialSyncComplete must be set here. Without it, the room list guard in
+                // RoomListScreen ("!initialSyncComplete && hadContent → return") permanently blocks
+                // room-list updates, leaving the UI stuck with whatever partial data was in
+                // RoomListCache at attachment time (e.g. 3-4 rooms during a mid-sync attach).
+                if (roomMap.isNotEmpty() && !initialSyncComplete) {
+                    initialSyncComplete = true
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Set initialSyncComplete=true (have ${roomMap.size} rooms from cache)")
+                }
                 
                 // CRITICAL FIX: Load account_data from singleton cache when attaching to existing WebSocket
                 // This ensures secondary instances (e.g., opened from Contacts) can access account_data

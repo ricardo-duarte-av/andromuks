@@ -420,6 +420,16 @@ fun RoomListScreen(
             }
         }
     }
+
+    // SCROLL FIX: When initialSyncComplete first becomes true, scroll the active list back to the
+    // top. Without this, rooms inserted at the front of the sorted list (newer timestamps) shift
+    // existing keyed items down, causing Compose to adjust firstVisibleItemIndex upward — which
+    // silently defeats the sticky-top guard in RoomListContent (index > 1 → no auto-scroll).
+    LaunchedEffect(effectiveInitialSyncComplete) {
+        if (effectiveInitialSyncComplete) {
+            listStates[stableSection.type]?.scrollToItem(0)
+        }
+    }
     
     // Use inline status row instead of full-screen loading overlay
     // Show inline status during initial load or ongoing sync operations

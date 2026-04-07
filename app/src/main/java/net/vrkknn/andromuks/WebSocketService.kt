@@ -902,12 +902,17 @@ class WebSocketService : Service() {
                 serviceInstance.webSocket?.close(1000, "Reconnecting")
             }
             
-            // Connection is marked good when WebSocket connects - we don't wait for run_id or init_complete
-            updateConnectionState(ConnectionState.Ready)
+            // Set webSocket BEFORE transitioning to Ready to prevent a race with
+            // detectAndRecoverStateCorruption(): if the monitoring coroutine runs between the
+            // state update and the webSocket assignment it would see Ready+null, wrongly reset
+            // state to Disconnected, and leave the notification stuck at "Connecting..." even
+            // though the socket is alive and delivering messages.
             serviceInstance.webSocket = webSocket
             serviceInstance.connectionStartTime = System.currentTimeMillis()
             serviceInstance.lastMessageReceivedTimestamp = System.currentTimeMillis()
             serviceInstance.lastPongTimestamp = SystemClock.elapsedRealtime()
+            // Connection is marked good when WebSocket connects - we don't wait for run_id or init_complete
+            updateConnectionState(ConnectionState.Ready)
             
             resetReconnectionState()
             
