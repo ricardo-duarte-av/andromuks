@@ -64,7 +64,7 @@ OkHttp WebSocket (Matrix protocol) + SQLite (BootstrapLoader)
 - **`MainActivity`** — Primary entry, hosts Compose NavController, initializes AppViewModel and WebSocket.
 - **`ShortcutActivity`** — Handles Android app shortcuts for direct room access.
 - **`ChatBubbleActivity`** — Hosts chat bubble windows (Android 11+).
-- **`FCMService`** — Handles Firebase push notifications when app is backgrounded.
+- **`FCMService`** — Handles Firebase push notifications when app is backgrounded. See **[docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md)**.
 
 ### Startup & Navigation Gate
 
@@ -150,6 +150,16 @@ See **[docs/MESSAGE_SENDING.md](docs/MESSAGE_SENDING.md)** for full documentatio
 Covers the 4-stage protocol flow (`send_message` → `response` → `send_complete` → `sync_complete`), local echo (pending placeholder bubbles with `~`-prefixed `event_id`), visual states (pending/failed/confirmed), sort position fix for `timelineRowid=0`, and user actions on pending/failed echoes.
 
 **Critical invariant:** `send_error: "not sent"` inside an event is a backend placeholder — it is **not** a send failure. Real failures come from the outer `error` field in `send_complete`.
+
+## Push Notifications (FCM)
+
+See **[docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md)** for full documentation.
+
+`FCMService` receives encrypted FCM payloads, decrypts them with the stored push key, and delegates to `EnhancedNotificationDisplay` to post `MessagingStyle` notifications.
+
+**Critical invariant:** Never block notification posting on a network download during Doze mode. `EnhancedNotificationDisplay` checks `PowerManager.isDeviceIdleMode` before any avatar download — if true, it skips the download and uses a fallback avatar immediately. Removing this guard causes notifications to batch and fire all at once when the screen turns on.
+
+FCM `high_priority` is set by the gomuks backend based on whether the push rule has `sound: true`. If a room's notifications only arrive on screen wake, verify the Matrix push rule for that room includes sound.
 
 ## Bridge Support (Mautrix / Beeper)
 

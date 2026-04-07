@@ -15,6 +15,7 @@ import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Build
+import android.os.PowerManager
 import android.util.Log
 import android.util.TypedValue
 import androidx.core.app.NotificationCompat
@@ -374,20 +375,26 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         if (BuildConfig.DEBUG) Log.d(TAG, "Using cached avatar for current user: $avatarUrl")
                         android.graphics.BitmapFactory.decodeFile(cachedFile.absolutePath)
                     } else {
-                        // Try to download avatar for current user
-                        val httpUrl = MediaUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
-                        if (httpUrl != null) {
-                            val downloadedFile = IntelligentMediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
-                            if (downloadedFile != null) {
-                                if (BuildConfig.DEBUG) Log.d(TAG, "Downloaded current user avatar to cache: ${downloadedFile.absolutePath}")
-                                android.graphics.BitmapFactory.decodeFile(downloadedFile.absolutePath)
+                        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                        if (powerManager.isDeviceIdleMode) {
+                            if (BuildConfig.DEBUG) Log.d(TAG, "Device is in Doze mode, skipping current user avatar download: $avatarUrl")
+                            null
+                        } else {
+                            // Try to download avatar for current user
+                            val httpUrl = MediaUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
+                            if (httpUrl != null) {
+                                val downloadedFile = IntelligentMediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
+                                if (downloadedFile != null) {
+                                    if (BuildConfig.DEBUG) Log.d(TAG, "Downloaded current user avatar to cache: ${downloadedFile.absolutePath}")
+                                    android.graphics.BitmapFactory.decodeFile(downloadedFile.absolutePath)
+                                } else {
+                                    if (BuildConfig.DEBUG) Log.d(TAG, "Failed to download current user avatar: $avatarUrl")
+                                    null
+                                }
                             } else {
-                                if (BuildConfig.DEBUG) Log.d(TAG, "Failed to download current user avatar: $avatarUrl")
+                                if (BuildConfig.DEBUG) Log.d(TAG, "Failed to convert current user avatar MXC URL: $avatarUrl")
                                 null
                             }
-                        } else {
-                            if (BuildConfig.DEBUG) Log.d(TAG, "Failed to convert current user avatar MXC URL: $avatarUrl")
-                            null
                         }
                     }
                     
@@ -1289,12 +1296,21 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             
             // Check if we have a cached version first
             val cachedFile = IntelligentMediaCache.getCachedFile(context, avatarUrl)
-            
+
             if (cachedFile != null) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Using cached avatar file: ${cachedFile.absolutePath}")
                 return@withContext android.graphics.BitmapFactory.decodeFile(cachedFile.absolutePath)
             }
-            
+
+            // Don't attempt network downloads during Doze mode — network access is restricted
+            // and blocking here prevents the notification from posting until the device wakes up.
+            // Fallback avatars will be used instead and the real avatars will load next time.
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (powerManager.isDeviceIdleMode) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "Device is in Doze mode, skipping avatar download: $avatarUrl")
+                return@withContext null
+            }
+
             // Convert MXC URL to HTTP URL
             val httpUrl = when {
                 avatarUrl.startsWith("mxc://") -> {
