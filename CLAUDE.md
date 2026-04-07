@@ -74,6 +74,8 @@ See **[docs/AUTHCHECK.md](docs/AUTHCHECK.md)** for full documentation.
 
 **Critical invariant:** `AppViewModel.setNavigationCallback()` resets `navigationCallbackTriggered = false` on every call. This is intentional — it allows a retained ViewModel to fire navigation again after activity recreation. Do not remove that reset.
 
+**`attachToExistingWebSocketIfAvailable` invariant:** When `AuthCheck` takes the "already connected" path (service running, `isAlreadyConnected = true`), it calls `attachToExistingWebSocketIfAvailable()`, which populates `roomMap` from `RoomListCache` and fires navigation immediately when `spacesLoaded = true`. This new AppViewModel instance will never receive `init_complete` (the service already processed it), so `initialSyncComplete` must be explicitly set to `true` here alongside `spacesLoaded`. Without it, `RoomListScreen`'s room-update guard (`!initialSyncComplete && hadContent → return`) permanently blocks all room list updates, leaving the UI stuck with whatever partial snapshot was in `RoomListCache` at attachment time (e.g. 3–4 rooms during a mid-sync attach).
+
 ### Key Screens
 
 `LoginScreen` → `RoomListScreen` (or `SimplerRoomListScreen`) → `RoomTimelineScreen` / `ThreadViewerScreen` / `MentionsScreen`
@@ -93,6 +95,10 @@ See **[docs/WEBSOCKET_LIFECYCLE.md](docs/WEBSOCKET_LIFECYCLE.md)** for full docu
 The foreground service (`WebSocketService`) maintains the socket. On disconnect, it reconnects with backoff. `NetworkMonitor` detects WiFi/mobile switches and triggers reconnection. Health is maintained via OkHttp ping/pong.
 
 **Critical startup invariant:** After a `START_STICKY` restart, `NetworkMonitor` pre-seeds its own internal state in `start()` via `updateCurrentNetworkState()`. This means the initial Android `onAvailable()` callback fires with `previousType = WIFI`, not NONE, so `onNetworkAvailable` is never called and `WebSocketService.currentNetworkType` stays `NONE`. The fix: `startNetworkMonitoring()` explicitly seeds `currentNetworkType` from `networkMonitor.getCurrentNetworkType()` after `start()`. The stuck-DISCONNECTED health check also handles the cold-start case (`connectionLostAt == 0`) by using `serviceStartTime` as a fallback.
+
+**Critical `setWebSocket` ordering invariant:** In `setWebSocket` (the OkHttp `onOpen` handler), `serviceInstance.webSocket` must be assigned **before** calling `updateConnectionState(ConnectionState.Ready)`. The monitoring coroutine periodically calls `detectAndRecoverStateCorruption()` on a different thread. If it runs between the state update and the webSocket assignment, it sees `Ready + webSocket==null`, wrongly resets state to `Disconnected`, and the notification gets permanently stuck at "Connecting..." even though the socket is alive and delivering messages. The safe order: set `webSocket`, `connectionStartTime`, `lastMessageReceivedTimestamp`, `lastPongTimestamp` first — then call `updateConnectionState(Ready)`.
+
+**Persistent notification desync:** The notification text in release builds is driven purely by `connectionState` (not by the `isConnected` parameter passed to `updateConnectionStatus`). It uses a dedup key `"$currentState-$callbackMissing"` and skips updates when the key hasn't changed. If state gets stuck at `Disconnected` (e.g., via the corruption detector race above), every subsequent `updateConnectionStatus` call returns early and the notification never recovers until the next actual state transition.
 
 ## Key Libraries
 
@@ -183,6 +189,39 @@ A pulsing `CloudOff` icon in `MaterialTheme.colorScheme.error` is shown in every
 - `ThreadViewerScreen` — trailing item in the header Row, after the thread title Column
 
 The connection state is sourced directly from `SyncRepository.connectionState` (a `StateFlow<ConnectionState>`). `isReady()` is the extension function in `ConnectionState.kt` that returns `true` only for `ConnectionState.Ready`.
+
+## RoomListScreen
+
+### Room list update guard
+
+`LaunchedEffect(roomListUpdateCounter, ...)` in `RoomListScreen` has an early-return guard:
+
+```kotlin
+if (!uiState.initialSyncComplete) {
+    val hadContent = stableSection.rooms.isNotEmpty() || stableSection.spaces.isNotEmpty()
+    if (hadContent) return@LaunchedEffect
+}
+```
+
+This prevents flicker during the initial sync by blocking reorder/content updates while `initialSyncComplete = false`. **It only works correctly if `initialSyncComplete` actually becomes `true`.** If it stays `false` (e.g., from the "already connected" attach path — see above), the guard permanently blocks all updates. The safety net (`LaunchedEffect(initialSyncComplete, ...)`) only fires when `stableSection.rooms.isEmpty()`, so it does not rescue a partially-populated list.
+
+### Scroll position after incremental room loading
+
+Rooms are sorted most-recent-first. When rooms arrive in batches and are prepended to the `LazyColumn`, Compose's key-based scroll preservation shifts `firstVisibleItemIndex` upward. The sticky-top guard in `RoomListContent`:
+
+```kotlin
+LaunchedEffect(firstRoomId) {
+    if (listState.firstVisibleItemIndex <= 1) {
+        listState.animateScrollToItem(0)
+    }
+}
+```
+
+…silently fails because `firstVisibleItemIndex` is already `> 1` by the time `firstRoomId` changes. The fix is a `LaunchedEffect(effectiveInitialSyncComplete)` in `RoomListScreen` that calls `scrollToItem(0)` when sync first completes — this is the definitive "startup done, settle at top" moment.
+
+### `stableSection` initialization
+
+`stableSection` is initialized synchronously via `remember { appViewModel.getCurrentRoomSection() }`. This is intentional — it ensures rooms appear immediately on composition without waiting for a `LaunchedEffect`. Do not change this to a `LaunchedEffect`-only initialization, as it would cause a visible empty-list flash on every navigation back from a room.
 
 ## Version Management
 
