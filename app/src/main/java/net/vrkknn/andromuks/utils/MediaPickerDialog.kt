@@ -2,7 +2,6 @@ package net.vrkknn.andromuks.utils
 
 import android.media.MediaPlayer
 import android.net.Uri
-import android.view.WindowManager
 import android.widget.VideoView
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -81,24 +80,28 @@ fun MediaPreviewDialogMultiple(
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         val dialogWindowProvider = LocalView.current.parent as? DialogWindowProvider
-        SideEffect {
+        LaunchedEffect(Unit) {
             dialogWindowProvider?.window?.let { window ->
                 WindowCompat.setDecorFitsSystemWindows(window, false)
-                @Suppress("DEPRECATION")
-                window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
             }
         }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.9f)
+                .imePadding(),
+            contentAlignment = Alignment.Center
+        ) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.9f),
+                .fillMaxHeight(),
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surface
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .imePadding()
                     .padding(16.dp)
             ) {
                 Row(
@@ -200,6 +203,7 @@ fun MediaPreviewDialogMultiple(
                 }
             }
         }
+        } // Box
     }
 }
 
@@ -236,24 +240,28 @@ fun MediaPreviewDialog(
         )
     ) {
         val dialogWindowProvider = LocalView.current.parent as? DialogWindowProvider
-        SideEffect {
+        LaunchedEffect(Unit) {
             dialogWindowProvider?.window?.let { window ->
                 WindowCompat.setDecorFitsSystemWindows(window, false)
-                @Suppress("DEPRECATION")
-                window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
             }
         }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.9f)
+                .imePadding(),
+            contentAlignment = Alignment.Center
+        ) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.9f),
+                .fillMaxHeight(),
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surface
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .imePadding()
                     .padding(16.dp)
             ) {
                 // Top bar with close button
@@ -357,6 +365,7 @@ fun MediaPreviewDialog(
                 }
             }
         }
+        } // Box
     }
 }
 
