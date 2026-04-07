@@ -88,7 +88,11 @@ Sync events are queued until `init_complete` arrives, then processed in batch. E
 
 ### WebSocket Connection Lifecycle
 
+See **[docs/WEBSOCKET_LIFECYCLE.md](docs/WEBSOCKET_LIFECYCLE.md)** for full documentation.
+
 The foreground service (`WebSocketService`) maintains the socket. On disconnect, it reconnects with backoff. `NetworkMonitor` detects WiFi/mobile switches and triggers reconnection. Health is maintained via OkHttp ping/pong.
+
+**Critical startup invariant:** After a `START_STICKY` restart, `NetworkMonitor` pre-seeds its own internal state in `start()` via `updateCurrentNetworkState()`. This means the initial Android `onAvailable()` callback fires with `previousType = WIFI`, not NONE, so `onNetworkAvailable` is never called and `WebSocketService.currentNetworkType` stays `NONE`. The fix: `startNetworkMonitoring()` explicitly seeds `currentNetworkType` from `networkMonitor.getCurrentNetworkType()` after `start()`. The stuck-DISCONNECTED health check also handles the cold-start case (`connectionLostAt == 0`) by using `serviceStartTime` as a fallback.
 
 ## Key Libraries
 

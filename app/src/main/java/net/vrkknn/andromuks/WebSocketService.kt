@@ -2410,14 +2410,19 @@ class WebSocketService : Service() {
 
                     // 4b. Stuck-DISCONNECTED recovery: if we are Disconnected with no active
                     // reconnection job, network available, and credentials present, something went
-                    // wrong (e.g. a stale "forced DISCONNECTED" from a reconnection finally-block).
-                    // Wait >5s after the last loss before recovering to avoid tight retry loops.
+                    // wrong (e.g. a stale "forced DISCONNECTED" from a reconnection finally-block,
+                    // or a START_STICKY restart where we never had a connection this process lifetime).
+                    // Wait >5s after the last loss to avoid tight retry loops, but also handle the
+                    // cold-start case (connectionLostAt == 0) after a short startup grace period.
                     val noReconnectJob = synchronized(reconnectionLock) { reconnectionJob?.isActive != true }
+                    val sinceLastLoss = if (connectionLostAt > 0) currentTime - connectionLostAt else Long.MAX_VALUE
+                    val sinceStart = if (serviceStartTime > 0) currentTime - serviceStartTime else Long.MAX_VALUE
+                    val disconnectedLongEnough = sinceLastLoss > 5_000 || sinceStart > 5_000
                     if (currentState.isDisconnected() &&
                         noReconnectJob &&
                         currentNetworkType != NetworkType.NONE &&
                         hasReconnectionSignal() &&
-                        connectionLostAt > 0 && currentTime - connectionLostAt > 5_000
+                        disconnectedLongEnough
                     ) {
                         android.util.Log.w("WebSocketService", "Health check: Stuck in DISCONNECTED with no active reconnection — scheduling recovery")
                         logActivity("Health Check - Stuck DISCONNECTED (no reconnection job)", currentNetworkType.name)
@@ -2776,6 +2781,18 @@ class WebSocketService : Service() {
         
         networkMonitor?.start()
         if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network monitoring started")
+
+        // Seed currentNetworkType from the NetworkMonitor's initial state.
+        // NetworkMonitor calls updateCurrentNetworkState() before registering the callback, so
+        // Android's onAvailable() will fire with previousType = WIFI (not NONE) and skip calling
+        // onNetworkAvailable. Without this seed, currentNetworkType stays NONE forever after a
+        // START_STICKY restart on an already-connected network, blocking all recovery paths.
+        val initialType = convertNetworkType(networkMonitor!!.getCurrentNetworkType())
+        if (initialType != NetworkType.NONE && currentNetworkType == NetworkType.NONE) {
+            android.util.Log.i("WebSocketService", "Seeding initial network type from NetworkMonitor: $initialType")
+            currentNetworkType = initialType
+            lastNetworkType = initialType
+        }
     }
     
     /**
