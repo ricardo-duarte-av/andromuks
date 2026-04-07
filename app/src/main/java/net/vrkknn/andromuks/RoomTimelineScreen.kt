@@ -4991,7 +4991,7 @@ fun RoomTimelineScreen(
                                 val photoPressed by photoInteractionSource.collectIsPressedAsState()
 
                                 val photoShapePercent by animateFloatAsState(
-                                    targetValue = if (photoPressed) 35f else 50f, // 50 = circle, 35 ~ squircle
+                                    targetValue = if (photoPressed) 50f else 29f, // 50 = circle on press, 29 ~ RoundedCornerShape(16.dp) on 56dp
                                     animationSpec = spring(
                                         dampingRatio = Spring.DampingRatioMediumBouncy,
                                         stiffness = Spring.StiffnessMedium
