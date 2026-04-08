@@ -436,7 +436,7 @@ fun RoomInfoScreen(
                     }
                 }
                 
-                // Members Button
+                // Members + Media Gallery Buttons
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -446,9 +446,21 @@ fun RoomInfoScreen(
                             memberDialogSearchQuery = ""
                             showMembersDialog = true
                         },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
                     ) {
-                        Text("Members")
+                        Text("Members", style = MaterialTheme.typography.labelMedium)
+                    }
+                    Button(
+                        onClick = {
+                            navController.navigate("room_media_gallery/$roomId")
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                    ) {
+                        Text("Media Gallery", style = MaterialTheme.typography.labelMedium)
                     }
                 }
 

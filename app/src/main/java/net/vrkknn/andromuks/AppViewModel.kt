@@ -4345,6 +4345,8 @@ class AppViewModel : ViewModel() {
     internal val backgroundPrefetchRequests = mutableMapOf<Int, String>() // requestId -> roomId (for background prefetch)
     private val freshnessCheckRequests = mutableMapOf<Int, String>() // requestId -> roomId (for single-event freshness checks)
     private val roomStateWithMembersRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit>() // requestId -> callback
+    // Gallery paginate: requestId -> callback(events, hasMore, minTimelineRowId)
+    internal val galleryPaginateRequests = mutableMapOf<Int, (List<TimelineEvent>, Boolean, Long) -> Unit>()
     internal val userEncryptionInfoRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
     private val mutualRoomsRequests = mutableMapOf<Int, (List<String>?, String?) -> Unit>() // requestId -> callback
     internal val basicProfileCallbacks = mutableMapOf<Int, (MemberProfile?) -> Unit>() // requestId -> callback for direct get_profile consumers
@@ -6322,7 +6324,8 @@ class AppViewModel : ViewModel() {
                     fullMemberListRequests.containsKey(requestId) ||
                     outgoingRequests.containsKey(requestId) ||
                     mentionsRequests.containsKey(requestId) ||
-                    widgetCommandRequests.containsKey(requestId)
+                    widgetCommandRequests.containsKey(requestId) ||
+                    galleryPaginateRequests.containsKey(requestId)
             
             // If it's NOT in any request map, it's truly stale - ignore it
             if (!isInRequestMap) {
@@ -6399,6 +6402,8 @@ class AppViewModel : ViewModel() {
             handleOutgoingRequestResponse(requestId, data)
         } else if (mentionsRequests.containsKey(requestId)) {
             handleMentionsListResponse(requestId, data)
+        } else if (galleryPaginateRequests.containsKey(requestId)) {
+            handleGalleryPaginateResponse(requestId, data)
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unknown response requestId=$requestId")
         }
@@ -7646,6 +7651,68 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    /**
+     * Issues a paginate request specifically for the media gallery.
+     * Results are delivered via [callback] without touching the timeline caches.
+     */
+    fun requestGalleryPaginate(
+        roomId: String,
+        maxTimelineId: Long,
+        limit: Int = 100,
+        callback: (events: List<TimelineEvent>, hasMore: Boolean, minTimelineRowId: Long) -> Unit
+    ) {
+        if (!isWebSocketConnected()) {
+            callback(emptyList(), false, 0L)
+            return
+        }
+        val requestId = requestIdCounter++
+        galleryPaginateRequests[requestId] = callback
+        val result = sendWebSocketCommand(
+            "paginate", requestId,
+            mapOf(
+                "room_id" to roomId,
+                "max_timeline_id" to maxTimelineId,
+                "limit" to limit,
+                "reset" to false
+            )
+        )
+        if (result != WebSocketResult.SUCCESS) {
+            galleryPaginateRequests.remove(requestId)
+            callback(emptyList(), false, 0L)
+        }
+    }
+
+    private fun handleGalleryPaginateResponse(requestId: Int, data: Any) {
+        val callback = galleryPaginateRequests.remove(requestId) ?: return
+        try {
+            val events = mutableListOf<TimelineEvent>()
+            var hasMore = false
+            when (data) {
+                is org.json.JSONObject -> {
+                    hasMore = data.optBoolean("has_more", false)
+                    val eventsArray = data.optJSONArray("events")
+                    if (eventsArray != null) {
+                        for (i in 0 until eventsArray.length()) {
+                            val json = eventsArray.optJSONObject(i) ?: continue
+                            events.add(TimelineEvent.fromJson(json))
+                        }
+                    }
+                }
+                is org.json.JSONArray -> {
+                    for (i in 0 until data.length()) {
+                        val json = data.optJSONObject(i) ?: continue
+                        events.add(TimelineEvent.fromJson(json))
+                    }
+                }
+            }
+            val minRowId = events.filter { it.timelineRowid > 0 }.minOfOrNull { it.timelineRowid } ?: 0L
+            callback(events, hasMore, minRowId)
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Error handling gallery paginate response", e)
+            callback(emptyList(), false, 0L)
+        }
+    }
+
     private fun handleEventResponse(requestId: Int, data: Any) {
         val requestInfo = eventRequests.remove(requestId) ?: return
         val (roomId, callback) = requestInfo

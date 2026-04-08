@@ -1640,6 +1640,17 @@ fun AppNavigation(
                 animatedVisibilityScope = this@composable
             )
         }
+        composable(
+            route = "room_media_gallery/{roomId}",
+            arguments = listOf(navArgument("roomId") { type = NavType.StringType })
+        ) { backStackEntry: NavBackStackEntry ->
+            val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+            net.vrkknn.andromuks.utils.RoomMediaGalleryScreen(
+                roomId = roomId,
+                navController = navController,
+                appViewModel = appViewModel
+            )
+        }
         // Route with eventId (for shared transitions)
         composable(
             route = "user_info/{userId}/{eventId}",
