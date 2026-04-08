@@ -145,6 +145,9 @@ import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.AddToHomeScreen
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.SmallFloatingActionButton
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
@@ -188,6 +191,24 @@ private fun usernameFromMatrixId(userId: String): String =
 private fun NavController.navigateToRoomTimelineForExternalEntry(roomId: String) {
     navigate("room_timeline/$roomId") {
         popUpTo("auth_check") { inclusive = true }
+    }
+}
+
+@Composable
+private fun ScrollToTopFab(visible: Boolean, onScrollToTop: () -> Unit, modifier: Modifier = Modifier) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = fadeIn(animationSpec = tween(150)) + scaleIn(initialScale = 0.6f, animationSpec = tween(150)),
+        exit = fadeOut(animationSpec = tween(150)) + scaleOut(targetScale = 0.6f, animationSpec = tween(150))
+    ) {
+        FloatingActionButton(
+            onClick = onScrollToTop,
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+        ) {
+            Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Scroll to top")
+        }
     }
 }
 
@@ -879,6 +900,10 @@ fun RoomListScreen(
     // This ensures pull-to-refresh only works when gesture starts at the top
     var isAtTopOfList by remember { mutableStateOf(true) }
     var currentListStateForPullRefresh by remember { mutableStateOf<LazyListState?>(null) }
+    val fabScope = rememberCoroutineScope()
+    val showScrollToTopFab by remember {
+        derivedStateOf { (currentListStateForPullRefresh?.firstVisibleItemIndex ?: 0) > 0 }
+    }
     
     // Update isAtTopOfList when section or scroll position changes
     LaunchedEffect(displayedSection.type, listStates[displayedSection.type]) {
@@ -1313,6 +1338,11 @@ fun RoomListScreen(
             }
             
             // Room list in elevated frame
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
             Surface(
                 color = MaterialTheme.colorScheme.surface,
                 shape = RoundedCornerShape(
@@ -1323,8 +1353,7 @@ fun RoomListScreen(
                 ),
                 tonalElevation = 2.dp,
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
+                    .fillMaxSize()
                     .padding(horizontal = 16.dp)
                     .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
             ) {
@@ -1607,7 +1636,15 @@ fun RoomListScreen(
                     }
                 }
             }
-            
+            ScrollToTopFab(
+                visible = showScrollToTopFab,
+                onScrollToTop = { fabScope.launch { currentListStateForPullRefresh?.scrollToItem(0) } },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 8.dp, end = 24.dp)
+            )
+            } // closes Room list Box
+
             // Tab bar at the bottom (outside the Surface)
             // CRASH FIX: Disable tab switching during batch processing to prevent animation conflicts
             TabBar(
