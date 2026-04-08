@@ -46,7 +46,7 @@ private fun extractMediaItems(
     homeserverUrl: String
 ): List<GalleryMediaItem> {
     return events.mapNotNull { event ->
-        if (event.timelineRowid <= 0) return@mapNotNull null
+        if (event.timelineRowid == 0L) return@mapNotNull null
 
         val (content, isVideo) = when {
             event.type == "m.room.message" -> {
@@ -144,22 +144,26 @@ fun RoomMediaGalleryScreen(
     val authToken = appViewModel.authToken
 
     fun loadMore() {
+        if (net.vrkknn.andromuks.BuildConfig.DEBUG) android.util.Log.d("GalleryPaginate", "loadMore called: isLoadingMore=$isLoadingMore, hasMore=$hasMore, nextMaxTimelineId=$nextMaxTimelineId")
         if (isLoadingMore || !hasMore) return
         isLoadingMore = true
         appViewModel.requestGalleryPaginate(
             roomId = roomId,
             maxTimelineId = nextMaxTimelineId,
-            limit = 100
+            limit = 500 // Increased from 100 to avoid getting stuck in pockets of state events/reactions lacking timeline_rowids
         ) { events, moreAvailable, minRowId ->
             val newItems = extractMediaItems(events, homeserverUrl)
+            if (net.vrkknn.andromuks.BuildConfig.DEBUG) android.util.Log.d("GalleryPaginate", "Callback: events=${events.size}, newItems=${newItems.size}, moreAvailable=$moreAvailable, minRowId=$minRowId")
             mediaItems = mediaItems + newItems
             hasMore = moreAvailable && events.isNotEmpty()
-            if (minRowId > 0 && (nextMaxTimelineId == 0L || minRowId < nextMaxTimelineId)) {
+            if (minRowId != 0L && (nextMaxTimelineId == 0L || minRowId < nextMaxTimelineId)) {
                 nextMaxTimelineId = minRowId
             } else if (events.isNotEmpty() && minRowId == 0L) {
-                // All events lacked positive rowids – stop to avoid an infinite loop.
+                // All events lacked a valid timeline_rowid – stop to avoid an infinite loop.
+                if (net.vrkknn.andromuks.BuildConfig.DEBUG) android.util.Log.d("GalleryPaginate", "Stopping to avoid infinite loop (all events lacked a valid timeline_rowid)")
                 hasMore = false
             }
+            if (net.vrkknn.andromuks.BuildConfig.DEBUG) android.util.Log.d("GalleryPaginate", "After state update: hasMore=$hasMore, nextMaxTimelineId=$nextMaxTimelineId")
             isLoadingMore = false
             isInitialLoading = false
         }
@@ -175,7 +179,9 @@ fun RoomMediaGalleryScreen(
         derivedStateOf { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
     }
     LaunchedEffect(lastVisibleIndex, totalItems, hasMore, isLoadingMore) {
+        if (net.vrkknn.andromuks.BuildConfig.DEBUG) android.util.Log.d("GalleryPaginate", "Scroll check: lastVisible=$lastVisibleIndex, total=$totalItems, hasMore=$hasMore, isLoading=$isLoadingMore")
         if (totalItems > 0 && lastVisibleIndex >= totalItems - 20 && hasMore && !isLoadingMore) {
+            if (net.vrkknn.andromuks.BuildConfig.DEBUG) android.util.Log.d("GalleryPaginate", "Scroll condition met -> calling loadMore()")
             loadMore()
         }
     }

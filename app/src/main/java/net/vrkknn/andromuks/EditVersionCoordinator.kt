@@ -581,7 +581,7 @@ internal class EditVersionCoordinator(
         val existingEntry = vm.eventChainMap[event.eventId]
         if (existingEntry != null) {
             val existingBubble = existingEntry.ourBubble
-            if (existingBubble != null && event.timelineRowid > 0 && existingBubble.timelineRowid <= 0) {
+            if (existingBubble != null && event.timelineRowid != 0L && existingBubble.timelineRowid == 0L) {
                 vm.eventChainMap[event.eventId] = existingEntry.copy(
                     ourBubble = existingBubble.copy(timelineRowid = event.timelineRowid)
                 )

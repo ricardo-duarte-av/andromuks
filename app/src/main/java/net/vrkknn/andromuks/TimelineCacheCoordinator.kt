@@ -151,7 +151,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             val existingEventIds = cachedEvents.map { it.eventId }.toSet()
             val trulyNewEvents = newEvents.filter { it.eventId !in existingEventIds }
                 .filter { event ->
-                    if (event.type != "m.room.member" || event.timelineRowid > 0L) return@filter true
+                    if (event.type != "m.room.member" || event.timelineRowid != 0L) return@filter true
                     // Keep kicks (sender != stateKey, membership=leave) even with timelineRowid<=0
                     event.stateKey != null &&
                         event.sender != event.stateKey &&
@@ -1357,7 +1357,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     if (!paginateRequests.containsKey(requestId)) {
                         // Filter to only positive timelineRowids (pagination events only, exclude
                         // state events)
-                        val positiveEvents = timelineList.filter { it.timelineRowid > 0 }
+                        val positiveEvents = timelineList.filter { it.timelineRowid != 0L }
                         val oldestInResponse = positiveEvents.minOfOrNull { it.timelineRowid }
 
                         if (oldestInResponse != null) {
@@ -2280,7 +2280,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     // CRITICAL: Only use positive timelineRowid values for pagination (negative
                     // values are
                     // for state events)
-                    val positiveEvents = timelineList.filter { it.timelineRowid > 0 }
+                    val positiveEvents = timelineList.filter { it.timelineRowid != 0L }
                     val oldestInResponse = positiveEvents.minOfOrNull { it.timelineRowid }
                     if (oldestInResponse != null && oldestInResponse != 0L) {
                         oldestRowIdPerRoom[roomId] = oldestInResponse
@@ -2519,7 +2519,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             if (timelineList.isNotEmpty()) {
                 // Filter to only positive timelineRowids (pagination events only, exclude state
                 // events)
-                val positiveEvents = timelineList.filter { it.timelineRowid > 0 }
+                val positiveEvents = timelineList.filter { it.timelineRowid != 0L }
                 val oldestInResponse = positiveEvents.minOfOrNull { it.timelineRowid }
 
                 if (oldestInResponse != null) {
@@ -2673,7 +2673,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             if (timelineList.isNotEmpty()) {
                 // Filter to only positive timelineRowids (pagination events only, exclude state
                 // events)
-                val positiveEvents = timelineList.filter { it.timelineRowid > 0 }
+                val positiveEvents = timelineList.filter { it.timelineRowid != 0L }
                 val oldestInResponse = positiveEvents.minOfOrNull { it.timelineRowid }
 
                 if (oldestInResponse != null) {

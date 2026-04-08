@@ -181,7 +181,7 @@ class SyncIngestor(private val context: Context) {
             json.put("sender", sender)
             json.put("type", type)
             json.put("origin_server_ts", timestamp)
-            if (timelineRowid > 0) json.put("timeline_rowid", timelineRowid)
+            if (timelineRowid != 0L) json.put("timeline_rowid", timelineRowid)
             if (rowid > 0) json.put("rowid", rowid)
             stateKey?.let { json.put("state_key", it) }
             content?.let { json.put("content", it) }
@@ -602,7 +602,7 @@ class SyncIngestor(private val context: Context) {
                     // If timeline_rowid is 0 or missing, look it up in the mapping using event_rowid
                     if ((timelineRowid == 0L || timelineRowid == -1L) && eventRowid != -1L) {
                         val mappedTimelineRowid = timelineRowidMapping[eventRowid]
-                        if (mappedTimelineRowid != null && mappedTimelineRowid > 0) {
+                        if (mappedTimelineRowid != null && mappedTimelineRowid != 0L) {
                             timelineRowid = mappedTimelineRowid
                             if (BuildConfig.DEBUG) {
                                 Log.d(TAG, "SyncIngestor: Resolved timeline_rowid=$timelineRowid for event rowid=$eventRowid (was ${eventJson.optLong("timeline_rowid", -1)})")

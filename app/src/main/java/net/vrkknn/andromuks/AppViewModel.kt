@@ -7705,7 +7705,7 @@ class AppViewModel : ViewModel() {
                     }
                 }
             }
-            val minRowId = events.filter { it.timelineRowid > 0 }.minOfOrNull { it.timelineRowid } ?: 0L
+            val minRowId = events.filter { it.timelineRowid != 0L }.minOfOrNull { it.timelineRowid } ?: 0L
             callback(events, hasMore, minRowId)
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Error handling gallery paginate response", e)
@@ -8263,7 +8263,7 @@ class AppViewModel : ViewModel() {
             if (entry.has("event_rowid") && entry.has("timeline_rowid")) {
                 val eventRowid = entry.optLong("event_rowid", -1)
                 val timelineRowid = entry.optLong("timeline_rowid", -1)
-                if (eventRowid != -1L && timelineRowid > 0) {
+                if (eventRowid != -1L && timelineRowid != 0L) {
                     mapping[eventRowid] = timelineRowid
                 }
             }
@@ -8420,7 +8420,7 @@ class AppViewModel : ViewModel() {
                         ProfileCache.setGlobalProfile(userId, ProfileCache.CachedProfileEntry(profile, System.currentTimeMillis()))
                     }
                 }
-            } else if (event.type == "m.room.member" && event.timelineRowid > 0L) {
+            } else if (event.type == "m.room.member" && event.timelineRowid != 0L) {
                 // Timeline member event (join/leave that should show in timeline)
                 // Also extract and update member profile if display name/avatar changed
                 updateMemberProfileFromTimelineEvent(roomId, event)
@@ -8583,7 +8583,7 @@ class AppViewModel : ViewModel() {
         // Summary of what was processed
         val addedToTimeline = events.count { event ->
             (event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker") ||
-            (event.type == "m.room.member" && event.timelineRowid > 0L) ||
+            (event.type == "m.room.member" && event.timelineRowid != 0L) ||
             (event.type == "m.room.redaction") ||
             (event.type == "m.room.pinned_events" || event.type == "m.room.name" || event.type == "m.room.topic" || event.type == "m.room.avatar")
         }
@@ -8985,7 +8985,7 @@ class AppViewModel : ViewModel() {
                 // - Positive N means "return events with timeline.rowid < N" (older than N)
                 // - 0 means "no upper bound / fetch recent" (ONLY use when cache is empty)
                 val cacheEventCount = RoomTimelineCache.getCachedEventCount(roomId)
-                val oldestCachedRowId = RoomTimelineCache.getOldestPositiveCachedEventRowId(roomId) // CRITICAL: Only positive values!
+                val oldestCachedRowId = RoomTimelineCache.getOldestValidCachedEventRowId(roomId) // CRITICAL: No 0L values!
                 val oldestTrackedRowId = oldestRowIdPerRoom[roomId] // This should already be positive (tracked from responses)
                 
                 // CRITICAL FIX: Prefer tracked value over cached value to avoid getting stuck on same max_timeline_id

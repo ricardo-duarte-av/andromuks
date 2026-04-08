@@ -490,7 +490,7 @@ suspend fun processTimelineEvents(
 
     // Sort by timeline_rowid (server order) when positive; fall back to timestamp when 0 or -1.
     val sorted = eventsWithoutEdits.sortedWith(Comparator { a, b ->
-        if (a.timelineRowid > 0L && b.timelineRowid > 0L) {
+        if (a.timelineRowid != 0L && b.timelineRowid != 0L) {
             val cmp = a.timelineRowid.compareTo(b.timelineRowid)
             if (cmp != 0) return@Comparator cmp
         }
