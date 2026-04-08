@@ -150,7 +150,7 @@ fun RoomMediaGalleryScreen(
         appViewModel.requestGalleryPaginate(
             roomId = roomId,
             maxTimelineId = nextMaxTimelineId,
-            limit = 500 // Increased from 100 to avoid getting stuck in pockets of state events/reactions lacking timeline_rowids
+            limit = 100 
         ) { events, moreAvailable, minRowId ->
             val newItems = extractMediaItems(events, homeserverUrl)
             if (net.vrkknn.andromuks.BuildConfig.DEBUG) android.util.Log.d("GalleryPaginate", "Callback: events=${events.size}, newItems=${newItems.size}, moreAvailable=$moreAvailable, minRowId=$minRowId")
@@ -292,6 +292,7 @@ private fun GalleryThumbnail(
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
+    val imageLoader = remember { net.vrkknn.andromuks.utils.ImageLoaderSingleton.get(context) }
     val shape = RoundedCornerShape(8.dp)
     Box(
         modifier = Modifier
@@ -307,6 +308,7 @@ private fun GalleryThumbnail(
                 .addHeader("Cookie", "gomuks_auth=$authToken")
                 .crossfade(true)
                 .build(),
+            imageLoader = imageLoader,
             contentDescription = if (item.isVideo) "Video thumbnail" else "Image",
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
