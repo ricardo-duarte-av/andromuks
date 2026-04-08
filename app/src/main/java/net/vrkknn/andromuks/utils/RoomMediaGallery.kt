@@ -90,25 +90,37 @@ private fun extractMediaItems(
     }
 }
 
-/** Build a [MediaMessage] suitable for passing to [ImageViewerDialog]. */
-private fun GalleryMediaItem.toMediaMessage(): MediaMessage {
-    // For videos we display the thumbnail in the viewer (full video playback is not in scope).
-    val viewerMxcUrl = if (isVideo && thumbnailMxcUrl != null) thumbnailMxcUrl else fullMxcUrl
-    return MediaMessage(
-        url = viewerMxcUrl,
-        filename = viewerMxcUrl.substringAfterLast("/"),
-        caption = null,
-        info = MediaInfo(
-            width = 0,
-            height = 0,
-            size = 0L,
-            mimeType = if (isVideo) "video/mp4" else "image/jpeg",
-            blurHash = null,
-            thumbnailUrl = thumbnailMxcUrl
-        ),
-        msgType = "m.image"
-    )
-}
+/** Build a [MediaMessage] for [ImageViewerDialog] (images only). */
+private fun GalleryMediaItem.toImageMediaMessage(): MediaMessage = MediaMessage(
+    url = fullMxcUrl,
+    filename = fullMxcUrl.substringAfterLast("/"),
+    caption = null,
+    info = MediaInfo(
+        width = 0,
+        height = 0,
+        size = 0L,
+        mimeType = "image/jpeg",
+        blurHash = null,
+        thumbnailUrl = thumbnailMxcUrl
+    ),
+    msgType = "m.image"
+)
+
+/** Build a [MediaMessage] for [VideoPlayerDialog] (videos only). */
+private fun GalleryMediaItem.toVideoMediaMessage(): MediaMessage = MediaMessage(
+    url = fullMxcUrl,
+    filename = fullMxcUrl.substringAfterLast("/"),
+    caption = null,
+    info = MediaInfo(
+        width = 0,
+        height = 0,
+        size = 0L,
+        mimeType = "video/mp4",
+        blurHash = null,
+        thumbnailUrl = thumbnailMxcUrl
+    ),
+    msgType = "m.video"
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -243,16 +255,27 @@ fun RoomMediaGalleryScreen(
         }
     }
 
-    // Full-screen viewer
+    // Full-screen viewer: image viewer for images, video player for videos
     selectedItem?.let { item ->
-        ImageViewerDialog(
-            mediaMessage = item.toMediaMessage(),
-            homeserverUrl = homeserverUrl,
-            authToken = authToken,
-            isEncrypted = false,
-            sourceBounds = null,
-            onDismiss = { selectedItem = null }
-        )
+        if (item.isVideo) {
+            VideoPlayerDialog(
+                mediaMessage = item.toVideoMediaMessage(),
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                isEncrypted = false,
+                shouldAutoPlay = true,
+                onDismiss = { selectedItem = null }
+            )
+        } else {
+            ImageViewerDialog(
+                mediaMessage = item.toImageMediaMessage(),
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                isEncrypted = false,
+                sourceBounds = null,
+                onDismiss = { selectedItem = null }
+            )
+        }
     }
 }
 
