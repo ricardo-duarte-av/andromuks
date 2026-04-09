@@ -222,7 +222,10 @@ val processedInBatch = _processedInBatch.asStateFlow()
                                 }
                             }
                             for (room in result.newRooms) {
-                                accumulator.newRooms[room.id] = room
+                                val existing = accumulator.newRooms[room.id]
+                                if (existing == null || shouldReplaceRoomItem(existing, room)) {
+                                    accumulator.newRooms[room.id] = room
+                                }
                             }
                             accumulator.removedRoomIds.addAll(result.removedRoomIds)
                         }

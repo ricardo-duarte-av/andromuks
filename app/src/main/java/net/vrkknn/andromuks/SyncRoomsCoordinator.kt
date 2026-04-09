@@ -890,6 +890,22 @@ internal class SyncRoomsCoordinator(
                     // Not all 588 rooms - only rooms that were just added
                     // Add new rooms
                     syncResult.newRooms.forEach { room ->
+                        // Preserve preview/sender from roomMap if the incoming room has none.
+                        // This matters when a batch covers a clear_state: the updatedRooms loop above
+                        // may have already stored a preserved entry for this room (from pre-clear-state
+                        // roomMap data), and the newRooms loop must not silently overwrite it with null.
+                        val existingInRoomMap = roomMap[room.id]
+                        val roomWithPreservation = if (existingInRoomMap != null &&
+                            room.messagePreview.isNullOrBlank() && !existingInRoomMap.messagePreview.isNullOrBlank()
+                        ) {
+                            room.copy(
+                                messagePreview = existingInRoomMap.messagePreview,
+                                messageSender = existingInRoomMap.messageSender
+                            )
+                        } else {
+                            room
+                        }
+
                         // Check SharedPreferences cache for bridge info
                         val cachedBridgeAvatar = appContext?.let { context ->
                             net.vrkknn.andromuks.utils.BridgeInfoCache.getBridgeAvatarUrl(context, room.id)
@@ -899,13 +915,13 @@ internal class SyncRoomsCoordinator(
                         } else {
                             null
                         }
-            
+
                         val roomWithBridgeInfo = if (cachedBridgeAvatarUrl != null) {
-                            room.copy(bridgeProtocolAvatarUrl = cachedBridgeAvatarUrl)
+                            roomWithPreservation.copy(bridgeProtocolAvatarUrl = cachedBridgeAvatarUrl)
                         } else {
-                            room
+                            roomWithPreservation
                         }
-            
+
                         roomMap[room.id] = roomWithBridgeInfo
                         // Update singleton cache
                         RoomListCache.updateRoom(roomWithBridgeInfo)
