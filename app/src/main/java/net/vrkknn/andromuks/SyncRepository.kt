@@ -87,6 +87,14 @@ object SyncRepository {
     private val syncCompleteChannel = Channel<PendingSyncComplete>(Channel.UNLIMITED)
     private val syncPipelineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
 
+    // Buffer for sync_complete messages that arrive when no VM is attached yet (e.g. service
+    // auto-started without UI). Bounded to prevent unbounded memory use. Epoch-tracked so messages
+    // from a previous connection cycle are never replayed after a disconnect.
+    private val noVmBufferLock = Any()
+    private val noVmBuffer = ArrayDeque<PendingSyncComplete>()
+    private const val MAX_NO_VM_BUFFER = 500
+    @Volatile private var noVmBufferEpoch = 0
+
     init {
         syncPipelineScope.launch {
             for (msg in syncCompleteChannel) {
@@ -110,6 +118,47 @@ object SyncRepository {
         }
     }
 
+    /**
+     * Discard any buffered no-VM sync_completes and advance the epoch so they are never replayed.
+     * Called by [WebSocketService] on [ConnectionState.Disconnected] so that messages from a stale
+     * connection are not replayed against a new session's VM.
+     */
+    fun clearSyncBuffer() {
+        synchronized(noVmBufferLock) {
+            if (noVmBuffer.isNotEmpty()) {
+                Log.i(TAG, "clearSyncBuffer: discarding ${noVmBuffer.size} buffered message(s) (epoch $noVmBufferEpoch → ${noVmBufferEpoch + 1})")
+                noVmBuffer.clear()
+            }
+            noVmBufferEpoch++
+        }
+    }
+
+    /**
+     * Re-enqueue messages that were buffered while no VM was attached, so they are processed by
+     * the VM that just attached.  Must be called after the VM has set [AppViewModel.initialSyncPhase]
+     * to true (done inside [AppViewModel.attachToExistingWebSocketIfAvailable]) so that
+     * [SyncRoomsCoordinator.updateRoomsFromSyncJsonAsyncBody] processes them immediately instead of
+     * re-queuing them in [AppViewModel.initialSyncCompleteQueue].
+     */
+    fun triggerBufferedSyncDrain() {
+        val epochAtDrain: Int
+        val toReplay: List<PendingSyncComplete>
+        synchronized(noVmBufferLock) {
+            epochAtDrain = noVmBufferEpoch
+            if (noVmBuffer.isEmpty()) return
+            toReplay = noVmBuffer.toList()
+            noVmBuffer.clear()
+        }
+        Log.i(TAG, "triggerBufferedSyncDrain: re-enqueuing ${toReplay.size} buffered sync_complete(s) (epoch $epochAtDrain)")
+        for (msg in toReplay) {
+            val result = syncCompleteChannel.trySend(msg)
+            if (!result.isSuccess) {
+                Log.e(TAG, "triggerBufferedSyncDrain: channel failed, ${toReplay.size - toReplay.indexOf(msg)} message(s) lost")
+                break
+            }
+        }
+    }
+
     private suspend fun processSyncCompletePipeline(msg: PendingSyncComplete) {
         val json = JSONObject(msg.jsonString)
         if (msg.hint == IncomingWebSocketHint.SYNC_COMPLETE_AFTER_RESUME) {
@@ -121,7 +170,16 @@ object SyncRepository {
         }
         val target = resolveSyncProcessingViewModel()
         if (target == null) {
-            Log.w(TAG, "sync_complete: no AppViewModel to process (dropped)")
+            // No VM attached yet — buffer instead of drop.  A VM will call triggerBufferedSyncDrain()
+            // via attachToExistingWebSocketIfAvailable() once it is ready to process these messages.
+            synchronized(noVmBufferLock) {
+                if (noVmBuffer.size < MAX_NO_VM_BUFFER) {
+                    noVmBuffer.addLast(msg)
+                    Log.w(TAG, "sync_complete: no VM (buffered ${noVmBuffer.size}/$MAX_NO_VM_BUFFER, epoch $noVmBufferEpoch)")
+                } else {
+                    Log.w(TAG, "sync_complete: no VM and buffer full ($MAX_NO_VM_BUFFER), message dropped")
+                }
+            }
             return
         }
         val job = target.viewModelScope.launch {

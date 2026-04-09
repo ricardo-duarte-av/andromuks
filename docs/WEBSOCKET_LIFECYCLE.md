@@ -42,6 +42,17 @@ Helper extensions live in `ConnectionState.kt`: `isReady()`, `isDisconnected()`,
 
 **Fix in stuck-DISCONNECTED health check:** The check now also fires when `connectionLostAt == 0` (service never had a connection this process lifetime) and `serviceStartTime` is >5s ago — covering cold `START_STICKY` restarts.
 
+## No-VM Race: Service Starts Without AppViewModel
+
+**Race:** The service can connect and receive the full initial `init_complete` + `sync_complete` batch before any `AppViewModel` is attached. This happens when the service is auto-started via `START_STICKY`, `BootStartReceiver`, `ServiceStartWorker`, or the stuck-DISCONNECTED health check recovery — all of which call `connectWebSocket(null)`. With no VM attached, `SyncRepository.processSyncCompletePipeline()` previously dropped every `sync_complete` (logged as `"no AppViewModel to process"`), leaving `RoomListCache` empty.
+
+**Symptom:** User opens app after automatic startup → `isWebSocketConnected() = true` → `attachToExistingWebSocketIfAvailable()` → `populateRoomMapFromCache()` returns empty → room list is blank. Rooms then appear one-by-one only as subsequent live `sync_complete` cycles arrive from the backend.
+
+**Fix — `SyncRepository` no-VM buffer:**
+- `processSyncCompletePipeline()` now buffers up to 500 `sync_complete` messages in `noVmBuffer` instead of dropping them.
+- The buffer is epoch-tracked (`noVmBufferEpoch`). `WebSocketService.updateConnectionState()` calls `SyncRepository.clearSyncBuffer()` on every `Disconnected` transition, advancing the epoch so messages from a stale connection are never replayed into a new session.
+- `AppViewModel.attachToExistingWebSocketIfAvailable()` calls `SyncRepository.triggerBufferedSyncDrain()` after setting `initialSyncPhase = true`. This re-enqueues buffered messages back into `syncCompleteChannel` so they are processed immediately by the newly attached VM in pipeline order.
+
 ## Unified Monitoring (every 1s, `startUnifiedMonitoring()`)
 
 Runs on `serviceScope` inside the service instance. Performs four checks per tick:

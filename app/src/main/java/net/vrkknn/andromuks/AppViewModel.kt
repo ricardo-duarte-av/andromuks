@@ -3821,6 +3821,12 @@ class AppViewModel : ViewModel() {
                 initialSyncComplete = true
                 android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: initializationComplete=$initializationComplete, initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, profile=${currentUserProfile != null}")
 
+                // Re-enqueue any sync_complete messages that were buffered by SyncRepository because
+                // no VM was attached when they arrived (e.g. service auto-started without UI after
+                // boot/FCM wakeup).  initialSyncPhase is already true above, so
+                // updateRoomsFromSyncJsonAsyncBody will process them directly instead of re-queuing.
+                SyncRepository.triggerBufferedSyncDrain()
+
                 // Drain any sync_complete messages that arrived in the window between this VM
                 // becoming primary in SyncRepository and initialSyncPhase being set to true above.
                 // Without this drain those messages stay in initialSyncCompleteQueue permanently:

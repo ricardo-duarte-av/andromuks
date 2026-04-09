@@ -1321,6 +1321,12 @@ class WebSocketService : Service() {
             }
             SyncRepository.updateConnectionState(newState)
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Connection state updated: $newState")
+            // Discard any sync_complete messages buffered during the now-terminated connection so
+            // they are not replayed against a new session.  This must run on every transition to
+            // Disconnected (clearWebSocket(), state-corruption recovery, health-check timeout, …).
+            if (newState is ConnectionState.Disconnected) {
+                SyncRepository.clearSyncBuffer()
+            }
         }
         
         // ConnectionState helpers: see net.vrkknn.andromuks.ConnectionState.kt (single source of truth)
