@@ -180,6 +180,19 @@ The app has first-class support for Matrix bridges (e.g. Mautrix bridges for Wha
 - Per-message bridge profiles (`com.beeper.per_message_profile`)
 - Bridge send status (`com.beeper.message_send_status`) — delivery icons, Delivery Info dialog, functional members (`io.element.functional_members` / MSC4171)
 
+## Read Receipts
+
+See **[docs/RECEIPTS.md](docs/RECEIPTS.md)** for full documentation.
+
+Read receipts track which users have read up to a given message. Key invariants:
+
+- Each user has **exactly one receipt per room** — it must appear on only one event at a time.
+- `AppViewModel.readReceipts` is a **global map** (`eventId → List<ReadReceipt>`) shared across all rooms; `ReadReceipt.roomId` is used to prevent cross-room corruption.
+- **`processReadReceiptsFromSyncComplete`** is the incremental path — it finds and removes the user's old receipt before adding the new one, and fires `onMovementDetected` for animation.
+- **Paginate** (in `TimelineCacheCoordinator`) is authoritative per-event — it replaces receipts for returned events but does not explicitly clear the user from other events.
+- **`populateReadReceiptsFromCache`** merges from `ReadReceiptCache` — it **must** evict the user from other events before placing them (done via `evictUserFromOtherEvents`). Failing to do so causes receipt accumulation: the avatar appears on multiple bubbles simultaneously instead of moving.
+- `ReadReceiptCache` is a singleton that mirrors `readReceipts` and is updated (via `setAll`) after every sync_complete batch and every paginate. It allows new VM instances to recover receipt state without waiting for the next sync.
+
 ## Offline Connection Indicator
 
 A pulsing `CloudOff` icon in `MaterialTheme.colorScheme.error` is shown in every screen's header when the WebSocket is not in `ConnectionState.Ready`. It is driven by `SyncRepository.connectionState.collectAsState()` and uses an `infiniteRepeatable` alpha animation (0.4 → 1.0, 800 ms, `RepeatMode.Reverse`) inside an `AnimatedVisibility`.

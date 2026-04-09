@@ -204,6 +204,38 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
 
                         roomOpenTimestamps[roomId] = System.currentTimeMillis()
 
+                        // Background paginate to pull any newer events the cache may be missing
+                        // (e.g. after a reconnect with clear_state=true that evicted activelyCachedRooms).
+                        // Mirrors the same paginate sent by requestRoomTimeline's cache-hit path.
+                        val wasAdded = roomsWithPendingPaginate.add(roomId)
+                        if (wasAdded && isWebSocketConnected()) {
+                            val paginateRequestId = requestIdCounter++
+                            timelineRequests[paginateRequestId] = roomId
+                            val result = sendWebSocketCommand(
+                                "paginate",
+                                paginateRequestId,
+                                mapOf(
+                                    "room_id" to roomId,
+                                    "max_timeline_id" to 0,
+                                    "limit" to AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT,
+                                    "reset" to false,
+                                ),
+                            )
+                            if (result != WebSocketResult.SUCCESS && !isWebSocketConnected()) {
+                                timelineRequests.remove(paginateRequestId)
+                                roomsWithPendingPaginate.remove(roomId)
+                            }
+                            android.util.Log.d(
+                                "Andromuks",
+                                "🔵 navigateToRoomWithCache: Sent background paginate for newer events - roomId=$roomId, reqId=$paginateRequestId, result=$result",
+                            )
+                        } else if (!wasAdded) {
+                            android.util.Log.d(
+                                "Andromuks",
+                                "🔵 navigateToRoomWithCache: Skipping background paginate - roomId=$roomId already has pending paginate",
+                            )
+                        }
+
                         android.util.Log.d(
                             "Andromuks",
                             "🔵 navigateToRoomWithCache: SUCCESS - roomId=$roomId, timeline built from cache (${cachedEvents.size} events), isTimelineLoading=$isTimelineLoading",

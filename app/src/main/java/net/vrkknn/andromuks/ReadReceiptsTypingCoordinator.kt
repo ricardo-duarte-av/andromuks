@@ -62,10 +62,32 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
                             )
 
                         var hasChanges = false
+
+                        // Helper: remove a user from every event OTHER than targetEventId (same-room only).
+                        // This mirrors the dedup logic in processReadReceiptsFromSyncComplete so that
+                        // populateReadReceiptsFromCache never leaves a user on multiple events.
+                        fun evictUserFromOtherEvents(userId: String, roomId: String, targetEventId: String) {
+                            for (otherEventId in readReceipts.keys.toList()) {
+                                if (otherEventId == targetEventId) continue
+                                val list = readReceipts[otherEventId] ?: continue
+                                val removed = list.removeAll { existing ->
+                                    existing.userId == userId &&
+                                        (roomId.isBlank() || existing.roomId.isBlank() || existing.roomId == roomId)
+                                }
+                                if (removed && list.isEmpty()) {
+                                    readReceipts.remove(otherEventId)
+                                }
+                            }
+                        }
+
                         cachedReceipts.forEach { (eventId, cachedReceiptsList) ->
                             if (cachedReceiptsList.isNotEmpty()) {
                                 val existingReceipts = readReceipts[eventId]
                                 if (existingReceipts == null || existingReceipts.isEmpty()) {
+                                    // Evict these users from any stale events before placing them here.
+                                    cachedReceiptsList.forEach { r ->
+                                        evictUserFromOtherEvents(r.userId, r.roomId, eventId)
+                                    }
                                     readReceipts[eventId] = cachedReceiptsList.toMutableList()
                                     hasChanges = true
                                     if (BuildConfig.DEBUG)
@@ -78,10 +100,14 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
                                     val newReceipts =
                                         cachedReceiptsList.filter { it.userId !in existingUserIds }
                                     if (newReceipts.isNotEmpty()) {
+                                        // Evict these users from any stale events before placing them here.
+                                        newReceipts.forEach { r ->
+                                            evictUserFromOtherEvents(r.userId, r.roomId, eventId)
+                                        }
                                         readReceipts[eventId] =
                                             (existingReceipts + newReceipts).toMutableList()
                                         hasChanges = true
-                                        
+
                                         // (3) IMPLICIT DELIVERY: Receipt in cache implies delivery
                                         val targetMessageId = bridgeStatusEventToMessageId[eventId] ?: eventId
                                         if (messageBridgeSendStatus.containsKey(targetMessageId)) {
