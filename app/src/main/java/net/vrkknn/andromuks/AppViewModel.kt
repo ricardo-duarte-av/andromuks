@@ -4063,7 +4063,16 @@ class AppViewModel : ViewModel() {
         // Update typing users for the new room when switching
         val previousRoomId = currentRoomId
         currentRoomId = roomId
-        
+
+        // Clear stale room state when switching to a different room.
+        // Without this, the header shows the previous room's name/avatar until the new room's
+        // state arrives asynchronously — because the DisposableEffect guard in RoomTimelineScreen
+        // ("if currentRoomId == roomId") prevents clearCurrentRoomId() from running when the
+        // user navigates directly from room A to room B (currentRoomId is already room B by then).
+        if (roomId.isNotEmpty() && previousRoomId != roomId) {
+            currentRoomState = null
+        }
+
         // Update typingUsers to show typing users for the new room
         typingUsers = getTypingUsersForRoom(roomId)
 

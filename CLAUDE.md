@@ -88,6 +88,8 @@ State flows via Kotlin `StateFlow`/`MutableStateFlow` and Compose `mutableStateO
 
 Sync events are queued until `init_complete` arrives, then processed in batch. Each coordinator handles its domain independently.
 
+**`currentRoomState` clearing invariant:** `AppViewModel.currentRoomState` is a global `mutableStateOf` read directly by `RoomTimelineScreen` to populate the room header. It must be cleared to `null` whenever `currentRoomId` changes to a *different* room. This is done in `updateCurrentRoomIdInPrefs` (the single choke-point for `currentRoomId` changes). Without this, direct room-to-room navigation (A → B without going back through the list) leaves `currentRoomState` holding room A's data while room B's screen is composing, causing the wrong room name/avatar to appear in the header. The `DisposableEffect` guard in `RoomTimelineScreen` (`if currentRoomId == roomId`) intentionally skips `clearCurrentRoomId()` in this case (because `currentRoomId` is already room B), so the clearing must happen at the `updateCurrentRoomIdInPrefs` site instead.
+
 ### WebSocket Connection Lifecycle
 
 See **[docs/WEBSOCKET_LIFECYCLE.md](docs/WEBSOCKET_LIFECYCLE.md)** for full documentation.
