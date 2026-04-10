@@ -3814,51 +3814,61 @@ class AppViewModel : ViewModel() {
                 // CRITICAL: When attaching to existing WebSocket, all processing is already complete
                 // Ensure profile is loaded before marking processing complete
                 ensureCurrentUserProfileLoaded()
-                initialSyncPhase = true
+                // initialSyncPhase stays false until the drain sentinel fires (see below).
+                // While false, any sync_complete the pipeline dispatches to this VM goes into
+                // initialSyncCompleteQueue instead of being applied directly to the UI.
                 initialSyncProcessingComplete = true
                 android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Setting initializationComplete=true, initialSyncComplete=true, processingComplete=true (already-initialized WebSocket)")
                 initializationComplete = true  // CRITICAL: init_complete was already received by primary instance
                 initialSyncComplete = true
                 android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: initializationComplete=$initializationComplete, initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, profile=${currentUserProfile != null}")
 
-                // Merge any no-VM buffered messages (service started without UI) with any stranded
-                // messages (arrived after VM became primary but before initialSyncPhase = true).
-                // Processing all of them before navigation ensures the room list is fully populated
-                // before the user sees RoomListScreen — preventing rooms from popping in one-by-one.
+                // Capture messages already processed by the pipeline (pre-registration) and
+                // prepend them into initialSyncCompleteQueue so they sort before any post-
+                // registration messages the pipeline dispatches while we wait for the sentinel.
                 val bufferedMsgs = SyncRepository.takeBufferedMessages()
                 if (bufferedMsgs.isNotEmpty()) {
-                    android.util.Log.i("Andromuks", "🟣 attachToExistingWebSocket: merging ${bufferedMsgs.size} no-VM buffered message(s) into queue for ordered processing")
+                    android.util.Log.i("Andromuks", "🟣 attachToExistingWebSocket: prepending ${bufferedMsgs.size} no-VM buffered message(s) into queue")
                     synchronized(initialSyncCompleteQueue) {
                         val prepend = bufferedMsgs.map { (js, _) -> JSONObject(js) }
                         initialSyncCompleteQueue.addAll(0, prepend)
                     }
                 }
 
-                val pendingMessages = synchronized(initialSyncCompleteQueue) {
-                    if (initialSyncCompleteQueue.isEmpty()) emptyList()
-                    else initialSyncCompleteQueue.toList().also { initialSyncCompleteQueue.clear() }
-                }
-
-                if (pendingMessages.isNotEmpty()) {
-                    android.util.Log.w("Andromuks", "🟣 attachToExistingWebSocket: processing ${pendingMessages.size} pending message(s) (${bufferedMsgs.size} buffered, ${pendingMessages.size - bufferedMsgs.size} stranded) — navigation deferred until done")
-                    viewModelScope.launch(Dispatchers.Default) {
-                        initialSyncProcessingMutex.withLock {
-                            for (syncJson in pendingMessages) {
-                                val requestId = syncJson.optInt("request_id", 0)
-                                val runId = syncJson.optJSONObject("data")?.optString("run_id", "") ?: ""
-                                try {
-                                    syncRoomsCoordinator.processSyncCompleteAtomic(syncJson, requestId, runId)
-                                } catch (e: Exception) {
-                                    android.util.Log.e("Andromuks", "🟣 attachToExistingWebSocket: error processing pending message requestId=$requestId: ${e.message}", e)
+                // Enqueue a drain sentinel AFTER registering the VM.  The pipeline is FIFO/serial,
+                // so when the sentinel is processed every sync_complete that was already in
+                // syncCompleteChannel has been dispatched to this VM and (because initialSyncPhase
+                // is still false) queued in initialSyncCompleteQueue.  Only then do we batch-process
+                // the queue and fire navigation — rooms are fully populated before the user sees them.
+                android.util.Log.w("Andromuks", "🟣 attachToExistingWebSocket: enqueuing drain sentinel — navigation deferred until pipeline is drained")
+                SyncRepository.enqueueDrainSentinel {
+                    // Called on the pipeline's IO thread — dispatch all work to Main/Default.
+                    viewModelScope.launch(Dispatchers.Main) {
+                        val pendingMessages = synchronized(initialSyncCompleteQueue) {
+                            if (initialSyncCompleteQueue.isEmpty()) emptyList()
+                            else initialSyncCompleteQueue.toList().also { initialSyncCompleteQueue.clear() }
+                        }
+                        android.util.Log.w("Andromuks", "🟣 attachToExistingWebSocket: sentinel fired — processing ${pendingMessages.size} queued message(s) before navigation")
+                        if (pendingMessages.isNotEmpty()) {
+                            withContext(Dispatchers.Default) {
+                                initialSyncProcessingMutex.withLock {
+                                    for (syncJson in pendingMessages) {
+                                        val requestId = syncJson.optInt("request_id", 0)
+                                        val runId = syncJson.optJSONObject("data")?.optString("run_id", "") ?: ""
+                                        try {
+                                            syncRoomsCoordinator.processSyncCompleteAtomic(syncJson, requestId, runId)
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("Andromuks", "🟣 attachToExistingWebSocket: error processing queued message requestId=$requestId: ${e.message}", e)
+                                        }
+                                    }
                                 }
                             }
                         }
-                        withContext(Dispatchers.Main) {
-                            populateFromCacheAndNavigateAfterAttach()
-                        }
+                        // Unlock live pipeline processing: from this point sync_completes arriving
+                        // via the pipeline bypass initialSyncCompleteQueue and are applied normally.
+                        initialSyncPhase = true
+                        populateFromCacheAndNavigateAfterAttach()
                     }
-                } else {
-                    populateFromCacheAndNavigateAfterAttach()
                 }
             }
             // CRITICAL FIX: Don't set initialSyncComplete = true if WebSocket is not connected

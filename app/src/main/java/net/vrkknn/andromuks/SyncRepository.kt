@@ -19,6 +19,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -54,7 +55,13 @@ enum class IncomingWebSocketHint {
     /** First sync_complete after reconnect with last_received_event — call [AppViewModel.onInitComplete] before room sync. */
     SYNC_COMPLETE_AFTER_RESUME,
     /** init_complete — each VM runs [AppViewModel.onInitComplete] on Main. */
-    INIT_COMPLETE
+    INIT_COMPLETE,
+    /**
+     * Sentinel enqueued by [SyncRepository.enqueueDrainSentinel]. Not a real message — when the
+     * pipeline processes it, all previously-queued sync_completes have been dispatched, so the
+     * registered drain callback is invoked and the sentinel is discarded.
+     */
+    DRAIN_SENTINEL,
 }
 
 data class ViewModelRegistryInfo(
@@ -94,6 +101,9 @@ object SyncRepository {
     private val noVmBuffer = ArrayDeque<PendingSyncComplete>()
     private const val MAX_NO_VM_BUFFER = 500
     @Volatile private var noVmBufferEpoch = 0
+
+    // Callbacks for DRAIN_SENTINEL messages, in FIFO order matching the sentinel enqueue order.
+    private val drainSentinelCallbacks = ConcurrentLinkedQueue<() -> Unit>()
 
     init {
         syncPipelineScope.launch {
@@ -179,7 +189,40 @@ object SyncRepository {
         }
     }
 
+    /**
+     * Enqueues a sentinel marker at the current tail of [syncCompleteChannel].  Because the pipeline
+     * is single-threaded (FIFO), when the sentinel is processed ALL sync_completes that were enqueued
+     * before it have already been dispatched to the attached VM.  [onDrained] is invoked on the
+     * pipeline's IO thread — callers must dispatch to the appropriate thread themselves.
+     *
+     * Use this in [AppViewModel.attachToExistingWebSocketIfAvailable] to know exactly when it is safe
+     * to drain [AppViewModel.initialSyncCompleteQueue] and fire navigation, without racing against
+     * messages still in transit through the pipeline.
+     */
+    fun enqueueDrainSentinel(onDrained: () -> Unit) {
+        drainSentinelCallbacks.add(onDrained)
+        val result = syncCompleteChannel.trySend(PendingSyncComplete("{}", IncomingWebSocketHint.DRAIN_SENTINEL))
+        if (!result.isSuccess) {
+            // Channel closed — remove the orphaned callback and invoke immediately so the
+            // caller is not stuck waiting for a sentinel that will never be processed.
+            drainSentinelCallbacks.remove(onDrained)
+            Log.e(TAG, "enqueueDrainSentinel: channel send failed — invoking callback immediately")
+            onDrained()
+        }
+    }
+
     private suspend fun processSyncCompletePipeline(msg: PendingSyncComplete) {
+        // Sentinel: not a real message — just notify the waiting VM that all prior messages
+        // have been dispatched and then discard.
+        if (msg.hint == IncomingWebSocketHint.DRAIN_SENTINEL) {
+            val callback = drainSentinelCallbacks.poll()
+            if (callback != null) {
+                callback()
+            } else {
+                Log.w(TAG, "processSyncCompletePipeline: DRAIN_SENTINEL with no matching callback")
+            }
+            return
+        }
         val json = JSONObject(msg.jsonString)
         if (msg.hint == IncomingWebSocketHint.SYNC_COMPLETE_AFTER_RESUME) {
             withContext(Dispatchers.Main) {
