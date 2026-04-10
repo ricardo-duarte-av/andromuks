@@ -139,6 +139,9 @@ object SyncRepository {
      * to true (done inside [AppViewModel.attachToExistingWebSocketIfAvailable]) so that
      * [SyncRoomsCoordinator.updateRoomsFromSyncJsonAsyncBody] processes them immediately instead of
      * re-queuing them in [AppViewModel.initialSyncCompleteQueue].
+     *
+     * NOTE: prefer [takeBufferedMessages] when you need to process them synchronously before
+     * navigating (avoids the rooms-pop-in-one-by-one problem on first open after background start).
      */
     fun triggerBufferedSyncDrain() {
         val epochAtDrain: Int
@@ -156,6 +159,23 @@ object SyncRepository {
                 Log.e(TAG, "triggerBufferedSyncDrain: channel failed, ${toReplay.size - toReplay.indexOf(msg)} message(s) lost")
                 break
             }
+        }
+    }
+
+    /**
+     * Atomically removes and returns all buffered no-VM messages as raw (jsonString, hint) pairs,
+     * without re-enqueuing them to the async pipeline channel.  Use this when the caller wants to
+     * process the messages synchronously (e.g. before firing navigation) so that the room list is
+     * fully populated before the user sees it.  The epoch is NOT advanced; only [clearSyncBuffer]
+     * does that.
+     */
+    fun takeBufferedMessages(): List<Pair<String, IncomingWebSocketHint>> {
+        synchronized(noVmBufferLock) {
+            if (noVmBuffer.isEmpty()) return emptyList()
+            val taken = noVmBuffer.map { it.jsonString to it.hint }
+            noVmBuffer.clear()
+            Log.i(TAG, "takeBufferedMessages: took ${taken.size} message(s) for direct processing (epoch $noVmBufferEpoch)")
+            return taken
         }
     }
 

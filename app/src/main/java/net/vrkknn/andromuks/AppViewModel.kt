@@ -3821,116 +3821,44 @@ class AppViewModel : ViewModel() {
                 initialSyncComplete = true
                 android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: initializationComplete=$initializationComplete, initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, profile=${currentUserProfile != null}")
 
-                // Re-enqueue any sync_complete messages that were buffered by SyncRepository because
-                // no VM was attached when they arrived (e.g. service auto-started without UI after
-                // boot/FCM wakeup).  initialSyncPhase is already true above, so
-                // updateRoomsFromSyncJsonAsyncBody will process them directly instead of re-queuing.
-                SyncRepository.triggerBufferedSyncDrain()
+                // Merge any no-VM buffered messages (service started without UI) with any stranded
+                // messages (arrived after VM became primary but before initialSyncPhase = true).
+                // Processing all of them before navigation ensures the room list is fully populated
+                // before the user sees RoomListScreen — preventing rooms from popping in one-by-one.
+                val bufferedMsgs = SyncRepository.takeBufferedMessages()
+                if (bufferedMsgs.isNotEmpty()) {
+                    android.util.Log.i("Andromuks", "🟣 attachToExistingWebSocket: merging ${bufferedMsgs.size} no-VM buffered message(s) into queue for ordered processing")
+                    synchronized(initialSyncCompleteQueue) {
+                        val prepend = bufferedMsgs.map { (js, _) -> JSONObject(js) }
+                        initialSyncCompleteQueue.addAll(0, prepend)
+                    }
+                }
 
-                // Drain any sync_complete messages that arrived in the window between this VM
-                // becoming primary in SyncRepository and initialSyncPhase being set to true above.
-                // Without this drain those messages stay in initialSyncCompleteQueue permanently:
-                // no new init_complete is ever sent on an already-established connection, so
-                // onInitComplete() is never called on this VM and the room summaries / timeline
-                // updates carried by the stranded messages are silently lost.
-                val strandedMessages = synchronized(initialSyncCompleteQueue) {
+                val pendingMessages = synchronized(initialSyncCompleteQueue) {
                     if (initialSyncCompleteQueue.isEmpty()) emptyList()
                     else initialSyncCompleteQueue.toList().also { initialSyncCompleteQueue.clear() }
                 }
-                if (strandedMessages.isNotEmpty()) {
-                    android.util.Log.w("Andromuks", "🟣 attachToExistingWebSocket: draining ${strandedMessages.size} stranded message(s) from initialSyncCompleteQueue")
+
+                if (pendingMessages.isNotEmpty()) {
+                    android.util.Log.w("Andromuks", "🟣 attachToExistingWebSocket: processing ${pendingMessages.size} pending message(s) (${bufferedMsgs.size} buffered, ${pendingMessages.size - bufferedMsgs.size} stranded) — navigation deferred until done")
                     viewModelScope.launch(Dispatchers.Default) {
                         initialSyncProcessingMutex.withLock {
-                            for (syncJson in strandedMessages) {
+                            for (syncJson in pendingMessages) {
                                 val requestId = syncJson.optInt("request_id", 0)
                                 val runId = syncJson.optJSONObject("data")?.optString("run_id", "") ?: ""
                                 try {
                                     syncRoomsCoordinator.processSyncCompleteAtomic(syncJson, requestId, runId)
                                 } catch (e: Exception) {
-                                    android.util.Log.e("Andromuks", "🟣 attachToExistingWebSocket: error processing stranded message requestId=$requestId: ${e.message}", e)
+                                    android.util.Log.e("Andromuks", "🟣 attachToExistingWebSocket: error processing pending message requestId=$requestId: ${e.message}", e)
                                 }
                             }
                         }
+                        withContext(Dispatchers.Main) {
+                            populateFromCacheAndNavigateAfterAttach()
+                        }
                     }
-                }
-
-                // CRITICAL FIX: Populate roomMap from cache when attaching to existing WebSocket
-                // This ensures the new AppViewModel instance has room data from previous instances
-                populateRoomMapFromCache()
-                populateSpacesFromCache()
-                
-                // CRITICAL FIX: Set spacesLoaded if we have rooms (populateRoomMapFromCache already does this, but ensure it's set)
-                if (roomMap.isNotEmpty() && !spacesLoaded) {
-                    spacesLoaded = true
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Set spacesLoaded=true (have ${roomMap.size} rooms)")
-                }
-                // CRITICAL FIX: Mark initialSyncComplete when attaching to an existing WebSocket.
-                // This ViewModel will never receive init_complete (the service already processed it),
-                // so initialSyncComplete must be set here. Without it, the room list guard in
-                // RoomListScreen ("!initialSyncComplete && hadContent → return") permanently blocks
-                // room-list updates, leaving the UI stuck with whatever partial data was in
-                // RoomListCache at attachment time (e.g. 3-4 rooms during a mid-sync attach).
-                if (roomMap.isNotEmpty() && !initialSyncComplete) {
-                    initialSyncComplete = true
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Set initialSyncComplete=true (have ${roomMap.size} rooms from cache)")
-                }
-                
-                // CRITICAL FIX: Load account_data from singleton cache when attaching to existing WebSocket
-                // This ensures secondary instances (e.g., opened from Contacts) can access account_data
-                // that was loaded by the primary instance
-                val cachedAccountData = AccountDataCache.getAllAccountData()
-                if (cachedAccountData.isNotEmpty()) {
-                    val accountDataJson = JSONObject()
-                    cachedAccountData.forEach { (key, value) ->
-                        accountDataJson.put(key, value)
-                    }
-                    if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "AppViewModel: Loading ${cachedAccountData.size} account_data types from cache (m.direct=${AccountDataCache.hasAccountData("m.direct")})")
-                    }
-                    syncRoomsCoordinator.processAccountData(accountDataJson)
                 } else {
-                    if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "AppViewModel: No account_data in cache - will use fallback room scanning for DM detection")
-                    }
-                }
-                
-                // CRITICAL FIX: When attaching to existing WebSocket, room states have already been loaded by the primary instance
-                // Set allRoomStatesLoaded = true to allow startup completion
-                if (!allRoomStatesLoaded) {
-                    allRoomStatesLoaded = true
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Set allRoomStatesLoaded=true (room states already loaded by primary instance)")
-                }
-                
-                // CRITICAL FIX: Allow commands to be sent when attaching to existing WebSocket
-                // The WebSocket is already connected and initialized, so commands should be allowed
-                if (!canSendCommandsToBackend) {
-                    canSendCommandsToBackend = true
-                    flushPendingCommandsQueue()
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Set canSendCommandsToBackend=true (WebSocket already initialized)")
-                }
-                
-                // CRITICAL FIX: Ensure requestIdCounter is synchronized with the primary instance
-                // The primary instance may have incremented requestIdCounter, so we should sync it
-                // However, we can't easily get the current counter from the service, so we'll just ensure
-                // we start from a reasonable value (the service manages the actual counter)
-                // Note: requestIdCounter is per-ViewModel, so this is fine
-                
-                // CRITICAL FIX: Check if startup is complete now that we have room data
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Checking startup complete - initializationComplete=$initializationComplete, initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded, allRoomStatesLoaded=$allRoomStatesLoaded, canSendCommands=$canSendCommandsToBackend, roomMap.size=${roomMap.size}")
-                checkStartupComplete()
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: After checkStartupComplete - isStartupComplete=$isStartupComplete")
-                
-                // If spaces are loaded, trigger navigation immediately
-                if (spacesLoaded && !navigationCallbackTriggered) {
-                    if (onNavigateToRoomList != null) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Spaces loaded and WebSocket connected - triggering navigation callback immediately")
-                        navigationCallbackTriggered = true
-                        onNavigateToRoomList?.invoke()
-                    } else {
-                        // Callback not yet registered — mark as pending so setNavigationCallback fires it
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Spaces loaded but no navigation callback registered yet - setting pendingNavigation=true")
-                        pendingNavigation = true
-                    }
+                    populateFromCacheAndNavigateAfterAttach()
                 }
             }
             // CRITICAL FIX: Don't set initialSyncComplete = true if WebSocket is not connected
@@ -3953,6 +3881,83 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    /**
+     * Populates roomMap/spaces from the singleton caches and fires the navigation callback.
+     * Called from [attachToExistingWebSocketIfAvailable] — either immediately (no pending messages)
+     * or from within the processing coroutine after all buffered/stranded messages have been
+     * processed.  Must be called on the Main thread.
+     */
+    private fun populateFromCacheAndNavigateAfterAttach() {
+        // Populate roomMap from cache when attaching to existing WebSocket.
+        // This ensures the new AppViewModel instance has room data from previous instances.
+        populateRoomMapFromCache()
+        populateSpacesFromCache()
+
+        if (roomMap.isNotEmpty() && !spacesLoaded) {
+            spacesLoaded = true
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Set spacesLoaded=true (have ${roomMap.size} rooms)")
+        }
+        // Mark initialSyncComplete when attaching to an existing WebSocket.
+        // This ViewModel will never receive init_complete (the service already processed it),
+        // so initialSyncComplete must be set here. Without it, the room list guard in
+        // RoomListScreen ("!initialSyncComplete && hadContent → return") permanently blocks
+        // room-list updates, leaving the UI stuck with whatever partial data was in
+        // RoomListCache at attachment time (e.g. 3-4 rooms during a mid-sync attach).
+        if (roomMap.isNotEmpty() && !initialSyncComplete) {
+            initialSyncComplete = true
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Set initialSyncComplete=true (have ${roomMap.size} rooms from cache)")
+        }
+
+        // Load account_data from singleton cache when attaching to existing WebSocket.
+        // This ensures secondary instances (e.g., opened from Contacts) can access account_data
+        // that was loaded by the primary instance.
+        val cachedAccountData = AccountDataCache.getAllAccountData()
+        if (cachedAccountData.isNotEmpty()) {
+            val accountDataJson = JSONObject()
+            cachedAccountData.forEach { (key, value) ->
+                accountDataJson.put(key, value)
+            }
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "AppViewModel: Loading ${cachedAccountData.size} account_data types from cache (m.direct=${AccountDataCache.hasAccountData("m.direct")})")
+            }
+            syncRoomsCoordinator.processAccountData(accountDataJson)
+        } else {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "AppViewModel: No account_data in cache - will use fallback room scanning for DM detection")
+            }
+        }
+
+        // When attaching to existing WebSocket, room states have already been loaded by the primary instance.
+        if (!allRoomStatesLoaded) {
+            allRoomStatesLoaded = true
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Set allRoomStatesLoaded=true (room states already loaded by primary instance)")
+        }
+
+        // Allow commands to be sent when attaching to existing WebSocket.
+        if (!canSendCommandsToBackend) {
+            canSendCommandsToBackend = true
+            flushPendingCommandsQueue()
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Set canSendCommandsToBackend=true (WebSocket already initialized)")
+        }
+
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Checking startup complete - initializationComplete=$initializationComplete, initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded, allRoomStatesLoaded=$allRoomStatesLoaded, canSendCommands=$canSendCommandsToBackend, roomMap.size=${roomMap.size}")
+        checkStartupComplete()
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: After checkStartupComplete - isStartupComplete=$isStartupComplete")
+
+        // If spaces are loaded, trigger navigation.
+        if (spacesLoaded && !navigationCallbackTriggered) {
+            if (onNavigateToRoomList != null) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Spaces loaded and WebSocket connected - triggering navigation callback")
+                navigationCallbackTriggered = true
+                onNavigateToRoomList?.invoke()
+            } else {
+                // Callback not yet registered — mark as pending so setNavigationCallback fires it.
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Spaces loaded but no navigation callback registered yet - setting pendingNavigation=true")
+                pendingNavigation = true
+            }
+        }
+    }
+
     /**
      * Check for pending items on app startup and process them.
      * Called from MainActivity.onCreate to ensure fresh data before showing RoomListScreen.
