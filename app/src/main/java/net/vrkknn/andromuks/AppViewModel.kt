@@ -9285,8 +9285,8 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    fun setRoomTag(roomId: String, tagType: String, enabled: Boolean) =
-        accountDataCoordinator.setRoomTag(roomId, tagType, enabled)
+    fun setRoomTag(roomId: String, tagType: String, enabled: Boolean, triggerSort: Boolean = true) =
+        accountDataCoordinator.setRoomTag(roomId, tagType, enabled, triggerSort)
     
     /**
      * Set room avatar (roomavatar command)

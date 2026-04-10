@@ -177,7 +177,7 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         sendWebSocketCommand("set_account_data", requestId, commandData)
     }
 
-    fun setRoomTag(roomId: String, tagType: String, enabled: Boolean) = with(vm) {
+    fun setRoomTag(roomId: String, tagType: String, enabled: Boolean, triggerSort: Boolean = true) = with(vm) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d("Andromuks", "AppViewModel: Setting room tag - roomId: $roomId, tagType: $tagType, enabled: $enabled")
         }
@@ -219,7 +219,7 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         if (updatedRoom != null) {
             roomMap[roomId] = updatedRoom
             RoomListCache.updateRoom(updatedRoom)
-            forceRoomListSort()
+            if (triggerSort) forceRoomListSort()
         }
 
         if (BuildConfig.DEBUG) {

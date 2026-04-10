@@ -1914,6 +1914,8 @@ fun RoomListItem(
     val context = LocalContext.current
     var showContextMenu by remember { mutableStateOf(false) }
     var showLeaveDialog by remember { mutableStateOf(false) }
+    var menuIsFavourite by remember(room.isFavourite) { mutableStateOf(room.isFavourite) }
+    var menuIsLowPriority by remember(room.isLowPriority) { mutableStateOf(room.isLowPriority) }
     
     // PERFORMANCE: Remember computed timestamp to avoid recalculation unless it actually changes
     // The timestampUpdateTrigger now updates at smart intervals (1s for recent, 1m for older, etc.)
@@ -2415,9 +2417,10 @@ fun RoomListItem(
                                             )
                                         }
                                         Switch(
-                                            checked = room.isFavourite,
+                                            checked = menuIsFavourite,
                                             onCheckedChange = { enabled ->
-                                                appViewModel.setRoomTag(room.id, "m.favourite", enabled)
+                                                menuIsFavourite = enabled
+                                                appViewModel.setRoomTag(room.id, "m.favourite", enabled, triggerSort = false)
                                             }
                                         )
                                     }
@@ -2455,9 +2458,10 @@ fun RoomListItem(
                                             )
                                         }
                                         Switch(
-                                            checked = room.isLowPriority,
+                                            checked = menuIsLowPriority,
                                             onCheckedChange = { enabled ->
-                                                appViewModel.setRoomTag(room.id, "m.lowpriority", enabled)
+                                                menuIsLowPriority = enabled
+                                                appViewModel.setRoomTag(room.id, "m.lowpriority", enabled, triggerSort = false)
                                             }
                                         )
                                     }
