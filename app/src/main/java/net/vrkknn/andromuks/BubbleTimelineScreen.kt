@@ -701,6 +701,8 @@ fun BubbleTimelineScreen(
     // Scroll highlight state for jump-to-message interactions
     var highlightedEventId by remember(roomId) { mutableStateOf<String?>(null) }
     var highlightRequestId by remember(roomId) { mutableStateOf(0) }
+    // Back-stack for reply jumps: each entry is (firstVisibleItemIndex, scrollOffset)
+    val jumpBackStack = remember(roomId) { ArrayDeque<Pair<Int, Int>>() }
     var pendingNotificationJumpEventId by remember(roomId) {
         mutableStateOf(appViewModel.consumePendingHighlightEvent(roomId))
     }
@@ -2540,6 +2542,10 @@ fun BubbleTimelineScreen(
         } else if (showAttachmentMenu) {
             // Close attachment menu if open
             showAttachmentMenu = false
+        } else if (jumpBackStack.isNotEmpty()) {
+            // Return to the position we were at before the last reply jump
+            val (index, offset) = jumpBackStack.removeLast()
+            coroutineScope.launch { listState.scrollToItem(index, offset) }
         } else {
             onCloseBubble()
         }
@@ -2759,6 +2765,10 @@ fun BubbleTimelineScreen(
                                                     // Convert to reversed index: if item is at index N in original, it's at (lastIndex - N) in reversed
                                                     val lastIndex = timelineItems.lastIndex
                                                     val reversedIndex = lastIndex - indexInOriginal
+                                                    // Save current position so Back can return here
+                                                    jumpBackStack.addLast(
+                                                        listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+                                                    )
                                                     coroutineScope.launch {
                                                         listState.scrollToItem(reversedIndex)
                                                         highlightedEventId = eventId
