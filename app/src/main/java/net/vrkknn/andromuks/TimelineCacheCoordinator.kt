@@ -494,6 +494,24 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 )
             }
 
+            // DELIVERED UPGRADE: bridge status events were just processed above, populating
+            // messageBridgeSendStatus and bridgeStatusEventToMessageId. At VM init time,
+            // populateReadReceiptsFromCache ran while bridgeStatusEventToMessageId was still empty,
+            // so the "delivered" upgrade in ReadReceiptsTypingCoordinator was skipped. Now that
+            // we have the mapping, upgrade any receipts already in readReceipts for this room.
+            if (vm.bridgeStatusEventToMessageId.isNotEmpty()) {
+                synchronized(vm.readReceiptsLock) {
+                    vm.readReceipts.forEach { (eventId, receipts) ->
+                        if (receipts.any { it.roomId == roomId }) {
+                            val targetMessageId = vm.bridgeStatusEventToMessageId[eventId] ?: eventId
+                            if (vm.messageBridgeSendStatus.containsKey(targetMessageId)) {
+                                vm.updateBridgeStatus(targetMessageId, "delivered")
+                            }
+                        }
+                    }
+                }
+            }
+
             // Process cached events to establish edit relationships
             // All events (including edit events) are already in the cache - no need to load from DB
             // Edit events from both paginate and sync_complete are in the cache

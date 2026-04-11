@@ -1163,7 +1163,37 @@ internal class SyncRoomsCoordinator(
             
                         // SYNC OPTIMIZATION: Check if current room needs timeline update with diff-based detection
                         checkAndUpdateCurrentRoomTimelineOptimized(syncJson)
-            
+
+                        // POST-SYNC BRIDGE RECEIPT REMAP: receipts are processed early in this function
+                        // (before timeline events), so any bridge status event + receipt arriving in the
+                        // SAME sync_complete will have failed the earlier remapping check because
+                        // bridgeStatusEventToMessageId was not yet populated. After timeline events are
+                        // processed above, run the remap again to catch those same-batch cases.
+                        if (bridgeStatusEventToMessageId.isNotEmpty()) {
+                            synchronized(readReceiptsLock) {
+                                var didRemap = false
+                                bridgeStatusEventToMessageId.forEach { (statusEventId, originalMessageId) ->
+                                    val displaced = readReceipts.remove(statusEventId)
+                                    if (!displaced.isNullOrEmpty()) {
+                                        val target = readReceipts.getOrPut(originalMessageId) { mutableListOf() }
+                                        displaced.forEach { r ->
+                                            if (target.none { it.userId == r.userId }) {
+                                                target.add(r.copy(eventId = originalMessageId))
+                                            }
+                                        }
+                                        updateBridgeStatus(originalMessageId, "delivered")
+                                        didRemap = true
+                                        if (BuildConfig.DEBUG)
+                                            android.util.Log.d("Andromuks", "BridgeReceipt: post-sync remap ${displaced.size} receipt(s) from $statusEventId → $originalMessageId (marked delivered)")
+                                    }
+                                }
+                                if (didRemap) {
+                                    readReceiptsUpdateCounter++
+                                    ReadReceiptCache.setAll(readReceipts.mapValues { it.value.toList() })
+                                }
+                            }
+                        }
+
                         // Timeline is updated directly from sync_complete events via processSyncEventsArray()
                         // No DB persistence or refresh needed - all data is in-memory
             

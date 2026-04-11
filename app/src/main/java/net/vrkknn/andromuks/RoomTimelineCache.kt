@@ -1450,6 +1450,12 @@ object RoomTimelineCache {
                         // Store reaction events separately - they're needed to restore reactions when reopening a room
                         true // Will be handled separately in addEventsToCache
                     }
+                    event.type == "com.beeper.message_send_status" -> {
+                        // Bridge delivery confirmation events — cached so processCachedEvents can
+                        // repopulate messageBridgeSendStatus when a fresh VM opens the room
+                        // (e.g. opened from FCM notification, pinned shortcut, conversation widget).
+                        true
+                    }
                     event.type == "m.room.member" && event.timelineRowid <= 0 && !isKick -> false
                     event.type == "m.room.redaction" ||
                     (event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction") -> {
