@@ -431,29 +431,28 @@ fun AuthCheckScreen(
                     appViewModel.markPendingShareNavigationHandled()
                     return@LaunchedEffect
                 }
-                val directRoomId = appViewModel.getDirectRoomNavigation()
-                if (directRoomId != null) {
-                    if (BuildConfig.DEBUG) {
-                        Log.d(
-                            "AuthCheckScreen",
-                            "Fast path: navigating directly to room_timeline: $directRoomId",
-                        )
-                    }
-                    val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
-                    val encodedRoomId = java.net.URLEncoder.encode(directRoomId, "UTF-8")
-                    appViewModel.setCurrentRoomIdForTimeline(directRoomId)
-                    if (notificationTimestamp != null) {
-                        appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
-                    } else {
-                        appViewModel.navigateToRoomWithCache(directRoomId)
-                    }
-                    navController.navigate("room_timeline/$encodedRoomId") {
-                        popUpTo("auth_check") { inclusive = true }
-                    }
-                    appViewModel.clearDirectRoomNavigation()
-                } else {
-                    navigateToRoomListIfNeeded("websocket already connected")
+                // Use directForFastPath (captured before attachToExistingWebSocketIfAvailable) instead of
+                // re-calling getDirectRoomNavigation(). The drain sentinel fires asynchronously during
+                // delay(50) and its callback clears directRoomNavigation via the navigation callback,
+                // so a re-check here would return null and fall through to room_list incorrectly.
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "AuthCheckScreen",
+                        "Fast path: navigating directly to room_timeline: $directForFastPath",
+                    )
                 }
+                val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
+                val encodedRoomId = java.net.URLEncoder.encode(directForFastPath, "UTF-8")
+                appViewModel.setCurrentRoomIdForTimeline(directForFastPath)
+                if (notificationTimestamp != null) {
+                    appViewModel.navigateToRoomWithCache(directForFastPath, notificationTimestamp)
+                } else {
+                    appViewModel.navigateToRoomWithCache(directForFastPath)
+                }
+                navController.navigate("room_timeline/$encodedRoomId") {
+                    popUpTo("auth_check") { inclusive = true }
+                }
+                appViewModel.clearDirectRoomNavigation()
                 return@LaunchedEffect
             }
 
