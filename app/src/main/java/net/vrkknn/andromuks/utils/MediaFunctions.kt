@@ -1795,12 +1795,17 @@ private fun InlineVideoPlayer(
     DisposableEffect(videoId, videoHttpUrl) {
         if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineVideoPlayer: Creating player for $videoId")
         
-        val dataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
+        val upstreamFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
             .setDefaultRequestProperties(mapOf("Cookie" to "gomuks_auth=$authToken"))
-        
+
+        val cacheDataSourceFactory = androidx.media3.datasource.cache.CacheDataSource.Factory()
+            .setCache(VideoCache.get(context))
+            .setUpstreamDataSourceFactory(upstreamFactory)
+            .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
         val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context)
-            .setDataSourceFactory(dataSourceFactory)
-        
+            .setDataSourceFactory(cacheDataSourceFactory)
+
         val exoPlayer = androidx.media3.exoplayer.ExoPlayer.Builder(context)
             .setMediaSourceFactory(mediaSourceFactory)
             .build()
@@ -3206,11 +3211,16 @@ fun VideoPlayerDialog(
                 factory = { ctx ->
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Creating PlayerView")
                         // Set custom request headers for authentication
-                        val dataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
+                        val upstreamFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
                             .setDefaultRequestProperties(mapOf("Cookie" to "gomuks_auth=$authToken"))
-                        
+
+                        val cacheDataSourceFactory = androidx.media3.datasource.cache.CacheDataSource.Factory()
+                            .setCache(VideoCache.get(ctx))
+                            .setUpstreamDataSourceFactory(upstreamFactory)
+                            .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
                         val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(ctx)
-                            .setDataSourceFactory(dataSourceFactory)
+                            .setDataSourceFactory(cacheDataSourceFactory)
                         
                     // Create player with custom data source factory
                     val player = androidx.media3.exoplayer.ExoPlayer.Builder(ctx)
