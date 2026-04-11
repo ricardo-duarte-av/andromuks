@@ -504,7 +504,7 @@ object SpaceRoomParser {
             var messagePreview: String? = null
             var messageSender: String? = null
             var latestEventId: String? = null
-            
+
             val events = roomObj.optJSONArray("events")
             if (events != null && events.length() > 0) {
                 // Backend may send events in any order; meta.preview_event_rowid designates the event to show.
@@ -550,8 +550,19 @@ object SpaceRoomParser {
                         latestEventId = eid
                     } }
                 }
+                // If still null (room has only reactions, joins, etc.), use the event with the
+                // greatest timestamp so mark_read always has a valid target.
+                if (latestEventId == null) {
+                    var bestTs = -1L
+                    for (i in 0 until events.length()) {
+                        val ev = events.optJSONObject(i) ?: continue
+                        val eid = ev.optString("event_id")?.takeIf { it.isNotBlank() } ?: continue
+                        val ts = ev.optLong("timestamp", 0L)
+                        if (ts > bestTs) { bestTs = ts; latestEventId = eid }
+                    }
+                }
             }
-            
+
             // Extract sorting_timestamp from meta
             val sortingTimestamp = meta.optLong("sorting_timestamp", 0L).takeIf { it != 0L }
             

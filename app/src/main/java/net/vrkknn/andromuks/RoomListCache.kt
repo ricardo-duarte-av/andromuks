@@ -19,10 +19,14 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object RoomListCache {
     private const val TAG = "RoomListCache"
-    
+
     // Thread-safe map storing room data: roomId -> RoomItem
     private val roomCache = ConcurrentHashMap<String, RoomItem>()
     private val cacheLock = Any()
+
+    // Latest known event per room: roomId -> (eventId, timestamp)
+    // Updated from every sync_complete and paginate response so mark_read always has a target.
+    private val latestEventCache = ConcurrentHashMap<String, Pair<String, Long>>()
     
     /**
      * Update or add a room to the cache
@@ -79,11 +83,27 @@ object RoomListCache {
     }
     
     /**
+     * Record the latest event seen for a room. Only advances forward (higher timestamp wins).
+     */
+    fun updateLatestEvent(roomId: String, eventId: String, timestamp: Long) {
+        val current = latestEventCache[roomId]
+        if (current == null || timestamp > current.second) {
+            latestEventCache[roomId] = Pair(eventId, timestamp)
+        }
+    }
+
+    /**
+     * Return the event_id of the most recent event seen for [roomId], or null if unknown.
+     */
+    fun getLatestEventId(roomId: String): String? = latestEventCache[roomId]?.first
+
+    /**
      * Clear all rooms from the cache
      */
     fun clear() {
         synchronized(cacheLock) {
             roomCache.clear()
+            latestEventCache.clear()
             if (BuildConfig.DEBUG) Log.d(TAG, "RoomListCache: Cleared all rooms")
         }
     }

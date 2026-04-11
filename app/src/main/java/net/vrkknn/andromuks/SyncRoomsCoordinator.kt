@@ -825,6 +825,9 @@ internal class SyncRoomsCoordinator(
                                 } else {
                                     room.messageSender
                                 },
+                                // Preserve last known event_id when sync doesn't include new events
+                                // (e.g. a sync with only reactions/joins has no latestEventId from the parser)
+                                latestEventId = room.latestEventId ?: existingRoom.latestEventId,
                                 // Preserve favorite and low priority flags if sync doesn't explicitly update them
                                 // SpaceRoomParser only sets these to true if account_data.m.tag is present
                                 // If sync doesn't include account_data, we preserve the existing values
@@ -856,6 +859,9 @@ internal class SyncRoomsCoordinator(
                             roomMap[room.id] = updatedRoom
                             // Update singleton cache
                             RoomListCache.updateRoom(updatedRoom)
+                            updatedRoom.latestEventId?.let { eid ->
+                                RoomListCache.updateLatestEvent(room.id, eid, room.sortingTimestamp ?: 0L)
+                            }
                         } else {
                             // New room - check SharedPreferences cache for bridge info
                             val cachedBridgeAvatar = appContext?.let { context ->
@@ -876,6 +882,9 @@ internal class SyncRoomsCoordinator(
                             roomMap[room.id] = roomWithBridgeInfo
                             // Update singleton cache
                             RoomListCache.updateRoom(roomWithBridgeInfo)
+                            roomWithBridgeInfo.latestEventId?.let { eid ->
+                                RoomListCache.updateLatestEvent(room.id, eid, room.sortingTimestamp ?: 0L)
+                            }
                             if (BuildConfig.DEBUG) {
                                 if (cachedBridgeAvatarUrl != null) {
                                     android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name} (unread: ${room.unreadCount}) with cached bridge avatar")

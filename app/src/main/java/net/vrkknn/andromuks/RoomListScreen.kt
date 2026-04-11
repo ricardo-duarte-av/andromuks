@@ -2548,6 +2548,7 @@ fun RoomListItem(
                                     onClick = {
                                         dismissMenu {
                                             val latestEventId = room.latestEventId
+                                                ?: RoomListCache.getLatestEventId(room.id)
                                             if (latestEventId != null) {
                                                 appViewModel.markRoomAsRead(room.id, latestEventId)
                                             } else {

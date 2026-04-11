@@ -8330,9 +8330,20 @@ class AppViewModel : ViewModel() {
             val roomId = roomKeys.next()
             val roomData = rooms.optJSONObject(roomId) ?: continue
             val events = resolveTimelineRowidsFromRoomData(roomData) ?: continue
-            
+
             val memberMap = RoomMemberCache.getRoomMembers(roomId)
             RoomTimelineCache.addEventsFromSync(roomId, events, memberMap)
+
+            // Track the latest event per room so mark_read always has a valid target.
+            var latestEventId: String? = null
+            var latestTs = -1L
+            for (i in 0 until events.length()) {
+                val ev = events.optJSONObject(i) ?: continue
+                val eid = ev.optString("event_id")?.takeIf { it.isNotBlank() } ?: continue
+                val ts = ev.optLong("timestamp", 0L)
+                if (ts > latestTs) { latestTs = ts; latestEventId = eid }
+            }
+            if (latestEventId != null) RoomListCache.updateLatestEvent(roomId, latestEventId, latestTs)
         }
     }
     private fun updateTimelineFromSync(syncJson: JSONObject, roomId: String) {

@@ -1266,6 +1266,11 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         )
                 }
 
+                // Track the latest event seen for this room so mark_read always has a valid target.
+                allEvents.maxByOrNull { it.timestamp }?.let { latest ->
+                    RoomListCache.updateLatestEvent(roomId, latest.eventId, latest.timestamp)
+                }
+
                 // OPTIMIZED: Process versioned messages (edits, redactions) - O(n)
                 if (BuildConfig.DEBUG)
                     android.util.Log.d(
