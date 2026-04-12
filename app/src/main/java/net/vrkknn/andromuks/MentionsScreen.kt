@@ -1,7 +1,6 @@
 package net.vrkknn.andromuks
 
 import android.util.Log
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -307,10 +306,6 @@ fun MentionsScreen(
         }
     }
     
-    // Handle back button
-    BackHandler {
-        navController.popBackStack()
-    }
 }
 
 /** Component for rendering a single mention */
