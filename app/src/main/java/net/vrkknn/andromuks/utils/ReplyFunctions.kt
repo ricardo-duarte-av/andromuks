@@ -5,6 +5,11 @@ import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.utils.SingleEventRendererDialog
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -56,7 +61,10 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.Canvas
 import androidx.compose.ui.unit.toIntRect
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.runtime.Composable
@@ -776,6 +784,38 @@ fun DeleteMessageDialog(
     )
 }
 
+@Composable
+private fun PendingShimmerOverlay(
+    bubbleShape: androidx.compose.ui.graphics.Shape,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "pendingShimmer")
+    val progress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmerProgress"
+    )
+    Canvas(modifier = modifier.clip(bubbleShape)) {
+        val bandWidth = size.width * 0.4f
+        val x = progress * (size.width + bandWidth) - bandWidth
+        drawRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color.White.copy(alpha = 0.25f),
+                    Color.Transparent
+                ),
+                start = Offset(x, 0f),
+                end = Offset(x + bandWidth, 0f)
+            )
+        )
+    }
+}
+
 /**
  * Message bubble wrapper with popup menu functionality.
  * Provides long press/click to show menu with React, Reply, Edit, Delete options.
@@ -1128,6 +1168,12 @@ fun MessageBubbleWithMenu(
             Row(content = content)
         }
 
+        if (isPendingEcho) {
+            PendingShimmerOverlay(
+                bubbleShape = bubbleShape,
+                modifier = Modifier.matchParentSize()
+            )
+        }
 
         if (showErrorDialog && errorDialogText != null) {
             androidx.compose.material3.AlertDialog(
