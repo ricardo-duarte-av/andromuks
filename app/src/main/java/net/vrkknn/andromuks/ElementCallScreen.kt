@@ -159,19 +159,18 @@ fun ElementCallScreen(
         }
     }
 
-    BackHandler {
-        val activity = findActivity(context)
-        if (activity != null && canEnterPip(activity) && appViewModel.isCallReadyForPip()) {
+    // Intercept back only when PiP is actually viable; otherwise let NavController handle it
+    // natively so the predictive back gesture animation works.
+    val pipActivity = remember(context) { findActivity(context) }
+    val deviceSupportsPip = remember(pipActivity) { pipActivity != null && canEnterPip(pipActivity) }
+    BackHandler(enabled = deviceSupportsPip && appViewModel.isCallReadyForPip()) {
+        pipActivity?.let { activity ->
             try {
-                activity.enterPictureInPictureMode(
-                    buildPipParams(activity)
-                )
+                activity.enterPictureInPictureMode(buildPipParams(activity))
             } catch (e: IllegalStateException) {
                 android.util.Log.w("Andromuks", "ElementCallScreen: PiP not supported on back", e)
                 navController.popBackStack()
             }
-        } else {
-            navController.popBackStack()
         }
     }
 

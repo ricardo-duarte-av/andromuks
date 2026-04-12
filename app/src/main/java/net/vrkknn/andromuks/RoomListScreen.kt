@@ -155,7 +155,6 @@ import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import net.vrkknn.andromuks.ui.components.ExpressiveStatusRow
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.DropdownMenu
@@ -598,18 +597,18 @@ fun RoomListScreen(
         }
     }
     
-    // Clear current room ID when room list is shown - allows notifications to resume for previously open rooms
     val roomListLifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(Unit) {
-        // Defer clearCurrentRoomId until RESUMED: during a predictive back preview, Navigation
-        // Compose starts composing RoomListScreen while its lifecycle is only STARTED.
-        // Firing immediately would wipe currentRoomId while RoomTimelineScreen is still live,
-        // leaving the timeline empty if the user cancels the gesture.
-        // If the gesture is cancelled, this composable leaves composition and the child coroutine
-        // is cancelled before withResumed fires. On confirmed navigation, RoomTimelineScreen's
-        // DisposableEffect.onDispose also calls clearCurrentRoomId, so this is a harmless backup.
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Clearing current room ID - user is viewing room list, not a specific room")
-        launch { roomListLifecycle.withResumed { appViewModel.clearCurrentRoomId() } }
+        // Pop auth_check from the back stack AFTER the shared-element entrance animation completes.
+        // auth_check is intentionally left in the stack during navigate("room_list") so that
+        // SharedTransitionLayout keeps both screens in composition during the avatar flight.
+        // withResumed fires once this destination is fully foregrounded (animation done), so
+        // auth_check is gone before the user can trigger a predictive back preview that would
+        // reveal it. navController.popBackStack returns false silently if auth_check isn't
+        // present (e.g. ShortcutActivity NavHost), so this is safe to call unconditionally.
+        // clearCurrentRoomId() is no longer needed here — RoomTimelineScreen's DisposableEffect
+        // already calls it on dispose whenever the room screen actually leaves composition.
+        launch { roomListLifecycle.withResumed { navController.popBackStack("auth_check", inclusive = true) } }
         
         // CRITICAL FIX: When RoomListScreen is created for the first time via back navigation from notification/shortcut,
         // roomMap might be empty or only have 1 room (because a new AppViewModel instance was created with empty roomMap).

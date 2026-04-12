@@ -2975,12 +2975,18 @@ fun RoomTimelineScreen(
     // Events are in-memory cache only - no DB observation needed
     // Timeline updates come from sync_complete and pagination
 
-    // Handle Android back key — only intercept when there is UI state to dismiss or a jump to undo.
+    // Handle Android back key — only intercept when there is UI state to dismiss, a jump to undo,
+    // or this screen is the root destination (no previous NavBackStackEntry).
     // When disabled, NavController handles back natively (enables predictive back gesture animation).
     // clearCurrentRoomId() on actual navigation is handled by DisposableEffect(roomId) above.
+    //
+    // Root-destination check: in ShortcutActivity room_timeline is the startDestination with
+    // nothing below it. Without this, the system would show a predictive back preview of the
+    // home screen / previous app, which looks erratic. We handle it ourselves with finish().
+    val isRootDestination = remember { navController.previousBackStackEntry == null }
     BackHandler(
         enabled = messageMenuConfig != null || showCameraOverlay || showVideoOverlay ||
-                showAttachmentMenu || jumpBackStack.isNotEmpty()
+                showAttachmentMenu || jumpBackStack.isNotEmpty() || isRootDestination
     ) {
         if (messageMenuConfig != null) {
             messageMenuConfig = null
@@ -2997,6 +3003,10 @@ fun RoomTimelineScreen(
             // Return to the position we were at before the last reply jump
             val (index, offset) = jumpBackStack.removeLast()
             coroutineScope.launch { listState.scrollToItem(index, offset) }
+        } else {
+            // Root destination (no previous NavBackStackEntry) — finish the activity cleanly.
+            // DisposableEffect above handles clearCurrentRoomId() on dispose.
+            context.findActivityForFinish()?.finish()
         }
     }
 

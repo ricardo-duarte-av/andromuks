@@ -1,6 +1,5 @@
 package net.vrkknn.andromuks
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,16 +61,6 @@ fun InviteDetailScreen(
     // Get room summary when screen opens
     LaunchedEffect(roomId) {
         appViewModel.getRoomSummary(roomId)
-    }
-    
-    // Handle Android back key - just navigate back, don't refuse the invite
-    // Back button should only dismiss the screen, not refuse the invitation
-    // The invite remains pending and will still be visible in the room list
-    BackHandler {
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "InviteDetailScreen: Back button pressed - navigating back without refusing invite for room $roomId")
-        }
-        navController.popBackStack()
     }
     
     Column(

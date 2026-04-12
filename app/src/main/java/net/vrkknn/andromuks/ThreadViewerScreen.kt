@@ -1123,16 +1123,13 @@ fun ThreadViewerScreen(
         }
     }
 
-    // Handle Android back key
-    BackHandler {
+    // Handle Android back key — only intercept when there is UI state to dismiss.
+    // When disabled, NavController handles back natively (enables predictive back gesture animation).
+    BackHandler(enabled = messageMenuConfig != null || showAttachmentMenu) {
         if (messageMenuConfig != null) {
-            // Close message menu if open
             messageMenuConfig = null
         } else if (showAttachmentMenu) {
-            // Close attachment menu if open
             showAttachmentMenu = false
-        } else {
-            navController.popBackStack()
         }
     }
 
