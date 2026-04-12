@@ -3850,18 +3850,54 @@ class AppViewModel : ViewModel() {
                         }
                         android.util.Log.w("Andromuks", "🟣 attachToExistingWebSocket: sentinel fired — processing ${pendingMessages.size} queued message(s) before navigation")
                         if (pendingMessages.isNotEmpty()) {
+                            // Accumulate room list changes across all buffered messages and apply
+                            // them in a single batch at the end — prevents rooms from popping in
+                            // one-by-one while RoomListScreen is already composing.
+                            val updatedRooms = mutableMapOf<String, RoomItem>()
+                            val newRooms = mutableMapOf<String, RoomItem>()
+                            val removedRoomIds = mutableSetOf<String>()
+                            fun shouldReplace(existing: RoomItem, candidate: RoomItem): Boolean {
+                                val candidateHasMsg = candidate.messagePreview != null
+                                val existingHasMsg = existing.messagePreview != null
+                                if (candidateHasMsg && !existingHasMsg) return true
+                                if (!candidateHasMsg && existingHasMsg) return false
+                                return (candidate.sortingTimestamp ?: 0L) > (existing.sortingTimestamp ?: 0L)
+                            }
                             withContext(Dispatchers.Default) {
                                 initialSyncProcessingMutex.withLock {
                                     for (syncJson in pendingMessages) {
                                         val requestId = syncJson.optInt("request_id", 0)
                                         val runId = syncJson.optJSONObject("data")?.optString("run_id", "") ?: ""
                                         try {
-                                            syncRoomsCoordinator.processSyncCompleteAtomic(syncJson, requestId, runId)
+                                            val result = syncRoomsCoordinator.processSyncCompleteAtomic(
+                                                syncJson, requestId, runId, applyRoomListNow = false
+                                            )
+                                            if (result != null) {
+                                                for (room in result.updatedRooms) {
+                                                    val existing = updatedRooms[room.id]
+                                                    if (existing == null || shouldReplace(existing, room)) updatedRooms[room.id] = room
+                                                }
+                                                for (room in result.newRooms) {
+                                                    val existing = newRooms[room.id]
+                                                    if (existing == null || shouldReplace(existing, room)) newRooms[room.id] = room
+                                                }
+                                                removedRoomIds.addAll(result.removedRoomIds)
+                                            }
                                         } catch (e: Exception) {
                                             android.util.Log.e("Andromuks", "🟣 attachToExistingWebSocket: error processing queued message requestId=$requestId: ${e.message}", e)
                                         }
                                     }
                                 }
+                            }
+                            // Single room list apply for the entire batch (back on Main)
+                            if (updatedRooms.isNotEmpty() || newRooms.isNotEmpty() || removedRoomIds.isNotEmpty()) {
+                                syncRoomsCoordinator.applyBatchedRoomListResult(
+                                    SyncUpdateResult(
+                                        updatedRooms = updatedRooms.values.toList(),
+                                        newRooms = newRooms.values.toList(),
+                                        removedRoomIds = removedRoomIds.toList()
+                                    )
+                                )
                             }
                         }
                         // Unlock live pipeline processing: from this point sync_completes arriving
@@ -3903,7 +3939,7 @@ class AppViewModel : ViewModel() {
         populateRoomMapFromCache()
         populateSpacesFromCache()
 
-        if (roomMap.isNotEmpty() && !spacesLoaded) {
+        if (!spacesLoaded) {
             spacesLoaded = true
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Set spacesLoaded=true (have ${roomMap.size} rooms)")
         }
