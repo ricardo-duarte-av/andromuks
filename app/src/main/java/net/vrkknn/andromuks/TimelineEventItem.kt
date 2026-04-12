@@ -1358,11 +1358,17 @@ private fun RoomMediaMessageContent(
             mentionsMe = mentionsMe
         )
         val bubbleColor = fallbackColors.container
-        val textColor = fallbackColors.content
+        val isPendingEcho = event.eventId.startsWith("~")
+        val isFailedEcho = event.localContent?.optString("send_error")?.isNotBlank() == true
+        val textColor = when {
+            isFailedEcho -> colorScheme.onErrorContainer
+            isPendingEcho -> colorScheme.onTertiaryContainer
+            else -> fallbackColors.content
+        }
 
         // Detect dark mode for custom shadow/glow
         val isDarkMode = isSystemInDarkTheme()
-        
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement =
@@ -1472,7 +1478,13 @@ private fun RoomTextMessageContent(
         )
     }
     val bubbleColor = bubbleColors.container
-    val textColor = bubbleColors.content
+    val isPendingEcho = event.eventId.startsWith("~")
+    val isFailedEcho = event.localContent?.optString("send_error")?.isNotBlank() == true
+    val textColor = when {
+        isFailedEcho -> colorScheme.onErrorContainer
+        isPendingEcho -> colorScheme.onTertiaryContainer
+        else -> bubbleColors.content
+    }
 
     val moveReceiptsToEdge = appViewModel?.moveReadReceiptsToEdge == true
     val hasReceipts = readReceipts.isNotEmpty()
@@ -2517,7 +2529,13 @@ private fun EncryptedMessageContent(
                 )
             }
             val bubbleColor = bubbleColors.container
-            val textColor = bubbleColors.content
+            val isPendingEcho = event.eventId.startsWith("~")
+            val isFailedEcho = event.localContent?.optString("send_error")?.isNotBlank() == true
+            val textColor = when {
+                isFailedEcho -> colorScheme.onErrorContainer
+                isPendingEcho -> colorScheme.onTertiaryContainer
+                else -> bubbleColors.content
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
