@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.contentColorFor
@@ -46,7 +48,9 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -105,16 +109,19 @@ fun ReactionBadge(
             horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             if (emoji.startsWith("mxc://")) {
-                // Handle image reactions
-                ImageReaction(emoji, homeserverUrl, authToken)
+                // Handle image reactions — adaptive width so non-square images aren't squished
+                ImageReaction(emoji, homeserverUrl, authToken, adaptiveWidth = true)
             } else {
-                // Handle emoji reactions
+                // Handle emoji/text reactions — maxLines=1 ensures consistent single-line
+                // width during SubcomposeLayout measurement passes
                 Text(
                     text = emoji,
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontSize = MaterialTheme.typography.bodySmall.fontSize * 0.8f
                     ),
-                    color = contentColor
+                    color = contentColor,
+                    maxLines = 1,
+                    softWrap = false,
                 )
             }
             
@@ -133,32 +140,55 @@ fun ReactionBadge(
 
 /**
  * Displays an image reaction by loading the image from MXC URL using Coil (supports GIFs).
- * 
+ *
  * @param mxcUrl The MXC URL for the reaction image
  * @param homeserverUrl The homeserver URL for MXC conversion
  * @param authToken The authentication token for MXC URL downloads
+ * @param modifier Modifier applied when [adaptiveWidth] is false (default: 16×16 dp square)
+ * @param adaptiveWidth When true, the image is sized at 16 dp height with width determined by
+ *   the image's natural aspect ratio (capped at 40 dp). Used inside reaction badges so that
+ *   non-square images are not squished into a single-emoji-sized square.
  */
 @Composable
 fun ImageReaction(
     mxcUrl: String,
     homeserverUrl: String,
     authToken: String,
-    modifier: Modifier = Modifier.size(16.dp).clip(RoundedCornerShape(4.dp))
+    modifier: Modifier = Modifier.size(16.dp).clip(RoundedCornerShape(4.dp)),
+    adaptiveWidth: Boolean = false,
 ) {
     val context = LocalContext.current
-    
-    
-    // Convert MXC URL to HTTP URL
+
     val httpUrl = remember(mxcUrl, homeserverUrl) {
         MediaUtils.mxcToHttpUrl(mxcUrl, homeserverUrl)
     }
-    
-    // Use shared ImageLoader singleton with custom User-Agent
+
     val imageLoader = remember { ImageLoaderSingleton.get(context) }
-    
-    
+
+    // For badge context (adaptiveWidth = true): track the loaded image's aspect ratio so the
+    // badge can be sized proportionally. Starts null (square fallback) until the first
+    // successful load; the SubcomposeLayout in ReactionBadges remeasures automatically when
+    // this state changes (usually on the first cached-load frame).
+    var aspectRatio by remember(mxcUrl) { mutableStateOf<Float?>(null) }
+
+    val resolvedModifier = if (adaptiveWidth) {
+        if (aspectRatio != null) {
+            // Natural aspect-ratio width at 16 dp height, capped so very wide images
+            // (e.g. 5:1 banners) don't break the badge row layout.
+            Modifier
+                .height(16.dp)
+                .widthIn(min = 16.dp, max = 40.dp)
+                .aspectRatio(aspectRatio!!, matchHeightConstraintsFirst = true)
+                .clip(RoundedCornerShape(4.dp))
+        } else {
+            // Fallback: square until the image loads (avoids measuring a zero-width badge)
+            Modifier.size(16.dp).clip(RoundedCornerShape(4.dp))
+        }
+    } else {
+        modifier
+    }
+
     if (httpUrl != null) {
-        // If Coil fails to decode from its caches, retry once with Coil caches disabled.
         var bypassCoilCache by remember(mxcUrl) { mutableStateOf(false) }
         AsyncImage(
             model = ImageRequest.Builder(context)
@@ -169,10 +199,16 @@ fun ImageReaction(
                 .build(),
             imageLoader = imageLoader,
             contentDescription = "Reaction",
-            modifier = modifier,
+            modifier = resolvedModifier,
             contentScale = ContentScale.Crop,
-            onSuccess = {
+            onSuccess = { state ->
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ImageReaction: Successfully loaded image for $mxcUrl")
+                if (adaptiveWidth && aspectRatio == null) {
+                    val iSize = state.painter.intrinsicSize
+                    if (iSize.width.isFinite() && iSize.height.isFinite() && iSize.height > 0f) {
+                        aspectRatio = iSize.width / iSize.height
+                    }
+                }
             },
             onError = {
                 bypassCoilCache = true
@@ -211,33 +247,49 @@ fun ReactionBadges(
     authToken: String,
     isMine: Boolean,
     bubbleColor: Color? = null,
+    /**
+     * Optional width (in pixels) of the message bubble. When > 0, reactions wrap at this
+     * width so they never extend past the bubble edge. When 0, reactions wrap at the
+     * available layout width instead.
+     */
+    bubbleWidthPx: Int = 0,
     onReactionClick: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    if (reactions.isNotEmpty()) {
-        val backgroundColor =
-            bubbleColor ?: if (isMine) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            }
-        val contentColor =
-            bubbleColor?.let { contentColorFor(it) } ?: if (isMine) {
-                MaterialTheme.colorScheme.onPrimaryContainer
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            }
-        val badgeShape =
-            RoundedCornerShape(
-                topStart = 0.dp,
-                topEnd = 0.dp,
-                bottomStart = 12.dp,
-                bottomEnd = 12.dp
-            )
-        Row(
-            modifier = modifier,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
+    if (reactions.isEmpty()) return
+
+    val backgroundColor =
+        bubbleColor ?: if (isMine) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        }
+    val contentColor =
+        bubbleColor?.let { contentColorFor(it) } ?: if (isMine) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        }
+
+    // Row 1: flat-top badges that visually "hang" from the bubble bottom.
+    // Rows 2+: fully-rounded pills for overflow reactions.
+    val badgeShape = RoundedCornerShape(
+        topStart = 0.dp, topEnd = 0.dp,
+        bottomStart = 12.dp, bottomEnd = 12.dp
+    )
+    val pillShape = RoundedCornerShape(12.dp)
+
+    SubcomposeLayout(modifier = modifier) { constraints ->
+        val spacingPx = 4.dp.roundToPx()
+        val rowSpacingPx = 2.dp.roundToPx()
+        val maxWidth = when {
+            bubbleWidthPx > 0 -> bubbleWidthPx
+            constraints.hasBoundedWidth -> constraints.maxWidth
+            else -> Int.MAX_VALUE
+        }
+
+        // --- Pass 1: measure all badges (shape doesn't affect width) to get widths ---
+        val measuredWidths = subcompose("measure") {
             reactions.forEach { reaction ->
                 ReactionBadge(
                     emoji = reaction.emoji,
@@ -246,9 +298,79 @@ fun ReactionBadges(
                     authToken = authToken,
                     backgroundColor = backgroundColor,
                     contentColor = contentColor,
-                    onClick = { onReactionClick(reaction.emoji) },
-                    shape = badgeShape
+                    shape = pillShape,
                 )
+            }
+        }.map { it.measure(Constraints()).width }
+
+        // --- Assign reactions to rows ---
+        val rows = mutableListOf<MutableList<Int>>()
+        var currentRow = mutableListOf<Int>()
+        var currentRowWidth = 0
+
+        for (i in reactions.indices) {
+            val w = measuredWidths.getOrElse(i) { 0 }
+            val needed = if (currentRow.isEmpty()) w else w + spacingPx
+            if (currentRow.isNotEmpty() && currentRowWidth + needed > maxWidth) {
+                rows.add(currentRow)
+                currentRow = mutableListOf(i)
+                currentRowWidth = w
+            } else {
+                currentRow.add(i)
+                currentRowWidth += needed
+            }
+        }
+        if (currentRow.isNotEmpty()) rows.add(currentRow)
+
+        // --- Compute layout dimensions ---
+        val maxRowWidth = rows.maxOfOrNull { rowItems ->
+            rowItems.sumOf { measuredWidths.getOrElse(it) { 0 } } +
+                maxOf(0, rowItems.size - 1) * spacingPx
+        } ?: 0
+        val badgeHeightPx = 20.dp.roundToPx()
+        val totalHeight = rows.size * badgeHeightPx + maxOf(0, rows.size - 1) * rowSpacingPx
+
+        // --- Pass 2: compose each row with the correct shape and collect placements ---
+        val xPositions = mutableListOf<Int>()
+        val yPositions = mutableListOf<Int>()
+        val placedBadges = mutableListOf<androidx.compose.ui.layout.Placeable>()
+
+        rows.forEachIndexed { rowIndex, rowItems ->
+            val shape = if (rowIndex == 0) badgeShape else pillShape
+            val rowY = rowIndex * (badgeHeightPx + rowSpacingPx)
+            val rowWidth = rowItems.sumOf { measuredWidths.getOrElse(it) { 0 } } +
+                maxOf(0, rowItems.size - 1) * spacingPx
+            // For "mine" messages, right-align each row within the composable bounds.
+            val rowStartX = if (isMine) maxRowWidth - rowWidth else 0
+
+            val rowPlaceables = subcompose("row_$rowIndex") {
+                rowItems.forEach { i ->
+                    val reaction = reactions[i]
+                    ReactionBadge(
+                        emoji = reaction.emoji,
+                        count = reaction.count,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        backgroundColor = backgroundColor,
+                        contentColor = contentColor,
+                        onClick = { onReactionClick(reaction.emoji) },
+                        shape = shape,
+                    )
+                }
+            }.map { it.measure(Constraints()) }
+
+            var x = rowStartX
+            rowPlaceables.forEach { placeable ->
+                placedBadges.add(placeable)
+                xPositions.add(x)
+                yPositions.add(rowY)
+                x += placeable.width + spacingPx
+            }
+        }
+
+        layout(maxRowWidth, totalHeight) {
+            placedBadges.forEachIndexed { i, placeable ->
+                placeable.placeRelative(xPositions[i], yPositions[i])
             }
         }
     }

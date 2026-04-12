@@ -74,6 +74,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.geometry.Rect
 import net.vrkknn.andromuks.ui.components.AvatarImage
@@ -1476,6 +1477,9 @@ private fun RoomTextMessageContent(
     val moveReceiptsToEdge = appViewModel?.moveReadReceiptsToEdge == true
     val hasReceipts = readReceipts.isNotEmpty()
 
+    // Track rendered bubble width so reactions wrap at the same width as the bubble.
+    var bubbleWidthPx by remember { mutableStateOf(0) }
+
     @Composable
     fun MessageBubble() {
         // Display reply with nested structure if this is a reply (include thread messages too)
@@ -1484,7 +1488,7 @@ private fun RoomTextMessageContent(
                 event = event,
                 bubbleColor = bubbleColor,
                 bubbleShape = bubbleShape,
-                modifier = Modifier.widthIn(max = 300.dp),
+                modifier = Modifier.widthIn(max = 300.dp).onSizeChanged { bubbleWidthPx = it.width },
                 isMine = actualIsMine,
                 myUserId = myUserId,
                 powerLevels = appViewModel?.currentRoomState?.powerLevels,
@@ -1617,7 +1621,7 @@ private fun RoomTextMessageContent(
                 event = event,
                 bubbleColor = bubbleColor,
                 bubbleShape = bubbleShape,
-                modifier = Modifier.widthIn(max = 300.dp),
+                modifier = Modifier.widthIn(max = 300.dp).onSizeChanged { bubbleWidthPx = it.width },
                 isMine = actualIsMine,
                 myUserId = myUserId,
                 powerLevels = appViewModel?.currentRoomState?.powerLevels,
@@ -1799,6 +1803,7 @@ private fun RoomTextMessageContent(
                     authToken = authToken,
                     isMine = actualIsMine,
                     bubbleColor = bubbleColor,
+                    bubbleWidthPx = bubbleWidthPx,
                     onReactionClick = { emoji ->
                         appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
                     }
