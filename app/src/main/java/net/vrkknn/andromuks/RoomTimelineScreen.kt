@@ -2975,10 +2975,14 @@ fun RoomTimelineScreen(
     // Events are in-memory cache only - no DB observation needed
     // Timeline updates come from sync_complete and pagination
 
-    // Handle Android back key
-    BackHandler {
+    // Handle Android back key — only intercept when there is UI state to dismiss or a jump to undo.
+    // When disabled, NavController handles back natively (enables predictive back gesture animation).
+    // clearCurrentRoomId() on actual navigation is handled by DisposableEffect(roomId) above.
+    BackHandler(
+        enabled = messageMenuConfig != null || showCameraOverlay || showVideoOverlay ||
+                showAttachmentMenu || jumpBackStack.isNotEmpty()
+    ) {
         if (messageMenuConfig != null) {
-            // Close message menu if open
             messageMenuConfig = null
         } else if (showCameraOverlay) {
             showCameraOverlay = false
@@ -2988,28 +2992,11 @@ fun RoomTimelineScreen(
             videoRecordingStartTime = null
             showVideoOverlay = false
         } else if (showAttachmentMenu) {
-            // Close attachment menu if open
             showAttachmentMenu = false
         } else if (jumpBackStack.isNotEmpty()) {
             // Return to the position we were at before the last reply jump
             val (index, offset) = jumpBackStack.removeLast()
             coroutineScope.launch { listState.scrollToItem(index, offset) }
-        } else {
-            // CRITICAL FIX: Clear currentRoomId when navigating back to ensure notifications resume
-            if (appViewModel.currentRoomId == roomId) {
-                appViewModel.clearCurrentRoomId()
-            }
-            // Pop one level: room_list → from list; settings/mentions/etc. → previous screen.
-            // If this is the only destination (FCM/shortcut deep link after auth_check was popped), finish.
-            if (!navController.popBackStack()) {
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        "Andromuks",
-                        "RoomTimelineScreen: popBackStack failed (single destination) — finishing activity",
-                    )
-                }
-                context.findActivityForFinish()?.finish()
-            }
         }
     }
 

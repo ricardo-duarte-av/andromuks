@@ -115,6 +115,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.withResumed
 import androidx.navigation.NavController
 import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
@@ -597,9 +599,17 @@ fun RoomListScreen(
     }
     
     // Clear current room ID when room list is shown - allows notifications to resume for previously open rooms
+    val roomListLifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(Unit) {
+        // Defer clearCurrentRoomId until RESUMED: during a predictive back preview, Navigation
+        // Compose starts composing RoomListScreen while its lifecycle is only STARTED.
+        // Firing immediately would wipe currentRoomId while RoomTimelineScreen is still live,
+        // leaving the timeline empty if the user cancels the gesture.
+        // If the gesture is cancelled, this composable leaves composition and the child coroutine
+        // is cancelled before withResumed fires. On confirmed navigation, RoomTimelineScreen's
+        // DisposableEffect.onDispose also calls clearCurrentRoomId, so this is a harmless backup.
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Clearing current room ID - user is viewing room list, not a specific room")
-        appViewModel.clearCurrentRoomId()
+        launch { roomListLifecycle.withResumed { appViewModel.clearCurrentRoomId() } }
         
         // CRITICAL FIX: When RoomListScreen is created for the first time via back navigation from notification/shortcut,
         // roomMap might be empty or only have 1 room (because a new AppViewModel instance was created with empty roomMap).
