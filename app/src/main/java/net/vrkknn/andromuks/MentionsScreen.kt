@@ -2,6 +2,10 @@ package net.vrkknn.andromuks
 
 import android.util.Log
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -64,6 +68,28 @@ import net.vrkknn.andromuks.utils.BubbleColors
 import net.vrkknn.andromuks.utils.BubblePalette
 
 // Data classes are defined in AppViewModel.kt
+
+/**
+ * Returns true if the event explicitly mentions [userId] via m.mentions.user_ids,
+ * or mentions the whole room via m.mentions.room = true.
+ * Checks both plain content and decrypted content.
+ */
+private fun isDirectMention(event: TimelineEvent, userId: String?): Boolean {
+    fun checkMentions(json: org.json.JSONObject?): Boolean {
+        val mentions = json?.optJSONObject("m.mentions") ?: return false
+        if (mentions.optBoolean("room", false)) return true
+        if (userId != null) {
+            val userIds = mentions.optJSONArray("user_ids")
+            if (userIds != null) {
+                for (i in 0 until userIds.length()) {
+                    if (userIds.optString(i) == userId) return true
+                }
+            }
+        }
+        return false
+    }
+    return checkMentions(event.content) || checkMentions(event.decrypted)
+}
 
 // formatDate is already defined in RoomTimelineScreen.kt
 
@@ -178,7 +204,7 @@ fun MentionsScreen(
                                 )
                             }
                             Text(
-                                text = "Mentions",
+                                text = "Notifications",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.weight(1f),
@@ -208,7 +234,7 @@ fun MentionsScreen(
                                     ExpressiveLoadingIndicator(modifier = Modifier.size(96.dp))
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Text(
-                                        text = "Loading mentions...",
+                                        text = "Loading notifications...",
                                         style = MaterialTheme.typography.bodyLarge,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -220,7 +246,7 @@ fun MentionsScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = "No mentions found",
+                                    text = "No notifications found",
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -316,7 +342,28 @@ fun MentionItem(
     val senderProfile = appViewModel.getUserProfile(event.sender, roomId)
     val senderName = senderProfile?.displayName ?: event.sender.removePrefix("@").substringBefore(":")
     val senderAvatarUrl = senderProfile?.avatarUrl
-    
+
+    // Pulsing border for direct mentions (@user or @room)
+    val isDirect = remember(event.eventId) { isDirectMention(event, myUserId) }
+    val mentionColor = MaterialTheme.colorScheme.tertiary
+    val pulseAnim = remember(event.eventId) { Animatable(0f) }
+    LaunchedEffect(isDirect) {
+        if (!isDirect) {
+            pulseAnim.snapTo(0f)
+            return@LaunchedEffect
+        }
+        while (true) {
+            pulseAnim.animateTo(1f, animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing))
+            pulseAnim.animateTo(0f, animationSpec = tween(durationMillis = 1100, easing = FastOutSlowInEasing))
+        }
+    }
+    val mentionBorder = if (isDirect) {
+        BorderStroke(
+            width = 2.dp + (1.dp * pulseAnim.value),
+            color = mentionColor.copy(alpha = 0.35f + (0.45f * pulseAnim.value))
+        )
+    } else null
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -324,7 +371,8 @@ fun MentionItem(
             .clickable { onMentionClick(mentionEvent) },
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-        tonalElevation = 1.dp
+        tonalElevation = 1.dp,
+        border = mentionBorder
     ) {
         Column(
             modifier = Modifier

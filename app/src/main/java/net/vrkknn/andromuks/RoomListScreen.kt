@@ -1220,7 +1220,7 @@ fun RoomListScreen(
                     )
                 }
 
-                // Mentions button (Bell icon)
+                // Notifications button (Bell icon)
                 IconButton(
                     onClick = {
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -1229,7 +1229,7 @@ fun RoomListScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Notifications,
-                        contentDescription = "Mentions",
+                        contentDescription = "Notifications",
                         tint = MaterialTheme.colorScheme.onSurface
                     )
                 }

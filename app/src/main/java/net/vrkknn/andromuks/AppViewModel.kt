@@ -9655,7 +9655,7 @@ class AppViewModel : ViewModel() {
         isMentionsLoading = true
         
         val commandData = mapOf<String, Any>(
-            "type" to 4, // Mention type (from backend)
+            "type" to 6, // Highlight (4) | Notify (2) — all push-rule-matched events
             "limit" to limit,
             "max_timestamp" to actualMaxTimestamp
         )
