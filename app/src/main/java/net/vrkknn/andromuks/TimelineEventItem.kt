@@ -1171,7 +1171,10 @@ private fun RoomMediaMessageContent(
     val fileUrl = fileObj?.optString("url", "") ?: ""
     val url = directUrl.takeIf { it.isNotBlank() } ?: fileUrl
 
-    val filename = content?.optString("filename", "") ?: ""
+    // For m.file, body is the filename when no explicit filename field is present (Matrix spec).
+    // For other media types, body may be a caption or fallback text, so we don't use it as filename.
+    val filename = content?.optString("filename", "")?.takeIf { it.isNotBlank() }
+        ?: if (msgType == "m.file") body.takeIf { it.isNotBlank() } ?: "" else ""
     val info = content?.optJSONObject("info")
 
 

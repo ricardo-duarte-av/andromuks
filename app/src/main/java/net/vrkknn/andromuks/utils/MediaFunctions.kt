@@ -516,7 +516,10 @@ fun MediaMessage(
                         onImageLongPress = {
                             // Trigger menu from image long press
                             triggerMenuFromImage++
-                        }
+                        },
+                        event = event,
+                        onUserClick = onUserClick,
+                        appViewModel = appViewModel
                     )
                     
                     // Caption text below the image, inside the same bubble (always show filename if no caption)
@@ -598,7 +601,10 @@ fun MediaMessage(
                         onImageLongPress = {
                             // Trigger menu from image long press
                             triggerMenuFromImage++
-                        }
+                        },
+                        event = event,
+                        onUserClick = onUserClick,
+                        appViewModel = appViewModel
                     )
                     
                     // No caption - don't show filename as fallback
@@ -682,7 +688,10 @@ fun MediaMessage(
                         onImageLongPress = {
                             // Trigger menu from image long press
                             triggerMenuFromImage++
-                        }
+                        },
+                        event = event,
+                        onUserClick = onUserClick,
+                        appViewModel = appViewModel
                     )
                     
                     // No caption - don't show filename
@@ -753,7 +762,10 @@ fun MediaMessage(
                         onImageLongPress = {
                             // Trigger menu from image long press
                             triggerMenuFromImage++
-                        }
+                        },
+                        event = event,
+                        onUserClick = onUserClick,
+                        appViewModel = appViewModel
                     )
                     
                     // No caption - don't show filename
@@ -811,7 +823,10 @@ private fun MediaContent(
     onImageClick: (Rect?) -> Unit = {},
     onImageLongPress: (() -> Unit)? = null,
     isVideoPlayingInline: Boolean = false, // For inline video player
-    onFullscreenRequest: (currentPosition: Long, isPlaying: Boolean) -> Unit = { _, _ -> } // Callback for fullscreen request from inline player
+    onFullscreenRequest: (currentPosition: Long, isPlaying: Boolean) -> Unit = { _, _ -> }, // Callback for fullscreen request from inline player
+    event: net.vrkknn.andromuks.TimelineEvent? = null,
+    onUserClick: (String) -> Unit = {},
+    appViewModel: net.vrkknn.andromuks.AppViewModel? = null
 ) {
     val density = LocalDensity.current
     
@@ -860,7 +875,10 @@ private fun MediaContent(
                 authToken = authToken,
                 isEncrypted = isEncrypted,
                 context = LocalContext.current,
-                onLongPress = onImageLongPress
+                onLongPress = onImageLongPress,
+                event = event,
+                onUserClick = onUserClick,
+                appViewModel = appViewModel
             )
         } else {
             // Media container with aspect ratio for images and videos
@@ -2190,7 +2208,10 @@ private fun FileDownload(
     authToken: String,
     isEncrypted: Boolean,
     context: android.content.Context,
-    onLongPress: (() -> Unit)? = null
+    onLongPress: (() -> Unit)? = null,
+    event: net.vrkknn.andromuks.TimelineEvent? = null,
+    onUserClick: (String) -> Unit = {},
+    appViewModel: net.vrkknn.andromuks.AppViewModel? = null
 ) {
     // Convert MXC URL to HTTP URL
     val fileHttpUrl = remember(mediaMessage.url, isEncrypted) {
@@ -2230,14 +2251,25 @@ private fun FileDownload(
         Column(
             modifier = Modifier.weight(1f)
         ) {
-            // Filename
-            Text(
-                text = mediaMessage.filename,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+            // Filename / body — use HtmlMessageText when sanitized_html is available
+            if (event != null && supportsHtmlRendering(event)) {
+                HtmlMessageText(
+                    event = event,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    onMatrixUserClick = onUserClick,
+                    appViewModel = appViewModel
+                )
+            } else {
+                Text(
+                    text = mediaMessage.filename,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             
             Spacer(modifier = Modifier.height(4.dp))
             
