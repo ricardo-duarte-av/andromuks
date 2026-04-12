@@ -911,6 +911,7 @@ class WebSocketService : Service() {
             serviceInstance.connectionStartTime = System.currentTimeMillis()
             serviceInstance.lastMessageReceivedTimestamp = System.currentTimeMillis()
             serviceInstance.lastPongTimestamp = SystemClock.elapsedRealtime()
+            serviceInstance.hadSuccessfulConnectionThisProcess = true
             // Connection is marked good when WebSocket connects - we don't wait for run_id or init_complete
             updateConnectionState(ConnectionState.Ready)
             
@@ -2217,6 +2218,15 @@ class WebSocketService : Service() {
     @Volatile private var connectionStartTime: Long = 0 // Track when WebSocket connection was established (0 = not connected)
     /** When we last lost the connection; used to decide cold connect after validation timeout if disconnected > 1 min */
     @Volatile private var connectionLostAt: Long = 0
+    /**
+     * True once we have had at least one successful WebSocket connection this process lifetime.
+     * Used by the health-check to skip auto-reconnect on cold starts (FCM / START_STICKY restart)
+     * when no ViewModel is attached yet — in that case we want the UI to drive the first connect
+     * (via AppViewModel.initializeWebSocketConnection) so that sync_complete messages are
+     * processed by a live ViewModel rather than buffered and replayed through the broken
+     * no-VM attach path.
+     */
+    @Volatile private var hadSuccessfulConnectionThisProcess = false
     // Reconnection state management
     // run_id is always read from SharedPreferences - not stored in service state
     // NOTE: We no longer track last_received_id - all timeline caches are cleared on connect/reconnect
@@ -2429,15 +2439,28 @@ class WebSocketService : Service() {
                     val sinceLastLoss = if (connectionLostAt > 0) currentTime - connectionLostAt else Long.MAX_VALUE
                     val sinceStart = if (serviceStartTime > 0) currentTime - serviceStartTime else Long.MAX_VALUE
                     val disconnectedLongEnough = sinceLastLoss > 5_000 || sinceStart > 5_000
+                    // On a cold process start (FCM wake / START_STICKY restart) with no ViewModel yet,
+                    // skip auto-reconnect. The UI will drive the first connection via
+                    // AppViewModel.initializeWebSocketConnection() so that sync_complete messages are
+                    // processed by a live ViewModel rather than buffered for the broken no-VM attach path.
+                    // Once we have had one successful connection this process, resume normal behaviour.
+                    val hasVmOrPriorConnection = hadSuccessfulConnectionThisProcess ||
+                        SyncRepository.getAttachedViewModels().isNotEmpty()
                     if (currentState.isDisconnected() &&
                         noReconnectJob &&
                         currentNetworkType != NetworkType.NONE &&
                         hasReconnectionSignal() &&
-                        disconnectedLongEnough
+                        disconnectedLongEnough &&
+                        hasVmOrPriorConnection
                     ) {
                         android.util.Log.w("WebSocketService", "Health check: Stuck in DISCONNECTED with no active reconnection — scheduling recovery")
                         logActivity("Health Check - Stuck DISCONNECTED (no reconnection job)", currentNetworkType.name)
                         scheduleReconnection(ReconnectTrigger.HealthCheckRecovery("Stuck in DISCONNECTED with no active reconnection job"))
+                    } else if (currentState.isDisconnected() && !hasVmOrPriorConnection && disconnectedLongEnough) {
+                        // Rate-limit to once per 30 ticks (~30s) to avoid logcat spam.
+                        if (BuildConfig.DEBUG && stateCorruptionCheckCounter == 0) {
+                            android.util.Log.d("WebSocketService", "Health check: Skipping auto-reconnect (cold start, no VM attached yet — waiting for UI to drive first connection)")
+                        }
                     }
 
                     // 5. Notification staleness check (every 30s)

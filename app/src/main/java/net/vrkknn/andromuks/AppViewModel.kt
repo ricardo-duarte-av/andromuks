@@ -1272,6 +1272,27 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d("Andromuks", "🟦 Startup complete - Room list ready to display (all sync messages processed, profile loaded, ${roomMap.size} rooms)")
             }
+            // Fire the navigation callback now that startup is truly complete (all rooms + bridge info loaded).
+            // Previously this fired from onInitComplete's synchronous section — BEFORE any sync messages were
+            // processed — causing the room_list route to show StartupLoadingScreen (isStartupComplete=false)
+            // briefly before switching to the real room list (visual "bounce").  Firing here guarantees the
+            // user lands directly on the populated room list with no intermediate loading screen.
+            //
+            // checkStartupComplete() may be called from any thread (Dispatchers.Default via
+            // ensureCurrentUserProfileLoaded, or Dispatchers.Main via MainActivity LaunchedEffect).
+            // Dispatch the callback to Main to keep NavController calls on the correct thread.
+            if (!navigationCallbackTriggered) {
+                if (onNavigateToRoomList != null) {
+                    navigationCallbackTriggered = true
+                    val cb = onNavigateToRoomList
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                        cb?.invoke()
+                    }
+                } else {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟦 checkStartupComplete: Navigation callback not set yet, marking as pending")
+                    pendingNavigation = true
+                }
+            }
         }
     }
 
@@ -3026,11 +3047,13 @@ class AppViewModel : ViewModel() {
 
         // Start WebSocket pinger immediately on init_complete so low-traffic accounts don't wait for first sync_complete
         net.vrkknn.andromuks.WebSocketService.startPingLoopOnInitComplete()
-        
-        // CRITICAL FIX: Set spacesLoaded immediately so UI doesn't wait unnecessarily
-        // This is safe because init_complete means the backend is ready
-        spacesLoaded = true
-        
+
+        // Do NOT set spacesLoaded here. The first queued message typically has clear_state=true
+        // which calls clearDerivedStateInMemory() → spacesLoaded=false, immediately undoing an
+        // early set and causing a spurious LaunchedEffect cycle (nav to room_list → back →
+        // nav again). Let the early-unblock inside the processing loop set spacesLoaded=true
+        // once the first batch of rooms is actually parsed and available.
+
         // Process all queued initial sync_complete messages
         viewModelScope.launch(Dispatchers.Default) {
                     try {
@@ -3354,20 +3377,11 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Calling navigation callback (callback is ${if (onNavigateToRoomList != null) "set" else "null"})")
-        
-        // Only trigger navigation callback once to prevent double navigation
-        if (!navigationCallbackTriggered) {
-            if (onNavigateToRoomList != null) {
-                navigationCallbackTriggered = true
-                onNavigateToRoomList?.invoke()
-            } else {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Navigation callback not set yet, marking as pending")
-                pendingNavigation = true
-            }
-        } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Navigation callback already triggered, skipping")
-        }
+        // Navigation is now deferred to checkStartupComplete() which fires only when
+        // isStartupComplete=true (all conditions met including allRoomStatesLoaded).
+        // Firing here was premature — it ran before any sync messages were processed,
+        // causing the room_list route to show StartupLoadingScreen briefly (visual bounce).
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: onInitComplete sync section done — navigation will fire from checkStartupComplete once startup is truly complete")
     }
     
     /**
@@ -3875,11 +3889,40 @@ class AppViewModel : ViewModel() {
                                             if (result != null) {
                                                 for (room in result.updatedRooms) {
                                                     val existing = updatedRooms[room.id]
-                                                    if (existing == null || shouldReplace(existing, room)) updatedRooms[room.id] = room
+                                                    if (existing == null) {
+                                                        updatedRooms[room.id] = room
+                                                    } else if (shouldReplace(existing, room)) {
+                                                        // Preserve sticky flags that only appear in certain sync messages
+                                                        // (m.favourite/m.tag comes with account_data in the first sync_complete;
+                                                        //  subsequent syncs don't re-send it, so a newer-timestamp room
+                                                        //  would incorrectly overwrite isFavourite/isDirectMessage with false).
+                                                        updatedRooms[room.id] = room.copy(
+                                                            isFavourite = room.isFavourite || existing.isFavourite,
+                                                            isLowPriority = room.isLowPriority || existing.isLowPriority,
+                                                            isDirectMessage = room.isDirectMessage || existing.isDirectMessage,
+                                                            bridgeProtocolAvatarUrl = room.bridgeProtocolAvatarUrl ?: existing.bridgeProtocolAvatarUrl,
+                                                            messagePreview = room.messagePreview ?: existing.messagePreview,
+                                                            messageSender = if (room.messagePreview != null) room.messageSender else existing.messageSender,
+                                                            latestEventId = room.latestEventId ?: existing.latestEventId
+                                                        )
+                                                    }
                                                 }
                                                 for (room in result.newRooms) {
                                                     val existing = newRooms[room.id]
-                                                    if (existing == null || shouldReplace(existing, room)) newRooms[room.id] = room
+                                                    if (existing == null) {
+                                                        newRooms[room.id] = room
+                                                    } else if (shouldReplace(existing, room)) {
+                                                        // Preserve sticky flags (same rationale as updatedRooms above).
+                                                        newRooms[room.id] = room.copy(
+                                                            isFavourite = room.isFavourite || existing.isFavourite,
+                                                            isLowPriority = room.isLowPriority || existing.isLowPriority,
+                                                            isDirectMessage = room.isDirectMessage || existing.isDirectMessage,
+                                                            bridgeProtocolAvatarUrl = room.bridgeProtocolAvatarUrl ?: existing.bridgeProtocolAvatarUrl,
+                                                            messagePreview = room.messagePreview ?: existing.messagePreview,
+                                                            messageSender = if (room.messagePreview != null) room.messageSender else existing.messageSender,
+                                                            latestEventId = room.latestEventId ?: existing.latestEventId
+                                                        )
+                                                    }
                                                 }
                                                 removedRoomIds.addAll(result.removedRoomIds)
                                             }

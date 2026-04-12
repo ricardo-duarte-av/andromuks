@@ -488,6 +488,15 @@ internal class SyncRoomsCoordinator(
                             processParsedSyncResult(syncResult, syncJson)
                         } else {
                             syncResultForCaller = syncResult                   // ← correct condition
+                            // processParsedSyncResult is skipped in the deferred path, but the batched-apply
+                            // caller (applyBatchedRoomListResult) passes an empty JSONObject so account_data
+                            // would never be processed. Process it here on Main so m.direct / m.tag / etc.
+                            // are applied even when rooms are batched (e.g. first open after background start).
+                            val data = syncJson.optJSONObject("data")
+                            val accountData = data?.optJSONObject("account_data")
+                            if (accountData != null && accountData.length() > 0) {
+                                processAccountData(accountData)
+                            }
                         }
 
                         // Apply invites (in-memory) and UI invalidation flags.

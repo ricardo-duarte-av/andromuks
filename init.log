@@ -1,0 +1,434 @@
+04-12 22:22:08.264 17334 17334 D Andromuks: MainActivity: onStart called (hasBeenStopped=false)
+04-12 22:22:08.272 17334 17334 D Andromuks: MainActivity: onResume called
+04-12 22:22:08.272 17334 17334 D Andromuks: MainActivity: Sent FOREGROUND_REFRESH broadcast
+04-12 22:22:08.443 17334 17334 I ieira.andromuks: hiddenapi: Accessing hidden method Landroid/os/SystemProperties;->addChangeCallback(Ljava/lang/Runnable;)V (runtime_flags=0, domain=platform, api=unsupported) from Landroidx/compose/ui/platform/AndroidComposeView$Companion; (domain=app, TargetSdkVersion=36) using reflection: allowed
+04-12 22:22:08.501 17334 17334 D Andromuks: AppViewModel: populateReadReceiptsFromCache - cache is empty, no receipts to populate
+04-12 22:22:08.503 17334 17334 D Andromuks: MainActivity: Marking as PRIMARY (isWebSocketConnected=false, existingPrimaryId=null)
+04-12 22:22:08.503 17334 17334 D Andromuks: AppViewModel: Instance role set to PRIMARY for AppViewModel_0
+04-12 22:22:08.504 17334 17334 D Andromuks: AppViewModel: Primary registered (SyncRepository flows); viewModelId=AppViewModel_0
+04-12 22:22:08.504 17334 17334 D Andromuks: MainActivity: onCreate - roomId: null, directNavigation: false, fromNotification: false, matrixUri: null
+04-12 22:22:08.504 17334 17334 D Andromuks: MainActivity: extractRoomIdFromMatrixUri called with uri: null
+04-12 22:22:08.504 17334 17334 D Andromuks: MainActivity: URI is null
+04-12 22:22:08.504 17334 17334 D Andromuks: MainActivity: onCreate - Fallback URI parsing: null
+04-12 22:22:08.506 17334 17334 D Andromuks: AppViewModel: Clearing current open room ID from SharedPreferences
+04-12 22:22:08.506 17334 17334 D Andromuks: AppViewModel: SharedPreferences commit succeeded for room ID: 
+04-12 22:22:08.507 17334 17334 D Andromuks: AppViewModel: Cleared current room ID on app startup
+04-12 22:22:08.507 17334 17334 D Andromuks: AppViewModel: No valid pending WebSocket operations to load
+04-12 22:22:08.512 17334 17334 D Andromuks: AppViewModel: Started acknowledgment timeout check job
+04-12 22:22:08.512 17334 17334 D Andromuks: AppViewModel: Started acknowledged messages cleanup job
+04-12 22:22:08.512 17334 17334 D Andromuks: AppViewModel: Restored currentUserId from SharedPreferences: @daedric:aguiarvieira.pt
+04-12 22:22:08.512 17334 17334 D Andromuks: AppViewModel: Requesting current user profile from server - userId: @daedric:aguiarvieira.pt
+04-12 22:22:08.513 17334 17334 D Andromuks: AppViewModel: Profile request for @daedric:aguiarvieira.pt deferred - WebSocket not ready (will be queued)
+04-12 22:22:08.513 17334 17334 D Andromuks: AppViewModel: WebSocket is not connected, skipping automatic command: get_profile (will be re-requested when online)
+04-12 22:22:08.514 17334 17334 D Andromuks: AppViewModel: Loaded enableCompression setting: false
+04-12 22:22:08.514 17334 17334 D Andromuks: AppViewModel: Loaded enterKeySendsMessage setting: true
+04-12 22:22:08.514 17334 17334 D Andromuks: AppViewModel: Loaded loadThumbnailsIfAvailable setting: true
+04-12 22:22:08.514 17334 17334 D Andromuks: AppViewModel: Loaded renderThumbnailsAlways setting: true
+04-12 22:22:08.514 17334 17334 D Andromuks: AppViewModel: Loaded showAllRoomListTabs setting: true
+04-12 22:22:08.514 17334 17334 D Andromuks: AppViewModel: Loaded moveReadReceiptsToEdge setting: false
+04-12 22:22:08.514 17334 17334 D Andromuks: AppViewModel: Loaded trimLongDisplayNames setting: true
+04-12 22:22:08.514 17334 17334 D Andromuks: AppViewModel: Loaded elementCallBaseUrl setting: 
+04-12 22:22:08.514 17334 17334 D Andromuks: AppViewModel: Loaded backgroundPurgeIntervalMinutes=5, backgroundPurgeMessageThreshold=500
+04-12 22:22:08.515 17334 17334 D Andromuks: MainActivity: Registering notification broadcast receiver
+04-12 22:22:08.517 17334 17334 D Andromuks: MainActivity: Notification broadcast receiver registered successfully
+04-12 22:22:08.518 17334 17334 D Andromuks: AppViewModel: No existing WebSocket to attach for AppViewModel_0
+04-12 22:22:08.518 17334 17334 D Andromuks: MainActivity: ViewModel created after onResume - forcing visible state
+04-12 22:22:08.518 17334 17334 D Andromuks: AppViewModel: App became visible
+04-12 22:22:08.543 17334 17334 D Andromuks: AppViewModel: SharedPreferences commit succeeded for app visibility: true (currentRoomId=)
+04-12 22:22:08.543 17334 17334 D Andromuks: AppViewModel: syncIngestor not initialized, skipping pending items check
+04-12 22:22:08.543 17334 17334 D Andromuks: AppViewModel: Refreshing UI with 0 rooms
+04-12 22:22:08.544 17334 17334 D Andromuks: AppViewModel: UI refreshed, roomListUpdateCounter: 0
+04-12 22:22:08.544 17334 17334 D Andromuks: 🟣 ensureCurrentUserProfileLoaded: START - currentUserProfile=false, currentUserId=@daedric:aguiarvieira.pt
+04-12 22:22:08.544 17334 17334 D Andromuks: 🟣 ensureCurrentUserProfileLoaded: Profile missing from cache, requesting from server - userId: @daedric:aguiarvieira.pt
+04-12 22:22:08.544 17334 17334 D Andromuks: AppViewModel: Global profile request already pending for @daedric:aguiarvieira.pt, skipping duplicate
+04-12 22:22:08.544 17334 17334 D Andromuks: AppViewModel: App visible, will refresh UI after batch flush completes
+04-12 22:22:08.794  1830  2065 I ActivityTaskManager: Displayed pt.aguiarvieira.andromuks/net.vrkknn.andromuks.MainActivity for user 0: +1s572ms
+04-12 22:22:08.804 17334 17371 I WM-WorkerWrapper: Worker result SUCCESS for Work [ id=4fa5dd87-3562-4da8-a594-eb4f4db4af3b, tags={ net.vrkknn.andromuks.ServiceStartWorker, service_start } ]
+04-12 22:22:08.806 17334 17334 D AuthCheckScreen: Token and server URL found.
+04-12 22:22:08.807 17334 17334 D AuthCheckScreen: Permissions check - notifications: true, battery: true
+04-12 22:22:08.807 17334 17334 D AuthCheckScreen: Notification permission granted. Attempting auto WebSocket connect.
+04-12 22:22:08.810 17334 17334 D Andromuks: AppViewModel: Loaded 35 activity log entries from storage
+04-12 22:22:08.810 17334 17334 D Andromuks: AppViewModel: Clearing current open room ID from SharedPreferences
+04-12 22:22:08.810 17334 17334 D Andromuks: AppViewModel: SharedPreferences commit succeeded for room ID: 
+04-12 22:22:08.810 17334 17334 D Andromuks: AppViewModel: Cleared current room ID on app startup
+04-12 22:22:08.810 17334 17334 D Andromuks: AppViewModel: No valid pending WebSocket operations to load
+04-12 22:22:08.812 17334 17334 D Andromuks: AppViewModel: Started acknowledgment timeout check job
+04-12 22:22:08.812 17334 17334 D Andromuks: AppViewModel: Started acknowledged messages cleanup job
+04-12 22:22:08.813 17334 17334 D Andromuks: AppViewModel: Navigation callback set
+04-12 22:22:08.813 17334 17334 D Andromuks: AuthCheckScreen: appViewModel instance: net.vrkknn.andromuks.AppViewModel@9ac3b7
+04-12 22:22:08.816 17334 17334 D Andromuks: 🟦 Startup Progress: [22:22:08:814] Starting...
+04-12 22:22:08.817 17334 17334 D Andromuks: 🟦 Startup Progress: [22:22:08:816] Checking stored auth....
+04-12 22:22:08.819 17334 17334 D Andromuks: 🟦 Startup Progress: [22:22:08:818] Connecting to WebSocket...
+04-12 22:22:08.819 17334 17334 D Andromuks: AuthCheckScreen: WebSocket connection check - isPrimary: true, isAlreadyConnected: false
+04-12 22:22:08.819 17334 17334 D Andromuks: AuthCheckScreen: Primary instance - delegating WebSocket connection to AppViewModel (survives activity recreation)
+04-12 22:22:08.819 17334 17334 D Andromuks: AppViewModel: Delegating WebSocket connection to WebSocketService
+04-12 22:22:08.819 17334 17334 D Andromuks: AppViewModel: Starting WebSocket foreground service
+04-12 22:22:08.828  1830  4610 I ActivityManager: Background started FGS: Allowed [callingPackage: pt.aguiarvieira.andromuks; callingUid: 10370; uidState: TOP ; uidBFSL: [BFSL]; intent: Intent { xflg=0x4 cmp=pt.aguiarvieira.andromuks/net.vrkknn.andromuks.WebSocketService }; code:PROC_STATE_TOP; tempAllowListReason:<,reasonCode:SYSTEM_ALLOW_LISTED,duration:9223372036854775807,callingUid:-1>; allowWiu:12; targetSdkVersion:36; callerTargetSdkVersion:36; startForegroundCount:0; bindFromPackage:null: isBindService:false]
+04-12 22:22:08.829 17334 17334 D Andromuks: AppViewModel: initializeWebSocketConnection - isReconnection: false
+04-12 22:22:08.930 17334 17334 I WebSocketService: State transition: net.vrkknn.andromuks.ConnectionState$Disconnected@228291c → net.vrkknn.andromuks.ConnectionState$Disconnected@228291c
+04-12 22:22:08.930 17334 17334 D WebSocketService: Connection state updated: net.vrkknn.andromuks.ConnectionState$Disconnected@228291c
+04-12 22:22:08.931 17334 17362 I WebSocketService: State transition: net.vrkknn.andromuks.ConnectionState$Disconnected@228291c → Connecting(attemptNumber=1)
+04-12 22:22:08.948 17334 17362 D Andromuks: 🟦 Startup Progress: [22:22:08:936] Opening WebSocket connection...
+04-12 22:22:08.985  4078  4078 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1434 onStartInput(EditorInfo{EditorInfo{packageName=pt.aguiarvieira.andromuks, inputType=0, inputTypeString=NULL, enableLearning=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptions=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialSelEnd=-1, initialCapsMode=0, label=null, fieldId=0, fieldName=null, extras=null, hintText=null, hintLocales=[]}}, false)
+04-12 22:22:09.059  1830  4580 W JobScheduler: Job didn't exist in JobStore: e69a8e9 #u0a370/1131 pt.aguiarvieira.andromuks/androidx.work.impl.background.systemjob.SystemJobService
+04-12 22:22:09.094 17334 17394 D Andromuks: AppViewModel: No pending items to process (deprecated - all data is in-memory only) - not blocking UI
+04-12 22:22:09.094 17334 17394 D Andromuks: AppViewModel: Cleared isProcessingPendingItems flag (finally block)
+04-12 22:22:09.238 17334 17396 D Andromuks: NetworkUtils: onOpen: ws opened on Switching Protocols
+04-12 22:22:09.238 17334 17396 D Andromuks: NetworkUtils: WebSocket response headers:
+04-12 22:22:09.238 17334 17396 D Andromuks: NetworkUtils: Header 'Connection': 'upgrade'
+04-12 22:22:09.238 17334 17396 D Andromuks: NetworkUtils: Header 'Date': 'Sun, 12 Apr 2026 21:22:09 GMT'
+04-12 22:22:09.238 17334 17396 D Andromuks: NetworkUtils: Header 'Request-Id': 'd7e0q0be6ios73c1t57g'
+04-12 22:22:09.238 17334 17396 D Andromuks: NetworkUtils: Header 'Sec-Websocket-Accept': 'RA7F2G885K+xfcQbeMuaPRV5KUE='
+04-12 22:22:09.238 17334 17396 D Andromuks: NetworkUtils: Header 'Server': 'openresty'
+04-12 22:22:09.238 17334 17396 D Andromuks: NetworkUtils: Header 'Upgrade': 'websocket'
+04-12 22:22:09.238 17334 17396 D Andromuks: NetworkUtils: Calling WebSocketService.setWebSocket()
+04-12 22:22:09.238 17334 17396 I WebSocketService: State transition: Connecting(attemptNumber=1) → net.vrkknn.andromuks.ConnectionState$Ready@c37b228
+04-12 22:22:09.238 17334 17396 D WebSocketService: Connection state updated: net.vrkknn.andromuks.ConnectionState$Ready@c37b228
+04-12 22:22:09.242 17334 17396 D Andromuks: 🟦 Startup Progress: [22:22:09:242] Connection established
+04-12 22:22:09.256 17334 17395 D Andromuks: NetworkUtils: Unhandled WebSocket command: sync_status
+04-12 22:22:09.290 17334 17362 D Andromuks: AppViewModel: handleRunId called with runId='1775948078007102802'
+04-12 22:22:09.290 17334 17362 D Andromuks: AppViewModel: Run ID matches existing value: 1775948078007102802
+04-12 22:22:09.290 17334 17362 D Andromuks: AppViewModel: Run ID stored and service updated
+04-12 22:22:09.290 17334 17394 D Andromuks: AppViewModel: Set currentUserId: @daedric:aguiarvieira.pt
+04-12 22:22:09.291 17334 17394 D Andromuks: AppViewModel: Set realMatrixHomeserverUrl: https://aguiarvieira.pt/
+04-12 22:22:09.292 17334 17394 D Andromuks: AppViewModel: Global profile request already pending for @daedric:aguiarvieira.pt, skipping duplicate
+04-12 22:22:09.306 17334 17334 D Andromuks: 🟦 Startup Progress: [22:22:09:306] run_id received
+04-12 22:22:09.484 17334 17334 D Andromuks: AppViewModel: Resolved Element Call base URL from .well-known: https://call.aguiarvieira.pt/room
+04-12 22:22:09.755 17334 17334 D Andromuks: AppViewModel: Queued initial sync_complete message (request_id=0, queue size: 1) - FIFO order preserved
+04-12 22:22:09.828 17334 17334 D Andromuks: AppViewModel: Queued initial sync_complete message (request_id=0, queue size: 2) - FIFO order preserved
+04-12 22:22:09.886 17334 17334 D Andromuks: AppViewModel: Queued initial sync_complete message (request_id=0, queue size: 3) - FIFO order preserved
+04-12 22:22:09.942 17334 17334 D Andromuks: AppViewModel: Queued initial sync_complete message (request_id=0, queue size: 4) - FIFO order preserved
+04-12 22:22:09.993 17334 17334 D Andromuks: AppViewModel: Queued initial sync_complete message (request_id=0, queue size: 5) - FIFO order preserved
+04-12 22:22:10.041 17334 17334 D Andromuks: AppViewModel: Queued initial sync_complete message (request_id=0, queue size: 6) - FIFO order preserved
+04-12 22:22:10.053 17334 17334 D Andromuks: 🟣 onInitComplete: START - initialSyncComplete=false, spacesLoaded=false, initialSyncCompleteQueue.size=6
+04-12 22:22:10.054 17334 17334 D Andromuks: 🟦 Startup Progress: [22:22:10:054] Initialization complete - processing 6 sync messages
+04-12 22:22:10.054 17334 17334 D Andromuks: 🟣 onInitComplete: Set initialSyncPhase=true, will process 6 queued initial sync_complete messages
+04-12 22:22:10.055 17334 17334 D Andromuks: AppViewModel: Initialization complete - future sync_complete messages will trigger UI updates
+04-12 22:22:10.055 17334 17334 D Andromuks: AppViewModel: Resetting reconnection state (successful connection)
+04-12 22:22:10.055 17334 17394 D Andromuks: AppViewModel: Updated WebSocketService state - Initializing (0/6)
+04-12 22:22:10.055 17334 17394 D Andromuks: AppViewModel: Processing 6 queued initial sync_complete messages
+04-12 22:22:10.055 17334 17394 D Andromuks: AppViewModel: Processing queued initial sync_complete message 1/6 (request_id=0) - FIFO sequential processing
+04-12 22:22:10.056 17334 17334 D Andromuks: AppViewModel: WebSocket not healthy, skipping pending notification messages processing
+04-12 22:22:10.056 17334 17394 D Andromuks: 🟦 Startup Progress: [22:22:10:056] Processing spaces and initial rooms...
+04-12 22:22:10.056 17334 17394 D Andromuks: 🟣 onInitComplete: About to process message 1/6 (sequential processing)
+04-12 22:22:10.056 17334 17334 D Andromuks: 🟦 Startup Progress: [22:22:10:056] Processing space edges...
+04-12 22:22:10.056 17334 17334 D Andromuks: AppViewModel: No stored space edges to populate
+04-12 22:22:10.056 17334 17334 D Andromuks: AppViewModel: Updating ConversationsApi with real homeserver URL after init_complete
+04-12 22:22:10.057 17334 17334 D Andromuks: AppViewModel: No pending notification actions to execute
+04-12 22:22:10.057 17334 17394 W Andromuks: 🟣 processSyncCompleteAtomic: clear_state=true - clearing state (request_id=0)
+04-12 22:22:10.057 17334 17334 D Andromuks: AppViewModel: onInitComplete - registering FCM to ensure backend has current token
+04-12 22:22:10.057 17334 17394 W Andromuks: AppViewModel: clear_state=true received - clearing derived room/space state (events preserved)
+04-12 22:22:10.057 17334 17334 D Andromuks: AppViewModel: registerFCMWithGomuksBackend called (forceRegistrationOnConnect=true, forceNow=false)
+04-12 22:22:10.057 17334 17334 D Andromuks: AppViewModel: registerFCMWithGomuksBackend - token=cCyN78FsSRCsyE3nZYxX..., deviceId=ONEPLUS_GM1901_C1488, encryptionKey=ZDFkZjZiMWE2NDY5NDU4...
+04-12 22:22:10.057 17334 17334 D Andromuks: AppViewModel: Registering FCM with request_id=2
+04-12 22:22:10.057 17334 17334 D Andromuks: AppViewModel: Sending WebSocket command: register_push with data: {type=fcm, device_id=ONEPLUS_GM1901_C1488, data=cCyN78FsSRCsyE3nZYxXO0:APA91bF4NxA0BOrYNGAO1hp_lCVhGjDZZYC_j4JenzgNR0FXSPGcXmxB7MF_MpEhvOU_dcKd4u_Cs2SpEIej7-uH314MkbksvAnQwYyU_3ANAbpe3pLFJ0o, encryption={key=ZDFkZjZiMWE2NDY5NDU4Njg5NTFkNjE3NjAyYTk0Y2Q=, expiration=1776115330}}
+04-12 22:22:10.057 17334 17334 D Andromuks: AppViewModel: Command register_push (requestId: 2) queued - waiting for init_complete + sync_complete processing (1 commands queued)
+04-12 22:22:10.057 17334 17334 D Andromuks: AppViewModel: register_push queued or not sent (result=NOT_CONNECTED) - will be sent after init_complete or when connected
+04-12 22:22:10.057 17334 17334 D Andromuks: AppViewModel: No pending operations to retry after reconnection
+04-12 22:22:10.058 17334 17334 D Andromuks: AppViewModel: onInitComplete sync section done — navigation will fire from checkStartupComplete once startup is truly complete
+04-12 22:22:10.130 17334 17360 W Andromuks: SpaceRoomParser: clear_state=true - clearing 0 spaces (will be repopulated by subsequent sync_complete messages)
+04-12 22:22:10.130 17334 17360 D Andromuks: AppViewModel: updateAllSpaces called - setting allSpaces from 0 to 0 spaces
+04-12 22:22:10.130 17334 17360 D Andromuks: AppViewModel: allSpaces set to 0 spaces (was 0), cache updated
+04-12 22:22:10.130 17334 17360 D Andromuks: SpaceRoomParser: top_level_spaces found with 41 items (clear_state=true)
+04-12 22:22:10.131 17334 17360 D Andromuks: SpaceRoomParser: Parsed 41 spaces from sync data (clear_state=true)
+04-12 22:22:10.131 17334 17360 D Andromuks: SpaceRoomParser: Space names: Home, WhatsApp (+351912271966), Instagram (Ricardo Duarte), Root, Matrix, Homelab, Continuwuity (old, space), Matrix Admins, Unredacted Space, Selfhosted, /r/Roms, Muninn Hall Private Space, Chats, RoomDir, Offtopic Space, SchildiChat, NSFW, Linux Gamers Group, abuse-fighters, espaço cplp, MultiplayerGamers, Debian, t2bot.io community, Draupnir, Matrix Community, GNOME Community, Matrix United, Rory&::ModAS, Jellyfin, Maunium Space, ntfy, Galleries, NSFW Gallery, Linux Distros, Scrolling Space, Signal (+351912271966), Calitabby Network, Discord, Continuwuity (directory), Matrix.org room directory, Telegram
+04-12 22:22:10.131 17334 17360 D Andromuks: SpaceRoomParser: Calling updateAllSpaces with 41 spaces (current: 0, clear_state=true)
+04-12 22:22:10.131 17334 17360 D Andromuks: AppViewModel: updateAllSpaces called - setting allSpaces from 0 to 41 spaces
+04-12 22:22:10.131 17334 17360 D Andromuks: AppViewModel: updateAllSpaces - space names: Home, WhatsApp (+351912271966), Instagram (Ricardo Duarte), Root, Matrix, Homelab, Continuwuity (old, space), Matrix Admins, Unredacted Space, Selfhosted, /r/Roms, Muninn Hall Private Space, Chats, RoomDir, Offtopic Space, SchildiChat, NSFW, Linux Gamers Group, abuse-fighters, espaço cplp, MultiplayerGamers, Debian, t2bot.io community, Draupnir, Matrix Community, GNOME Community, Matrix United, Rory&::ModAS, Jellyfin, Maunium Space, ntfy, Galleries, NSFW Gallery, Linux Distros, Scrolling Space, Signal (+351912271966), Calitabby Network, Discord, Continuwuity (directory), Matrix.org room directory, Telegram
+04-12 22:22:10.132 17334 17360 D Andromuks: AppViewModel: allSpaces set to 41 spaces (was 0), cache updated
+04-12 22:22:10.132 17334 17360 D Andromuks: SpaceRoomParser: Storing space_edges (current spaces: 41, top_level_spaces was present)
+04-12 22:22:10.132 17334 17360 D Andromuks: AppViewModel: Storing space edges for later processing
+04-12 22:22:10.146 17334 17360 D Andromuks: AppViewModel: Registered 66 space IDs (total=66)
+04-12 22:22:10.171 17334 17334 D Andromuks: AppViewModel: processParsedSyncResult - Processing account_data with keys: com.famedly.app.user_settings, com.famedly.features, fi.mau.gomuks.preferences, im.vector.analytics, im.vector.setting.allowed_widgets, im.vector.setting.breadcrumbs, im.vector.setting.integration_provisioning, im.vector.web.settings, in.cinny.spaces, io.element.matrix_client_information.DWAIMZRDWN, io.element.matrix_client_information.JIUUBBXUDO, io.element.matrix_client_information.NREPXGERTJ, io.element.matrix_client_information.OOXYKKDHPF, io.element.matrix_client_information.VDZDVPHVJH, io.element.matrix_client_information.XCSRCZMUSD, io.element.msc4278.media_preview_config, io.element.recent_emoji, io.element.synapse.admin_client_config, m.accepted_terms, m.cross_signing.master, m.cross_signing.self_signing, m.cross_signing.user_signing, m.direct, m.identity_server, m.ignored_user_list, m.megolm_backup.v1, m.org.matrix.custom.backup_disabled, m.push_rules, m.secret_storage.default_key, m.secret_storage.key.AyyBqvHwb9g8JBu0eXHBeGPBUon2uSzy, m.secret_storage.key.BnsDatDgwipRS3IkjTgBfsKapOrEysbO, m.secret_storage.key.FgrF50kpdrdZWczpL3Sa22PA9u8WZwBS, m.secret_storage.key.SqUrZUn568w6qi78seYF0dNvWlbClJ8d, m.secret_storage.key.U2mnw3yL4y6HKOR05yTQl3EbGVYdSvsM, m.secret_storage.key.Xa7OnpfZqu70lZjSMHybueKJQLojkESl, m.secret_storage.key.hQcXUp7ZXuFYKD1e7ZTXgonnXr5gPC7h, m.secret_storage.key.jESPhkWhMf8JVI8FxxBzBIudUOPDIbvA, m.secret_storage.key.lmz8gmfcZrhrwRlttpv4TxhX7v55jr6z, m.secret_storage.key.sYarkYINFJQOviYUjiRfYhdlRpUYWiOJ, m.secret_storage.key.tmaZTxd7EojcZ0zKiYKNH7XvaFYNF4cR, m.secret_storage.key.yiLzm35KIDCNPMT3mPWIjmXKH3ayZM1v, msc3588.stories.block-list, org.futo.circles.config, org.matrix.msc3814, org.matrix.msc3890.local_notification_settings.CUOSWWTZSF, org.matrix.msc3890.local_notification_settings.DWAIMZRDWN, org.matrix.msc3890.local_notification_settings.IPLNIRLRXN, org.matrix.msc3890.local_notification_settings.JIUUBBXUDO, org.matrix.msc3890.local_notification_settings.KRTTBMPKMM, org.matrix.msc3890.local_notification_settings.LHYRRRKRHH, org.matrix.msc3890.local_notification_settings.PGARPGEZGU, org.matrix.msc3890.local_notification_settings.PXSHCZBOHO, org.matrix.msc3890.local_notification_settings.RIRGDITSEJ, org.matrix.msc3890.local_notification_settings.UQEYWHWMZL, org.matrix.msc3890.local_notification_settings.VDZDVPHVJH, org.matrix.msc3890.local_notification_settings.WFWLSVRUTT, org.matrix.msc3890.local_notification_settings.XCSRCZMUSD, org.matrix.preview_urls (clear_state=true)
+04-12 22:22:10.171 17334 17334 D Andromuks: AppViewModel: processAccountData - Processing account_data with 58 keys: com.famedly.app.user_settings, com.famedly.features, fi.mau.gomuks.preferences, im.vector.analytics, im.vector.setting.allowed_widgets, im.vector.setting.breadcrumbs, im.vector.setting.integration_provisioning, im.vector.web.settings, in.cinny.spaces, io.element.matrix_client_information.DWAIMZRDWN, io.element.matrix_client_information.JIUUBBXUDO, io.element.matrix_client_information.NREPXGERTJ, io.element.matrix_client_information.OOXYKKDHPF, io.element.matrix_client_information.VDZDVPHVJH, io.element.matrix_client_information.XCSRCZMUSD, io.element.msc4278.media_preview_config, io.element.recent_emoji, io.element.synapse.admin_client_config, m.accepted_terms, m.cross_signing.master, m.cross_signing.self_signing, m.cross_signing.user_signing, m.direct, m.identity_server, m.ignored_user_list, m.megolm_backup.v1, m.org.matrix.custom.backup_disabled, m.push_rules, m.secret_storage.default_key, m.secret_storage.key.AyyBqvHwb9g8JBu0eXHBeGPBUon2uSzy, m.secret_storage.key.BnsDatDgwipRS3IkjTgBfsKapOrEysbO, m.secret_storage.key.FgrF50kpdrdZWczpL3Sa22PA9u8WZwBS, m.secret_storage.key.SqUrZUn568w6qi78seYF0dNvWlbClJ8d, m.secret_storage.key.U2mnw3yL4y6HKOR05yTQl3EbGVYdSvsM, m.secret_storage.key.Xa7OnpfZqu70lZjSMHybueKJQLojkESl, m.secret_storage.key.hQcXUp7ZXuFYKD1e7ZTXgonnXr5gPC7h, m.secret_storage.key.jESPhkWhMf8JVI8FxxBzBIudUOPDIbvA, m.secret_storage.key.lmz8gmfcZrhrwRlttpv4TxhX7v55jr6z, m.secret_storage.key.sYarkYINFJQOviYUjiRfYhdlRpUYWiOJ, m.secret_storage.key.tmaZTxd7EojcZ0zKiYKNH7XvaFYNF4cR, m.secret_storage.key.yiLzm35KIDCNPMT3mPWIjmXKH3ayZM1v, msc3588.stories.block-list, org.futo.circles.config, org.matrix.msc3814, org.matrix.msc3890.local_notification_settings.CUOSWWTZSF, org.matrix.msc3890.local_notification_settings.DWAIMZRDWN, org.matrix.msc3890.local_notification_settings.IPLNIRLRXN, org.matrix.msc3890.local_notification_settings.JIUUBBXUDO, org.matrix.msc3890.local_notification_settings.KRTTBMPKMM, org.matrix.msc3890.local_notification_settings.LHYRRRKRHH, org.matrix.msc3890.local_notification_settings.PGARPGEZGU, org.matrix.msc3890.local_notification_settings.PXSHCZBOHO, org.matrix.msc3890.local_notification_settings.RIRGDITSEJ, org.matrix.msc3890.local_notification_settings.UQEYWHWMZL, org.matrix.msc3890.local_notification_settings.VDZDVPHVJH, org.matrix.msc3890.local_notification_settings.WFWLSVRUTT, org.matrix.msc3890.local_notification_settings.XCSRCZMUSD, org.matrix.preview_urls
+04-12 22:22:10.171 17334 17334 D Andromuks: AppViewModel: processAccountData - Found io.element.recent_emoji, content=true, array length=24
+04-12 22:22:10.171 17334 17334 D Andromuks: AppViewModel: Loaded 24 recent emojis from account_data (server is source of truth): 🤣(36), 👍(27), ❤(26), 🤬(14), ☝(13)...
+04-12 22:22:10.173 17334 17334 D Andromuks: AppViewModel: Loaded 282 DM room IDs for 133 users from m.direct account data
+04-12 22:22:10.174 17334 17334 D Andromuks: AppViewModel: Loaded 161 ignored users from m.ignored_user_list
+04-12 22:22:10.174 17334 17334 D Andromuks: AppViewModel: No emoji pack account data in incoming sync and no packs loaded - will be populated on next reconnect
+04-12 22:22:10.174 17334 17334 D Andromuks: AppViewModel: Account data processed.
+04-12 22:22:10.174 17334 17334 D Andromuks: 🟦 Startup Progress: [22:22:10:174] Account data processed.
+04-12 22:22:10.174 17334 17334 D Andromuks: AppViewModel: Updated low priority rooms set: 0 rooms (changed)
+04-12 22:22:10.175 17334 17334 D Andromuks: 🟣 onInitComplete: Message 1 processing complete callback invoked - Updated state: Initializing (1/6)
+04-12 22:22:10.175 17334 17412 W Andromuks: 🟣 onInitComplete: Message 1 timed out after 30 seconds - continuing to next message
+04-12 22:22:10.175 17334 17412 D Andromuks: 🟣 onInitComplete: First message has clear_state=true with spaces info - will unblock after processing
+04-12 22:22:10.175 17334 17412 D Andromuks: 🟣 ensureCurrentUserProfileLoaded: START - currentUserProfile=false, currentUserId=@daedric:aguiarvieira.pt
+04-12 22:22:10.175 17334 17412 D Andromuks: 🟣 ensureCurrentUserProfileLoaded: Profile missing from cache, requesting from server - userId: @daedric:aguiarvieira.pt
+04-12 22:22:10.175 17334 17412 D Andromuks: AppViewModel: Global profile request already pending for @daedric:aguiarvieira.pt, skipping duplicate
+04-12 22:22:10.176 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @daedric:envs.net in room !LqIHYzJrefyAxpMDgw:daedric.net
+04-12 22:22:10.177 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @watchtower:aguiarvieira.pt in room !UzlMkjVDHcMfGXgXbd:aguiarvieira.pt
+04-12 22:22:10.177 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @diana.vieira:aguiarvieira.pt in room !ZIehHSLDjinoifEMHB:aguiarvieira.pt
+04-12 22:22:10.177 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @ashleebby:ashleehee.com in room !ctThayFuMiDdapPKZP:aguiarvieira.pt
+04-12 22:22:10.178 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @daedric:envs.net in room !yJGpdFvegjGoCBMZUE:envs.net
+04-12 22:22:10.178 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @feeds:integrations.ems.host in room !zgQquZJfEhipbvFbYc:matrix.org
+04-12 22:22:10.178 17334 17334 D Andromuks: AppViewModel: processParsedSyncResult - account_data is null (preserving existing state)
+04-12 22:22:10.180 17334 17334 D Andromuks: AppViewModel: New rooms detected - forcing immediate sort to show them at the top
+04-12 22:22:10.181 17334 17334 D Andromuks: 🟦 Startup Progress: [22:22:10:181] Processing 1 spaces...
+04-12 22:22:10.182 17334 17334 D Andromuks: AppViewModel: Updated low priority rooms set: 4 rooms (changed)
+04-12 22:22:10.186 17334 17334 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Member state changed, scheduling UI update
+04-12 22:22:10.244 17334 17334 D Andromuks: 🟣 onInitComplete: EARLY UNBLOCK - first message with clear_state=true (spaces info), have 84 rooms - Setting initialSyncComplete=true to unblock UI (processing continues in background)
+04-12 22:22:10.244 17334 17334 D Andromuks: AppViewModel: Flushing 1 queued commands after init_complete + sync_complete processing
+04-12 22:22:10.244 17334 17334 D Andromuks: AppViewModel: Flushing queued command: register_push (requestId: 2)
+04-12 22:22:10.244 17334 17334 D Andromuks: sendWebSocketCommand: command='register_push', requestId=2, data={"type":"fcm","device_id":"ONEPLUS_GM1901_C1488","data":"cCyN78FsSRCsyE3nZYxXO0:APA91bF4NxA0BOrYNGAO1hp_lCVhGjDZZYC_j4JenzgNR0FXSPGcXmxB7MF_MpEhvOU_dcKd4u_Cs2SpEIej7-uH314MkbksvAnQwYyU_3ANAbpe3pLFJ0o"
+04-12 22:22:10.245 17334 17334 D Andromuks: AppViewModel: No operations ready to retry (acknowledged: 0, waiting for timeout: 1, total: 1)
+04-12 22:22:10.245 17334 17334 D Andromuks: 🟣 onInitComplete: EARLY UNBLOCK - UI can show early, but room list will wait for all 6 messages to process
+04-12 22:22:10.246 17334 17412 D Andromuks: 🟦 Startup Progress: [22:22:10:246] Processing 99 rooms...
+04-12 22:22:10.246 17334 17412 D Andromuks: 🟣 onInitComplete: About to process message 2/6 (sequential processing)
+04-12 22:22:10.259 17334 17409 D Andromuks: AppViewModel: Refreshing shortcuts on startup with 84 active rooms (top 4 will be used)
+04-12 22:22:10.296 17334 17334 D AuthCheckScreen: Spaces loaded but startup not complete yet (isStartupComplete=false); waiting for checkStartupComplete to fire navigation
+04-12 22:22:10.313 17334 17334 D Andromuks: AppViewModel: processParsedSyncResult - Processing account_data with keys: im.ponies.emote_rooms (clear_state=false)
+04-12 22:22:10.313 17334 17334 D Andromuks: AppViewModel: processAccountData - Processing account_data with 1 keys: im.ponies.emote_rooms
+04-12 22:22:10.313 17334 17334 D Andromuks: AppViewModel: processAccountData - io.element.recent_emoji key not found in account_data
+04-12 22:22:10.313 17334 17334 D Andromuks: AppViewModel: processAccountData - Found im.ponies.emote_rooms, content=true, rooms=true, rooms length=2
+04-12 22:22:10.313 17334 17334 D Andromuks: AppViewModel: Found im.ponies.emote_rooms account data with 2 rooms (stateType=im.ponies.room_emotes)
+04-12 22:22:10.313 17334 17334 D Andromuks: AppViewModel: Requesting emoji pack data for pack nex-pack in room !OsgPt00PZet9BvF2v0:nexy7574.co.uk (type=im.ponies.room_emotes)
+04-12 22:22:10.314 17334 17334 D Andromuks: sendWebSocketCommand: command='get_specific_room_state', requestId=3, data={"keys":[{"room_id":"!OsgPt00PZet9BvF2v0:nexy7574.co.uk","type":"im.ponies.room_emotes","state_key":"nex-pack"}]}
+04-12 22:22:10.314 17334 17334 D Andromuks: AppViewModel: Sent emoji pack request with ID 3 for pack nex-pack in room !OsgPt00PZet9BvF2v0:nexy7574.co.uk (type=im.ponies.room_emotes)
+04-12 22:22:10.314 17334 17334 D Andromuks: AppViewModel: Requesting emoji pack data for pack frowncat in room !stickers-v11:maunium.net (type=im.ponies.room_emotes)
+04-12 22:22:10.314 17334 17334 D Andromuks: sendWebSocketCommand: command='get_specific_room_state', requestId=4, data={"keys":[{"room_id":"!stickers-v11:maunium.net","type":"im.ponies.room_emotes","state_key":"frowncat"}]}
+04-12 22:22:10.314 17334 17334 D Andromuks: AppViewModel: Sent emoji pack request with ID 4 for pack frowncat in room !stickers-v11:maunium.net (type=im.ponies.room_emotes)
+04-12 22:22:10.314 17334 17334 D Andromuks: AppViewModel: Requested emoji pack data for 2 packs across 2 rooms
+04-12 22:22:10.314 17334 17334 D Andromuks: AppViewModel: Account data processed.
+04-12 22:22:10.315 17334 17334 D Andromuks: 🟦 Startup Progress: [22:22:10:314] Account data processed.
+04-12 22:22:10.316 17334 17360 D Andromuks: AppViewModel: handleFCMRegistrationResponse called with requestId=2, dataType=
+04-12 22:22:10.316 17334 17360 D Andromuks: AppViewModel: FCM registration response data: null
+04-12 22:22:10.316 17334 17360 I Andromuks: AppViewModel: FCM registration response (unknown type): null
+04-12 22:22:10.317 17334 17360 D Andromuks: AppViewModel: Marked FCM as registered via WebSocket (unknown response type)
+04-12 22:22:10.456 17334 17334 D Andromuks: AppViewModel: processParsedSyncResult - account_data is null (preserving existing state)
+04-12 22:22:10.458 17334 17334 D Andromuks: AppViewModel: New rooms detected - forcing immediate sort to show them at the top
+04-12 22:22:10.461 17334 17334 D Andromuks: AppViewModel: Updated low priority rooms set: 9 rooms (changed)
+04-12 22:22:10.465 17334 17334 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Member state changed, scheduling UI update
+04-12 22:22:10.466 17334 17334 D Andromuks: 🟣 onInitComplete: Message 2 processing complete callback invoked - Updated state: Initializing (2/6)
+04-12 22:22:10.466 17334 17408 W Andromuks: 🟣 onInitComplete: Message 2 timed out after 30 seconds - continuing to next message
+04-12 22:22:10.467 17334 17408 D Andromuks: 🟦 Startup Progress: [22:22:10:467] Processing 99 rooms...
+04-12 22:22:10.467 17334 17408 D Andromuks: 🟣 onInitComplete: About to process message 3/6 (sequential processing)
+04-12 22:22:10.474 17334 17362 D Andromuks: AppViewModel: Handling room specific state response for room: !OsgPt00PZet9BvF2v0:nexy7574.co.uk, requestId: 3
+04-12 22:22:10.474 17334 17362 D Andromuks: AppViewModel: Room specific state response data type: JSONArray
+04-12 22:22:10.474 17334 17362 D Andromuks: AppViewModel: Processing emoji pack response for pack nex-pack in room !OsgPt00PZet9BvF2v0:nexy7574.co.uk
+04-12 22:22:10.475 17334 17362 D Andromuks: AppViewModel: Handling emoji pack response for nex-pack in !OsgPt00PZet9BvF2v0:nexy7574.co.uk
+04-12 22:22:10.476 17334 17362 D Andromuks: AppViewModel: Updated emoji pack nex-pack with 12 emojis
+04-12 22:22:10.476 17334 17362 D Andromuks: AppViewModel: Updated sticker pack nex-pack with 70 stickers
+04-12 22:22:10.478 17334 17362 D Andromuks: AppViewModel: Handling room specific state response for room: !stickers-v11:maunium.net, requestId: 4
+04-12 22:22:10.478 17334 17362 D Andromuks: AppViewModel: Room specific state response data type: JSONArray
+04-12 22:22:10.478 17334 17362 D Andromuks: AppViewModel: Processing emoji pack response for pack frowncat in room !stickers-v11:maunium.net
+04-12 22:22:10.478 17334 17362 D Andromuks: AppViewModel: Handling emoji pack response for frowncat in !stickers-v11:maunium.net
+04-12 22:22:10.515 17334 17334 D Andromuks: AppViewModel: New rooms detected - forcing immediate sort to show them at the top
+04-12 22:22:10.555 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @marvesms:matrix.org in room !YqYnEoEIw3fGTESr6WGGiVuoGHhUD1UtEn1VJGQHp7I
+04-12 22:22:10.555 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @icebaby87:dobro.bar in room !cQbvKrV57KlU_PdX7rdYEU-Xh8Pnuh77YuAqsBsSi9A
+04-12 22:22:10.557 17334 17334 D Andromuks: AppViewModel: processParsedSyncResult - account_data is null (preserving existing state)
+04-12 22:22:10.558 17334 17334 D Andromuks: AppViewModel: New rooms detected - forcing immediate sort to show them at the top
+04-12 22:22:10.560 17334 17408 D Andromuks: AppViewModel: Force sorting room list (tab change or screen return)
+04-12 22:22:10.563 17334 17334 D Andromuks: AppViewModel: Updated low priority rooms set: 10 rooms (changed)
+04-12 22:22:10.570 17334 17334 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Member state changed, scheduling UI update
+04-12 22:22:10.570 17334 17334 D Andromuks: 🟣 onInitComplete: Message 3 processing complete callback invoked - Updated state: Initializing (3/6)
+04-12 22:22:10.571 17334 17393 W Andromuks: 🟣 onInitComplete: Message 3 timed out after 30 seconds - continuing to next message
+04-12 22:22:10.572 17334 17393 D Andromuks: 🟦 Startup Progress: [22:22:10:571] Processing 99 rooms...
+04-12 22:22:10.572 17334 17393 D Andromuks: 🟣 onInitComplete: About to process message 4/6 (sequential processing)
+04-12 22:22:10.611 17334 17334 D Andromuks: AppViewModel: Forced room list refresh after init_complete
+04-12 22:22:10.649 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @okakosolykos:matrix.org in room !AbdrObJtpUGjqqSwXw:pussthecat.org
+04-12 22:22:10.650 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @skepickle:matrix.org in room !LbzXMajXBVwdNyzDuC:fostered.uk
+04-12 22:22:10.650 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @callhimholy:matriz.nadeko.net in room !P7tIaLMFHT55GuONJ7UQ87M0SkqfpjofluPqmu0wOeY
+04-12 22:22:10.651 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @clari7744:matrix.org in room !dfVBRKJqYiVyqQLOKN:officialdakari.ru
+04-12 22:22:10.651 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @rogerthatalek_4d2.it:matrix.org in room !fFrilqWEPBVfFTILzK:telepath.im
+04-12 22:22:10.653 17334 17334 D Andromuks: AppViewModel: processParsedSyncResult - account_data is null (preserving existing state)
+04-12 22:22:10.654 17334 17334 D Andromuks: AppViewModel: New rooms detected - forcing immediate sort to show them at the top
+04-12 22:22:10.655 17334 17339 I ieira.andromuks: Compiler allocated 4232KB to compile java.lang.Object net.vrkknn.andromuks.database.SyncIngestor.processRoom(java.lang.String, org.json.JSONObject, boolean, boolean, kotlin.coroutines.Continuation)
+04-12 22:22:10.658 17334 17334 D Andromuks: AppViewModel: Updated low priority rooms set: 11 rooms (changed)
+04-12 22:22:10.666 17334 17334 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Member state changed, scheduling UI update
+04-12 22:22:10.666 17334 17334 D Andromuks: 🟣 onInitComplete: Message 4 processing complete callback invoked - Updated state: Initializing (4/6)
+04-12 22:22:10.667 17334 17394 W Andromuks: 🟣 onInitComplete: Message 4 timed out after 30 seconds - continuing to next message
+04-12 22:22:10.668 17334 17394 D Andromuks: 🟦 Startup Progress: [22:22:10:667] Processing 99 rooms...
+04-12 22:22:10.668 17334 17394 D Andromuks: 🟣 onInitComplete: About to process message 5/6 (sequential processing)
+04-12 22:22:10.735 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @whatsapp_351912444191:matrixbridg.es in room !ZbzUIqepwENKrzyctF:matrixbridg.es
+04-12 22:22:10.735 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @bot:continuwuity.org in room !aAvealFbgiKTJGzumNbjuwDgt1tOkBKwiyfYqE3ouk0
+04-12 22:22:10.735 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @whatsapp_351915348271:matrixbridg.es in room !nzhMBYTCxhEXAaQoXW:matrixbridg.es
+04-12 22:22:10.736 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @whatsapp_351932004029:matrixbridg.es in room !yHkmBNbAUFPGDMGFYJ:matrixbridg.es
+04-12 22:22:10.736 17334 17334 D Andromuks: AppViewModel: processParsedSyncResult - account_data is null (preserving existing state)
+04-12 22:22:10.738 17334 17334 D Andromuks: AppViewModel: New rooms detected - forcing immediate sort to show them at the top
+04-12 22:22:10.743 17334 17334 D Andromuks: AppViewModel: Updated low priority rooms set: 22 rooms (changed)
+04-12 22:22:10.752 17334 17334 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Member state changed, scheduling UI update
+04-12 22:22:10.752 17334 17334 D Andromuks: 🟣 onInitComplete: Message 5 processing complete callback invoked - Updated state: Initializing (5/6)
+04-12 22:22:10.753 17334 17360 W Andromuks: 🟣 onInitComplete: Message 5 timed out after 30 seconds - continuing to next message
+04-12 22:22:10.753 17334 17360 D Andromuks: AppViewModel: Processing queued initial sync_complete message 6/6 (request_id=0) - FIFO sequential processing
+04-12 22:22:10.754 17334 17360 D Andromuks: 🟦 Startup Progress: [22:22:10:753] Processing 99 rooms...
+04-12 22:22:10.754 17334 17360 D Andromuks: 🟣 onInitComplete: About to process message 6/6 (sequential processing)
+04-12 22:22:10.823 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @jjj333_p_1325:envs.net in room !QzNmKfDhzCQFDqmUhl:matrix.org
+04-12 22:22:10.823 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @whatsapp_351916418543:matrixbridg.es in room !dqtVBuNGeWXHcfobpE:matrixbridg.es
+04-12 22:22:10.823 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @rzn:tchncs.de in room !fKBhtseYFRTcVyVyTJ:envs.net
+04-12 22:22:10.824 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @bonswouar:matrix.drhugs.com in room !googlechat-v10:maunium.net
+04-12 22:22:10.824 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @whatsapp_351919100753:matrixbridg.es in room !ooEiembJLLIsHnMeib:matrixbridg.es
+04-12 22:22:10.824 17334 17334 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @pseudosalt_extensometer_meristem_strial.unchurched-pachysandras:speech-ka.fun in room !rgQbWTfsoUcbvEDAvs:matrix.org
+04-12 22:22:10.824 17334 17334 D Andromuks: AppViewModel: processParsedSyncResult - account_data is null (preserving existing state)
+04-12 22:22:10.826 17334 17334 D Andromuks: AppViewModel: New rooms detected - forcing immediate sort to show them at the top
+04-12 22:22:10.829 17334 17334 D Andromuks: AppViewModel: Updated low priority rooms set: 30 rooms (changed)
+04-12 22:22:10.836 17334 17334 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Member state changed, scheduling UI update
+04-12 22:22:10.837 17334 17334 D Andromuks: 🟣 onInitComplete: Message 6 processing complete callback invoked - Updated state: Initializing (6/6)
+04-12 22:22:10.838 17334 17414 W Andromuks: 🟣 onInitComplete: Message 6 timed out after 30 seconds - continuing to next message
+04-12 22:22:10.838 17334 17414 D Andromuks: AppViewModel: Finished processing all 6 initial sync_complete messages
+04-12 22:22:10.838 17334 17414 D Andromuks: 🟣 ensureCurrentUserProfileLoaded: START - currentUserProfile=false, currentUserId=@daedric:aguiarvieira.pt
+04-12 22:22:10.838 17334 17414 D Andromuks: 🟣 ensureCurrentUserProfileLoaded: Populated from cache - userId: @daedric:aguiarvieira.pt, displayName: Ricardo Duarte
+04-12 22:22:10.838 17334 17414 D Andromuks: 🟦 checkStartupComplete: BLOCKED - missing: initializationComplete, initialSyncProcessingComplete, allRoomStatesLoaded
+04-12 22:22:10.846 17334 17334 D Andromuks: 🟣 Initial sync processing: All messages processed - processingComplete=true (early unblock already set initialSyncComplete)
+04-12 22:22:10.846 17334 17334 D Andromuks: 🟦 checkStartupComplete: BLOCKED - missing: allRoomStatesLoaded
+04-12 22:22:10.846 17334 17334 D Andromuks: 🟣 Initial sync processing: COMPLETE - initialSyncComplete=true, processingComplete=true, spacesLoaded=true, profile=true, isStartupComplete=false - Room list can now be shown
+04-12 22:22:10.847 17334 17383 D Andromuks: AppViewModel: loadAllRoomStatesAfterInitComplete - Found 579 rooms in roomMap
+04-12 22:22:10.851 17334 17383 D Andromuks: AppViewModel: Loading 579 cached bridge info entries from SharedPreferences
+04-12 22:22:10.861 17334 17383 D Andromuks: AppViewModel: No pending WebSocket operations to retry
+04-12 22:22:10.861 17334 17383 D Andromuks: 🟦 checkStartupComplete: nowComplete=true (init=true, sync=true, processing=true, spaces=true, rooms=579, profile=true, allRoomStates=true)
+04-12 22:22:10.862 17334 17383 D Andromuks: 🟦 Startup Progress: [22:22:10:861] Ready!
+04-12 22:22:10.862 17334 17383 D Andromuks: 🟦 Startup complete - Room list ready to display (all sync messages processed, profile loaded, 579 rooms)
+04-12 22:22:10.863 17334 17383 D Andromuks: 🟦 Startup Progress: [22:22:10:862] Bridge info loaded for all rooms (from cache)
+04-12 22:22:10.863 17334 17383 D Andromuks: AppViewModel: All 579 rooms are cached - skipping room state requests
+04-12 22:22:10.864 17334 17334 D Andromuks: AuthCheck: Navigation callback triggered
+04-12 22:22:10.864 17334 17334 D Andromuks: AuthCheck: Navigation callback - directRoomId: null, pendingRoomId: null
+04-12 22:22:10.864 17334 17334 D Andromuks: AppViewModel: registerFCMNotifications called
+04-12 22:22:10.864 17334 17334 D Andromuks: AppViewModel: fcmNotificationManager=true, homeserverUrl=https://webmuks.aguiarvieira.pt, authToken=eyJ1c2VybmFtZSI6ImRh..., currentUserId=@daedric:aguiarvieira.pt
+04-12 22:22:10.864 17334 17334 D Andromuks: AppViewModel: Calling FCMNotificationManager.registerNotifications
+04-12 22:22:10.865 17334 17334 D AuthCheckScreen: navigateToRoomListIfNeeded called with reason: default flow, currentRoute: auth_check
+04-12 22:22:10.865 17334 17334 D AuthCheckScreen: Navigating to room_list (reason: default flow, currentRoute: auth_check)
+04-12 22:22:10.866 17334 17383 D Andromuks: AppViewModel: FCM token ready callback triggered, registering with Gomuks Backend
+04-12 22:22:10.866 17334 17383 D Andromuks: AppViewModel: registerFCMWithGomuksBackend called (forceRegistrationOnConnect=false, forceNow=false)
+04-12 22:22:10.866 17334 17383 D Andromuks: AppViewModel: shouldRegisterPush() called, result=false
+04-12 22:22:10.866 17334 17383 D Andromuks: AppViewModel: shouldRegisterPush() returned false
+04-12 22:22:10.866 17334 17383 D Andromuks: AppViewModel: Skipping FCM registration - not due yet and already registered via WebSocket
+04-12 22:22:10.918 17334 17334 D AuthCheckScreen: Spaces loaded from cache - navigating to room_list (isWebSocketConnected=true, network=WIFI)
+04-12 22:22:10.948 17334 17334 D Andromuks: AppViewModel: Lazy loading section: HOME
+04-12 22:22:10.949 17334 17334 D Andromuks: AppViewModel: Badge counts - DMs: 0, Unread: 198, Favs: 2
+04-12 22:22:10.950 17334 17334 D Andromuks: AppViewModel: Updated cached sections - allRooms(raw): 579, spaces filtered: 579, DMs: 116, Unread: 198, Favourites: 19
+04-12 22:22:11.134 17334 17334 D Andromuks: RoomListScreen: Registered FOREGROUND_REFRESH broadcast receiver
+04-12 22:22:11.471 17334 17339 I ieira.andromuks: JIT allocated 58KB for stack maps of void net.vrkknn.andromuks.RoomListScreenKt.RoomListItem(net.vrkknn.andromuks.RoomItem, java.lang.String, java.lang.String, kotlin.jvm.functions.Function1, kotlin.jvm.functions.Function1, int, net.vrkknn.andromuks.AppViewModel, androidx.compose.ui.Modifier, boolean, boolean, boolean, androidx.compose.animation.SharedTransitionScope, androidx.compose.animation.AnimatedVisibilityScope, androidx.compose.runtime.Composer, int, int, int)
+04-12 22:22:11.472 17334 17339 I ieira.andromuks: Compiler allocated 17MB to compile void net.vrkknn.andromuks.RoomListScreenKt.RoomListItem(net.vrkknn.andromuks.RoomItem, java.lang.String, java.lang.String, kotlin.jvm.functions.Function1, kotlin.jvm.functions.Function1, int, net.vrkknn.andromuks.AppViewModel, androidx.compose.ui.Modifier, boolean, boolean, boolean, androidx.compose.animation.SharedTransitionScope, androidx.compose.animation.AnimatedVisibilityScope, androidx.compose.runtime.Composer, int, int, int)
+04-12 22:22:11.738 17334 17334 D Andromuks: 🟦 MainActivity: LaunchedEffect(isStartupComplete=true) - showRoomList=true, hasAppliedDelay=true
+04-12 22:22:11.738 17334 17334 D Andromuks: 🟦 MainActivity: Set showRoomList=true (isStartupComplete=true, hadDelay=true)
+04-12 22:22:11.738 17334 17334 D Andromuks: 🟦 MainActivity: State check - isStartupComplete=true, showRoomList=true, willShowLoading=false
+04-12 22:22:11.739 17334 17334 D Andromuks: 🟣 ensureCurrentUserProfileLoaded: START - currentUserProfile=true, currentUserId=@daedric:aguiarvieira.pt
+04-12 22:22:11.739 17334 17334 D Andromuks: 🟣 ensureCurrentUserProfileLoaded: Profile already loaded or userId is blank - currentUserProfile=true, currentUserId=@daedric:aguiarvieira.pt
+04-12 22:22:11.739 17334 17334 D Andromuks: AppViewModel: Force sorting room list (tab change or screen return)
+04-12 22:22:11.739 17334 17390 D Andromuks: AppViewModel: No pending items to process (deprecated - all data is in-memory only) - not blocking UI
+04-12 22:22:11.739 17334 17390 D Andromuks: AppViewModel: Cleared isProcessingPendingItems flag (finally block)
+04-12 22:22:11.741 17334 17334 D Andromuks: 🔴 RoomListScreen: Loading state - coldStartRefreshing=false, shouldBlockForPending=false, effectiveSpacesLoaded=true, effectiveInitialSyncComplete=true, hasRooms=true, roomCount=579
+04-12 22:22:11.741 17334 17334 D Andromuks: RoomListScreen: isProcessingBatch=false
+04-12 22:22:11.763 17334 17334 D Andromuks: AppViewModel: Force sorting room list (tab change or screen return)
+04-12 22:22:11.763 17334 17390 D Andromuks: RoomListScreen: Preloading 100 avatars for faster scrolling
+04-12 22:22:11.766 17334 17334 D Andromuks: RoomListScreen: Using existing roomMap with 579 rooms (cache has 579 rooms)
+04-12 22:22:11.768 17334 17334 D Andromuks: RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for 40 new message senders (40 total, 0 already processed)
+04-12 22:22:11.771 17334 17334 D Andromuks: RoomListScreen: isProcessingBatch changed to false
+04-12 22:22:11.795 17334 17390 W Andromuks: AvatarUtils: Invalid MXC URL format: null
+04-12 22:22:11.799 17334 17390 W Andromuks: AvatarUtils: Invalid MXC URL format: null
+04-12 22:22:11.807 17334 17390 D Andromuks: RoomListScreen: Finished preloading 100 avatars
+04-12 22:22:12.617 17334 17334 D AuthCheckScreen: Token and server URL found.
+04-12 22:22:12.620 17334 17334 D AuthCheckScreen: Permissions check - notifications: true, battery: true
+04-12 22:22:12.620 17334 17334 D AuthCheckScreen: Notification permission granted. Attempting auto WebSocket connect.
+04-12 22:22:12.621 17334 17334 D Andromuks: AppViewModel: Loaded 40 activity log entries from storage
+04-12 22:22:12.621 17334 17334 D Andromuks: AppViewModel: Clearing current open room ID from SharedPreferences
+04-12 22:22:12.621 17334 17334 D Andromuks: AppViewModel: SharedPreferences commit succeeded for room ID: 
+04-12 22:22:12.621 17334 17334 D Andromuks: AppViewModel: Cleared current room ID on app startup
+04-12 22:22:12.621 17334 17334 D Andromuks: AppViewModel: No valid pending WebSocket operations to load
+04-12 22:22:12.623 17334 17334 D Andromuks: AppViewModel: Started acknowledgment timeout check job
+04-12 22:22:12.623 17334 17334 D Andromuks: AppViewModel: Started acknowledged messages cleanup job
+04-12 22:22:12.623 17334 17334 D Andromuks: AppViewModel: Navigation callback set
+04-12 22:22:12.623 17334 17334 D Andromuks: AppViewModel: Spaces already loaded from cache, but waiting for WebSocket connection before navigating
+04-12 22:22:12.623 17334 17334 D Andromuks: AuthCheckScreen: appViewModel instance: net.vrkknn.andromuks.AppViewModel@9ac3b7
+04-12 22:22:12.624 17334 17334 D Andromuks: 🟦 Startup Progress: [22:22:12:623] Starting...
+04-12 22:22:12.624 17334 17334 D Andromuks: 🟦 Startup Progress: [22:22:12:624] Checking stored auth....
+04-12 22:22:12.624 17334 17334 D Andromuks: 🟦 Startup Progress: [22:22:12:624] Attaching to existing WebSocket...
+04-12 22:22:12.625 17334 17334 D Andromuks: AuthCheckScreen: WebSocket connection check - isPrimary: true, isAlreadyConnected: true
+04-12 22:22:12.625 17334 17334 D Andromuks: AuthCheckScreen: WebSocket already connected, attaching to existing connection
+04-12 22:22:12.625 17334 17334 D Andromuks: AppViewModel: Attaching AppViewModel_0 to existing WebSocket
+04-12 22:22:12.631 17334 17334 D Andromuks: 🟣 ensureCurrentUserProfileLoaded: START - currentUserProfile=true, currentUserId=@daedric:aguiarvieira.pt
+04-12 22:22:12.631 17334 17334 D Andromuks: 🟣 ensureCurrentUserProfileLoaded: Profile already loaded or userId is blank - currentUserProfile=true, currentUserId=@daedric:aguiarvieira.pt
+04-12 22:22:12.631 17334 17334 D Andromuks: 🟣 Attaching to WebSocket: Setting initializationComplete=true, initialSyncComplete=true, processingComplete=true (already-initialized WebSocket)
+04-12 22:22:12.631 17334 17334 D Andromuks: 🟣 Attaching to WebSocket: initializationComplete=true, initialSyncComplete=true, processingComplete=true, profile=true
+04-12 22:22:12.631 17334 17334 W Andromuks: 🟣 attachToExistingWebSocket: enqueuing drain sentinel — navigation deferred until pipeline is drained
+04-12 22:22:12.631 17334 17334 D Andromuks: AppViewModel: registerFCMNotifications called
+04-12 22:22:12.631 17334 17334 D Andromuks: AppViewModel: fcmNotificationManager=true, homeserverUrl=https://webmuks.aguiarvieira.pt, authToken=eyJ1c2VybmFtZSI6ImRh..., currentUserId=@daedric:aguiarvieira.pt
+04-12 22:22:12.631 17334 17334 D Andromuks: AppViewModel: Calling FCMNotificationManager.registerNotifications
+04-12 22:22:12.632 17334 17334 D AuthCheckScreen: Spaces loaded from cache - navigating to room_list (isWebSocketConnected=true, network=WIFI)
+04-12 22:22:12.634 17334 17421 D Andromuks: AppViewModel: FCM token ready callback triggered, registering with Gomuks Backend
+04-12 22:22:12.634 17334 17421 D Andromuks: AppViewModel: registerFCMWithGomuksBackend called (forceRegistrationOnConnect=false, forceNow=false)
+04-12 22:22:12.635 17334 17421 D Andromuks: AppViewModel: shouldRegisterPush() called, result=false
+04-12 22:22:12.635 17334 17421 D Andromuks: AppViewModel: shouldRegisterPush() returned false
+04-12 22:22:12.635 17334 17421 D Andromuks: AppViewModel: Skipping FCM registration - not due yet and already registered via WebSocket
+04-12 22:22:12.688 17334 17334 W Andromuks: 🟣 attachToExistingWebSocket: sentinel fired — processing 0 queued message(s) before navigation
+04-12 22:22:12.688 17334 17334 D Andromuks: AppViewModel: populateRoomMapFromCache called - current roomMap size: 579, cache size: 579
+04-12 22:22:12.689 17334 17334 D Andromuks: AppViewModel: populateRoomMapFromCache - populated roomMap with 579 rooms from cache (new size: 579)
+04-12 22:22:12.689 17334 17334 D Andromuks: AppViewModel: Force sorting room list (tab change or screen return)
+04-12 22:22:12.691 17334 17334 D Andromuks: AppViewModel: populateSpacesFromCache called - current allSpaces size: 41, cache size: 41
+04-12 22:22:12.691 17334 17334 D Andromuks: AppViewModel: populateSpacesFromCache - populated allSpaces with 41 spaces from cache
+04-12 22:22:12.699 17334 17334 D Andromuks: AppViewModel: populateSpacesFromCache - restored space_edges from cache
+04-12 22:22:12.699 17334 17334 D Andromuks: AppViewModel: Loading 59 account_data types from cache (m.direct=true)
+04-12 22:22:12.699 17334 17334 D Andromuks: AppViewModel: processAccountData - Processing account_data with 59 keys: org.matrix.msc3890.local_notification_settings.IPLNIRLRXN, m.org.matrix.custom.backup_disabled, org.matrix.msc3814, msc3588.stories.block-list, im.vector.setting.allowed_widgets, m.secret_storage.key.SqUrZUn568w6qi78seYF0dNvWlbClJ8d, org.matrix.msc3890.local_notification_settings.UQEYWHWMZL, m.secret_storage.key.tmaZTxd7EojcZ0zKiYKNH7XvaFYNF4cR, m.secret_storage.key.FgrF50kpdrdZWczpL3Sa22PA9u8WZwBS, m.secret_storage.key.hQcXUp7ZXuFYKD1e7ZTXgonnXr5gPC7h, org.matrix.msc3890.local_notification_settings.RIRGDITSEJ, org.matrix.msc3890.local_notification_settings.WFWLSVRUTT, m.secret_storage.key.yiLzm35KIDCNPMT3mPWIjmXKH3ayZM1v, m.cross_signing.master, im.vector.setting.integration_provisioning, io.element.recent_emoji, io.element.matrix_client_information.NREPXGERTJ, org.matrix.msc3890.local_notification_settings.DWAIMZRDWN, io.element.matrix_client_information.DWAIMZRDWN, fi.mau.gomuks.preferences, m.identity_server, org.matrix.msc3890.local_notification_settings.KRTTBMPKMM, im.vector.analytics, io.element.msc4278.media_preview_config, in.cinny.spaces, m.secret_storage.key.BnsDatDgwipRS3IkjTgBfsKapOrEysbO, org.matrix.msc3890.local_notification_settings.PXSHCZBOHO, m.secret_storage.key.Xa7OnpfZqu70lZjSMHybueKJQLojkESl, io.element.matrix_client_information.OOXYKKDHPF, m.secret_storage.default_key, im.vector.setting.breadcrumbs, io.element.matrix_client_information.JIUUBBXUDO, org.matrix.preview_urls, com.famedly.app.user_settings, org.matrix.msc3890.local_notification_settings.JIUUBBXUDO, org.matrix.msc3890.local_notification_settings.LHYRRRKRHH, m.accepted_terms, org.matrix.msc3890.local_notification_settings.CUOSWWTZSF, org.matrix.msc3890.local_notification_settings.VDZDVPHVJH, m.push_rules, org.matrix.msc3890.local_notification_settings.XCSRCZMUSD, m.cross_signing.user_signing, im.ponies.emote_rooms, im.vector.web.settings, org.matrix.msc3890.local_notification_settings.PGARPGEZGU, m.direct, io.element.matrix_client_information.XCSRCZMUSD, m.ignored_user_list, m.secret_storage.key.jESPhkWhMf8JVI8FxxBzBIudUOPDIbvA, com.famedly.features, org.futo.circles.config, io.element.matrix_client_information.VDZDVPHVJH, m.secret_storage.key.U2mnw3yL4y6HKOR05yTQl3EbGVYdSvsM, m.secret_storage.key.sYarkYINFJQOviYUjiRfYhdlRpUYWiOJ, m.secret_storage.key.AyyBqvHwb9g8JBu0eXHBeGPBUon2uSzy, m.cross_signing.self_signing, m.secret_storage.key.lmz8gmfcZrhrwRlttpv4TxhX7v55jr6z, io.element.synapse.admin_client_config, m.megolm_backup.v1
+04-12 22:22:12.699 17334 17334 D Andromuks: AppViewModel: processAccountData - Found io.element.recent_emoji, content=true, array length=24
+04-12 22:22:12.700 17334 17334 D Andromuks: AppViewModel: Loaded 24 recent emojis from account_data (server is source of truth): 🤣(36), 👍(27), ❤(26), 🤬(14), ☝(13)...
+04-12 22:22:12.701 17334 17334 D Andromuks: AppViewModel: Loaded 282 DM room IDs for 133 users from m.direct account data
+04-12 22:22:12.707 17334 17334 D Andromuks: AppViewModel: Updated 2 rooms with correct DM status from m.direct/bridge data
+04-12 22:22:12.707 17334 17334 D Andromuks: AppViewModel: Loaded 161 ignored users from m.ignored_user_list
+04-12 22:22:12.707 17334 17334 D Andromuks: AppViewModel: processAccountData - Found im.ponies.emote_rooms, content=true, rooms=true, rooms length=2
+04-12 22:22:12.707 17334 17334 D Andromuks: AppViewModel: Found im.ponies.emote_rooms account data with 2 rooms (stateType=im.ponies.room_emotes)
+04-12 22:22:12.707 17334 17334 D Andromuks: AppViewModel: Requesting emoji pack data for pack nex-pack in room !OsgPt00PZet9BvF2v0:nexy7574.co.uk (type=im.ponies.room_emotes)
+04-12 22:22:12.707 17334 17334 D Andromuks: sendWebSocketCommand: command='get_specific_room_state', requestId=5, data={"keys":[{"room_id":"!OsgPt00PZet9BvF2v0:nexy7574.co.uk","type":"im.ponies.room_emotes","state_key":"nex-pack"}]}
+04-12 22:22:12.707 17334 17334 D Andromuks: AppViewModel: Sent emoji pack request with ID 5 for pack nex-pack in room !OsgPt00PZet9BvF2v0:nexy7574.co.uk (type=im.ponies.room_emotes)
+04-12 22:22:12.707 17334 17334 D Andromuks: AppViewModel: Requesting emoji pack data for pack frowncat in room !stickers-v11:maunium.net (type=im.ponies.room_emotes)
+04-12 22:22:12.707 17334 17334 D Andromuks: sendWebSocketCommand: command='get_specific_room_state', requestId=6, data={"keys":[{"room_id":"!stickers-v11:maunium.net","type":"im.ponies.room_emotes","state_key":"frowncat"}]}
+04-12 22:22:12.707 17334 17334 D Andromuks: AppViewModel: Sent emoji pack request with ID 6 for pack frowncat in room !stickers-v11:maunium.net (type=im.ponies.room_emotes)
+04-12 22:22:12.707 17334 17334 D Andromuks: AppViewModel: Requested emoji pack data for 2 packs across 2 rooms
+04-12 22:22:12.707 17334 17334 D Andromuks: AppViewModel: Account data processed.
+04-12 22:22:12.708 17334 17334 D Andromuks: 🟦 Startup Progress: [22:22:12:708] Account data processed.
+04-12 22:22:12.708 17334 17334 D Andromuks: 🟣 Attaching to WebSocket: Checking startup complete - initializationComplete=true, initialSyncComplete=true, spacesLoaded=true, allRoomStatesLoaded=true, canSendCommands=true, roomMap.size=579
+04-12 22:22:12.708 17334 17334 D Andromuks: 🟣 Attaching to WebSocket: After checkStartupComplete - isStartupComplete=true
+04-12 22:22:12.708 17334 17334 D Andromuks: AppViewModel: Spaces loaded and WebSocket connected - triggering navigation callback
+04-12 22:22:12.708 17334 17334 D Andromuks: AuthCheck: Navigation callback triggered
+04-12 22:22:12.708 17334 17334 D Andromuks: AuthCheck: Navigation callback - directRoomId: null, pendingRoomId: null
+04-12 22:22:12.708 17334 17334 D Andromuks: AppViewModel: registerFCMNotifications called
+04-12 22:22:12.708 17334 17334 D Andromuks: AppViewModel: fcmNotificationManager=true, homeserverUrl=https://webmuks.aguiarvieira.pt, authToken=eyJ1c2VybmFtZSI6ImRh..., currentUserId=@daedric:aguiarvieira.pt
+04-12 22:22:12.708 17334 17334 D Andromuks: AppViewModel: Calling FCMNotificationManager.registerNotifications
+04-12 22:22:12.708 17334 17334 D AuthCheckScreen: navigateToRoomListIfNeeded called with reason: default flow, currentRoute: null
+04-12 22:22:12.709 17334 17334 D AuthCheckScreen: Navigating to room_list (reason: default flow, currentRoute: null)
+04-12 22:22:12.710 17334 17421 D Andromuks: AppViewModel: FCM token ready callback triggered, registering with Gomuks Backend
+04-12 22:22:12.710 17334 17421 D Andromuks: AppViewModel: registerFCMWithGomuksBackend called (forceRegistrationOnConnect=false, forceNow=false)
+04-12 22:22:12.710 17334 17421 D Andromuks: AppViewModel: shouldRegisterPush() called, result=false
+04-12 22:22:12.710 17334 17421 D Andromuks: AppViewModel: shouldRegisterPush() returned false
+04-12 22:22:12.710 17334 17421 D Andromuks: AppViewModel: Skipping FCM registration - not due yet and already registered via WebSocket
+04-12 22:22:12.796 17334 17334 D Andromuks: AppViewModel: Badge counts - DMs: 0, Unread: 198, Favs: 2
+04-12 22:22:12.796 17334 17334 D Andromuks: AppViewModel: Updated cached sections - allRooms(raw): 579, spaces filtered: 579, DMs: 114, Unread: 198, Favourites: 19
+04-12 22:22:12.917 17334 17334 D Andromuks: RoomListScreen: Registered FOREGROUND_REFRESH broadcast receiver
+04-12 22:22:12.918 17334 17339 I ieira.andromuks: JIT allocated 80KB for stack maps of void net.vrkknn.andromuks.RoomListScreenKt.RoomListScreen(androidx.navigation.NavController, androidx.compose.ui.Modifier, net.vrkknn.andromuks.AppViewModel, androidx.compose.animation.SharedTransitionScope, androidx.compose.animation.AnimatedVisibilityScope, androidx.compose.runtime.Composer, int, int)
+04-12 22:22:12.919 17334 17339 I ieira.andromuks: Compiler allocated 19MB to compile void net.vrkknn.andromuks.RoomListScreenKt.RoomListScreen(androidx.navigation.NavController, androidx.compose.ui.Modifier, net.vrkknn.andromuks.AppViewModel, androidx.compose.animation.SharedTransitionScope, androidx.compose.animation.AnimatedVisibilityScope, androidx.compose.runtime.Composer, int, int)
+04-12 22:22:13.400 17334 17334 D Andromuks: 🟦 MainActivity: LaunchedEffect(isStartupComplete=true) - showRoomList=true, hasAppliedDelay=true
+04-12 22:22:13.400 17334 17334 D Andromuks: 🟦 MainActivity: Set showRoomList=true (isStartupComplete=true, hadDelay=true)
+04-12 22:22:13.400 17334 17334 D Andromuks: 🟦 MainActivity: State check - isStartupComplete=true, showRoomList=true, willShowLoading=false
+04-12 22:22:13.400 17334 17334 D Andromuks: 🟣 ensureCurrentUserProfileLoaded: START - currentUserProfile=true, currentUserId=@daedric:aguiarvieira.pt
+04-12 22:22:13.400 17334 17334 D Andromuks: 🟣 ensureCurrentUserProfileLoaded: Profile already loaded or userId is blank - currentUserProfile=true, currentUserId=@daedric:aguiarvieira.pt
+04-12 22:22:13.401 17334 17334 D Andromuks: AppViewModel: Force sorting room list (tab change or screen return)
+04-12 22:22:13.401 17334 17421 D Andromuks: AppViewModel: No pending items to process (deprecated - all data is in-memory only) - not blocking UI
+04-12 22:22:13.401 17334 17421 D Andromuks: AppViewModel: Cleared isProcessingPendingItems flag (finally block)
+04-12 22:22:13.403 17334 17334 D Andromuks: 🔴 RoomListScreen: Loading state - coldStartRefreshing=false, shouldBlockForPending=false, effectiveSpacesLoaded=true, effectiveInitialSyncComplete=true, hasRooms=true, roomCount=579
+04-12 22:22:13.403 17334 17334 D Andromuks: RoomListScreen: isProcessingBatch=false
+04-12 22:22:13.423 17334 17334 D Andromuks: AppViewModel: Force sorting room list (tab change or screen return)
+04-12 22:22:13.424 17334 17410 D Andromuks: RoomListScreen: Preloading 100 avatars for faster scrolling
+04-12 22:22:13.426 17334 17334 D Andromuks: RoomListScreen: Using existing roomMap with 579 rooms (cache has 579 rooms)
+04-12 22:22:13.427 17334 17334 D Andromuks: RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for 40 new message senders (40 total, 0 already processed)
+04-12 22:22:13.430 17334 17334 D Andromuks: RoomListScreen: isProcessingBatch changed to false
+04-12 22:22:13.440 17334 17410 W Andromuks: AvatarUtils: Invalid MXC URL format: null
+04-12 22:22:13.443 17334 17410 W Andromuks: AvatarUtils: Invalid MXC URL format: null
+04-12 22:22:13.449 17334 17410 D Andromuks: RoomListScreen: Finished preloading 100 avatars
+04-12 22:22:13.561 17334 17334 D Andromuks: RoomListScreen: Unregistered FOREGROUND_REFRESH broadcast receiver
+04-12 22:22:13.601 17334 17410 D Andromuks: AppViewModel: Handling room specific state response for room: !OsgPt00PZet9BvF2v0:nexy7574.co.uk, requestId: 5
+04-12 22:22:13.601 17334 17410 D Andromuks: AppViewModel: Room specific state response data type: JSONArray
+04-12 22:22:13.601 17334 17410 D Andromuks: AppViewModel: Processing emoji pack response for pack nex-pack in room !OsgPt00PZet9BvF2v0:nexy7574.co.uk
+04-12 22:22:13.601 17334 17410 D Andromuks: AppViewModel: Handling emoji pack response for nex-pack in !OsgPt00PZet9BvF2v0:nexy7574.co.uk
+04-12 22:22:13.602 17334 17410 D Andromuks: AppViewModel: Updated emoji pack nex-pack with 12 emojis
+04-12 22:22:13.602 17334 17410 D Andromuks: AppViewModel: Updated sticker pack nex-pack with 70 stickers
+04-12 22:22:13.604 17334 17421 D Andromuks: AppViewModel: Handling room specific state response for room: !stickers-v11:maunium.net, requestId: 6
+04-12 22:22:13.604 17334 17421 D Andromuks: AppViewModel: Room specific state response data type: JSONArray
+04-12 22:22:13.604 17334 17421 D Andromuks: AppViewModel: Processing emoji pack response for pack frowncat in room !stickers-v11:maunium.net
+04-12 22:22:13.604 17334 17421 D Andromuks: AppViewModel: Handling emoji pack response for frowncat in !stickers-v11:maunium.net
+04-12 22:22:13.788 17334 17334 D Andromuks: AppViewModel: Starting background space edge processing for 41 spaces
+04-12 22:22:13.793 17334 17410 D Andromuks: AppViewModel: Background space edge processing - Created mock data for 579 rooms
+04-12 22:22:13.793 17334 17461 D ProfileInstaller: Installing profile for pt.aguiarvieira.andromuks
+04-12 22:22:13.814 17334 17410 D Andromuks: AppViewModel: updateAllSpaces called - setting allSpaces from 41 to 41 spaces
+04-12 22:22:13.814 17334 17410 D Andromuks: AppViewModel: updateAllSpaces - space names: Home, WhatsApp (+351912271966), Instagram (Ricardo Duarte), Root, Matrix, Homelab, Continuwuity (old, space), Matrix Admins, Unredacted Space, Selfhosted, /r/Roms, Muninn Hall Private Space, Chats, RoomDir, Offtopic Space, SchildiChat, NSFW, Linux Gamers Group, abuse-fighters, espaço cplp, MultiplayerGamers, Debian, t2bot.io community, Draupnir, Matrix Community, GNOME Community, Matrix United, Rory&::ModAS, Jellyfin, Maunium Space, ntfy, Galleries, NSFW Gallery, Linux Distros, Scrolling Space, Signal (+351912271966), Calitabby Network, Discord, Continuwuity (directory), Matrix.org room directory, Telegram
+04-12 22:22:13.814 17334 17410 D Andromuks: AppViewModel: allSpaces set to 41 spaces (was 41), cache updated
+04-12 22:22:13.814 17334 17410 D Andromuks: AppViewModel: Background space edge processing - Completed processing
+04-12 22:22:13.814 17334 17339 I ieira.andromuks: Compiler allocated 4669KB to compile void net.vrkknn.andromuks.SyncRoomsCoordinator.processParsedSyncResult(net.vrkknn.andromuks.SyncUpdateResult, org.json.JSONObject)
+04-12 22:22:13.833 17334 17334 D Andromuks: AppViewModel: Space edge processing complete - UI updated

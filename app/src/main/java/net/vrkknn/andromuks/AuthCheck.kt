@@ -296,11 +296,13 @@ fun AuthCheckScreen(
                 // avatar is at alpha=0 and the flight is invisible to the user.
                 // Add a small delay to ensure Compose recomposes with the new state before navigation.
                 showStartupMorphOverlay = false
-                // Do NOT use popUpTo here — popping auth_check from the back stack before the
-                // shared element flight completes prevents SharedTransitionLayout from keeping
-                // both composables in composition simultaneously. The RoomListScreen BackHandler
-                // already prevents the user from navigating back to auth_check.
-                navController.navigate("room_list")
+                // Remove auth_check from the back stack as part of the navigation so that
+                // RoomListScreen's subsequent popBackStack("auth_check", inclusive=true) is a
+                // safe no-op. The exitTransition (fadeOut 600ms) keeps auth_check in composition
+                // long enough for the shared-element flight to complete even after it is popped.
+                navController.navigate("room_list") {
+                    popUpTo("auth_check") { inclusive = true }
+                }
             }
             
             // Set up navigation callback BEFORE connecting websocket
@@ -508,7 +510,7 @@ fun AuthCheckScreen(
         token != null && homeserverUrl != null
     }
     
-    LaunchedEffect(appViewModel.spacesLoaded, hasCredentials) {
+    LaunchedEffect(appViewModel.spacesLoaded, appViewModel.isStartupComplete, hasCredentials) {
         if (hasCredentials && appViewModel.spacesLoaded && !navigationHandled) {
             // Spaces loaded from cache - prefer to wait for WebSocket when network is available.
             // On a normal cold start with WiFi/5G, WebSocket connection should be fast; showing
@@ -524,6 +526,21 @@ fun AuthCheckScreen(
                     Log.d(
                         "AuthCheckScreen",
                         "Spaces loaded from cache but WebSocket not connected and network=$currentNetworkType; waiting for WebSocket before navigating"
+                    )
+                }
+                return@LaunchedEffect
+            }
+
+            if (isWebSocketConnected && !appViewModel.isStartupComplete) {
+                // WebSocket is live but startup isn't fully complete yet (bridge info still
+                // loading, profile not yet received, etc.).  The navigation callback will fire
+                // from checkStartupComplete() once all conditions are met, so don't navigate
+                // early here — that would land on room_list while isStartupComplete=false,
+                // causing the inner StartupLoadingScreen to show (visual "bounce").
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "AuthCheckScreen",
+                        "Spaces loaded but startup not complete yet (isStartupComplete=false); waiting for checkStartupComplete to fire navigation"
                     )
                 }
                 return@LaunchedEffect
@@ -547,16 +564,22 @@ fun AuthCheckScreen(
             if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Spaces loaded from cache - navigating to room_list (isWebSocketConnected=$isWebSocketConnected, network=$currentNetworkType)")
             appViewModel.isLoading = false
             val currentRoute = navController.currentBackStackEntry?.destination?.route
-            if (currentRoute != null && currentRoute != "simple_room_list" &&
+            if (currentRoute != null && currentRoute != "room_list" &&
+                currentRoute != "simple_room_list" &&
                 !currentRoute.startsWith("room_timeline/") &&
                 !currentRoute.startsWith("chat_bubble/")) {
                 showStartupMorphOverlay = false
-                navController.navigate("room_list")
+                navController.navigate("room_list") {
+                    popUpTo("auth_check") { inclusive = true }
+                }
+                navigationHandled = true
+            } else if (currentRoute == "room_list") {
+                // Navigation callback already navigated here; just mark handled.
                 navigationHandled = true
             }
         }
     }
-    
+
     // Timeout fallback: Navigate after 10 seconds even if WebSocket never connects
     LaunchedEffect(hasCredentials) {
         if (hasCredentials) {
