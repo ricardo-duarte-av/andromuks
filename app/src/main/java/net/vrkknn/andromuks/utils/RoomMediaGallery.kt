@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -21,9 +22,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.MediaInfo
 import net.vrkknn.andromuks.MediaMessage
@@ -35,11 +41,20 @@ data class GalleryMediaItem(
     val fullMxcUrl: String,
     /** mxc:// URL of the thumbnail if the event carried one, otherwise null */
     val thumbnailMxcUrl: String?,
-    /** HTTP URL used by Coil to display the grid thumbnail */
+    /** Primary HTTP URL used by Coil to display the grid thumbnail */
     val thumbnailHttpUrl: String,
+    /**
+     * Fallback HTTP URL used if [thumbnailHttpUrl] fails to load.
+     * Only set for m.image items that have no dedicated thumbnail mxc://: in that case
+     * [thumbnailHttpUrl] asks the backend for a resized copy (`?thumbnail=avatar`) and
+     * [fallbackHttpUrl] is the original full-size media URL.
+     */
+    val fallbackHttpUrl: String? = null,
     val isVideo: Boolean,
     val timelineRowid: Long,
-    val eventId: String
+    val eventId: String,
+    /** BlurHash string from info.xyz.amorgan.blurhash (or info.blurhash), if present */
+    val blurHash: String? = null
 )
 
 private fun extractMediaItems(
@@ -70,23 +85,48 @@ private fun extractMediaItems(
         }
 
         val fullMxc = content?.optString("url")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-        val thumbnailMxc = content.optJSONObject("info")?.optString("thumbnail_url")?.takeIf { it.isNotBlank() }
+        val info = content.optJSONObject("info")
+        val thumbnailMxc = info?.optString("thumbnail_url")?.takeIf { it.isNotBlank() }
+        val blurHash = info?.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
+            ?: info?.optString("blurhash")?.takeIf { it.isNotBlank() }
 
-        // For the grid thumbnail: prefer the event's own thumbnail_url; otherwise request a
-        // server-side resize of the full media so we don't fetch huge originals.
-        val thumbnailHttpUrl = if (thumbnailMxc != null) {
-            MediaUtils.mxcToHttpUrl(thumbnailMxc, homeserverUrl)
-        } else {
-            MediaUtils.mxcToThumbnailUrl(fullMxc, homeserverUrl, width = 300, height = 300)
-        } ?: return@mapNotNull null
+        // Build the thumbnail HTTP URL for the gallery grid.
+        //
+        // Priority:
+        // 1. If the event carries a dedicated thumbnail mxc:// (thumbnail_url), use it directly.
+        // 2. For m.image without one: append ?thumbnail=avatar to the full media HTTP URL so
+        //    the backend produces a resized copy. Keep the full URL as a fallback for when that
+        //    request fails (some media types the backend can't thumbnail).
+        // 3. For m.video without one: keep the existing ?thumbnail=NxN server-side resize.
+        val fullHttpUrl = MediaUtils.mxcToHttpUrl(fullMxc, homeserverUrl) ?: return@mapNotNull null
+        val thumbnailHttpUrl: String
+        val fallbackHttpUrl: String?
+        when {
+            thumbnailMxc != null -> {
+                thumbnailHttpUrl = MediaUtils.mxcToHttpUrl(thumbnailMxc, homeserverUrl)
+                    ?: return@mapNotNull null
+                fallbackHttpUrl = null
+            }
+            !isVideo -> {
+                thumbnailHttpUrl = "$fullHttpUrl?thumbnail=avatar"
+                fallbackHttpUrl = fullHttpUrl
+            }
+            else -> {
+                thumbnailHttpUrl = MediaUtils.mxcToThumbnailUrl(fullMxc, homeserverUrl, width = 300, height = 300)
+                    ?: return@mapNotNull null
+                fallbackHttpUrl = null
+            }
+        }
 
         GalleryMediaItem(
             fullMxcUrl = fullMxc,
             thumbnailMxcUrl = thumbnailMxc,
             thumbnailHttpUrl = thumbnailHttpUrl,
+            fallbackHttpUrl = fallbackHttpUrl,
             isVideo = isVideo,
             timelineRowid = event.timelineRowid,
-            eventId = event.eventId
+            eventId = event.eventId,
+            blurHash = blurHash
         )
     }
 }
@@ -101,7 +141,7 @@ private fun GalleryMediaItem.toImageMediaMessage(): MediaMessage = MediaMessage(
         height = 0,
         size = 0L,
         mimeType = "image/jpeg",
-        blurHash = null,
+        blurHash = blurHash,
         thumbnailUrl = thumbnailMxcUrl
     ),
     msgType = "m.image"
@@ -117,7 +157,7 @@ private fun GalleryMediaItem.toVideoMediaMessage(): MediaMessage = MediaMessage(
         height = 0,
         size = 0L,
         mimeType = "video/mp4",
-        blurHash = null,
+        blurHash = blurHash,
         thumbnailUrl = thumbnailMxcUrl
     ),
     msgType = "m.video"
@@ -318,10 +358,31 @@ private fun GalleryThumbnail(
         cachedFile = IntelligentMediaCache.getCachedFile(context, thumbnailMxcKey)
     }
 
+    // If the backend-generated thumbnail fails (only possible for the ?thumbnail=avatar path),
+    // retry once with the full media URL.
+    var thumbnailFailed by remember(thumbnailMxcKey) { mutableStateOf(false) }
+
     // If the cache returned a file, hand its absolute path to Coil directly (no auth header
-    // needed for local files). Otherwise fall back to the HTTP thumbnail URL with the cookie.
-    val displayData: Any = remember(thumbnailMxcKey, cachedFile) {
-        cachedFile?.absolutePath ?: item.thumbnailHttpUrl
+    // needed for local files). Otherwise use the thumbnail URL, or fall back to the full URL
+    // if the thumbnail request already failed.
+    val displayData: Any = remember(thumbnailMxcKey, cachedFile, thumbnailFailed) {
+        when {
+            cachedFile != null -> cachedFile!!.absolutePath
+            thumbnailFailed && item.fallbackHttpUrl != null -> item.fallbackHttpUrl
+            else -> item.thumbnailHttpUrl
+        }
+    }
+
+    // Decode BlurHash asynchronously (can be slow for large hashes — must not run on Main).
+    // Used as a placeholder that "focuses in" to the real thumbnail as Coil crossfades over it.
+    var blurHashBitmap by remember(item.blurHash) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(item.blurHash) {
+        if (item.blurHash != null) {
+            blurHashBitmap = withContext(Dispatchers.Default) {
+                BlurHashUtils.decodeBlurHash(item.blurHash, width = 32, height = 32)
+                    ?.asImageBitmap()
+            }
+        }
     }
 
     Box(
@@ -332,13 +393,30 @@ private fun GalleryThumbnail(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
+        // BlurHash layer — visible immediately, replaced by the real image once loaded.
+        blurHashBitmap?.let { bitmap ->
+            Image(
+                painter = BitmapPainter(bitmap),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(displayData)
                 .apply { if (cachedFile == null) addHeader("Cookie", "gomuks_auth=$authToken") }
-                .crossfade(true)
+                .crossfade(300)
                 .build(),
             imageLoader = imageLoader,
+            onError = {
+                // Only flip the flag once, and only when a fallback URL exists (i.e. this is
+                // an m.image item whose ?thumbnail=avatar request failed).
+                if (!thumbnailFailed && item.fallbackHttpUrl != null) {
+                    thumbnailFailed = true
+                }
+            },
             contentDescription = if (item.isVideo) "Video thumbnail" else "Image",
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
