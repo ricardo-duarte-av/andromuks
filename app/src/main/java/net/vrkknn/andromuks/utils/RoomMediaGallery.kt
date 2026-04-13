@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import java.io.File
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.MediaInfo
 import net.vrkknn.andromuks.MediaMessage
@@ -173,6 +174,19 @@ fun RoomMediaGalleryScreen(
         loadMore()
     }
 
+    // Keep IntelligentMediaCache informed of which thumbnails are currently visible so it
+    // can boost their priority and avoid evicting them under memory pressure.
+    val visibleItemIndices by remember {
+        derivedStateOf { gridState.layoutInfo.visibleItemsInfo.map { it.index }.toSet() }
+    }
+    LaunchedEffect(visibleItemIndices) {
+        val visibleMxcUrls = visibleItemIndices
+            .mapNotNull { idx -> mediaItems.getOrNull(idx) }
+            .map { item -> item.thumbnailMxcUrl ?: item.fullMxcUrl }
+            .toSet()
+        IntelligentMediaCache.updateVisibility(visibleMxcUrls)
+    }
+
     // Preemptive load: trigger when the user is within 20 items of the end of the list.
     val totalItems = mediaItems.size
     val lastVisibleIndex by remember {
@@ -294,6 +308,22 @@ private fun GalleryThumbnail(
     val context = LocalContext.current
     val imageLoader = remember { net.vrkknn.andromuks.utils.ImageLoaderSingleton.get(context) }
     val shape = RoundedCornerShape(8.dp)
+
+    // Prefer a cached file on disk (IntelligentMediaCache) to avoid re-downloading thumbnails.
+    // The cache key is the thumbnail mxc:// URL when the event carried one, otherwise the full
+    // media URL (which the server will resize on-the-fly via the thumbnail HTTP URL).
+    val thumbnailMxcKey = item.thumbnailMxcUrl ?: item.fullMxcUrl
+    var cachedFile by remember(thumbnailMxcKey) { mutableStateOf<File?>(null) }
+    LaunchedEffect(thumbnailMxcKey) {
+        cachedFile = IntelligentMediaCache.getCachedFile(context, thumbnailMxcKey)
+    }
+
+    // If the cache returned a file, hand its absolute path to Coil directly (no auth header
+    // needed for local files). Otherwise fall back to the HTTP thumbnail URL with the cookie.
+    val displayData: Any = remember(thumbnailMxcKey, cachedFile) {
+        cachedFile?.absolutePath ?: item.thumbnailHttpUrl
+    }
+
     Box(
         modifier = Modifier
             .aspectRatio(1f)
@@ -304,8 +334,8 @@ private fun GalleryThumbnail(
     ) {
         AsyncImage(
             model = ImageRequest.Builder(context)
-                .data(item.thumbnailHttpUrl)
-                .addHeader("Cookie", "gomuks_auth=$authToken")
+                .data(displayData)
+                .apply { if (cachedFile == null) addHeader("Cookie", "gomuks_auth=$authToken") }
                 .crossfade(true)
                 .build(),
             imageLoader = imageLoader,
