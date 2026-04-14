@@ -535,7 +535,16 @@ class FCMService : FirebaseMessagingService() {
                 }
                 
                 if (existingNotification == null && !isPending) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "No notification found for room: $roomId (not active, not pending) - nothing to dismiss")
+                    // activeNotifications can be stale on some devices/OEMs — attempt cancel anyway.
+                    // cancel() is a no-op if the notification genuinely doesn't exist, but fixes
+                    // cases where the notification is visible on screen yet not returned by the API.
+                    val isBubbleOpen = BubbleTracker.isBubbleOpen(roomId)
+                    if (isBubbleOpen) {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "No notification found for room: $roomId but bubble is open - not cancelling")
+                    } else {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "No notification found for room: $roomId in activeNotifications - attempting cancel anyway (may be stale)")
+                        notificationManagerCompat.cancel(notifID)
+                    }
                     continue
                 }
                 
