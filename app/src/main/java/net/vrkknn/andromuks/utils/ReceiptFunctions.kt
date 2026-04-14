@@ -739,7 +739,8 @@ fun AnimatedInlineReadReceiptAvatars(
                             modifier = Modifier
                                 .size(circleSize)
                                 .offset(x = offsetX, y = 0.dp)
-                                .clickable { showReceiptDialog = true }
+                                .clickable { showReceiptDialog = true },
+                            contentAlignment = if (isMine) Alignment.TopEnd else Alignment.TopStart
                         ) {
                             // Check if this receipt just moved to this message
                             val isNewlyMoved = remember(receipt.userId, eventId, animationTrigger) {
