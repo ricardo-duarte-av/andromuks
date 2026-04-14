@@ -1224,79 +1224,94 @@ private fun MediaContent(
                                 )
                             }
                         } else {
-                        // PERFORMANCE: Use AsyncImage with onSuccess to extract dimensions and adjust aspect ratio
-                        // Image fills frame width and maintains aspect ratio, clipped by frame
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(imageUrl ?: "")
-                                .apply {
-                                    if (cachedFile == null) {
-                                        addHeader("Cookie", "gomuks_auth=$authToken")
-                                    }
-                                }
-                                .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                .diskCachePolicy(if (bypassCoilCache || isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                .networkCachePolicy(if (isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                .size(600, 600) // QUALITY IMPROVEMENT: Larger size for better quality
-                                .build(),
-                            imageLoader = imageLoader,
-                            contentDescription = mediaMessage.filename,
+                        // Layered approach: BlurHash underneath, real image fades in on top.
+                        // This mirrors the gallery thumbnail pattern for a smooth morph effect.
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(loadedAspectRatio)
-                                .scale(1.02f) // Make image slightly larger than frame so it gets clipped
+                                .scale(1.02f)
                                 .combinedClickable(
                                     onClick = { onImageClick(previewBounds) },
                                     onLongClick = { onImageLongPress?.invoke() }
-                                ),
-                            placeholder = blurHashPainter,
-                            error = blurHashPainter,
-                            contentScale = androidx.compose.ui.layout.ContentScale.FillWidth, // Fill frame width, maintain aspect ratio
-                            onSuccess = { state ->
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
-                                
-                                        // Extract actual image dimensions from loaded image
-                                        val painter = state.painter
-                                        val intrinsicSize = painter.intrinsicSize
-                                        if (intrinsicSize.width > 0 && intrinsicSize.height > 0 && !hasLoadedDimensions) {
-                                            hasLoadedDimensions = true
-                                            val actualAspectRatio = intrinsicSize.width / intrinsicSize.height
+                                )
+                        ) {
+                            // BlurHash layer — shown immediately, replaced by the real image as it loads
+                            if (decodedBlurHashBitmap != null) {
+                                Image(
+                                    painter = blurHashPainter,
+                                    contentDescription = null,
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                )
+                            }
+
+                            // Real image — crossfades in over the BlurHash once loaded
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(imageUrl ?: "")
+                                    .apply {
+                                        if (cachedFile == null) {
+                                            addHeader("Cookie", "gomuks_auth=$authToken")
+                                        }
+                                    }
+                                    .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                                    .diskCachePolicy(if (bypassCoilCache || isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                                    .networkCachePolicy(if (isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                                    .size(600, 600)
+                                    .crossfade(300)
+                                    .build(),
+                                imageLoader = imageLoader,
+                                contentDescription = mediaMessage.filename,
+                                modifier = Modifier.fillMaxSize(),
+                                error = blurHashPainter,
+                                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth,
+                                onSuccess = { state ->
+                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
+
+                                    val painter = state.painter
+                                    val intrinsicSize = painter.intrinsicSize
+                                    if (intrinsicSize.width > 0 && intrinsicSize.height > 0 && !hasLoadedDimensions) {
+                                        hasLoadedDimensions = true
+                                        val actualAspectRatio = intrinsicSize.width / intrinsicSize.height
+                                        if (BuildConfig.DEBUG) Log.d(
+                                            "Andromuks",
+                                            "Image loaded with dimensions: ${intrinsicSize.width}x${intrinsicSize.height}, aspectRatio=$actualAspectRatio (original from JSON: $aspectRatio, hasValidJsonDimensions: $hasValidJsonDimensions)"
+                                        )
+                                        if (!hasValidJsonDimensions) {
+                                            loadedAspectRatio = actualAspectRatio
                                             if (BuildConfig.DEBUG) Log.d(
                                                 "Andromuks",
-                                                "Image loaded with dimensions: ${intrinsicSize.width}x${intrinsicSize.height}, aspectRatio=$actualAspectRatio (original from JSON: $aspectRatio, hasValidJsonDimensions: $hasValidJsonDimensions)"
+                                                "Updated aspect ratio from loaded image: $actualAspectRatio"
                                             )
-                                            // Only update aspect ratio and re-scroll if JSON dimensions were missing/invalid
-                                            if (!hasValidJsonDimensions) {
-                                                loadedAspectRatio = actualAspectRatio
-                                                if (BuildConfig.DEBUG) Log.d(
-                                                    "Andromuks",
-                                                    "Updated aspect ratio from loaded image: $actualAspectRatio"
-                                                )
-                                                // E2EE/portrait: async decode changes height — re-scroll if timeline registered callback
-                                                TimelineMediaLayoutCallback.notifyAfterLayoutSettled()
-                                            }
+                                            TimelineMediaLayoutCallback.notifyAfterLayoutSettled()
                                         }
-                            },
-                            onError = {
-                                // If we attempted to decode a cached file and it fails (partial/corrupt/evicted),
-                                // evict it and fall back to HTTP on the next recomposition.
-                                if (cachedFile != null) {
-                                    val badMxcUrl = displayMxcUrl
-                                    if (BuildConfig.DEBUG) {
-                                        Log.w("Andromuks", "MediaFunctions: onError decoding cached file. Evicting mxc=$badMxcUrl path=${cachedFile?.absolutePath}")
                                     }
-                                    cachedFile = null
-                                    coroutineScope.launch {
-                                        IntelligentMediaCache.evictCachedFile(context, badMxcUrl)
+                                },
+                                onError = {
+                                    if (cachedFile != null) {
+                                        val badMxcUrl = displayMxcUrl
+                                        if (BuildConfig.DEBUG) {
+                                            Log.w("Andromuks", "MediaFunctions: onError decoding cached file. Evicting mxc=$badMxcUrl path=${cachedFile?.absolutePath}")
+                                        }
+                                        cachedFile = null
+                                        coroutineScope.launch {
+                                            IntelligentMediaCache.evictCachedFile(context, badMxcUrl)
+                                        }
                                     }
+                                    bypassCoilCache = true
+                                },
+                                onLoading = { state ->
+                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "⏳ Image loading: $imageUrl, state: $state")
                                 }
-                                // Retry from backend (avoid Coil disk/memory caches that might still be corrupted).
-                                bypassCoilCache = true
-                            },
-                            onLoading = { state ->
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "⏳ Image loading: $imageUrl, state: $state")
-                            }
-                        )
+                            )
+                        }
                         }
                     } else if (mediaMessage.msgType == "m.video") {
                         // Check if we should show inline player or thumbnail
