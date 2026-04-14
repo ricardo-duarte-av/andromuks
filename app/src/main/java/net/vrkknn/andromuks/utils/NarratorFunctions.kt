@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.window.Popup
@@ -100,6 +101,9 @@ fun SystemEventNarrator(
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var narratorBounds by remember { mutableStateOf<Rect?>(null) }
+    // Non-state holder: stores the LayoutCoordinates reference without triggering recomposition
+    // on every layout pass. boundsInWindow() is computed on demand when the menu is triggered.
+    val coordinatesHolder = remember { object { var value: LayoutCoordinates? = null } }
     val content = event.content
     val eventType = event.type
     
@@ -207,6 +211,8 @@ fun SystemEventNarrator(
 
     val triggerNarratorMenu = {
         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+        // Compute bounds only when the menu is actually triggered, not on every layout pass
+        narratorBounds = coordinatesHolder.value?.boundsInWindow()
         if (onShowMenu != null) {
             val menuConfig = MessageMenuConfig(
                 event = event,
@@ -245,8 +251,8 @@ fun SystemEventNarrator(
                 .fillMaxWidth()
                 .padding(vertical = 2.dp)
                 .onGloballyPositioned { layoutCoordinates ->
-                    // Capture the narrator row's position on screen
-                    narratorBounds = layoutCoordinates.boundsInWindow()
+                    // Store reference only; bounds are computed on demand when the menu is triggered
+                    coordinatesHolder.value = layoutCoordinates
                 }
                 .then(
                     // Add glow effect when highlighted

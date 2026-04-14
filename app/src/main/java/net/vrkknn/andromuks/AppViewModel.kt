@@ -4476,7 +4476,7 @@ class AppViewModel : ViewModel() {
     internal val widgetCommandRequests = java.util.concurrent.ConcurrentHashMap<Int, CompletableDeferred<Any?>>()
     
     // OPPORTUNISTIC PROFILE LOADING: Track pending on-demand profile requests
-    internal val pendingProfileRequests = mutableSetOf<String>() // global userId and "roomId:userId" keys for pending profile requests
+    internal val pendingProfileRequests: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet() // global userId and "roomId:userId" keys for pending profile requests
     internal val profileRequests = mutableMapOf<Int, String>() // requestId -> userId (get_profile) or routed keys
     
     // CRITICAL FIX: Track profile request metadata for timeout handling and cleanup
@@ -4498,7 +4498,7 @@ class AppViewModel : ViewModel() {
 
     // PERFORMANCE: Throttle profile requests to prevent animation-blocking bursts
     // Tracks recent profile request timestamps to skip rapid re-requests during animation window
-    private val recentProfileRequestTimes = mutableMapOf<String, Long>() // "roomId:userId" -> timestamp
+    private val recentProfileRequestTimes = java.util.concurrent.ConcurrentHashMap<String, Long>() // "roomId:userId" -> timestamp
     private val PROFILE_REQUEST_THROTTLE_MS = 5000L // Skip if requested within last 5 seconds
     internal val REACTION_BACKFILL_ON_OPEN_ENABLED = false
     private val AUTO_PAGINATION_ENABLED = false
@@ -5871,8 +5871,9 @@ class AppViewModel : ViewModel() {
         // CRITICAL FIX: Check if we have a valid profile (not just non-null)
         // A profile with blank displayName should still be requested to get the actual name
         val existingProfile = getUserProfile(userId, roomId)
-        if (existingProfile != null && !existingProfile.displayName.isNullOrBlank()) {
-            // Profile exists and has a valid display name - skip request
+        if (existingProfile != null && existingProfile.displayName != null) {
+            // Profile has been fetched: displayName is either a real name or "" (confirmed absent).
+            // Either way, no need to request again.
             //android.util.Log.d("Andromuks", "AppViewModel: Profile already cached for $userId, skipping request")
             return
         }
@@ -5907,7 +5908,7 @@ class AppViewModel : ViewModel() {
         
         // Clean up old throttle entries (older than throttle window) to prevent memory leaks
         val cutoffTime = currentTime - PROFILE_REQUEST_THROTTLE_MS
-        recentProfileRequestTimes.entries.removeAll { (_, timestamp) -> timestamp < cutoffTime }
+        recentProfileRequestTimes.entries.removeIf { (_, timestamp) -> timestamp < cutoffTime }
         
         // CRITICAL FIX: Clean up stale pending requests (older than 30 seconds)
         // This handles cases where requests failed silently or responses were lost
