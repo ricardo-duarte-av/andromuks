@@ -200,7 +200,7 @@ fun CachedProfileItem(
                 mxcUrl = profile.avatarUrl,
                 homeserverUrl = appViewModel.homeserverUrl,
                 authToken = appViewModel.authToken,
-                fallbackText = profile.displayName ?: profile.userId,
+                fallbackText = profile.displayName?.takeIf { it.isNotBlank() } ?: profile.userId,
                 size = 48.dp,
                 userId = profile.userId,
                 displayName = profile.displayName
@@ -211,7 +211,7 @@ fun CachedProfileItem(
                 modifier = Modifier.weight(1f)
             ) {
                 Text(
-                    text = profile.displayName ?: profile.userId,
+                    text = profile.displayName?.takeIf { it.isNotBlank() } ?: profile.userId,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,

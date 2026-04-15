@@ -230,8 +230,8 @@ private fun ThreadMentionMemberList(
             displayName?.contains(query, ignoreCase = true) == true ||
             username.contains(query, ignoreCase = true) ||
             userId.contains(query, ignoreCase = true)
-        }.entries.sortedBy { (userId, profile) -> 
-            profile.displayName ?: userId 
+        }.entries.sortedBy { (userId, profile) ->
+            profile.displayName?.takeIf { it.isNotBlank() } ?: userId
         }
     }
 
@@ -270,11 +270,11 @@ private fun ThreadMentionMemberList(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = profile.displayName ?: userId.removePrefix("@"),
+                            text = profile.displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix("@"),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        if (profile.displayName != null) {
+                        if (!profile.displayName.isNullOrBlank()) {
                             Text(
                                 text = userId,
                                 style = MaterialTheme.typography.bodySmall,

@@ -2152,7 +2152,7 @@ class AppViewModel : ViewModel() {
         
         // Sort by display name (nulls last), then by userId, then by roomId
         profilesByKey.values.sortedWith(compareBy(
-            { it.profile.displayName ?: "\uFFFF" }, // Put nulls at the end
+            { it.profile.displayName?.ifBlank { "\uFFFF" } ?: "\uFFFF" }, // Put nulls/blanks at the end
             { it.userId },
             { it.roomId ?: "" }
         ))
@@ -8188,8 +8188,9 @@ class AppViewModel : ViewModel() {
                     
                     if (membership == "join") {
                         // Process joined members - update their profile data
-                        val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
-                        val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                        // "" = confirmed absent (fetched, backend said none); null = not yet fetched
+                        val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() } ?: ""
+                        val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() } ?: ""
                         
                         val newProfile = MemberProfile(displayName, avatarUrl)
                         val previousProfile = memberMap[stateKey]
