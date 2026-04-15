@@ -1666,6 +1666,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                     // 6 receipts, we show 6 receipts
                                     val authoritativeReceipts =
                                         mutableMapOf<String, MutableList<ReadReceipt>>()
+                                    val receiptUserIds = mutableSetOf<String>()
                                     val keys = parsedReceipts.keys()
 
                                     while (keys.hasNext()) {
@@ -1710,6 +1711,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                                             receipt.eventId == eventId
                                                     ) {
                                                         receiptsForEvent.add(receipt)
+                                                        receiptUserIds.add(receipt.userId)
                                                     } else {
                                                         if (BuildConfig.DEBUG)
                                                             android.util.Log.w(
@@ -1867,6 +1869,17 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                             // were changes)
                                             if (hasChanges) {
                                                 readReceiptsUpdateCounter++
+                                            }
+
+                                            // Preemptive profile requests for receipt holders:
+                                            // fire before composables render their avatars.
+                                            // Only request where displayName or avatarUrl is still
+                                            // null (unknown); "" means confirmed absent, skip those.
+                                            for (userId in receiptUserIds) {
+                                                val profile = vm.getUserProfile(userId, roomId)
+                                                if (profile == null || profile.displayName == null || profile.avatarUrl == null) {
+                                                    vm.requestUserProfileOnDemand(userId, roomId)
+                                                }
                                             }
                                         } catch (e: Exception) {
                                             android.util.Log.e(
