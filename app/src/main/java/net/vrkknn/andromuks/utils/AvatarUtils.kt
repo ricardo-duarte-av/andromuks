@@ -256,7 +256,7 @@ object AvatarUtils {
         mxcUrl: String?,
         homeserverUrl: String
     ): String? {
-        if (mxcUrl.isNullOrBlank()) return null
+        if (mxcUrl.isNullOrBlank() || mxcUrl == "null") return null
         return buildMediaUrl(mxcUrl, homeserverUrl, includeAvatarParams = false)
     }
     
@@ -314,7 +314,7 @@ object AvatarUtils {
         homeserverUrl: String,
         includeAvatarParams: Boolean
     ): String? {
-        if (mxcUrl.isNullOrBlank()) return null
+        if (mxcUrl.isNullOrBlank() || mxcUrl == "null") return null
 
         return try {
             if (!mxcUrl.startsWith("mxc://")) {

@@ -2509,8 +2509,8 @@ class AppViewModel : ViewModel() {
                         when (membership) {
                             "join" -> {
                                 // Add/update only joined members to room cache for mention lists
-                                val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
-                                val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                                val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
+                                val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
                                 
                                 val profile = MemberProfile(displayName, avatarUrl)
                                 val previousProfile = memberMap[userId]
@@ -2557,9 +2557,9 @@ class AppViewModel : ViewModel() {
                             "invite" -> {
                                 // Store invited members in global cache only (for profile lookups) but not in room member cache
                                 // This prevents them from appearing in mention lists but allows profile display if they send messages
-                                val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
-                                val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
-                                
+                                val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
+                                val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
+
                                 val profile = MemberProfile(displayName, avatarUrl)
                                 ProfileCache.setGlobalProfile(userId, ProfileCache.CachedProfileEntry(profile, System.currentTimeMillis()))
                                 //android.util.Log.d("Andromuks", "AppViewModel: Cached invited member '$userId' profile in global cache only -> displayName: '$displayName'")
@@ -5508,9 +5508,9 @@ class AppViewModel : ViewModel() {
         // Extract displayname and avatar_url - allow empty strings to handle removals
         // Empty string means the field was explicitly removed, null means it wasn't present
         val displayNameRaw = if (content.has("displayname")) content.optString("displayname") else null
-        val displayName = displayNameRaw?.takeIf { it.isNotBlank() }
+        val displayName = displayNameRaw?.takeIf { it.isNotBlank() && it != "null" }
         val avatarUrlRaw = if (content.has("avatar_url")) content.optString("avatar_url") else null
-        val avatarUrl = avatarUrlRaw?.takeIf { it.isNotBlank() }
+        val avatarUrl = avatarUrlRaw?.takeIf { it.isNotBlank() && it != "null" }
         
         // Always update profile, even if both are null (removal case)
         // This ensures the profile cache reflects the current state
@@ -7971,8 +7971,8 @@ class AppViewModel : ViewModel() {
                         val event = data.getJSONObject(0)
                         val content = event.optJSONObject("content")
                         if (content != null) {
-                            val displayName = content.optString("displayname")?.takeIf { it.isNotBlank() }
-                            val avatarUrl = content.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                            val displayName = content.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" }
+                            val avatarUrl = content.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" }
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Per-room profile callback - displayName: $displayName, avatarUrl: $avatarUrl")
                             profileCallback(displayName, avatarUrl)
                         } else {
@@ -8189,8 +8189,8 @@ class AppViewModel : ViewModel() {
                     if (membership == "join") {
                         // Process joined members - update their profile data
                         // "" = confirmed absent (fetched, backend said none); null = not yet fetched
-                        val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() } ?: ""
-                        val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() } ?: ""
+                        val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
+                        val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
                         
                         val newProfile = MemberProfile(displayName, avatarUrl)
                         val previousProfile = memberMap[stateKey]
@@ -8533,14 +8533,12 @@ class AppViewModel : ViewModel() {
                 val userId = event.stateKey ?: event.sender
                 val content = event.content
                 if (content != null) {
-                    val displayName = content.optString("displayname")?.takeIf { it.isNotBlank() }
-                    val avatarUrl = content.optString("avatar_url")?.takeIf { it.isNotBlank() }
-                    if (displayName != null || avatarUrl != null) {
-                        val profile = MemberProfile(displayName, avatarUrl)
-                        RoomMemberCache.updateMember(roomId, userId, profile)
-                        // PERFORMANCE: Also add to global cache for O(1) lookups
-                        ProfileCache.setGlobalProfile(userId, ProfileCache.CachedProfileEntry(profile, System.currentTimeMillis()))
-                    }
+                    val displayName = content.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
+                    val avatarUrl = content.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
+                    val profile = MemberProfile(displayName, avatarUrl)
+                    RoomMemberCache.updateMember(roomId, userId, profile)
+                    // PERFORMANCE: Also add to global cache for O(1) lookups
+                    ProfileCache.setGlobalProfile(userId, ProfileCache.CachedProfileEntry(profile, System.currentTimeMillis()))
                 }
             } else if (event.type == "m.room.member" && event.timelineRowid != 0L) {
                 // Timeline member event (join/leave that should show in timeline)
@@ -10182,8 +10180,8 @@ class AppViewModel : ViewModel() {
         // Handle profile response separately
         val tempProfileCallback: (JSONObject?) -> Unit = { profileData ->
             if (profileData != null) {
-                displayName = profileData.optString("displayname")?.takeIf { it.isNotBlank() }
-                avatarUrl = profileData.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                displayName = profileData.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" }
+                avatarUrl = profileData.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" }
                 // Support both timezone field formats: prefer m.tz (standardized) over us.cloke.msc4175.tz (legacy)
                 timezone = profileData.optString("m.tz")?.takeIf { it.isNotBlank() }
                     ?: profileData.optString("us.cloke.msc4175.tz")?.takeIf { it.isNotBlank() }
@@ -10572,8 +10570,8 @@ class AppViewModel : ViewModel() {
      */
     private fun extractProfileFromMemberEvent(event: TimelineEvent): MemberProfile {
         // "" = confirmed absent (backend said none); null = not yet fetched
-        val displayName = event.content?.optString("displayname")?.takeIf { it.isNotBlank() } ?: ""
-        val avatarUrl = event.content?.optString("avatar_url")?.takeIf { it.isNotBlank() } ?: ""
+        val displayName = event.content?.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
+        val avatarUrl = event.content?.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
         return MemberProfile(displayName, avatarUrl)
     }
     

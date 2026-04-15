@@ -225,9 +225,9 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                         when (membership) {
                             "join" -> {
                                 val displayName =
-                                    content?.optString("displayname")?.takeIf { it.isNotBlank() }
+                                    content?.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
                                 val avatarUrl =
-                                    content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                                    content?.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
 
                                 val newProfile = MemberProfile(displayName, avatarUrl)
                                 memberMap[stateKey] = newProfile
@@ -402,7 +402,7 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
             }
 
             val username = userId.removePrefix("@").substringBefore(":")
-            val memberProfile = MemberProfile(username, null)
+            val memberProfile = MemberProfile(username, "")
 
             if (requestingRoomId != null) {
                 this@MemberProfilesCoordinator.storeMemberProfile(
@@ -455,8 +455,8 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                 basicProfileCallback?.invoke(null)
                 return
             }
-            val avatar = obj.optString("avatar_url")?.takeIf { it.isNotBlank() }
-            val display = obj.optString("displayname")?.takeIf { it.isNotBlank() }
+            val avatar = obj.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
+            val display = obj.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
 
             if (BuildConfig.DEBUG)
                 android.util.Log.d(
