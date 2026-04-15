@@ -132,6 +132,21 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         }
     }
 
+    fun toggleShowLinkPreviews() = with(vm) {
+        showLinkPreviews = !showLinkPreviews
+
+        appContext?.let { context ->
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("show_link_previews", showLinkPreviews)
+                .apply()
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Saved showLinkPreviews setting: $showLinkPreviews"
+            )
+        }
+    }
+
     fun updateElementCallBaseUrl(url: String) = with(vm) {
         elementCallBaseUrl = url.trim()
         appContext?.let { context ->
@@ -187,6 +202,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             showAllRoomListTabs = prefs.getBoolean("show_all_room_list_tabs", false)
             moveReadReceiptsToEdge = prefs.getBoolean("move_read_receipts_to_edge", false)
             trimLongDisplayNames = prefs.getBoolean("trim_long_display_names", true)
+            showLinkPreviews = prefs.getBoolean("show_link_previews", true)
             elementCallBaseUrl = prefs.getString("element_call_base_url", "") ?: ""
 
             val defaultIntervalMin = (SyncBatchProcessor.DEFAULT_BATCH_INTERVAL_MS / 60_000L).toInt()
@@ -203,6 +219,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded showAllRoomListTabs setting: $showAllRoomListTabs")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded moveReadReceiptsToEdge setting: $moveReadReceiptsToEdge")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded trimLongDisplayNames setting: $trimLongDisplayNames")
+                android.util.Log.d("Andromuks", "AppViewModel: Loaded showLinkPreviews setting: $showLinkPreviews")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded elementCallBaseUrl setting: $elementCallBaseUrl")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded backgroundPurgeIntervalMinutes=$backgroundPurgeIntervalMinutes, backgroundPurgeMessageThreshold=$backgroundPurgeMessageThreshold")
             }

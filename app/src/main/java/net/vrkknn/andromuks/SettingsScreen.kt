@@ -257,6 +257,40 @@ fun SettingsScreen(
                 }
             }
 
+            // Show link previews
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "Show link previews",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "When a message contains a link preview (com.beeper.linkpreviews), display it as a card below the message bubble.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Switch(
+                        checked = appViewModel.showLinkPreviews,
+                        onCheckedChange = { appViewModel.toggleShowLinkPreviews() }
+                    )
+                }
+            }
+
             // ── Background Sync Section ──────────────────────────────────────
             Text(
                 text = "Background Sync",

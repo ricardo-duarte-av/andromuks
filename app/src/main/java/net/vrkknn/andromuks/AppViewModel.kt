@@ -407,6 +407,9 @@ class AppViewModel : ViewModel() {
     // Trim long display names in timeline: if true, names longer than 40 chars are trimmed with "..."
     var trimLongDisplayNames by mutableStateOf(true)
         internal set
+    // Show link previews (com.beeper.linkpreviews) below text message bubbles
+    var showLinkPreviews by mutableStateOf(true)
+        internal set
     var elementCallBaseUrl by mutableStateOf("")
         internal set
 
@@ -9890,6 +9893,8 @@ class AppViewModel : ViewModel() {
     fun toggleMoveReadReceiptsToEdge() = settingsCoordinator.toggleMoveReadReceiptsToEdge()
 
     fun toggleTrimLongDisplayNames() = settingsCoordinator.toggleTrimLongDisplayNames()
+
+    fun toggleShowLinkPreviews() = settingsCoordinator.toggleShowLinkPreviews()
 
     fun updateElementCallBaseUrl(url: String) = settingsCoordinator.updateElementCallBaseUrl(url)
 

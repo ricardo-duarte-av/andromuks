@@ -118,6 +118,17 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.wrapContentWidth
 import net.vrkknn.andromuks.RoomTimelineCache
 import net.vrkknn.andromuks.RoomMemberCache
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
+import net.vrkknn.andromuks.utils.BlurHashUtils
+import net.vrkknn.andromuks.utils.ImageLoaderSingleton
+import net.vrkknn.andromuks.utils.MediaUtils
 
 private val AvatarGap = 4.dp
 private val AvatarColumnWidth = 32.dp // Wider column to prevent timestamp wrapping
@@ -687,6 +698,134 @@ private fun MessageTypeContent(
                 text = "Event type: ${event.type}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun LinkPreviewBubble(
+    preview: org.json.JSONObject,
+    isMine: Boolean,
+    homeserverUrl: String,
+    authToken: String
+) {
+    val context = LocalContext.current
+    val title = preview.optString("og:title", "").takeIf { it.isNotBlank() } ?: return
+    val description = preview.optString("og:description", "").takeIf { it.isNotBlank() }
+    val matchedUrl = preview.optString("matched_url", "")
+    val blurHash = preview.optString("matrix:image:blurhash", "").takeIf { it.isNotBlank() }
+
+    val encryptionObj = preview.optJSONObject("beeper:image:encryption")
+    val encryptedMxcUrl = encryptionObj?.optString("url", "")?.takeIf { it.isNotBlank() }
+    val plainMxcUrl = preview.optString("og:image", "").takeIf { it.isNotBlank() }
+    val imageMxcUrl = encryptedMxcUrl ?: plainMxcUrl
+    val imageHttpUrl = imageMxcUrl?.let {
+        val base = MediaUtils.mxcToHttpUrl(it, homeserverUrl) ?: return@let null
+        if (encryptedMxcUrl != null) "$base?encrypted=true" else base
+    }
+
+    val bubbleShape = if (isMine) {
+        RoundedCornerShape(topStart = 12.dp, topEnd = 2.dp, bottomEnd = 12.dp, bottomStart = 12.dp)
+    } else {
+        RoundedCornerShape(topStart = 2.dp, topEnd = 12.dp, bottomEnd = 12.dp, bottomStart = 12.dp)
+    }
+    val colorScheme = MaterialTheme.colorScheme
+    val imageLoader = remember(context) { ImageLoaderSingleton.get(context) }
+
+    Surface(
+        modifier = Modifier
+            .widthIn(max = 300.dp)
+            .clickable(enabled = matchedUrl.isNotBlank()) {
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(matchedUrl))
+                    context.startActivity(intent)
+                } catch (e: Exception) {
+                    if (BuildConfig.DEBUG) Log.w("Andromuks", "LinkPreviewBubble: failed to open URL $matchedUrl", e)
+                }
+            },
+        shape = bubbleShape,
+        color = colorScheme.surfaceVariant,
+        tonalElevation = 1.dp
+    ) {
+        Column {
+            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (description != null) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colorScheme.onSurfaceVariant,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            if (imageHttpUrl != null) {
+                val blurHashBitmap = remember(blurHash) {
+                    blurHash?.let {
+                        try { BlurHashUtils.decodeBlurHash(it, 32, 32) }
+                        catch (e: Exception) { null }
+                    }
+                }
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(imageHttpUrl)
+                        .addHeader("Cookie", "gomuks_auth=$authToken")
+                        .apply { if (blurHashBitmap != null) placeholder(android.graphics.drawable.BitmapDrawable(context.resources, blurHashBitmap)) }
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .build(),
+                    imageLoader = imageLoader,
+                    contentDescription = title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(160.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LinkPreviewsSection(
+    event: TimelineEvent,
+    isMine: Boolean,
+    homeserverUrl: String,
+    authToken: String,
+    appViewModel: AppViewModel?
+) {
+    if (appViewModel?.showLinkPreviews != true) return
+    if (event.redactedBy != null) return
+
+    val previews = remember(event.eventId) {
+        val arr = event.content?.optJSONArray("com.beeper.linkpreviews")
+            ?: event.decrypted?.optJSONArray("com.beeper.linkpreviews")
+            ?: return@remember emptyList()
+        (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+    }
+    if (previews.isEmpty()) return
+
+    for (preview in previews) {
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+        ) {
+            LinkPreviewBubble(
+                preview = preview,
+                isMine = isMine,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken
             )
         }
     }
@@ -1823,6 +1962,15 @@ private fun RoomTextMessageContent(
             }
         }
     }
+
+    // Link previews below the bubble
+    LinkPreviewsSection(
+        event = event,
+        isMine = actualIsMine,
+        homeserverUrl = homeserverUrl,
+        authToken = authToken,
+        appViewModel = appViewModel
+    )
 }
 
 @Composable
@@ -2786,6 +2934,15 @@ private fun EncryptedMessageContent(
                     }
                 }
             }
+
+            // Link previews below the encrypted text bubble
+            LinkPreviewsSection(
+                event = event,
+                isMine = actualIsMine,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                appViewModel = appViewModel
+            )
         }
     } else if (decryptedType == "m.sticker") {
         // Handle encrypted stickers
