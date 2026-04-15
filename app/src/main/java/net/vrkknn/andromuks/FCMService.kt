@@ -161,13 +161,20 @@ class FCMService : FirebaseMessagingService() {
             }
             
             if (BuildConfig.DEBUG) Log.d(TAG, "Successfully decrypted payload: ${decryptedPayload.take(100)}...")
-            
+
+            // Hold a WakeLock for the duration of async processing. FCM's own WakeLock is
+            // released as soon as onMessageReceived() returns, but our work continues in
+            // coroutines — without this the CPU can re-enter Doze before the notification posts.
+            val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            val wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "andromuks:fcm_processing")
+            wakeLock.acquire(20_000L) // 20s hard cap — FCM itself only gives us 20s
+
             // Parse the decrypted JSON and handle different payload types
             serviceScope.launch {
                 try {
                     val jsonObject = JSONObject(decryptedPayload)
                     if (BuildConfig.DEBUG) Log.d(TAG, "Decrypted JSON keys: ${jsonObject.keys().asSequence().toList()}")
-                    
+
                     // Handle different payload types
                     when {
                         jsonObject.has("messages") -> {
@@ -185,13 +192,13 @@ class FCMService : FirebaseMessagingService() {
                             jsonObject.keys().forEach { key ->
                                 jsonDataMap[key] = jsonObject.getString(key)
                             }
-                            
+
                             val notificationData = NotificationDataParser.parseNotificationData(jsonDataMap)
                             if (notificationData != null) {
                                 // Check if room is marked as low priority - skip notifications for low priority rooms
                                 val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
                                 val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
-                                
+
                                 if (lowPriorityRooms.contains(notificationData.roomId)) {
                                     if (BuildConfig.DEBUG) Log.d(TAG, "Skipping notification for low priority room (legacy path): ${notificationData.roomId} (${notificationData.roomName})")
                                 } else if (shouldSuppressNotification(notificationData.roomId)) {
@@ -201,19 +208,19 @@ class FCMService : FirebaseMessagingService() {
                                     synchronized(pendingNotificationsLock) {
                                         pendingNotifications.add(notificationData.roomId)
                                     }
-                                    
+
                                     serviceScope.launch {
                                         try {
                                             // Check if notification was cancelled while we were preparing it
                                             val wasCancelled = synchronized(pendingNotificationsLock) {
                                                 !pendingNotifications.contains(notificationData.roomId)
                                             }
-                                            
+
                                             if (wasCancelled) {
                                                 if (BuildConfig.DEBUG) Log.d(TAG, "Notification for room ${notificationData.roomId} was cancelled before showing (legacy path) - skipping")
                                                 return@launch
                                             }
-                                            
+
                                             withContext(NonCancellable) {
                                                 enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
                                                 // Remove from pending after notification is shown
@@ -236,6 +243,8 @@ class FCMService : FirebaseMessagingService() {
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error parsing decrypted payload", e)
+                } finally {
+                    if (wakeLock.isHeld) wakeLock.release()
                 }
             }
         }
