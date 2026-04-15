@@ -242,6 +242,8 @@ fun SystemEventNarrator(
         }
     }
 
+    val timestampText = remember(event.timestamp) { formatSmartTimestamp(event.timestamp) }
+
     CompositionLocalProvider(
         LocalNarratorLongPressAction provides triggerNarratorMenu
     ) {
@@ -343,9 +345,6 @@ fun SystemEventNarrator(
             }
             "m.room.name" -> {
                 val roomName = content?.optString("name", "")
-                val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
-                    appViewModel?.getMemberMap(roomId) ?: emptyMap()
-                }
                 val userMentionColor = MaterialTheme.colorScheme.primary
                 val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
                 val rawSenderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
@@ -368,9 +367,6 @@ fun SystemEventNarrator(
                 ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
             "m.room.topic" -> {
-                val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
-                    appViewModel?.getMemberMap(roomId) ?: emptyMap()
-                }
                 val userMentionColor = MaterialTheme.colorScheme.primary
                 val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
                 val rawSenderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
@@ -390,9 +386,6 @@ fun SystemEventNarrator(
                 ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
             "m.room.avatar" -> {
-                val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
-                    appViewModel?.getMemberMap(roomId) ?: emptyMap()
-                }
                 val userMentionColor = MaterialTheme.colorScheme.primary
                 val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
                 val rawSenderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
@@ -465,9 +458,6 @@ fun SystemEventNarrator(
                 )
             }
             else -> {
-                val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
-                    appViewModel?.getMemberMap(roomId) ?: emptyMap()
-                }
                 val userMentionColor = MaterialTheme.colorScheme.primary
                 val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
                 val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
@@ -511,14 +501,14 @@ fun SystemEventNarrator(
             
             // Timestamp
             Text(
-                text = formatSmartTimestamp(event.timestamp),
+                text = timestampText,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontStyle = FontStyle.Italic
             )
         }
         }
-        
+
         // Floating menu for system events (only Reply option) - same style as MessageBubbleWithMenu
         if (showMenu) {
             Popup(
@@ -849,7 +839,8 @@ fun EmoteEventNarrator(
             appendTextWithMentions(body, memberMap, appViewModel, roomId ?: "", userMentionColor)
         }
     }
-    
+    val timestampText = remember(event.timestamp) { formatSmartTimestamp(event.timestamp) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -888,13 +879,13 @@ fun EmoteEventNarrator(
         
         // Right side - timestamp
         Text(
-            text = formatSmartTimestamp(event.timestamp),
+            text = timestampText,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontStyle = FontStyle.Italic
         )
     }
-    
+
     // Context menu for emote messages
     if (showMenu) {
         AlertDialog(
