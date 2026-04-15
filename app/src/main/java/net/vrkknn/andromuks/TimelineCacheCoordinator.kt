@@ -1550,6 +1550,17 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     }
                 }
 
+                // Preemptive profile requests: fire before composables render so senders whose
+                // profile hint was absent (displayName == null or avatarUrl == null) are fetched
+                // now rather than lazily per-item. Senders with "" (confirmed absent) are skipped.
+                val uniqueSenders = timelineList.mapTo(mutableSetOf()) { it.sender }
+                for (sender in uniqueSenders) {
+                    val profile = vm.getUserProfile(sender, roomId)
+                    if (profile == null || profile.displayName == null || profile.avatarUrl == null) {
+                        vm.requestUserProfileOnDemand(sender, roomId)
+                    }
+                }
+
                 if (BuildConfig.DEBUG)
                     android.util.Log.d(
                         "Andromuks",

@@ -5871,9 +5871,9 @@ class AppViewModel : ViewModel() {
         // CRITICAL FIX: Check if we have a valid profile (not just non-null)
         // A profile with blank displayName should still be requested to get the actual name
         val existingProfile = getUserProfile(userId, roomId)
-        if (existingProfile != null && existingProfile.displayName != null) {
-            // Profile has been fetched: displayName is either a real name or "" (confirmed absent).
-            // Either way, no need to request again.
+        if (existingProfile != null && existingProfile.displayName != null && existingProfile.avatarUrl != null) {
+            // Both fields are non-null: profile has been fetched. Values are either real or ""
+            // (confirmed absent by backend). Either way, no need to request again.
             //android.util.Log.d("Andromuks", "AppViewModel: Profile already cached for $userId, skipping request")
             return
         }
@@ -10571,8 +10571,9 @@ class AppViewModel : ViewModel() {
      * Extract profile information from member event
      */
     private fun extractProfileFromMemberEvent(event: TimelineEvent): MemberProfile {
-        val displayName = event.content?.optString("displayname")?.takeIf { it.isNotBlank() }
-        val avatarUrl = event.content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
+        // "" = confirmed absent (backend said none); null = not yet fetched
+        val displayName = event.content?.optString("displayname")?.takeIf { it.isNotBlank() } ?: ""
+        val avatarUrl = event.content?.optString("avatar_url")?.takeIf { it.isNotBlank() } ?: ""
         return MemberProfile(displayName, avatarUrl)
     }
     
