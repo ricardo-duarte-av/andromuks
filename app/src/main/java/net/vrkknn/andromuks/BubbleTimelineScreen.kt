@@ -189,6 +189,8 @@ import net.vrkknn.andromuks.utils.MessageMenuBar
 import net.vrkknn.andromuks.utils.MessageMenuConfig
 import net.vrkknn.andromuks.utils.LocalActiveMessageMenuEventId
 import net.vrkknn.andromuks.utils.UploadingDialog
+import net.vrkknn.andromuks.utils.UrlPreviewCompositionBar
+import net.vrkknn.andromuks.utils.UrlPreviewController
 import net.vrkknn.andromuks.utils.VideoUploadUtils
 import net.vrkknn.andromuks.utils.extractStickerFromEvent
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
@@ -718,6 +720,7 @@ fun BubbleTimelineScreen(
     }
     
     // Text input state (moved here to be accessible by mention handler)
+    val urlPreviewController = remember { UrlPreviewController() }
     var draft by remember { mutableStateOf("") }
     var lastTypingTime by remember { mutableStateOf(0L) }
     var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
@@ -3004,6 +3007,17 @@ fun BubbleTimelineScreen(
                                     )
                                 }
 
+                                // URL preview composition bar
+                                if (appViewModel.showLinkPreviews) {
+                                    UrlPreviewCompositionBar(
+                                        text = draft,
+                                        controller = urlPreviewController,
+                                        homeserverUrl = homeserverUrl,
+                                        authToken = authToken,
+                                        isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted ?: false
+                                    )
+                                }
+
                                 // Create combined transformation for mentions and custom emojis
                                 val colorScheme = MaterialTheme.colorScheme
                                 val customEmojiPacks = appViewModel.customEmojiPacks
@@ -3429,9 +3443,10 @@ fun BubbleTimelineScreen(
                                                 }
                                                 // Otherwise send regular message
                                                 else {
-                                                    appViewModel.sendMessage(roomId, draft)
+                                                    appViewModel.sendMessage(roomId, draft, urlPreviewController.getReadyPreviews())
                                                     messageSoundPlayer.play() // Play sound when sending message
                                                 }
+                                                urlPreviewController.clearAll()
                                                 draft = "" // Clear the input after sending
                                             }
                                         }
@@ -3541,9 +3556,10 @@ fun BubbleTimelineScreen(
                                     }
                                     // Otherwise send regular message
                                     else {
-                                        appViewModel.sendMessage(roomId, draft)
+                                        appViewModel.sendMessage(roomId, draft, urlPreviewController.getReadyPreviews())
                                         messageSoundPlayer.play() // Play sound when sending message
                                     }
+                                    urlPreviewController.clearAll()
                                     draft = "" // Clear the input after sending
                                 }
                             },

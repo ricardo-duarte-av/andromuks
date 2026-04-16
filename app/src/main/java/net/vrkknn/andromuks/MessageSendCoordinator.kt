@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 
 /**
  * Outgoing message sending for [AppViewModel]: plain text, replies, edits, media, typing,
@@ -21,7 +22,12 @@ internal class MessageSendCoordinator(
 
     // --- send_message variants ---
 
-    fun sendMessage(roomId: String, text: String, mentions: List<String> = emptyList()) {
+    fun sendMessage(
+        roomId: String,
+        text: String,
+        mentions: List<String> = emptyList(),
+        urlPreviews: JSONArray = JSONArray()
+    ) {
         val reqId = vm.getAndIncrementRequestId()
 
         if (BuildConfig.DEBUG) {
@@ -37,6 +43,10 @@ internal class MessageSendCoordinator(
             "user_ids" to mentions,
             "room" to false
         )
+        val urlPreviewsList = mutableListOf<Any>()
+        for (i in 0 until urlPreviews.length()) {
+            urlPreviews.optJSONObject(i)?.let { urlPreviewsList.add(it) }
+        }
         vm.sendWebSocketCommand(
             "send_message",
             reqId,
@@ -44,7 +54,7 @@ internal class MessageSendCoordinator(
                 "room_id" to roomId,
                 "text" to text,
                 "mentions" to mentionsData,
-                "url_previews" to emptyList<Any>()
+                "url_previews" to urlPreviewsList
             )
         )
     }
@@ -70,9 +80,29 @@ internal class MessageSendCoordinator(
         }
     }
 
-    internal fun sendMessageInternal(roomId: String, text: String): WebSocketResult {
+    fun sendMessage(roomId: String, text: String, urlPreviews: JSONArray) {
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AppViewModel: sendMessage called with roomId: '$roomId', text: '$text', urlPreviews=${urlPreviews.length()}")
+        }
+
+        val result = sendMessageInternal(roomId, text, urlPreviews)
+
+        if (result != WebSocketResult.SUCCESS) {
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: sendMessage not sent immediately (result: $result) — will be retried via offline queue or pendingCommandsQueue"
+            )
+        }
+    }
+
+    internal fun sendMessageInternal(roomId: String, text: String, urlPreviews: JSONArray = JSONArray()): WebSocketResult {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendMessageInternal called")
         val messageRequestId = vm.getAndIncrementRequestId()
+
+        val urlPreviewsList = mutableListOf<Any>()
+        for (i in 0 until urlPreviews.length()) {
+            urlPreviews.optJSONObject(i)?.let { urlPreviewsList.add(it) }
+        }
 
         val result = vm.sendWebSocketCommand(
             "send_message",
@@ -84,7 +114,7 @@ internal class MessageSendCoordinator(
                     "user_ids" to emptyList<String>(),
                     "room" to false
                 ),
-                "url_previews" to emptyList<String>()
+                "url_previews" to urlPreviewsList
             )
         )
 
@@ -961,7 +991,8 @@ internal class MessageSendCoordinator(
         roomId: String,
         text: String,
         threadRootEventId: String,
-        fallbackReplyToEventId: String? = null
+        fallbackReplyToEventId: String? = null,
+        urlPreviews: JSONArray = JSONArray()
     ) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
@@ -1006,6 +1037,10 @@ internal class MessageSendCoordinator(
             relatesTo["m.in_reply_to"] = mapOf("event_id" to resolvedReplyTarget)
         }
 
+        val urlPreviewsList = mutableListOf<Any>()
+        for (i in 0 until urlPreviews.length()) {
+            urlPreviews.optJSONObject(i)?.let { urlPreviewsList.add(it) }
+        }
         val commandData = mapOf(
             "room_id" to roomId,
             "text" to text,
@@ -1014,7 +1049,7 @@ internal class MessageSendCoordinator(
                 "user_ids" to mentionUserIds,
                 "room" to false
             ),
-            "url_previews" to emptyList<String>()
+            "url_previews" to urlPreviewsList
         )
 
         if (BuildConfig.DEBUG) {

@@ -6196,7 +6196,11 @@ class AppViewModel : ViewModel() {
     
     fun sendTyping(roomId: String) = messageSendCoordinator.sendTyping(roomId)
 
-    fun sendMessage(roomId: String, text: String) = messageSendCoordinator.sendMessage(roomId, text)
+    fun sendMessage(roomId: String, text: String) =
+        messageSendCoordinator.sendMessage(roomId, text)
+
+    fun sendMessage(roomId: String, text: String, urlPreviews: org.json.JSONArray) =
+        messageSendCoordinator.sendMessage(roomId, text, urlPreviews)
 
     /**
      * Sends a message from a notification action.
@@ -10083,8 +10087,9 @@ class AppViewModel : ViewModel() {
         roomId: String,
         text: String,
         threadRootEventId: String,
-        fallbackReplyToEventId: String? = null
-    ) = messageSendCoordinator.sendThreadReply(roomId, text, threadRootEventId, fallbackReplyToEventId)
+        fallbackReplyToEventId: String? = null,
+        urlPreviews: org.json.JSONArray = org.json.JSONArray()
+    ) = messageSendCoordinator.sendThreadReply(roomId, text, threadRootEventId, fallbackReplyToEventId, urlPreviews)
     
     /**
      * Requests complete user profile information (profile, encryption info, mutual rooms)

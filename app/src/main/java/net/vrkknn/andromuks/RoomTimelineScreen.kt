@@ -238,6 +238,8 @@ import net.vrkknn.andromuks.utils.StickerMessage
 import net.vrkknn.andromuks.utils.SystemEventNarrator
 import net.vrkknn.andromuks.utils.TypingNotificationArea
 import net.vrkknn.andromuks.utils.UploadingDialog
+import net.vrkknn.andromuks.utils.UrlPreviewCompositionBar
+import net.vrkknn.andromuks.utils.UrlPreviewController
 import net.vrkknn.andromuks.utils.VideoUploadUtils
 import net.vrkknn.andromuks.utils.extractStickerFromEvent
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
@@ -956,6 +958,7 @@ fun RoomTimelineScreen(
     var cameraVideoUri by remember { mutableStateOf<Uri?>(null) }
 
     // Text input state (moved here to be accessible by mention handler and share intake)
+    val urlPreviewController = remember { UrlPreviewController() }
     var draft by remember { mutableStateOf("") }
     var lastTypingTime by remember { mutableStateOf(0L) }
     var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
@@ -3722,6 +3725,17 @@ fun RoomTimelineScreen(
                                     )
                                 }
 
+                                // URL preview composition bar
+                                if (appViewModel.showLinkPreviews) {
+                                    UrlPreviewCompositionBar(
+                                        text = draft,
+                                        controller = urlPreviewController,
+                                        homeserverUrl = homeserverUrl,
+                                        authToken = authToken,
+                                        isRoomEncrypted = currentRoomState?.isEncrypted ?: false
+                                    )
+                                }
+
                                 // Create combined transformation for mentions and custom emojis
                                 val colorScheme = MaterialTheme.colorScheme
                                 val customEmojiPacks = appViewModel.customEmojiPacks
@@ -4127,9 +4141,10 @@ fun RoomTimelineScreen(
                                                 }
                                                 // Otherwise send regular message
                                                 else {
-                                                    appViewModel.sendMessage(roomId, draft)
+                                                    appViewModel.sendMessage(roomId, draft, urlPreviewController.getReadyPreviews())
                                                     messageSoundPlayer.play() // Play sound when sending message
                                                 }
+                                                urlPreviewController.clearAll()
                                                 draft = "" // Clear the input after sending
                                             }
                                         }
@@ -4242,9 +4257,10 @@ fun RoomTimelineScreen(
                                     }
                                     // Otherwise send regular message
                                     else {
-                                        appViewModel.sendMessage(roomId, draft)
+                                        appViewModel.sendMessage(roomId, draft, urlPreviewController.getReadyPreviews())
                                         messageSoundPlayer.play() // Play sound when sending message
                                     }
+                                    urlPreviewController.clearAll()
                                     draft = "" // Clear the input after sending
                                 }
                             },

@@ -133,6 +133,8 @@ import net.vrkknn.andromuks.utils.ReplyPreviewInput
 import net.vrkknn.andromuks.utils.navigateToUserInfo
 import net.vrkknn.andromuks.utils.RoomLink
 import net.vrkknn.andromuks.utils.TypingNotificationArea
+import net.vrkknn.andromuks.utils.UrlPreviewCompositionBar
+import net.vrkknn.andromuks.utils.UrlPreviewController
 import net.vrkknn.andromuks.utils.CodeViewer
 import net.vrkknn.andromuks.utils.MessageMenuBar
 import net.vrkknn.andromuks.utils.MessageMenuConfig
@@ -603,6 +605,7 @@ fun ThreadViewerScreen(
     val isInputEnabled = true
     
     // Text input state (moved here to be accessible by mention handler)
+    val urlPreviewController = remember { UrlPreviewController() }
     var draft by remember { mutableStateOf("") }
     var lastTypingTime by remember { mutableStateOf(0L) }
     var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
@@ -1509,6 +1512,18 @@ fun ThreadViewerScreen(
                                             roomId = roomId
                                         )
                                     }
+
+                                    // URL preview composition bar
+                                    if (appViewModel.showLinkPreviews) {
+                                        UrlPreviewCompositionBar(
+                                            text = draft,
+                                            controller = urlPreviewController,
+                                            homeserverUrl = homeserverUrl,
+                                            authToken = authToken,
+                                            isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted ?: false
+                                        )
+                                    }
+
                                     // Create mention transformation for TextField with proper caching
                                     val colorScheme = MaterialTheme.colorScheme
                                     val mentionTransformation = remember(colorScheme) {
@@ -1939,7 +1954,8 @@ fun ThreadViewerScreen(
                                                         roomId = roomId,
                                                         text = draft,
                                                         threadRootEventId = threadRootEventId,
-                                                                fallbackReplyToEventId = replyingToEvent!!.eventId
+                                                                fallbackReplyToEventId = replyingToEvent!!.eventId,
+                                                                urlPreviews = urlPreviewController.getReadyPreviews()
                                                             )
                                                             replyingToEvent = null
                                                         }
@@ -1949,10 +1965,12 @@ fun ThreadViewerScreen(
                                                                 roomId = roomId,
                                                                 text = draft,
                                                                 threadRootEventId = threadRootEventId,
-                                                    fallbackReplyToEventId = null
+                                                    fallbackReplyToEventId = null,
+                                                                urlPreviews = urlPreviewController.getReadyPreviews()
                                                             )
                                                         }
                                                     }
+                                                    urlPreviewController.clearAll()
                                                     draft = ""
                                                 }
                                             }
@@ -2013,7 +2031,8 @@ fun ThreadViewerScreen(
                                             roomId = roomId,
                                             text = draft,
                                             threadRootEventId = threadRootEventId,
-                                                    fallbackReplyToEventId = replyingToEvent!!.eventId
+                                                    fallbackReplyToEventId = replyingToEvent!!.eventId,
+                                                    urlPreviews = urlPreviewController.getReadyPreviews()
                                                 )
                                                 replyingToEvent = null
                                             }
@@ -2023,10 +2042,12 @@ fun ThreadViewerScreen(
                                                     roomId = roomId,
                                                     text = draft,
                                                     threadRootEventId = threadRootEventId,
-                                                fallbackReplyToEventId = null
+                                                fallbackReplyToEventId = null,
+                                                    urlPreviews = urlPreviewController.getReadyPreviews()
                                                 )
                                             }
                                         }
+                                        urlPreviewController.clearAll()
                                         draft = ""
                                     }
                                 },
