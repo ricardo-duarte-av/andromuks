@@ -3726,7 +3726,7 @@ fun RoomTimelineScreen(
                                 }
 
                                 // URL preview composition bar
-                                if (appViewModel.showLinkPreviews) {
+                                if (appViewModel.sendLinkPreviews) {
                                     UrlPreviewCompositionBar(
                                         text = draft,
                                         controller = urlPreviewController,

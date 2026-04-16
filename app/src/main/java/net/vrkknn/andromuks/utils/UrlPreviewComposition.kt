@@ -5,16 +5,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -87,17 +86,18 @@ private suspend fun fetchUrlPreview(
             .url(previewEndpoint)
             .addHeader("Cookie", "gomuks_auth=$authToken")
             .build()
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UrlPreview: fetching $previewEndpoint")
         val response = client.newCall(request).execute()
         if (!response.isSuccessful) {
             if (BuildConfig.DEBUG) android.util.Log.w(
                 "Andromuks",
-                "UrlPreview: fetch failed for $url: ${response.code}"
+                "UrlPreview: fetch failed for $url — HTTP ${response.code}"
             )
             return@withContext null
         }
         val body = response.body?.string() ?: return@withContext null
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UrlPreview: response for $url: $body")
         val obj = JSONObject(body)
-        // Only return if there's at least a title
         if (obj.optString("og:title", "").isBlank()) null else obj
     } catch (e: Exception) {
         if (BuildConfig.DEBUG) android.util.Log.w(
@@ -128,25 +128,26 @@ fun UrlPreviewCompositionBar(
         val toRemove = controller.previews.keys.filter { it !in detectedUrls }
         toRemove.forEach { controller.previews.remove(it) }
 
-        // Fetch previews for new URLs
-        val toFetch = detectedUrls.filter { it !in controller.previews }
-        toFetch.forEach { url ->
-            controller.previews[url] = UrlPreviewItemState(url, isLoading = true)
-            scope.launch {
-                val result = fetchUrlPreview(url, homeserverUrl, authToken, isRoomEncrypted, httpClient)
-                if (controller.previews[url]?.isLoading == true) {
-                    controller.previews[url] = if (result != null) {
-                        UrlPreviewItemState(url, data = result)
-                    } else {
-                        UrlPreviewItemState(url, isError = true)
-                    }
-                }
-            }
-        }
+        // Register new URLs in idle state — user must tap the refresh button to fetch
+        val toAdd = detectedUrls.filter { it !in controller.previews }
+        toAdd.forEach { url -> controller.previews[url] = UrlPreviewItemState(url) }
     }
 
     val visiblePreviews = controller.previews.values.toList()
     if (visiblePreviews.isEmpty()) return
+
+    // Capture a stable fetch function so lambdas don't recreate on every recomposition
+    val doFetch: (String) -> Unit = { url ->
+        controller.previews[url] = UrlPreviewItemState(url, isLoading = true)
+        scope.launch {
+            val result = fetchUrlPreview(url, homeserverUrl, authToken, isRoomEncrypted, httpClient)
+            controller.previews[url] = if (result != null) {
+                UrlPreviewItemState(url, data = result)
+            } else {
+                UrlPreviewItemState(url, isError = true)
+            }
+        }
+    }
 
     Row(
         modifier = Modifier
@@ -160,17 +161,7 @@ fun UrlPreviewCompositionBar(
                 item = item,
                 homeserverUrl = homeserverUrl,
                 authToken = authToken,
-                onReload = {
-                    controller.previews[item.url] = UrlPreviewItemState(item.url, isLoading = true)
-                    scope.launch {
-                        val result = fetchUrlPreview(item.url, homeserverUrl, authToken, isRoomEncrypted, httpClient)
-                        controller.previews[item.url] = if (result != null) {
-                            UrlPreviewItemState(item.url, data = result)
-                        } else {
-                            UrlPreviewItemState(item.url, isError = true)
-                        }
-                    }
-                }
+                onFetch = { doFetch(item.url) }
             )
         }
     }
@@ -181,71 +172,124 @@ private fun UrlPreviewCard(
     item: UrlPreviewItemState,
     homeserverUrl: String,
     authToken: String,
-    onReload: () -> Unit
+    onFetch: () -> Unit
 ) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 2.dp,
-        modifier = Modifier.widthIn(max = 280.dp)
-    ) {
-        Box {
-            when {
-                item.isLoading -> {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = item.url.take(40) + if (item.url.length > 40) "…" else "",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+    when {
+        // ── Loading ─────────────────────────────────────────────────────────
+        item.isLoading -> {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                tonalElevation = 2.dp,
+                modifier = Modifier.widthIn(min = 180.dp, max = 280.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Text(
+                        text = item.url.take(40) + if (item.url.length > 40) "…" else "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
-                item.isError -> {
-                    Row(
-                        modifier = Modifier.padding(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = item.url.take(40) + if (item.url.length > 40) "…" else "",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        IconButton(onClick = onReload, modifier = Modifier.size(32.dp)) {
-                            Icon(
-                                imageVector = Icons.Filled.Refresh,
-                                contentDescription = "Reload preview",
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                }
-                item.data != null -> {
-                    val data = item.data
-                    val title = data.optString("og:title", "")
-                    if (title.isNotBlank()) {
-                    val description = data.optString("og:description", "").takeIf { it.isNotBlank() }
-                    val encryptionObj = data.optJSONObject("beeper:image:encryption")
-                    val encryptedMxcUrl = encryptionObj?.optString("url", "")?.takeIf { it.isNotBlank() }
-                    val plainMxcUrl = data.optString("og:image", "").takeIf { it.isNotBlank() }
-                    val imageMxcUrl = encryptedMxcUrl ?: plainMxcUrl
-                    val imageHttpUrl = imageMxcUrl?.let {
-                        val base = MediaUtils.mxcToHttpUrl(it, homeserverUrl) ?: return@let null
-                        if (encryptedMxcUrl != null) "$base?encrypted=true" else base
-                    }
+            }
+        }
 
+        // ── Error ────────────────────────────────────────────────────────────
+        item.isError -> {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.errorContainer,
+                tonalElevation = 2.dp,
+                modifier = Modifier.widthIn(min = 180.dp, max = 280.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = item.url.take(40) + if (item.url.length > 40) "…" else "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(
+                        imageVector = Icons.Filled.Error,
+                        contentDescription = "Preview unavailable",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+
+        // ── Idle (not yet fetched) ────────────────────────────────────────────
+        item.data == null -> {
+            Surface(
+                onClick = onFetch,
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                tonalElevation = 2.dp,
+                modifier = Modifier.widthIn(min = 180.dp, max = 280.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(start = 12.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = item.url.take(40) + if (item.url.length > 40) "…" else "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = onFetch) {
+                        Icon(
+                            imageVector = Icons.Filled.Refresh,
+                            contentDescription = "Fetch preview",
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── Loaded ───────────────────────────────────────────────────────────
+        else -> {
+            val data = item.data!!
+            val title = data.optString("og:title", "")
+            if (title.isBlank()) return
+
+            val description = data.optString("og:description", "").takeIf { it.isNotBlank() }
+            val encryptionObj = data.optJSONObject("beeper:image:encryption")
+            val encryptedMxcUrl = encryptionObj?.optString("url", "")?.takeIf { it.isNotBlank() }
+            val plainMxcUrl = data.optString("og:image", "").takeIf { it.isNotBlank() }
+            val imageMxcUrl = encryptedMxcUrl ?: plainMxcUrl
+            val imageHttpUrl = imageMxcUrl?.let {
+                val base = MediaUtils.mxcToHttpUrl(it, homeserverUrl) ?: return@let null
+                if (encryptedMxcUrl != null) "$base?encrypted=true" else base
+            }
+
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                tonalElevation = 2.dp,
+                modifier = Modifier.widthIn(max = 280.dp)
+            ) {
+                Box {
                     Column {
-                        // Image at top
                         if (imageHttpUrl != null) {
                             val context = androidx.compose.ui.platform.LocalContext.current
                             val imageLoader = ImageLoaderSingleton.get(context)
@@ -266,7 +310,6 @@ private fun UrlPreviewCard(
                                     .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
                             )
                         }
-                        // Text section
                         Column(modifier = Modifier.padding(8.dp)) {
                             Text(
                                 text = title,
@@ -287,23 +330,18 @@ private fun UrlPreviewCard(
                             }
                         }
                     }
-
-                    // Reload button overlay
+                    // Reload button — top-right overlay
                     IconButton(
-                        onClick = onReload,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .size(32.dp)
-                            .padding(4.dp)
+                        onClick = onFetch,
+                        modifier = Modifier.align(Alignment.TopEnd)
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Refresh,
                             contentDescription = "Reload preview",
-                            modifier = Modifier.size(16.dp),
+                            modifier = Modifier.size(18.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
                     }
-                    } // end if (title.isNotBlank())
                 }
             }
         }

@@ -291,6 +291,40 @@ fun SettingsScreen(
                 }
             }
 
+            // Send link previews
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "Send link previews",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Show a preview bar above the text input when a URL is typed. Tap the refresh icon on a card to fetch the preview; it will be attached to the message on send.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Switch(
+                        checked = appViewModel.sendLinkPreviews,
+                        onCheckedChange = { appViewModel.toggleSendLinkPreviews() }
+                    )
+                }
+            }
+
             // ── Background Sync Section ──────────────────────────────────────
             Text(
                 text = "Background Sync",

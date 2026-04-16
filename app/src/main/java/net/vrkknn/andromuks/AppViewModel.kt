@@ -410,6 +410,9 @@ class AppViewModel : ViewModel() {
     // Show link previews (com.beeper.linkpreviews) below text message bubbles
     var showLinkPreviews by mutableStateOf(true)
         internal set
+    // Show the link preview composer bar and include url_previews when sending
+    var sendLinkPreviews by mutableStateOf(true)
+        internal set
     var elementCallBaseUrl by mutableStateOf("")
         internal set
 
@@ -9899,6 +9902,8 @@ class AppViewModel : ViewModel() {
     fun toggleTrimLongDisplayNames() = settingsCoordinator.toggleTrimLongDisplayNames()
 
     fun toggleShowLinkPreviews() = settingsCoordinator.toggleShowLinkPreviews()
+
+    fun toggleSendLinkPreviews() = settingsCoordinator.toggleSendLinkPreviews()
 
     fun updateElementCallBaseUrl(url: String) = settingsCoordinator.updateElementCallBaseUrl(url)
 
