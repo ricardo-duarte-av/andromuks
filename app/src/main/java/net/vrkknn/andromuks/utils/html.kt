@@ -35,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.setValue
@@ -1610,7 +1611,19 @@ fun HtmlMessageText(
             }
         }
     }
-    
+
+    // Separate table nodes for dedicated card rendering
+    val tableNodes = remember(nodes) {
+        nodes.filterIsInstance<HtmlNode.Tag>().filter { it.name == "table" }
+    }
+    val nonTableNodes = remember(nodes) {
+        if (tableNodes.isEmpty()) nodes
+        else nodes.filter { !(it is HtmlNode.Tag && it.name == "table") }
+    }
+    val tableDatas = remember(tableNodes) {
+        tableNodes.map { parseTableNode(it) }
+    }
+
     // OPPORTUNISTIC PROFILE LOADING: Extract Matrix user IDs from HTML and request profiles
     LaunchedEffect(nodes, event.roomId) {
         val vm = appViewModel
@@ -1652,8 +1665,8 @@ fun HtmlMessageText(
             buildAnnotatedString {
                 var i = 0
                 var previousWasLineBreak = false
-                while (i < nodes.size) {
-                    val node = nodes[i]
+                while (i < nonTableNodes.size) {
+                    val node = nonTableNodes[i]
 
                     // Single spoiler span without reason
                     if (node is HtmlNode.Tag && node.name == "span") {
@@ -1676,8 +1689,8 @@ fun HtmlMessageText(
                     }
 
                     // Reason + spoiler pattern
-                    if (i + 1 < nodes.size) {
-                        val spoilerData = extractSpoilerData(listOf(node, nodes[i + 1]))
+                    if (i + 1 < nonTableNodes.size) {
+                        val spoilerData = extractSpoilerData(listOf(node, nonTableNodes[i + 1]))
                         if (spoilerData != null) {
                             val (reason, contentNodes) = spoilerData
                             if (contentNodes.isNotEmpty()) {
@@ -1716,15 +1729,15 @@ fun HtmlMessageText(
                     // but do not insert it before other block elements (like <blockquote>).
                     if (node is HtmlNode.Tag && node.name in setOf("p", "div")) {
                         var j = i + 1
-                        while (j < nodes.size) {
-                            val nextNode = nodes[j]
+                        while (j < nonTableNodes.size) {
+                            val nextNode = nonTableNodes[j]
                             if (nextNode is HtmlNode.Text && nextNode.content.trim().isEmpty()) {
                                 j++
                                 continue
                             }
                             break
                         }
-                        val nextNonWhitespace = nodes.getOrNull(j)
+                        val nextNonWhitespace = nonTableNodes.getOrNull(j)
                         if (nextNonWhitespace is HtmlNode.Tag && nextNonWhitespace.name in setOf("p", "div")) {
                             append("\n")
                         }
@@ -1861,6 +1874,90 @@ fun HtmlMessageText(
         map
     }
     
+    // Table dialog open/close state — one entry per table in the message
+    val tableDialogStates = remember(tableNodes.size) {
+        mutableStateListOf<Boolean>().apply {
+            repeat(tableNodes.size) { add(false) }
+        }
+    }
+
+    if (tableNodes.isNotEmpty()) {
+        // Message contains HTML tables: render text (if any) + tap-to-open table cards
+        var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+        Column(modifier = modifier) {
+            if (annotatedString.text.isNotBlank()) {
+                Text(
+                    text = annotatedString,
+                    modifier = Modifier.pointerInput(annotatedString) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val downTime = System.currentTimeMillis()
+                            val downPosition = down.position
+                            var up: PointerInputChange? = null
+                            var wasMoved = false
+                            do {
+                                val event = awaitPointerEvent()
+                                event.changes.forEach { change ->
+                                    if (change.pressed) {
+                                        val xDiff = kotlin.math.abs(change.position.x - downPosition.x)
+                                        val yDiff = kotlin.math.abs(change.position.y - downPosition.y)
+                                        if (xDiff > 10 || yDiff > 10) wasMoved = true
+                                    } else { up = change }
+                                }
+                            } while (up == null && event.changes.any { it.pressed })
+                            val isTap = !wasMoved && (System.currentTimeMillis() - downTime) < 500
+                            if (isTap && up != null) {
+                                textLayoutResult?.let { layoutResult ->
+                                    val offset = layoutResult.getOffsetForPosition(downPosition)
+                                    val spoilerAnnotation = annotatedString.getStringAnnotations(tag = "SPOILER", start = offset, end = offset).firstOrNull()
+                                    if (spoilerAnnotation != null) { up.consume(); spoilerContext.toggle(spoilerAnnotation.item); return@awaitEachGesture }
+                                    val codeBlockAnnotation = annotatedString.getStringAnnotations(tag = "CODE_BLOCK", start = offset, end = offset).firstOrNull()
+                                    if (codeBlockAnnotation != null) { up.consume(); val cb = inlineCodeBlocks[codeBlockAnnotation.item]; if (cb != null) onCodeBlockClick(cb.fullCode); return@awaitEachGesture }
+                                    val hasInteractive = annotatedString.getStringAnnotations(tag = "MATRIX_USER", start = offset, end = offset).isNotEmpty() ||
+                                        annotatedString.getStringAnnotations(tag = "ROOM_LINK", start = offset, end = offset).isNotEmpty() ||
+                                        annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset).isNotEmpty()
+                                    if (hasInteractive) {
+                                        up.consume()
+                                        annotatedString.getStringAnnotations(tag = "MATRIX_USER", start = offset, end = offset).firstOrNull()?.let { onMatrixUserClick(it.item); return@awaitEachGesture }
+                                        annotatedString.getStringAnnotations(tag = "ROOM_LINK", start = offset, end = offset).firstOrNull()?.let { val rl = extractRoomLink(it.item); if (rl != null) { onRoomLinkClick(rl); return@awaitEachGesture } }
+                                        annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset).firstOrNull()?.let { annotation ->
+                                            val url = annotation.item
+                                            when {
+                                                url.startsWith("matrix:u/") -> { val uid = url.removePrefix("matrix:u/").let { if (it.startsWith("@")) it else "@$it" }; onMatrixUserClick(uid) }
+                                                url.startsWith("https://matrix.to/#/") -> { val dec = runCatching { URLDecoder.decode(url.removePrefix("https://matrix.to/#/"), Charsets.UTF_8.name()) }.getOrDefault(url.removePrefix("https://matrix.to/#/")); if (dec.startsWith("@")) onMatrixUserClick(dec) else { val rl = extractRoomLink(url); if (rl != null) onRoomLinkClick(rl) else try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (_: Exception) {} } }
+                                                url.startsWith("matrix:roomid/") || url.startsWith("matrix:/roomid/") || url.startsWith("matrix:r/") || url.startsWith("matrix:/r/") -> { val rl = extractRoomLink(url); if (rl != null) onRoomLinkClick(rl) else try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (_: Exception) {} }
+                                                else -> try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (_: Exception) {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    style = if (isEmojiOnly) MaterialTheme.typography.bodyMedium.copy(color = color, fontSize = MaterialTheme.typography.bodyMedium.fontSize * 2)
+                            else MaterialTheme.typography.bodyMedium.copy(color = color),
+                    inlineContent = inlineContentMap,
+                    onTextLayout = { textLayoutResult = it }
+                )
+                Spacer(Modifier.height(4.dp))
+            }
+            tableDatas.forEachIndexed { idx, tableData ->
+                if (idx > 0) Spacer(Modifier.height(4.dp))
+                HtmlTablePreviewCard(
+                    tableData = tableData,
+                    onClick = { tableDialogStates[idx] = true }
+                )
+                if (tableDialogStates[idx]) {
+                    HtmlTableDialog(
+                        tableData = tableData,
+                        onDismiss = { tableDialogStates[idx] = false }
+                    )
+                }
+            }
+        }
+        return
+    }
+
     if (annotatedString.text.isEmpty()) {
         // Fallback if rendering failed
         val content = event.content ?: event.decrypted
@@ -1880,7 +1977,7 @@ fun HtmlMessageText(
     } else {
         // Use Text with custom gesture handling that only consumes taps on interactive elements
         var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
-        
+
         Text(
             text = annotatedString,
             modifier = modifier.pointerInput(annotatedString) {
