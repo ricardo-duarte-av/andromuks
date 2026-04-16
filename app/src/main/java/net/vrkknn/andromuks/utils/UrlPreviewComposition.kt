@@ -48,7 +48,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
 
-private val urlRegex = Regex("https://\\S+")
+// Only match URLs followed by whitespace — cards appear after the user presses space,
+// not while they're still typing the URL character by character.
+private val urlRegex = Regex("https://\\S+(?=\\s)")
 
 data class UrlPreviewItemState(
     val url: String,
