@@ -155,6 +155,14 @@ See **[docs/TIMELINE_EVENTS.md](docs/TIMELINE_EVENTS.md)** for full documentatio
 
 **Exception:** `updateMemberProfilesFromEvents` intentionally uses `>= 0L` — profile hints should update the member cache. Do not change that filter.
 
+## HTML Rendering (`utils/html.kt`, `utils/HtmlTableRenderer.kt`)
+
+`HtmlMessageText` is the main composable for rendering Matrix `formatted_body` HTML. It parses HTML into a tree of `HtmlNode` via `HtmlParser`, builds an `AnnotatedString` from non-table nodes, and renders it in a `Text()` with custom gesture handling for links, spoilers, and code blocks.
+
+**Table rendering:** `<table>` nodes are extracted from the parsed tree before the `AnnotatedString` is built (`tableNodes` / `nonTableNodes` split). Each table is rendered as a tappable `HtmlTablePreviewCard` (shows row/column count + column header preview). Tapping opens `HtmlTableDialog` — a full-screen dialog with `HtmlTableContent`: a `LazyColumn` (vertical scroll) wrapped in `horizontalScroll`, with auto-computed column widths (clamped 80–220dp), alternating row colors, and column dividers. Parsing logic lives in `parseTableNode()` in `HtmlTableRenderer.kt`.
+
+**Known limitation:** if a message interleaves text and tables (text → table → more text), the non-table text nodes are all rendered together above the table cards. The relative ordering of text-after-table is lost. This is acceptable for typical Matrix messages where tables are at the end or occupy the whole message body.
+
 ## Message Sending
 
 See **[docs/MESSAGE_SENDING.md](docs/MESSAGE_SENDING.md)** for full documentation.
