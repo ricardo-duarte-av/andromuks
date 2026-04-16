@@ -56,7 +56,8 @@ data class UrlPreviewItemState(
     val url: String,
     val isLoading: Boolean = false,
     val data: JSONObject? = null,
-    val isError: Boolean = false
+    val isError: Boolean = false,
+    val errorMessage: String? = null
 )
 
 class UrlPreviewController {
@@ -75,13 +76,14 @@ class UrlPreviewController {
     }
 }
 
+// Returns (previewData, errorMessage). Exactly one of the two is non-null on error/success.
 private suspend fun fetchUrlPreview(
     url: String,
     homeserverUrl: String,
     authToken: String,
     isRoomEncrypted: Boolean,
     client: OkHttpClient
-): JSONObject? = withContext(Dispatchers.IO) {
+): Pair<JSONObject?, String?> = withContext(Dispatchers.IO) {
     try {
         val encodedUrl = URLEncoder.encode(url, "UTF-8")
         val previewEndpoint = "${homeserverUrl.trimEnd('/')}/_gomuks/url_preview" +
@@ -92,23 +94,28 @@ private suspend fun fetchUrlPreview(
             .build()
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UrlPreview: fetching $previewEndpoint")
         val response = client.newCall(request).execute()
+        val body = response.body?.string()
         if (!response.isSuccessful) {
+            // Try to extract the "error" field from the JSON error body (e.g. {"errcode":"M_UNKNOWN","error":"Got error 403"})
+            val errorMessage = body?.let {
+                runCatching { JSONObject(it).optString("error", "").takeIf { m -> m.isNotBlank() } }.getOrNull()
+            }
             if (BuildConfig.DEBUG) android.util.Log.w(
                 "Andromuks",
-                "UrlPreview: fetch failed for $url — HTTP ${response.code}"
+                "UrlPreview: fetch failed for $url — HTTP ${response.code}, error: $errorMessage"
             )
-            return@withContext null
+            return@withContext Pair(null, errorMessage)
         }
-        val body = response.body?.string() ?: return@withContext null
+        if (body == null) return@withContext Pair(null, null)
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UrlPreview: response for $url: $body")
         val obj = JSONObject(body)
-        if (obj.optString("og:title", "").isBlank()) null else obj
+        if (obj.optString("og:title", "").isBlank()) Pair(null, null) else Pair(obj, null)
     } catch (e: Exception) {
         if (BuildConfig.DEBUG) android.util.Log.w(
             "Andromuks",
             "UrlPreview: exception fetching $url: ${e.message}"
         )
-        null
+        Pair(null, null)
     }
 }
 
@@ -144,11 +151,11 @@ fun UrlPreviewCompositionBar(
     val doFetch: (String) -> Unit = { url ->
         controller.previews[url] = UrlPreviewItemState(url, isLoading = true)
         scope.launch {
-            val result = fetchUrlPreview(url, homeserverUrl, authToken, isRoomEncrypted, httpClient)
-            controller.previews[url] = if (result != null) {
-                UrlPreviewItemState(url, data = result)
+            val (data, errorMessage) = fetchUrlPreview(url, homeserverUrl, authToken, isRoomEncrypted, httpClient)
+            controller.previews[url] = if (data != null) {
+                UrlPreviewItemState(url, data = data)
             } else {
-                UrlPreviewItemState(url, isError = true)
+                UrlPreviewItemState(url, isError = true, errorMessage = errorMessage)
             }
         }
     }
@@ -226,14 +233,24 @@ private fun UrlPreviewCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        text = item.url.take(40) + if (item.url.length > 40) "…" else "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = item.url.take(40) + if (item.url.length > 40) "…" else "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (item.errorMessage != null) {
+                            Text(
+                                text = "Error: ${item.errorMessage}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                     Icon(
                         imageVector = Icons.Filled.Error,
                         contentDescription = "Preview unavailable",
