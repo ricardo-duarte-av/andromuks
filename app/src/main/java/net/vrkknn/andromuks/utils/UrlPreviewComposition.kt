@@ -3,13 +3,14 @@ package net.vrkknn.andromuks.utils
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -32,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
@@ -133,10 +135,10 @@ fun UrlPreviewCompositionBar(
         toAdd.forEach { url -> controller.previews[url] = UrlPreviewItemState(url) }
     }
 
-    val visiblePreviews = controller.previews.values.toList()
+    // Order matches text position — detectedUrls is already in regex match order
+    val visiblePreviews = detectedUrls.mapNotNull { controller.previews[it] }
     if (visiblePreviews.isEmpty()) return
 
-    // Capture a stable fetch function so lambdas don't recreate on every recomposition
     val doFetch: (String) -> Unit = { url ->
         controller.previews[url] = UrlPreviewItemState(url, isLoading = true)
         scope.launch {
@@ -149,20 +151,27 @@ fun UrlPreviewCompositionBar(
         }
     }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        visiblePreviews.forEach { item ->
-            UrlPreviewCard(
-                item = item,
-                homeserverUrl = homeserverUrl,
-                authToken = authToken,
-                onFetch = { doFetch(item.url) }
-            )
+    // BoxWithConstraints lets us measure the available width and cap each card to it,
+    // so the refresh icon is never hidden off-screen.
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val cardWidth = maxWidth - 16.dp // subtract Row's horizontal padding (8dp each side)
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            visiblePreviews.forEach { item ->
+                UrlPreviewCard(
+                    item = item,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    cardWidth = cardWidth,
+                    onFetch = { doFetch(item.url) }
+                )
+            }
         }
     }
 }
@@ -172,6 +181,7 @@ private fun UrlPreviewCard(
     item: UrlPreviewItemState,
     homeserverUrl: String,
     authToken: String,
+    cardWidth: Dp,
     onFetch: () -> Unit
 ) {
     when {
@@ -181,7 +191,7 @@ private fun UrlPreviewCard(
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 tonalElevation = 2.dp,
-                modifier = Modifier.widthIn(min = 180.dp, max = 280.dp)
+                modifier = Modifier.width(cardWidth)
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -207,7 +217,7 @@ private fun UrlPreviewCard(
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.errorContainer,
                 tonalElevation = 2.dp,
-                modifier = Modifier.widthIn(min = 180.dp, max = 280.dp)
+                modifier = Modifier.width(cardWidth)
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -239,7 +249,7 @@ private fun UrlPreviewCard(
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 tonalElevation = 2.dp,
-                modifier = Modifier.widthIn(min = 180.dp, max = 280.dp)
+                modifier = Modifier.width(cardWidth)
             ) {
                 Row(
                     modifier = Modifier.padding(start = 12.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
@@ -286,7 +296,7 @@ private fun UrlPreviewCard(
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 tonalElevation = 2.dp,
-                modifier = Modifier.widthIn(max = 280.dp)
+                modifier = Modifier.width(cardWidth)
             ) {
                 Box {
                     Column {
