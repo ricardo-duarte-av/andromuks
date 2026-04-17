@@ -2789,16 +2789,17 @@ fun RoomTimelineScreen(
         
         onDispose {
             val destinationRoute = navController.currentBackStackEntry?.destination?.route.orEmpty()
-            val keepWarmForUserInfo = destinationRoute.startsWith("user_info")
-            // Keep timeline warm when navigating to UserInfo so pop-back remains fluid.
-            if (!keepWarmForUserInfo) {
+            // Keep timeline warm when navigating to UserInfo (pop-back remains fluid) or
+            // EventContext (EventContextScreen may still query this room's cache).
+            val keepWarm = destinationRoute.startsWith("user_info") || destinationRoute.startsWith("event_context")
+            if (!keepWarm) {
                 RoomTimelineCache.removeOpenedRoom(roomId)
             } else if (BuildConfig.DEBUG) {
-                Log.d("Andromuks", "RoomTimelineScreen: Keeping room $roomId warm while in UserInfo")
+                Log.d("Andromuks", "RoomTimelineScreen: Keeping room $roomId warm for destination: $destinationRoute")
             }
             // Only clear if this room is still the current room (user navigated away)
             // If user switched to a different room, the new room's LaunchedEffect will have already set currentRoomId
-            if (!keepWarmForUserInfo && appViewModel.currentRoomId == roomId) {
+            if (!keepWarm && appViewModel.currentRoomId == roomId) {
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Disposing - clearing currentRoomId for room: $roomId")
                 appViewModel.clearCurrentRoomId()
             } else {

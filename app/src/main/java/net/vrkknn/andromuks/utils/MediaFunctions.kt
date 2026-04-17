@@ -1253,8 +1253,13 @@ private fun MediaContent(
                             }
 
                             // Real image — crossfades in over the BlurHash once loaded
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
+                            // IMPORTANT: ImageRequest must be stable across recompositions so Coil does not
+                            // cancel and restart in-flight network requests when unrelated state (e.g.
+                            // memberUpdateCounter) changes. Without remember{}, rapid recompositions cause
+                            // every in-flight image load to be cancelled and restarted, leaving images
+                            // permanently stuck at the BlurHash placeholder.
+                            val imageRequest = remember(imageUrl, bypassCoilCache, isScrollingFast, cachedFile, authToken) {
+                                ImageRequest.Builder(context)
                                     .data(imageUrl ?: "")
                                     .apply {
                                         if (cachedFile == null) {
@@ -1266,7 +1271,10 @@ private fun MediaContent(
                                     .networkCachePolicy(if (isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
                                     .size(600, 600)
                                     .crossfade(300)
-                                    .build(),
+                                    .build()
+                            }
+                            AsyncImage(
+                                model = imageRequest,
                                 imageLoader = imageLoader,
                                 contentDescription = mediaMessage.filename,
                                 modifier = Modifier.fillMaxSize(),
@@ -1527,16 +1535,20 @@ private fun MediaContent(
                                     )
                                 }
 
+                                // Same stability fix as image: remember the request so Coil does not
+                                // restart in-flight loads on unrelated recompositions.
+                                val videoThumbnailRequest = remember(thumbnailFinalUrl, bypassCoilCacheForVideoThumb, isScrollingFast, authToken) {
+                                    ImageRequest.Builder(context)
+                                        .data(thumbnailFinalUrl)
+                                        .addHeader("Cookie", "gomuks_auth=$authToken")
+                                        .memoryCachePolicy(if (bypassCoilCacheForVideoThumb) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                                        .diskCachePolicy(if (bypassCoilCacheForVideoThumb || isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                                        .networkCachePolicy(if (isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                                        .size(600, 600)
+                                        .build()
+                                }
                                 AsyncImage(
-                                    model =
-                                        ImageRequest.Builder(context)
-                                            .data(thumbnailFinalUrl)
-                                            .addHeader("Cookie", "gomuks_auth=$authToken")
-                                            .memoryCachePolicy(if (bypassCoilCacheForVideoThumb) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                            .diskCachePolicy(if (bypassCoilCacheForVideoThumb || isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                            .networkCachePolicy(if (isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                            .size(600, 600) // QUALITY IMPROVEMENT: Larger size for better quality
-                                            .build(),
+                                    model = videoThumbnailRequest,
                                     imageLoader = imageLoader,
                                     contentDescription =
                                         "Video thumbnail: ${mediaMessage.filename}",
@@ -2866,8 +2878,8 @@ internal fun ImageViewerDialog(
                                 )
                             }
                     ) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
+                        val thumbnailRequest = remember(thumbnailUrl, cachedFile, authToken) {
+                            ImageRequest.Builder(context)
                                 .data(thumbnailUrl)
                                 .apply {
                                     if (cachedFile == null && thumbnailUrl.startsWith("http")) {
@@ -2876,15 +2888,19 @@ internal fun ImageViewerDialog(
                                 }
                                 .memoryCachePolicy(CachePolicy.ENABLED)
                                 .diskCachePolicy(CachePolicy.ENABLED)
-                                .build(),
+                                .build()
+                        }
+                        AsyncImage(
+                            model = thumbnailRequest,
                             imageLoader = imageLoader,
                             contentDescription = mediaMessage.filename,
                             contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                             modifier = Modifier.fillMaxSize()
                         )
 
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
+                        val fullImageRequest = remember(imageUrl, cachedFile, authToken, bypassCoilCache) {
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "ImageViewer: Building fullImageRequest — url=$imageUrl cachedFile=$cachedFile bypassCoilCache=$bypassCoilCache authTokenLen=${authToken.length}")
+                            ImageRequest.Builder(context)
                                 .data(imageUrl)
                                 .apply {
                                     if (cachedFile == null && imageUrl.startsWith("http")) {
@@ -2893,20 +2909,27 @@ internal fun ImageViewerDialog(
                                 }
                                 .size(Size.ORIGINAL)
                                 .precision(Precision.EXACT)
-                            .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                            .diskCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                .build(),
+                                .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                                .diskCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                                .build()
+                        }
+                        AsyncImage(
+                            model = fullImageRequest,
                             imageLoader = imageLoader,
                             contentDescription = mediaMessage.filename,
                             contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer(alpha = fullImageAlpha),
+                            onLoading = {
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "⏳ ImageViewer: Full image loading: $imageUrl")
+                            },
                             onSuccess = {
                                 fullImageLoaded = true
                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ ImageViewer: Full image loaded: $imageUrl")
                             },
-                            onError = {
+                            onError = { state ->
+                                if (BuildConfig.DEBUG) Log.e("Andromuks", "❌ ImageViewer: Full image error: $imageUrl — result=${state.result.throwable?.message} cachedFile=$cachedFile")
                                 // Same idea as inline timeline:
                                 // if decoding fails for a cached local file, evict and fall back to HTTP.
                                 if (cachedFile != null) {

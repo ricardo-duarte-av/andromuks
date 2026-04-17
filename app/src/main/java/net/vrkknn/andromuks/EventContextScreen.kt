@@ -1,6 +1,11 @@
 package net.vrkknn.andromuks
 
 import android.util.Log
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -12,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.TimelineEventItem
@@ -19,9 +25,15 @@ import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import net.vrkknn.andromuks.utils.navigateToUserInfo
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
-import net.vrkknn.andromuks.utils.MediaPreviewDialog
+import net.vrkknn.andromuks.utils.LocalActiveMessageMenuEventId
+import net.vrkknn.andromuks.utils.MessageMenuBar
+import net.vrkknn.andromuks.utils.MessageMenuConfig
 import net.vrkknn.andromuks.BuildConfig
-import android.net.Uri
+import net.vrkknn.andromuks.LocalScrollHighlightState
+import net.vrkknn.andromuks.ScrollHighlightState
+import net.vrkknn.andromuks.ui.components.LocalIsScrollingFast
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
 import coil.request.ImageRequest
 import coil.request.CachePolicy
 import androidx.compose.runtime.snapshotFlow
@@ -59,7 +71,27 @@ fun EventContextScreen(
     val roomItem = appViewModel.getRoomById(roomId)
     val roomDisplayName = roomItem?.name ?: roomId
     val headerTitle = roomDisplayName
-    
+
+    // Message menu state
+    var messageMenuConfig by remember { mutableStateOf<MessageMenuConfig?>(null) }
+    var retainedMessageMenuConfig by remember { mutableStateOf<MessageMenuConfig?>(null) }
+    var showReactionsDialog by remember { mutableStateOf(false) }
+    var reactionsEventId by remember { mutableStateOf<String?>(null) }
+    var showBridgeDeliveryDialog by remember { mutableStateOf(false) }
+    var bridgeDeliveryEventId by remember { mutableStateOf<String?>(null) }
+    var showCodeViewer by remember { mutableStateOf(false) }
+    var codeViewerContent by remember { mutableStateOf("") }
+
+    LaunchedEffect(messageMenuConfig) {
+        if (messageMenuConfig != null) {
+            retainedMessageMenuConfig = messageMenuConfig
+        }
+    }
+
+    BackHandler(enabled = messageMenuConfig != null) {
+        messageMenuConfig = null
+    }
+
     // Fetch event context when screen is created
     LaunchedEffect(roomId, eventId) {
         if (BuildConfig.DEBUG) Log.d("Andromuks", "EventContextScreen: Fetching event context for roomId: $roomId, eventId: $eventId")
@@ -146,6 +178,11 @@ fun EventContextScreen(
         map
     }
     
+    CompositionLocalProvider(
+        LocalActiveMessageMenuEventId provides messageMenuConfig?.event?.eventId,
+        LocalScrollHighlightState provides ScrollHighlightState(),
+        LocalIsScrollingFast provides false
+    ) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -201,22 +238,32 @@ fun EventContextScreen(
                 val timelinePrefetchLoader = remember(context) { ImageLoaderSingleton.get(context) }
                 val prefetchedTimelineMemoryKeys = remember { mutableSetOf<String>() }
                 
-                // Prefetch media for images and videos
-                fun enqueueTimelinePrefetch(
-                    mxcUrl: String?,
-                    keyPrefix: String,
-                    requestSize: Int
-                ) {
+                // Prefetch avatars: uses avatar-style URL (with avatar thumbnail params)
+                fun enqueueAvatarPrefetch(mxcUrl: String?) {
                     if (mxcUrl.isNullOrBlank()) return
                     val httpUrl = AvatarUtils.mxcToHttpUrl(mxcUrl, homeserverUrl) ?: return
-                    val memoryKey = "timeline_prefetch:$roomId:$keyPrefix:${mxcUrl.hashCode()}"
-                    if (!prefetchedTimelineMemoryKeys.add(memoryKey)) return
-                    
+                    if (!prefetchedTimelineMemoryKeys.add(httpUrl)) return
                     val request = ImageRequest.Builder(context)
                         .data(httpUrl)
                         .addHeader("Cookie", "gomuks_auth=$authToken")
-                        .size(requestSize)
-                        .memoryCacheKey(memoryKey)
+                        .size(256)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .build()
+                    timelinePrefetchLoader.enqueue(request)
+                }
+
+                // Prefetch media thumbnails: uses the same URL format as MediaContent's AsyncImage
+                // (MediaUtils.mxcToThumbnailUrl → ?thumbnail=600,600, no custom memoryCacheKey)
+                // so the prefetched image is found in Coil's cache when the item renders.
+                fun enqueueMediaPrefetch(mxcUrl: String?) {
+                    if (mxcUrl.isNullOrBlank()) return
+                    val httpUrl = net.vrkknn.andromuks.utils.MediaUtils.mxcToThumbnailUrl(mxcUrl, homeserverUrl) ?: return
+                    if (!prefetchedTimelineMemoryKeys.add(httpUrl)) return
+                    val request = ImageRequest.Builder(context)
+                        .data(httpUrl)
+                        .addHeader("Cookie", "gomuks_auth=$authToken")
+                        .size(600, 600)
                         .memoryCachePolicy(CachePolicy.ENABLED)
                         .diskCachePolicy(CachePolicy.ENABLED)
                         .build()
@@ -245,14 +292,9 @@ fun EventContextScreen(
                                 val event = events.getOrNull(index) ?: continue
                                 
                                 // Prefetch sender avatar
-                                val avatarMxc = memberMap[event.sender]?.avatarUrl
-                                enqueueTimelinePrefetch(
-                                    mxcUrl = avatarMxc,
-                                    keyPrefix = "avatar:${event.sender}",
-                                    requestSize = 256
-                                )
-                                
-                                // Prefetch media thumbnail (or media URL fallback) for image/video/sticker events
+                                enqueueAvatarPrefetch(memberMap[event.sender]?.avatarUrl)
+
+                                // Prefetch media thumbnail for image/video/sticker events
                                 val content = when {
                                     event.type == "m.room.message" -> event.content
                                     event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted
@@ -271,11 +313,7 @@ fun EventContextScreen(
                                             ?.takeIf { it.isNotBlank() }
                                             ?: info?.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
                                     val mediaMxc = content?.optString("url", "")?.takeIf { it.isNotBlank() }
-                                    enqueueTimelinePrefetch(
-                                        mxcUrl = thumbnailMxc ?: mediaMxc,
-                                        keyPrefix = "media:${event.eventId}",
-                                        requestSize = 512
-                                    )
+                                    enqueueMediaPrefetch(thumbnailMxc ?: mediaMxc)
                                 }
                             }
                         }
@@ -292,49 +330,138 @@ fun EventContextScreen(
                     }
                 }
                 
-                LazyColumn(
-                    state = listState,
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(paddingValues),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                        .padding(paddingValues)
                 ) {
-                    items(contextEvents!!) { event ->
-                        val isTargetEvent = event.eventId == eventId
-                        Surface(
-                            color = if (isTargetEvent) {
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                            } else {
-                                MaterialTheme.colorScheme.surface
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            TimelineEventItem(
-                                event = event,
-                                timelineEvents = contextEvents!!,
-                                editsByTargetId = editEventsByTargetId,
-                                homeserverUrl = homeserverUrl,
-                                authToken = imageToken,
-                                userProfileCache = memberMap,
-                                isMine = myUserId != null && event.sender == myUserId,
-                                myUserId = myUserId,
-                                appViewModel = appViewModel,
-                                onScrollToMessage = { replyEventId ->
-                                    val index = contextEvents!!.indexOfFirst { it.eventId == replyEventId }
-                                    if (index >= 0) {
-                                        coroutineScope.launch {
-                                            listState.animateScrollToItem(index)
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(contextEvents!!, key = { it.eventId }) { event ->
+                            val isTargetEvent = event.eventId == eventId
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .then(
+                                        if (isTargetEvent) {
+                                            Modifier.background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
+                                        } else {
+                                            Modifier
                                         }
-                                    } else {
-                                        val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
-                                        val encodedEventId = java.net.URLEncoder.encode(replyEventId, "UTF-8")
-                                        navController.navigate("event_context/$encodedRoomId/$encodedEventId")
+                                    )
+                            ) {
+                                TimelineEventItem(
+                                    event = event,
+                                    timelineEvents = contextEvents!!,
+                                    editsByTargetId = editEventsByTargetId,
+                                    homeserverUrl = homeserverUrl,
+                                    authToken = authToken,
+                                    userProfileCache = memberMap,
+                                    isMine = myUserId != null && event.sender == myUserId,
+                                    myUserId = myUserId,
+                                    appViewModel = appViewModel,
+                                    onScrollToMessage = { replyEventId ->
+                                        val index = contextEvents!!.indexOfFirst { it.eventId == replyEventId }
+                                        if (index >= 0) {
+                                            coroutineScope.launch {
+                                                listState.animateScrollToItem(index)
+                                            }
+                                        } else {
+                                            val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+                                            val encodedEventId = java.net.URLEncoder.encode(replyEventId, "UTF-8")
+                                            navController.navigate("event_context/$encodedRoomId/$encodedEventId")
+                                        }
+                                    },
+                                    onUserClick = { userId ->
+                                        navController.navigateToUserInfo(userId, roomId)
+                                    },
+                                    onShowMenu = { menuConfig ->
+                                        messageMenuConfig = menuConfig.copy(
+                                            onShowReactions = {
+                                                reactionsEventId = menuConfig.event.eventId
+                                                showReactionsDialog = true
+                                            },
+                                            onShowBridgeDeliveryInfo = if (appViewModel.messageBridgeSendStatus.containsKey(menuConfig.event.eventId)) {
+                                                {
+                                                    bridgeDeliveryEventId = menuConfig.event.eventId
+                                                    showBridgeDeliveryDialog = true
+                                                }
+                                            } else null
+                                        )
+                                    },
+                                    onShowReactions = {
+                                        reactionsEventId = event.eventId
+                                        showReactionsDialog = true
+                                    },
+                                    onCodeBlockClick = { code ->
+                                        codeViewerContent = code
+                                        showCodeViewer = true
                                     }
-                                },
-                                onUserClick = { userId ->
-                                    navController.navigateToUserInfo(userId, roomId)
-                                }
+                                )
+                            }
+                        }
+                    }
+
+                    // Reactions dialog
+                    if (showReactionsDialog && reactionsEventId != null) {
+                        val reactions = reactionsEventId?.let { appViewModel.messageReactions[it] } ?: emptyList()
+                        net.vrkknn.andromuks.utils.ReactionDetailsDialog(
+                            reactions = reactions,
+                            homeserverUrl = homeserverUrl,
+                            authToken = imageToken,
+                            onDismiss = { showReactionsDialog = false },
+                            appViewModel = appViewModel,
+                            roomId = roomId
+                        )
+                    }
+
+                    // Bridge delivery dialog
+                    if (showBridgeDeliveryDialog && bridgeDeliveryEventId != null) {
+                        val evId = bridgeDeliveryEventId!!
+                        val deliveryInfo = appViewModel.messageBridgeDeliveryInfo[evId] ?: net.vrkknn.andromuks.BridgeDeliveryInfo()
+                        val deliveryStatus = appViewModel.messageBridgeSendStatus[evId] ?: "sent"
+                        val networkName = appViewModel.currentRoomState?.bridgeInfo?.displayName
+                        net.vrkknn.andromuks.utils.BridgeDeliveryInfoDialog(
+                            deliveryInfo = deliveryInfo,
+                            status = deliveryStatus,
+                            networkName = networkName,
+                            homeserverUrl = homeserverUrl,
+                            authToken = imageToken,
+                            onDismiss = { showBridgeDeliveryDialog = false },
+                            appViewModel = appViewModel,
+                            roomId = roomId
+                        )
+                    }
+
+                    // Code viewer
+                    if (showCodeViewer) {
+                        net.vrkknn.andromuks.utils.CodeViewer(
+                            code = codeViewerContent,
+                            onDismiss = { showCodeViewer = false }
+                        )
+                    }
+
+                    // Message menu bar overlay
+                    AnimatedVisibility(
+                        visible = messageMenuConfig != null,
+                        enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = 120)),
+                        exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = 120))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .navigationBarsPadding()
+                                .zIndex(5f),
+                            contentAlignment = Alignment.BottomStart
+                        ) {
+                            MessageMenuBar(
+                                menuConfig = messageMenuConfig ?: retainedMessageMenuConfig,
+                                onDismiss = { messageMenuConfig = null },
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
                     }
@@ -342,5 +469,6 @@ fun EventContextScreen(
             }
         }
     }
+    } // CompositionLocalProvider
 }
 
