@@ -82,7 +82,13 @@ val processedInBatch = _processedInBatch.asStateFlow()
          * [processSyncComplete] runs on dispatcher threads (e.g. after SyncRepository fan-out).
          * A plain `var` updated under [synchronized] on [batchQueue] was not visible to readers
          * holding only [batchLock], so backgrounding could keep looking "foreground" → no batching.
+         *
+         * Effective visibility = mainAppVisible OR any bubble is visible.
+         * [mainAppVisible] tracks only the main Activity; [appVisible] is the derived effective flag
+         * read by [processSyncComplete]. This way a visible Chat Bubble keeps sync processing
+         * immediate even while the main Activity is backgrounded.
          */
+        private val mainAppVisible = AtomicBoolean(true)
         private val appVisible = AtomicBoolean(true)
 
         private const val TAG = "SyncBatchProcessor"
@@ -317,9 +323,13 @@ val processedInBatch = _processedInBatch.asStateFlow()
         // batchLock is a Mutex (suspend-only), we use a quick synchronised block
         // on the list itself for the non-suspend read, then launch the real flush.
         synchronized(batchQueue) {
-            val wasVisible = appVisible.get()
-            appVisible.set(visible)
-            pendingCount = if (visible && !wasVisible) batchQueue.size else 0
+            mainAppVisible.set(visible)
+            val wasEffectivelyVisible = appVisible.get()
+            // Stay in immediate-processing mode if any bubble is currently visible,
+            // even when the main Activity goes to background.
+            val nowEffectivelyVisible = visible || BubbleTracker.getVisibleBubbles().isNotEmpty()
+            appVisible.set(nowEffectivelyVisible)
+            pendingCount = if (nowEffectivelyVisible && !wasEffectivelyVisible) batchQueue.size else 0
         }
 
         if (pendingCount > 0) {
@@ -352,6 +362,22 @@ val processedInBatch = _processedInBatch.asStateFlow()
         return Pair(pendingCount, job)
     }
     
+    /**
+     * Called when a Chat Bubble's visibility changes (visible/invisible).
+     *
+     * Re-derives [appVisible] from [mainAppVisible] OR [BubbleTracker.getVisibleBubbles()].
+     * Must be called AFTER [BubbleTracker] has already been updated for this event, so the
+     * check reflects the new bubble state.
+     *
+     * No flush is launched here — setting [appVisible] = true is enough: the next
+     * [processSyncComplete] call (on the primary VM) will immediately process the queued messages.
+     */
+    fun notifyBubbleVisibilityChanged() {
+        val nowEffectivelyVisible = mainAppVisible.get() || BubbleTracker.getVisibleBubbles().isNotEmpty()
+        appVisible.set(nowEffectivelyVisible)
+        if (BuildConfig.DEBUG) Log.d(TAG, "Bubble visibility changed — appVisible now: $nowEffectivelyVisible (mainApp=${mainAppVisible.get()}, visibleBubbles=${BubbleTracker.getVisibleBubbles().size})")
+    }
+
     /**
      * Force flush batched messages for notification navigation.
      * Sets isAppVisible = true because the app IS coming to the foreground.

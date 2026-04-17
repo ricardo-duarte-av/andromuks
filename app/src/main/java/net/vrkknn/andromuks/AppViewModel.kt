@@ -240,10 +240,18 @@ class AppViewModel : ViewModel() {
                             populateReadReceiptsFromCache()
                             populateMessageReactionsFromCache()
                             
-                            // 3. IMPORTANT: Reload current room timeline if one is open.
+                            // 3. IMPORTANT: Reload timeline for all rooms open in this VM.
                             // The singleton timeline cache was updated by the primary instance;
                             // we must sync our local snapshot to see new messages.
-                            currentRoomId?.let { roomId ->
+                            // Use getOpenedRooms() instead of only currentRoomId — bubble VMs
+                            // register their room via RoomTimelineCache.addOpenedRoom() but may
+                            // have currentRoomId == "" (e.g. if navigateToRoomWithCache hasn't run
+                            // yet or was skipped by the isAlreadyLoaded guard).
+                            val roomsToRefresh = buildSet {
+                                if (currentRoomId.isNotEmpty()) add(currentRoomId)
+                                addAll(RoomTimelineCache.getOpenedRooms())
+                            }
+                            for (roomId in roomsToRefresh) {
                                 if (restoreFromLruCache(roomId)) {
                                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Refreshed timeline for open room $roomId from replicated cache (vmId=$viewModelId)")
                                     timelineUpdateCounter++
@@ -3774,7 +3782,11 @@ class AppViewModel : ViewModel() {
      */
     fun setBubbleVisible(visible: Boolean) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Bubble visibility set to $visible (lightweight)")
-        
+
+        // Keep sync_complete processing immediate while any bubble is on screen.
+        // BubbleTracker is updated before this call, so the check inside reflects current state.
+        syncBatchProcessor.notifyBubbleVisibilityChanged()
+
         if (visible) {
             if (currentRoomId.isEmpty()) {
                 val roomToRestore = pendingRoomToRestore
@@ -8302,36 +8314,51 @@ class AppViewModel : ViewModel() {
         val data = syncJson.optJSONObject("data")
         if (data != null) {
             val rooms = data.optJSONObject("rooms")
-            if (rooms != null && currentRoomId.isNotEmpty() && rooms.has(currentRoomId)) {
-                // CRITICAL FIX: Check if sync_complete has timeline events BEFORE updating
-                // This ensures we process events even if buildTimelineFromChain is async
-                val roomData = rooms.optJSONObject(currentRoomId)
-                val hasTimelineEvents = roomData?.optJSONArray("events")?.let { it.length() > 0 } ?: false
-                
-                // Update timeline data first
-                updateTimelineFromSync(syncJson, currentRoomId)
-                
-                // CRITICAL FIX: Always schedule UI update if sync_complete had timeline events
-                // buildTimelineFromChain is async, so hash check might happen before timeline updates
-                // Always update UI if we processed timeline events to ensure they appear
-                if (hasTimelineEvents) {
-                    needsTimelineUpdate = true
-                    scheduleUIUpdate("timeline")
-                    // Update hash after a delay to allow async buildTimelineFromChain to complete
-                    viewModelScope.launch {
-                        kotlinx.coroutines.delay(100) // Wait for buildTimelineFromChain to complete
-                        lastTimelineStateHash = generateTimelineStateHash(timelineEvents)
-                    }
-                } else {
-                    // No timeline events - use hash-based detection
-                    val newTimelineStateHash = generateTimelineStateHash(timelineEvents)
-                    val timelineStateChanged = newTimelineStateHash != lastTimelineStateHash
-                    
-                    if (timelineStateChanged) {
+            if (rooms != null) {
+                if (currentRoomId.isNotEmpty() && rooms.has(currentRoomId)) {
+                    // CRITICAL FIX: Check if sync_complete has timeline events BEFORE updating
+                    // This ensures we process events even if buildTimelineFromChain is async
+                    val roomData = rooms.optJSONObject(currentRoomId)
+                    val hasTimelineEvents = roomData?.optJSONArray("events")?.let { it.length() > 0 } ?: false
+
+                    // Update timeline data first
+                    updateTimelineFromSync(syncJson, currentRoomId)
+
+                    // CRITICAL FIX: Always schedule UI update if sync_complete had timeline events
+                    // buildTimelineFromChain is async, so hash check might happen before timeline updates
+                    // Always update UI if we processed timeline events to ensure they appear
+                    if (hasTimelineEvents) {
                         needsTimelineUpdate = true
                         scheduleUIUpdate("timeline")
-                        lastTimelineStateHash = newTimelineStateHash
+                        // Update hash after a delay to allow async buildTimelineFromChain to complete
+                        viewModelScope.launch {
+                            kotlinx.coroutines.delay(100) // Wait for buildTimelineFromChain to complete
+                            lastTimelineStateHash = generateTimelineStateHash(timelineEvents)
+                        }
+                    } else {
+                        // No timeline events - use hash-based detection
+                        val newTimelineStateHash = generateTimelineStateHash(timelineEvents)
+                        val timelineStateChanged = newTimelineStateHash != lastTimelineStateHash
+
+                        if (timelineStateChanged) {
+                            needsTimelineUpdate = true
+                            scheduleUIUpdate("timeline")
+                            lastTimelineStateHash = newTimelineStateHash
+                        }
                     }
+                }
+
+                // Also keep RoomTimelineCache fresh for rooms open in bubble VMs (secondary instances).
+                // The bubble VM's RoomListSingletonReplicated handler calls restoreFromLruCache() which
+                // reads from RoomTimelineCache — without this update it would never see new events.
+                val otherOpenRooms = RoomTimelineCache.getOpenedRooms() - currentRoomId
+                for (bubbleRoomId in otherOpenRooms) {
+                    if (!rooms.has(bubbleRoomId)) continue
+                    val events = resolveTimelineRowidsFromRoomData(rooms.optJSONObject(bubbleRoomId) ?: continue)
+                    if (events == null || events.length() == 0) continue
+                    val memberMap = RoomMemberCache.getRoomMembers(bubbleRoomId)
+                    RoomTimelineCache.addEventsFromSync(bubbleRoomId, events, memberMap)
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated RoomTimelineCache for bubble room $bubbleRoomId (${events.length()} events)")
                 }
             }
         }
