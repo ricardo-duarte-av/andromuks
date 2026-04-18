@@ -73,13 +73,21 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         "AppViewModel: Restored room $roomId from cache (${timelineEvents.size} events, ${processedState.eventChainMap.size} chains, ${processedState.editEventsMap.size} edits)",
                     )
             } else {
-                // No processed state - will be rebuilt from events
+                // No processed state (cleared by a sync_complete with edits/reactions while the
+                // room was closed). Rebuild eventChainMap from raw cached events now so that any
+                // subsequent buildTimelineFromChain() call sees all events rather than only the
+                // newly-arrived one (which would wipe the visible timeline to a single message).
                 eventChainMap.clear()
                 editEventsMap.clear()
+                val eventsForChain = RoomTimelineCache.getCachedEventsForTimeline(roomId)
+                if (eventsForChain.isNotEmpty()) {
+                    buildEditChainsFromEvents(eventsForChain, clearExisting = false)
+                    processEditRelationships()
+                }
                 if (BuildConfig.DEBUG)
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Restored room $roomId events from cache (${timelineEvents.size} events), but no processed state - will rebuild",
+                        "AppViewModel: Restored room $roomId events from cache (${timelineEvents.size} events), no processed state - rebuilt ${eventChainMap.size} chain entries from cached events",
                     )
             }
 
