@@ -2791,7 +2791,9 @@ fun RoomTimelineScreen(
             val destinationRoute = navController.currentBackStackEntry?.destination?.route.orEmpty()
             // Keep timeline warm when navigating to UserInfo (pop-back remains fluid) or
             // EventContext (EventContextScreen may still query this room's cache).
-            val keepWarm = destinationRoute.startsWith("user_info") || destinationRoute.startsWith("event_context")
+            val keepWarm = destinationRoute.startsWith("user_info") ||
+                destinationRoute.startsWith("event_context") ||
+                destinationRoute.startsWith("thread_viewer")
             if (!keepWarm) {
                 RoomTimelineCache.removeOpenedRoom(roomId)
             } else if (BuildConfig.DEBUG) {
