@@ -616,8 +616,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             true
                         }
                     if (shouldMarkAsRead) {
-                        val mostRecentEvent = cachedEvents.maxByOrNull { it.timestamp }
-                        if (mostRecentEvent != null) markRoomAsRead(roomId, mostRecentEvent.eventId)
+                        // Prefer RoomListCache.getLatestEventId — it tracks the absolute latest
+                        // event seen for this room across all sync_complete cycles, even if the room
+                        // was not actively cached when that event arrived (so the cache may lag).
+                        val cacheMaxId = cachedEvents.maxByOrNull { it.timestamp }?.eventId
+                        val latestKnownId = RoomListCache.getLatestEventId(roomId) ?: cacheMaxId
+                        if (latestKnownId != null) markRoomAsRead(roomId, latestKnownId)
                     } else {
                         if (BuildConfig.DEBUG)
                             android.util.Log.d(
@@ -676,6 +680,43 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         ),
                     )
                 }
+
+                // Mark room as read up to the latest known event. RoomListCache tracks the
+                // absolute latest event even for rooms that weren't actively cached during that
+                // sync, so prefer it over the cache max.
+                val shouldMarkAsRead = if (BubbleTracker.isBubbleOpen(roomId)) {
+                    BubbleTracker.isBubbleVisible(roomId)
+                } else {
+                    true
+                }
+                if (shouldMarkAsRead) {
+                    val cacheMaxId = RoomTimelineCache.getCachedEvents(roomId)
+                        ?.maxByOrNull { it.timestamp }?.eventId
+                    val latestKnownId = RoomListCache.getLatestEventId(roomId) ?: cacheMaxId
+                    if (latestKnownId != null) markRoomAsRead(roomId, latestKnownId)
+                }
+
+                // Background paginate to pull any events the LRU restore may have missed.
+                val wasAdded = roomsWithPendingPaginate.add(roomId)
+                if (wasAdded && isWebSocketConnected()) {
+                    val paginateRequestId = requestIdCounter++
+                    timelineRequests[paginateRequestId] = roomId
+                    val result = sendWebSocketCommand(
+                        "paginate",
+                        paginateRequestId,
+                        mapOf(
+                            "room_id" to roomId,
+                            "max_timeline_id" to 0,
+                            "limit" to AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT,
+                            "reset" to false,
+                        ),
+                    )
+                    if (result != WebSocketResult.SUCCESS && !isWebSocketConnected()) {
+                        timelineRequests.remove(paginateRequestId)
+                        roomsWithPendingPaginate.remove(roomId)
+                    }
+                }
+
                 return
             }
 
@@ -1535,7 +1576,11 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                 }
 
                             if (shouldMarkAsRead) {
-                                val mostRecentEvent = timelineList.maxByOrNull { it.timestamp }
+                                // Use allEvents (includes reactions and all types) rather than
+                                // timelineList (filtered to renderable types only) so that
+                                // reactions or state events that arrive after the last message
+                                // still produce a correct, up-to-date mark_read position.
+                                val mostRecentEvent = allEvents.maxByOrNull { it.timestamp }
                                 if (mostRecentEvent != null) {
                                     markRoomAsRead(roomId, mostRecentEvent.eventId)
                                 }
