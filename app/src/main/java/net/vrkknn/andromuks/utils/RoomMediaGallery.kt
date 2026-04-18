@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -84,7 +85,9 @@ private fun extractMediaItems(
             else -> return@mapNotNull null
         }
 
-        val fullMxc = content?.optString("url")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        val fullMxc = content?.optString("url")?.takeIf { it.isNotBlank() }
+            ?: content?.optJSONObject("file")?.optString("url")?.takeIf { it.isNotBlank() }
+            ?: return@mapNotNull null
         val info = content.optJSONObject("info")
         val thumbnailMxc = info?.optString("thumbnail_url")?.takeIf { it.isNotBlank() }
         val blurHash = info?.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
@@ -361,6 +364,8 @@ private fun GalleryThumbnail(
     // If the backend-generated thumbnail fails (only possible for the ?thumbnail=avatar path),
     // retry once with the full media URL.
     var thumbnailFailed by remember(thumbnailMxcKey) { mutableStateOf(false) }
+    // Set to true when even the fallback fails — media is unavailable on the server.
+    var mediaUnavailable by remember(thumbnailMxcKey) { mutableStateOf(false) }
 
     // If the cache returned a file, hand its absolute path to Coil directly (no auth header
     // needed for local files). Otherwise use the thumbnail URL, or fall back to the full URL
@@ -411,17 +416,26 @@ private fun GalleryThumbnail(
                 .build(),
             imageLoader = imageLoader,
             onError = {
-                // Only flip the flag once, and only when a fallback URL exists (i.e. this is
-                // an m.image item whose ?thumbnail=avatar request failed).
                 if (!thumbnailFailed && item.fallbackHttpUrl != null) {
+                    // First failure on the ?thumbnail=avatar path — retry with full URL.
                     thumbnailFailed = true
+                } else {
+                    // No fallback available, or fallback also failed — media is gone.
+                    mediaUnavailable = true
                 }
             },
             contentDescription = if (item.isVideo) "Video thumbnail" else "Image",
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
         )
-        if (item.isVideo) {
+        if (mediaUnavailable) {
+            Icon(
+                imageVector = Icons.Filled.BrokenImage,
+                contentDescription = "Media unavailable",
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(32.dp)
+            )
+        } else if (item.isVideo) {
             Box(
                 modifier = Modifier
                     .size(32.dp)

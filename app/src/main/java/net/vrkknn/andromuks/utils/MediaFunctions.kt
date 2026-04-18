@@ -129,6 +129,7 @@ import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.automirrored.filled.RotateLeft
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -2685,6 +2686,8 @@ internal fun ImageViewerDialog(
     }
     // If cache-based decode fails, retry once with Coil caches disabled (forces backend fetch).
     var bypassCoilCache by remember(mediaMessage.url) { mutableStateOf(false) }
+    // Set to true after the bypass retry also fails — the media is gone from the server.
+    var fullImageFailed by remember(mediaMessage.url) { mutableStateOf(false) }
     val imageUrl = remember(mediaMessage.url, isEncrypted, cachedFile) {
         val file = cachedFile
         if (file != null) {
@@ -2930,9 +2933,8 @@ internal fun ImageViewerDialog(
                             },
                             onError = { state ->
                                 if (BuildConfig.DEBUG) Log.e("Andromuks", "❌ ImageViewer: Full image error: $imageUrl — result=${state.result.throwable?.message} cachedFile=$cachedFile")
-                                // Same idea as inline timeline:
-                                // if decoding fails for a cached local file, evict and fall back to HTTP.
                                 if (cachedFile != null) {
+                                    // Cached file failed to decode — evict and retry via HTTP.
                                     val badMxcUrl = mediaMessage.url
                                     if (BuildConfig.DEBUG) {
                                         Log.w("Andromuks", "ImageViewer: onError decoding cached file. Evicting mxc=$badMxcUrl path=${cachedFile?.absolutePath}")
@@ -2941,15 +2943,32 @@ internal fun ImageViewerDialog(
                                     coroutineScope.launch {
                                         IntelligentMediaCache.evictCachedFile(context, badMxcUrl)
                                     }
+                                    bypassCoilCache = true
+                                } else if (bypassCoilCache) {
+                                    // Already retried with cache bypass — media is unavailable.
+                                    fullImageFailed = true
+                                } else {
+                                    // First HTTP failure — retry without Coil caches.
+                                    bypassCoilCache = true
                                 }
-                                // Retry from backend (avoid Coil disk/memory caches that might still be corrupted).
-                                bypassCoilCache = true
                             }
                         )
                     }
                 }
             }
                     
+                    // Broken image indicator — shown when the media is unavailable on the server.
+                    if (fullImageFailed) {
+                        Icon(
+                            imageVector = Icons.Filled.BrokenImage,
+                            contentDescription = "Media unavailable",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .size(64.dp)
+                        )
+                    }
+
                     // Top toolbar with action buttons
                     Row(
                         modifier = Modifier
@@ -3053,7 +3072,7 @@ internal fun ImageViewerDialog(
                     // Spinner in the bottom-left corner while the full image is downloading.
                     // The thumbnail renders behind it; this disappears once the full image is ready.
                     AnimatedVisibility(
-                        visible = !fullImageLoaded,
+                        visible = !fullImageLoaded && !fullImageFailed,
                         enter = fadeIn(),
                         exit = fadeOut(),
                         modifier = Modifier
