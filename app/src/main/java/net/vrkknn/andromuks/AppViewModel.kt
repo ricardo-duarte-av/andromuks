@@ -9756,25 +9756,27 @@ class AppViewModel : ViewModel() {
      * @param maxTimestamp Timestamp to get mentions before this time (defaults to current time)
      * @param limit Maximum number of mentions to return (default 50)
      */
-    fun requestMentionsList(maxTimestamp: Long? = null, limit: Int = 50) {
+    fun requestMentionsList(maxTimestamp: Long? = null, limit: Int = 50, type: Int = 6, roomId: String? = null) {
         val actualMaxTimestamp = maxTimestamp ?: System.currentTimeMillis()
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: requestMentionsList called with maxTimestamp=$actualMaxTimestamp, limit=$limit")
-        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: requestMentionsList called with maxTimestamp=$actualMaxTimestamp, limit=$limit, type=$type, roomId=$roomId")
+
         val ws = WebSocketService.getWebSocket() ?: run {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected - cannot request mentions list")
             return
         }
-        
+
         val mentionsRequestId = requestIdCounter++
         mentionsRequests[mentionsRequestId] = Unit
-        
+
         isMentionsLoading = true
-        
-        val commandData = mapOf<String, Any>(
-            "type" to 6, // Highlight (4) | Notify (2) — all push-rule-matched events
+        mentionEvents = emptyList()
+
+        val commandData = mutableMapOf<String, Any>(
+            "type" to type,
             "limit" to limit,
             "max_timestamp" to actualMaxTimestamp
         )
+        if (roomId != null) commandData["room_id"] = roomId
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending get_mentions command with request_id=$mentionsRequestId, data=$commandData")
         sendWebSocketCommand("get_mentions", mentionsRequestId, commandData)

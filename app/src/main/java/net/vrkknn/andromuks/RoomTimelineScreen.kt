@@ -96,6 +96,7 @@ import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
@@ -3260,8 +3261,9 @@ fun RoomTimelineScreen(
                                 context.findActivityForFinish()?.finish()
                             }
                         },
-                        onCallClick = {
-                            navController.navigate("element_call/$roomId")
+                        onNotificationsClick = {
+                            val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+                            navController.navigate("mentions?roomId=$encodedRoomId")
                         },
                         onRefreshClick = {
                             // Full refresh: drop all on-disk and in-RAM data, then fetch 100 events
@@ -5907,7 +5909,7 @@ fun RoomHeader(
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
     onHeaderClick: () -> Unit = {},
     onBackClick: () -> Unit = {},
-    onCallClick: () -> Unit = {},
+    onNotificationsClick: () -> Unit = {},
     onRefreshClick: () -> Unit = {}
 ) {
     // Debug logging
@@ -6056,10 +6058,10 @@ fun RoomHeader(
                     modifier = Modifier.size(20.dp)
                 )
             }
-            IconButton(onClick = onCallClick) {
+            IconButton(onClick = onNotificationsClick) {
                 Icon(
-                    imageVector = androidx.compose.material.icons.Icons.Filled.Videocam,
-                    contentDescription = "Start call",
+                    imageVector = Icons.Filled.Notifications,
+                    contentDescription = "Room notifications",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }

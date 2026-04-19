@@ -1549,11 +1549,19 @@ fun AppNavigation(
                 navController = navController
             )
         }
-        composable("mentions") {
+        composable(
+            route = "mentions?roomId={roomId}",
+            arguments = listOf(navArgument("roomId") {
+                type = NavType.StringType
+                nullable = true
+                defaultValue = null
+            })
+        ) { backStackEntry ->
             MentionsScreen(
                 appViewModel = appViewModel,
                 navController = navController,
-                modifier = modifier
+                modifier = modifier,
+                roomId = backStackEntry.arguments?.getString("roomId")
             )
         }
         composable(

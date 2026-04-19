@@ -211,7 +211,7 @@ A pulsing `CloudOff` icon in `MaterialTheme.colorScheme.error` is shown in every
 
 **Placement per screen:**
 - `RoomListScreen` — between the user Column and the Mentions icon button in the top bar Row
-- `RoomTimelineScreen` (`RoomHeader`) — to the left of the video call (`Videocam`) icon button
+- `RoomTimelineScreen` (`RoomHeader`) — to the left of the `Notifications` icon button
 - `BubbleTimelineScreen` (`BubbleRoomHeader`) — first item in the trailing icons Row, before the "Open in app" button
 - `ThreadViewerScreen` — trailing item in the header Row, after the thread title Column
 

@@ -65,6 +65,7 @@ import net.vrkknn.andromuks.AdaptiveMessageText
 import net.vrkknn.andromuks.utils.ReplyPreview
 import net.vrkknn.andromuks.utils.BubbleColors
 import net.vrkknn.andromuks.utils.BubblePalette
+import androidx.compose.material3.Switch
 
 // Data classes are defined in AppViewModel.kt
 
@@ -120,37 +121,38 @@ sealed class MentionTimelineItem {
 fun MentionsScreen(
     navController: NavController,
     modifier: Modifier = Modifier,
-    appViewModel: AppViewModel = viewModel()
+    appViewModel: AppViewModel = viewModel(),
+    roomId: String? = null
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val homeserverUrl = appViewModel.homeserverUrl
     val authToken = appViewModel.authToken
     val myUserId = appViewModel.currentUserId
-    
+
+    var highlightsOnly by remember { mutableStateOf(false) }
+
     // Get mentions state from AppViewModel
     val mentionEvents = appViewModel.mentionEvents
     val isLoading = appViewModel.isMentionsLoading
     var isRefreshing by remember { mutableStateOf(false) }
-    
+
     // Pull-to-refresh state
     val pullRefreshState = rememberPullRefreshState(
         refreshing = isRefreshing,
         onRefresh = {
             isRefreshing = true
-            appViewModel.requestMentionsList()
+            appViewModel.requestMentionsList(type = if (highlightsOnly) 4 else 6, roomId = roomId)
         }
     )
-    
+
     val listState = rememberLazyListState()
-    
-    // Load mentions when screen opens or when returning to this screen
-    LaunchedEffect(Unit) {
-        if (mentionEvents.isEmpty() && !isLoading) {
-            appViewModel.requestMentionsList()
-        }
+
+    // Load/reload mentions when screen opens or when the highlights toggle changes
+    LaunchedEffect(highlightsOnly) {
+        appViewModel.requestMentionsList(type = if (highlightsOnly) 4 else 6, roomId = roomId)
     }
-    
+
     // Reset refreshing state when loading completes
     LaunchedEffect(isLoading) {
         if (!isLoading && isRefreshing) {
@@ -209,8 +211,21 @@ fun MentionsScreen(
                                 modifier = Modifier.weight(1f),
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
-                            // Spacer to balance the back button and keep title visually centered
-                            Spacer(modifier = Modifier.size(48.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(end = 8.dp)
+                            ) {
+                                Text(
+                                    text = "Highlights",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Switch(
+                                    checked = highlightsOnly,
+                                    onCheckedChange = { highlightsOnly = it }
+                                )
+                            }
                         }
                     }
                     
