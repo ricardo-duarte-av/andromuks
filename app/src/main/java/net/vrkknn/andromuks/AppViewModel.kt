@@ -4463,6 +4463,7 @@ class AppViewModel : ViewModel() {
     internal val joinRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
     internal val leaveRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
     internal val outgoingRequests = mutableMapOf<Int, String>() // requestId -> roomId (for all outgoing requests)
+    internal val createRoomRequests = mutableMapOf<Int, (String?, String?) -> Unit>() // requestId -> (roomId?, error?) callback
     internal val fcmRegistrationRequests = mutableMapOf<Int, String>() // requestId -> "fcm_registration"
     internal var lastFCMRegistrationTime: Long = 0 // Track last registration to prevent duplicates
     private val eventRequests = mutableMapOf<Int, Pair<String, (TimelineEvent?) -> Unit>>() // requestId -> (roomId, callback)
@@ -6457,8 +6458,9 @@ class AppViewModel : ViewModel() {
                     outgoingRequests.containsKey(requestId) ||
                     mentionsRequests.containsKey(requestId) ||
                     widgetCommandRequests.containsKey(requestId) ||
-                    galleryPaginateRequests.containsKey(requestId)
-            
+                    galleryPaginateRequests.containsKey(requestId) ||
+                    createRoomRequests.containsKey(requestId)
+
             // If it's NOT in any request map, it's truly stale - ignore it
             if (!isInRequestMap) {
                 if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Ignoring stale response with requestId=$requestId (not in any request map and no pending operation)")
@@ -6536,6 +6538,8 @@ class AppViewModel : ViewModel() {
             handleMentionsListResponse(requestId, data)
         } else if (galleryPaginateRequests.containsKey(requestId)) {
             handleGalleryPaginateResponse(requestId, data)
+        } else if (createRoomRequests.containsKey(requestId)) {
+            handleCreateRoomResponse(requestId, data)
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unknown response requestId=$requestId")
         }
@@ -6653,6 +6657,10 @@ class AppViewModel : ViewModel() {
             if (roomId != null) {
                 pendingFullMemberListRequests.remove(roomId)
             }
+        } else if (createRoomRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Create room error for requestId=$requestId: $errorMessage")
+            val callback = createRoomRequests.remove(requestId) ?: return
+            callback(null, errorMessage)
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Unknown error requestId=$requestId: $errorMessage")
         }
@@ -9304,7 +9312,50 @@ class AppViewModel : ViewModel() {
             leaveRoomRequests.remove(requestId)
         }
     }
-    
+
+    fun createRoom(
+        name: String?,
+        topic: String?,
+        roomAliasName: String?,
+        preset: String?,
+        isDirect: Boolean,
+        invite: List<String>,
+        initialState: List<Map<String, Any>>,
+        roomVersion: String? = null,
+        roomId: String? = null,
+        originServerTs: Long? = null,
+        callback: (String?, String?) -> Unit
+    ) {
+        val requestId = requestIdCounter++
+        createRoomRequests[requestId] = callback
+        val data = mutableMapOf<String, Any>()
+        name?.let { data["name"] = it }
+        topic?.let { data["topic"] = it }
+        roomAliasName?.let { data["room_alias_name"] = it }
+        preset?.let { data["preset"] = it }
+        if (isDirect) data["is_direct"] = true
+        if (invite.isNotEmpty()) data["invite"] = invite
+        if (initialState.isNotEmpty()) data["initial_state"] = initialState
+        data["creation_content"] = emptyMap<String, Any>()
+        data["power_level_content_override"] = emptyMap<String, Any>()
+        roomVersion?.let { data["room_version"] = it }
+        roomId?.let { data["fi.mau.room_id"] = it }
+        originServerTs?.let { data["fi.mau.origin_server_ts"] = it }
+        sendWebSocketCommand("create_room", requestId, data)
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Creating room requestId=$requestId")
+    }
+
+    fun handleCreateRoomResponse(requestId: Int, data: Any) {
+        val callback = createRoomRequests.remove(requestId) ?: return
+        val newRoomId = when (data) {
+            is org.json.JSONObject -> data.optString("room_id").takeIf { it.isNotBlank() }
+            is Map<*, *> -> data["room_id"] as? String
+            else -> null
+        }
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room created roomId=$newRoomId requestId=$requestId")
+        callback(newRoomId, null)
+    }
+
     fun executeCommand(roomId: String, text: String, context: android.content.Context, navController: androidx.navigation.NavController? = null): Boolean =
         slashCommandsCoordinator.executeCommand(roomId, text, context, navController)
 

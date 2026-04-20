@@ -1113,6 +1113,13 @@ fun AppNavigation(
             .background(androidx.compose.material3.MaterialTheme.colorScheme.background)
     ) {
         composable("login") { LoginScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
+        composable("room_maker") {
+            RoomMakerScreen(
+                appViewModel = appViewModel,
+                navController = navController,
+                modifier = modifier
+            )
+        }
         composable(
             "auth_check",
             // Explicit fade-out so auth_check stays in composition long enough

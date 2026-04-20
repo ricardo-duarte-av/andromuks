@@ -146,6 +146,7 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.AddToHomeScreen
+import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.FloatingActionButton
@@ -1226,6 +1227,20 @@ fun RoomListScreen(
                         contentDescription = "No server connection",
                         tint = MaterialTheme.colorScheme.error.copy(alpha = offlineAlpha),
                         modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                // Create Room button
+                IconButton(
+                    onClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        navController.navigate("room_maker")
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.AddCircle,
+                        contentDescription = "Create Room",
+                        tint = MaterialTheme.colorScheme.onSurface
                     )
                 }
 
