@@ -67,6 +67,10 @@ object RoomTimelineCache {
         val redactionEvents: MutableList<TimelineEvent> = mutableListOf(),
         // Store reaction events separately (they're filtered from main events list but needed to restore reactions)
         val reactionEvents: MutableList<TimelineEvent> = mutableListOf(),
+        // Store reply-context events (from related_events in paginate/sync) — used for reply
+        // preview rendering only, never returned as timeline items.
+        val replyContextEvents: MutableList<TimelineEvent> = mutableListOf(),
+        val replyContextEventIds: MutableSet<String> = mutableSetOf(),
         var lastAccessedAt: Long = System.currentTimeMillis(),
         // Processed timeline state (event chains, edits, and redactions) for quick room switching
         val processedState: ProcessedTimelineState = ProcessedTimelineState()
@@ -402,10 +406,10 @@ object RoomTimelineCache {
                                 }
                             }
                         }
-                        // CRITICAL: Update timeline_rowid when incoming has resolved value (not 0) and
-                        // existing has invalid value (0). Events can arrive with timeline_rowid=0
-                        // before resolution; the resolved value must be merged so sorting works correctly.
-                        if (event.timelineRowid != 0L && existingEvent.timelineRowid == 0L) {
+                        // CRITICAL: Update timeline_rowid when incoming has a positive resolved value and
+                        // existing has an invalid value (0 or -1). Events can arrive with timeline_rowid=0
+                        // or -1 (unresolved sentinel) before the paginate response brings the real rowid.
+                        if (event.timelineRowid > 0L && existingEvent.timelineRowid <= 0L) {
                             updatedEvent = updatedEvent.copy(timelineRowid = event.timelineRowid)
                             needsUpdate = true
                             if (BuildConfig.DEBUG) {
@@ -1094,6 +1098,39 @@ object RoomTimelineCache {
         }
     }
     
+    /**
+     * Store events that were delivered as reply context (related_events) — for reply preview
+     * rendering only.  These are never included in getCachedEventsForTimeline(), so they
+     * will not appear as standalone timeline items.
+     */
+    fun addReplyContextEvents(roomId: String, events: List<TimelineEvent>) {
+        if (events.isEmpty()) return
+        synchronized(cacheLock) {
+            val cache = roomEventsCache.getOrPut(roomId) { RoomCache() }
+            cache.lastAccessedAt = System.currentTimeMillis()
+            for (event in events) {
+                if (event.eventId.isBlank()) continue
+                // If the event is already a proper timeline event, no need to keep a context copy.
+                if (cache.eventIds.contains(event.eventId)) continue
+                if (cache.replyContextEventIds.add(event.eventId)) {
+                    cache.replyContextEvents.add(event)
+                }
+            }
+        }
+    }
+
+    /**
+     * Look up a single event by ID, checking both timeline events and reply-context events.
+     * Returns null if not found in either bucket.
+     */
+    fun findEventForReply(roomId: String, eventId: String): TimelineEvent? {
+        synchronized(cacheLock) {
+            val cache = roomEventsCache[roomId] ?: return null
+            return cache.events.find { it.eventId == eventId }
+                ?: cache.replyContextEvents.find { it.eventId == eventId }
+        }
+    }
+
     /**
      * Clear cache for a specific room (useful when leaving a room)
      */

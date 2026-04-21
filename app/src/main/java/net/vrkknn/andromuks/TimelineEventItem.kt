@@ -1998,10 +1998,10 @@ private fun rememberReplyTargetEvent(
         return eventInTimeline
     }
     
-    // Second, check RoomTimelineCache (all cached events) - check reactively using timelineUpdateCounter
-    // This ensures we re-check when related_events are added to the cache
+    // Second, check RoomTimelineCache — both timeline events and reply-context events
+    // (related_events stored by paginate/sync for reply preview rendering).
     val eventInCache = remember(replyInfo.eventId, roomId, timelineUpdateCounter) {
-        RoomTimelineCache.getCachedEvents(roomId)?.find { it.eventId == replyInfo.eventId }
+        RoomTimelineCache.findEventForReply(roomId, replyInfo.eventId)
     }
     if (eventInCache != null) {
         return eventInCache

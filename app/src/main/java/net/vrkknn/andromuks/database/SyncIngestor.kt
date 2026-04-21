@@ -520,10 +520,12 @@ class SyncIngestor(private val context: Context) {
                     }
                 }
                 
-                // Prepend related_events to the cache update list (they'll be processed first)
-                eventsForCacheUpdate.addAll(0, relatedEventsList)
-                
-                if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Added ${relatedEventsList.size} related_events to cache update for room $roomId (at beginning of list)")
+                // Store related_events as reply-context only — they must NOT appear as standalone
+                // timeline items, so they go into the dedicated replyContextEvents bucket instead
+                // of eventsForCacheUpdate.
+                net.vrkknn.andromuks.RoomTimelineCache.addReplyContextEvents(roomId, relatedEventsList)
+
+                if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Stored ${relatedEventsList.size} related_events as reply-context for room $roomId")
             }
         }
         

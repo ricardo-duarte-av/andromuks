@@ -153,6 +153,10 @@ See **[docs/TIMELINE_EVENTS.md](docs/TIMELINE_EVENTS.md)** for full documentatio
 
 **Critical rule:** only events with `timelineRowid > 0` are rendered. `timelineRowid = 0` means "not a timeline event" — the backend sends events with `timeline_rowid: 0` as profile hints alongside messages (e.g. `m.room.member` for sender lookup). These must update caches only and never be added to `eventChainMap`. `resolveTimelineRowidsFromRoomData` resolves the real `timeline_rowid` from the room's `timeline` mapping before events are processed; events not present in that mapping stay at `0`.
 
+**`timelineRowid = -1`:** used as either "unresolved sentinel" (event arrived before its mapping was available) or "reply-context event" (from the `related_events` key in paginate/sync responses). Both cases must not be rendered as standalone timeline items. Sort comparators guard against `-1` poisoning the sort by using `> 0L` (not `!= 0L`) — events with `<= 0` rowids fall back to timestamp ordering. When a cached event with `<= 0` rowid is seen again from a paginate with a positive rowid, the cache updates the stored copy so sorting resolves correctly.
+
+**`related_events`:** paginate and `sync_complete` responses include a `related_events` array — reply target events the backend fetched so the client can render reply previews. These must **not** appear in the timeline. They are stored in `RoomCache.replyContextEvents` (a separate bucket, never returned by `getCachedEventsForTimeline`) via `RoomTimelineCache.addReplyContextEvents()`. Reply preview lookup uses `RoomTimelineCache.findEventForReply()`, which searches both `cache.events` and `cache.replyContextEvents`.
+
 **Exception:** `updateMemberProfilesFromEvents` intentionally uses `>= 0L` — profile hints should update the member cache. Do not change that filter.
 
 ## HTML Rendering (`utils/html.kt`, `utils/HtmlTableRenderer.kt`)

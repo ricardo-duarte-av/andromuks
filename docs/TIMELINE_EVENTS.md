@@ -100,6 +100,62 @@ Kicks (`sender != stateKey` + `membership=leave`) with `timelineRowid <= 0` are 
 - `addNewEventToChain(event)` deduplicates by `eventId` — safe to call multiple times for the same event
 - `buildTimelineFromChain()` / `executeTimelineRebuild()` rebuilds `timelineEvents` state on the Main dispatcher
 
+## `related_events` — Reply-Context Events
+
+The paginate and `sync_complete` responses include a `related_events` array alongside the main `events` array. These are events the backend fetched specifically so the client can render reply previews — they were not part of the current response window.
+
+**Critical rule:** `related_events` must **not** appear as standalone timeline items. They are typically pre-join or out-of-window history events with `timeline_rowid: -1`; inserting them into `cache.events` would cause them to appear at wrong positions in the timeline and create duplicate date-divider keys (crash).
+
+### Storage — `replyContextEvents` bucket
+
+`RoomCache` has a dedicated `replyContextEvents` / `replyContextEventIds` pair. Both paths that receive `related_events` route them here:
+
+| Path | Call |
+|------|------|
+| Paginate response (`TimelineCacheCoordinator`) | `RoomTimelineCache.addReplyContextEvents(roomId, events)` |
+| `sync_complete` (`SyncIngestor`) | `RoomTimelineCache.addReplyContextEvents(roomId, relatedEventsList)` |
+
+`addReplyContextEvents` skips any event already in `cache.eventIds` (already a real timeline event, no context copy needed) and does **not** add to `cache.events`, so these events are invisible to `getCachedEventsForTimeline()`.
+
+### Lookup — `findEventForReply`
+
+Reply preview composables (`TimelineEventItem.kt`) look up the referenced event via:
+
+```kotlin
+RoomTimelineCache.findEventForReply(roomId, replyInfo.eventId)
+```
+
+This searches `cache.events` first, then `cache.replyContextEvents`, so previews work whether the target is a normal timeline event or a reply-context-only entry.
+
+### Missing reply target detection
+
+After processing a paginate response, the coordinator checks whether any reply targets are still absent and fetches them via `get_event`. The IDs already delivered as `related_events` are included in the "already known" set so they are not re-fetched.
+
+## `timelineRowid` Merge in Cache
+
+When an event already in `cache.events` with an unresolved rowid (`<= 0`) is seen again from a paginate response with a **positive** rowid, the cache updates the stored copy:
+
+```kotlin
+if (event.timelineRowid > 0L && existingEvent.timelineRowid <= 0L) {
+    updatedEvent = updatedEvent.copy(timelineRowid = event.timelineRowid)
+}
+```
+
+This handles the case where an event enters the cache via `sync_complete` before the `timeline` mapping can resolve its rowid (stored as `-1`), and the paginate response later brings the real positive rowid. Without this update the event stays permanently at `-1` and sorts incorrectly.
+
+The condition uses `<= 0L` (not `== 0L`) because both `0` and `-1` are "unresolved" sentinels. The incoming value must be `> 0L` to be accepted as authoritative.
+
+## `positiveEvents` Filter in Pagination Tracking
+
+When `TimelineCacheCoordinator` tracks the oldest `timelineRowid` seen in a paginate response (used as the cursor for the next pull-to-refresh), it filters to events with `timelineRowid > 0L`:
+
+```kotlin
+val positiveEvents = timelineList.filter { it.timelineRowid > 0L }
+val oldestInResponse = positiveEvents.minOfOrNull { it.timelineRowid }
+```
+
+Using `!= 0L` here would include `-1` entries, causing `oldestInResponse` to be `-1` and the next pagination request to use an invalid cursor.
+
 ## Known Gaps
 
 - `m.room.member` profile-hint events also flow through `updateMemberProfilesFromEvents` (line ~5337), which uses `timelineRowid >= 0L` as its filter. This is intentional: profile hints should update the member cache even though they are not rendered. Do not change that filter to `> 0L`.

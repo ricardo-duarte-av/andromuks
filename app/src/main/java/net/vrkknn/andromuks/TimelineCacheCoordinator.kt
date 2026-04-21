@@ -1429,7 +1429,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     if (!paginateRequests.containsKey(requestId)) {
                         // Filter to only positive timelineRowids (pagination events only, exclude
                         // state events)
-                        val positiveEvents = timelineList.filter { it.timelineRowid != 0L }
+                        val positiveEvents = timelineList.filter { it.timelineRowid > 0L }
                         val oldestInResponse = positiveEvents.minOfOrNull { it.timelineRowid }
 
                         if (oldestInResponse != null) {
@@ -1646,26 +1646,24 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             )
 
                         // CRITICAL: Process related_events FIRST before processing main events
-                        // This ensures that when main events are processed and rendered, the reply
-                        // targets
-                        // from related_events are already in the cache and can be found immediately
+                        // These are reply-context events provided by the backend so that reply
+                        // previews can be rendered immediately.  They must NOT appear as standalone
+                        // timeline items — store them in the dedicated replyContextEvents bucket.
                         val relatedEventsArray = data.optJSONArray("related_events")
                         if (relatedEventsArray != null && relatedEventsArray.length() > 0) {
                             if (BuildConfig.DEBUG)
                                 android.util.Log.d(
                                     "Andromuks",
-                                    "AppViewModel: Processing ${relatedEventsArray.length()} related_events from paginate response for room $roomId (BEFORE main events)",
+                                    "AppViewModel: Processing ${relatedEventsArray.length()} related_events from paginate response for room $roomId (reply-context only)",
                                 )
-                            val memberMap = RoomMemberCache.getRoomMembers(roomId)
-                            RoomTimelineCache.addEventsFromSync(
-                                roomId,
-                                relatedEventsArray,
-                                memberMap,
-                            )
+                            val relatedEvents = (0 until relatedEventsArray.length())
+                                .mapNotNull { relatedEventsArray.optJSONObject(it) }
+                                .map { TimelineEvent.fromJson(it) }
+                            RoomTimelineCache.addReplyContextEvents(roomId, relatedEvents)
                             if (BuildConfig.DEBUG)
                                 android.util.Log.d(
                                     "Andromuks",
-                                    "AppViewModel: Added ${relatedEventsArray.length()} related_events to timeline cache for room $roomId",
+                                    "AppViewModel: Stored ${relatedEvents.size} related_events as reply-context for room $roomId",
                                 )
                             // CRITICAL: Increment timelineUpdateCounter so reply previews can
                             // reactively find
@@ -1968,7 +1966,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                 // latest state
                                 val cachedEvents =
                                     RoomTimelineCache.getCachedEvents(roomId) ?: emptyList()
-                                val cachedEventIds = cachedEvents.map { it.eventId }.toSet()
+                                // Include reply-context events so we don't re-fetch events that
+                                // the backend already sent as related_events.
+                                val replyContextIds = (0 until (relatedEventsArray?.length() ?: 0))
+                                    .mapNotNull { relatedEventsArray?.optJSONObject(it)?.optString("event_id") }
+                                    .toSet()
+                                val cachedEventIds = cachedEvents.map { it.eventId }.toSet() + replyContextIds
                                 val missingReplyTargets =
                                     mutableSetOf<Pair<String, String>>() // (roomId, eventId)
 
@@ -2380,7 +2383,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     // CRITICAL: Only use positive timelineRowid values for pagination (negative
                     // values are
                     // for state events)
-                    val positiveEvents = timelineList.filter { it.timelineRowid != 0L }
+                    val positiveEvents = timelineList.filter { it.timelineRowid > 0L }
                     val oldestInResponse = positiveEvents.minOfOrNull { it.timelineRowid }
                     if (oldestInResponse != null && oldestInResponse != 0L) {
                         oldestRowIdPerRoom[roomId] = oldestInResponse
@@ -2619,7 +2622,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             if (timelineList.isNotEmpty()) {
                 // Filter to only positive timelineRowids (pagination events only, exclude state
                 // events)
-                val positiveEvents = timelineList.filter { it.timelineRowid != 0L }
+                val positiveEvents = timelineList.filter { it.timelineRowid > 0L }
                 val oldestInResponse = positiveEvents.minOfOrNull { it.timelineRowid }
 
                 if (oldestInResponse != null) {
@@ -2773,7 +2776,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             if (timelineList.isNotEmpty()) {
                 // Filter to only positive timelineRowids (pagination events only, exclude state
                 // events)
-                val positiveEvents = timelineList.filter { it.timelineRowid != 0L }
+                val positiveEvents = timelineList.filter { it.timelineRowid > 0L }
                 val oldestInResponse = positiveEvents.minOfOrNull { it.timelineRowid }
 
                 if (oldestInResponse != null) {
