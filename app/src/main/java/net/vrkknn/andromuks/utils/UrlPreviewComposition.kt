@@ -131,7 +131,9 @@ fun UrlPreviewCompositionBar(
     val httpClient = remember { OkHttpClient() }
 
     val detectedUrls = remember(text) {
-        urlRegex.findAll(text).map { it.value }.toList().distinct()
+        urlRegex.findAll(text).map { it.value }
+            .filter { !it.startsWith("https://matrix.to/") }
+            .toList().distinct()
     }
 
     LaunchedEffect(detectedUrls) {
