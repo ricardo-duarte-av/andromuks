@@ -243,13 +243,20 @@ class AppViewModel : ViewModel() {
                             // 3. IMPORTANT: Reload timeline for all rooms open in this VM.
                             // The singleton timeline cache was updated by the primary instance;
                             // we must sync our local snapshot to see new messages.
-                            // Use getOpenedRooms() instead of only currentRoomId — bubble VMs
-                            // register their room via RoomTimelineCache.addOpenedRoom() but may
-                            // have currentRoomId == "" (e.g. if navigateToRoomWithCache hasn't run
-                            // yet or was skipped by the isAlreadyLoaded guard).
+                            // BUBBLE ISOLATION: Bubble VMs must NOT use the global getOpenedRooms()
+                            // set here. That set is shared across all Activities; iterating it in a
+                            // bubble causes restoreFromLruCache() to overwrite timelineEvents with
+                            // whichever room the main app last opened — the last call wins and the
+                            // bubble renders the wrong room's messages. Bubble VMs only have one
+                            // room, so limiting to currentRoomId is both correct and sufficient.
+                            // Non-bubble VMs may also have rooms in getOpenedRooms() that are not
+                            // currentRoomId (e.g. ThreadViewer open alongside RoomTimeline), so
+                            // they still need the full set.
                             val roomsToRefresh = buildSet {
                                 if (currentRoomId.isNotEmpty()) add(currentRoomId)
-                                addAll(RoomTimelineCache.getOpenedRooms())
+                                if (instanceRole != InstanceRole.BUBBLE) {
+                                    addAll(RoomTimelineCache.getOpenedRooms())
+                                }
                             }
                             for (roomId in roomsToRefresh) {
                                 if (restoreFromLruCache(roomId)) {
