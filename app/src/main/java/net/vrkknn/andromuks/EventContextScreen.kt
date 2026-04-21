@@ -33,6 +33,7 @@ import net.vrkknn.andromuks.LocalScrollHighlightState
 import net.vrkknn.andromuks.ScrollHighlightState
 import net.vrkknn.andromuks.ui.components.LocalIsScrollingFast
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import coil.request.ImageRequest
 import coil.request.CachePolicy
@@ -330,11 +331,24 @@ fun EventContextScreen(
                     }
                 }
                 
+                // clipToBounds ensures the date pill slides from behind the header rather than over it
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(paddingValues)
+                        .clipToBounds()
                 ) {
+                    // Standard layout (oldest first, no reverseLayout) — first visible index is oldest
+                    val oldestVisibleDateContext by remember(contextEvents) {
+                        derivedStateOf {
+                            val idx = listState.firstVisibleItemIndex
+                            contextEvents?.getOrNull(idx)?.let { event ->
+                                formatDate(event.timestamp)
+                            }
+                        }
+                    }
+                    val scrollKeyContext by remember { derivedStateOf { listState.firstVisibleItemIndex } }
+
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
@@ -405,6 +419,17 @@ fun EventContextScreen(
                             }
                         }
                     }
+
+                    // Sticky date pill — shows date of oldest visible event while scrolling up
+                    net.vrkknn.andromuks.utils.StickyDateIndicator(
+                        oldestVisibleDate = oldestVisibleDateContext,
+                        scrollPositionKey = scrollKeyContext,
+                        reverseScrollLayout = false,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 8.dp)
+                            .zIndex(1f)
+                    )
 
                     // Reactions dialog
                     if (showReactionsDialog && reactionsEventId != null) {

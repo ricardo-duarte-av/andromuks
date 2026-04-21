@@ -159,6 +159,34 @@ See **[docs/TIMELINE_EVENTS.md](docs/TIMELINE_EVENTS.md)** for full documentatio
 
 **Exception:** `updateMemberProfilesFromEvents` intentionally uses `>= 0L` — profile hints should update the member cache. Do not change that filter.
 
+## Sticky Date Indicator (`utils/StickyDateIndicator.kt`)
+
+A pill-shaped overlay that appears at the top of each timeline screen (below the header) showing the date of the oldest visible event. Used in `RoomTimelineScreen`, `BubbleTimelineScreen`, `ThreadViewerScreen`, and `EventContextScreen`.
+
+**Behaviour:**
+- Slides in (down) + fades in when the user scrolls toward older content and the oldest visible event is not from today.
+- Resets the 3-second auto-hide timer on every item-boundary crossing while scrolling toward older content.
+- Hides immediately (slide up + fade out) when scrolling toward newer content.
+- Auto-hides after 3 seconds of no scroll activity.
+
+**Key parameters:**
+- `oldestVisibleDate: String?` — `"dd / MM / yyyy"` formatted date of the oldest on-screen event.
+- `scrollPositionKey: Int` — changes on every item-boundary crossing (driven by `listState.firstVisibleItemIndex`).
+- `reverseScrollLayout: Boolean` — `true` for `reverseLayout=true` LazyColumns (`RoomTimeline`, `BubbleTimeline`) where increasing index = older content; `false` for top-down layouts (`ThreadViewer`, `EventContext`).
+
+**Clipping invariant:** Each host screen wraps its LazyColumn in a `Box` with `.clipToBounds()`. Without this, the slide-in animation renders the pill *above* the header instead of emerging from behind it.
+
+**Layout differences by screen:**
+
+| Screen | `reverseLayout` | "oldest" item index | `reverseScrollLayout` |
+|--------|----------------|--------------------|-----------------------|
+| `RoomTimelineScreen` | `true` (items reversed) | `maxOfOrNull { it.index }` from `visibleItemsInfo` | `true` |
+| `BubbleTimelineScreen` | `true` (items reversed) | `maxOfOrNull { it.index }` from `visibleItemsInfo` | `true` |
+| `ThreadViewerScreen` | `false` | `firstVisibleItemIndex` | `false` |
+| `EventContextScreen` | `false` | `firstVisibleItemIndex` | `false` |
+
+`formatDate()` (defined in `RoomTimelineScreen.kt`, `internal` visibility) is used for timestamp → `"dd / MM / yyyy"` conversion in Room, Thread, and EventContext screens. `BubbleTimelineScreen` uses `java.text.SimpleDateFormat` inline (different file, same package).
+
 ## HTML Rendering (`utils/html.kt`, `utils/HtmlTableRenderer.kt`)
 
 `HtmlMessageText` is the main composable for rendering Matrix `formatted_body` HTML. It parses HTML into a tree of `HtmlNode` via `HtmlParser`, builds an `AnnotatedString` from non-table nodes, and renders it in a `Text()` with custom gesture handling for links, spoilers, and code blocks.

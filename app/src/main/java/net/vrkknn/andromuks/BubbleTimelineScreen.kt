@@ -104,6 +104,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -2683,7 +2684,26 @@ fun BubbleTimelineScreen(
                                 }
                                 onDispose { TimelineMediaLayoutCallback.callback = null }
                             }
-                            Box(modifier = Modifier.fillMaxSize()) {
+                            // clipToBounds ensures the date pill slides from behind the header rather than over it
+                            Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
+                            // Oldest visible item is at the highest index in the reversed list (top of screen)
+                            val reversedBubbleItems = remember(timelineItems) { timelineItems.reversed() }
+                            val oldestVisibleDateBubble by remember(reversedBubbleItems) {
+                                derivedStateOf {
+                                    val highestIdx = listState.layoutInfo.visibleItemsInfo
+                                        .maxOfOrNull { it.index } ?: return@derivedStateOf null
+                                    when (val item = reversedBubbleItems.getOrNull(highestIdx)) {
+                                        is BubbleTimelineItem.Event -> {
+                                            java.text.SimpleDateFormat("dd / MM / yyyy", java.util.Locale.getDefault())
+                                                .format(java.util.Date(item.event.timestamp))
+                                        }
+                                        is BubbleTimelineItem.DateDivider -> item.date
+                                        else -> null
+                                    }
+                                }
+                            }
+                            val scrollKeyBubble by remember { derivedStateOf { listState.firstVisibleItemIndex } }
+
                             LazyColumn(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -2912,6 +2932,16 @@ fun BubbleTimelineScreen(
                             }
                         }
                             
+                            // Sticky date pill — shows date of oldest visible event while scrolling up
+                            net.vrkknn.andromuks.utils.StickyDateIndicator(
+                                oldestVisibleDate = oldestVisibleDateBubble,
+                                scrollPositionKey = scrollKeyBubble,
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 8.dp)
+                                    .zIndex(1f)
+                            )
+
                             // Pull-to-refresh indicator (outside LazyColumn, inside Box)
                             PullRefreshIndicator(
                                 refreshing = isRefreshingPull,
@@ -2921,7 +2951,7 @@ fun BubbleTimelineScreen(
                         }
                     }
                     }
-                    
+
                     // 4. Typing notification area (stacks naturally above text box)
                     TypingNotificationArea(
                         typingUsers = appViewModel.getTypingUsersForRoom(roomId),

@@ -150,6 +150,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -3362,10 +3363,25 @@ fun RoomTimelineScreen(
                                 }
                                 onDispose { TimelineMediaLayoutCallback.callback = null }
                             }
-                            Box(modifier = Modifier.fillMaxSize()) {
+                            // clipToBounds ensures the date pill slides from behind the header rather than over it
+                            Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
                             // PERF: Memoize reversed list — .reversed() allocates a new list on every recomposition.
                             // Only recompute when timelineItems itself changes.
                             val reversedTimelineItems = remember(timelineItems) { timelineItems.reversed() }
+
+                            // Oldest visible item is at the highest index in the reversed list (top of screen)
+                            val oldestVisibleDateRoom by remember(reversedTimelineItems) {
+                                derivedStateOf {
+                                    val highestIdx = listState.layoutInfo.visibleItemsInfo
+                                        .maxOfOrNull { it.index } ?: return@derivedStateOf null
+                                    when (val item = reversedTimelineItems.getOrNull(highestIdx)) {
+                                        is TimelineItem.Event -> formatDate(item.event.timestamp)
+                                        is TimelineItem.DateDivider -> item.date
+                                        else -> null
+                                    }
+                                }
+                            }
+                            val scrollKeyRoom by remember { derivedStateOf { listState.firstVisibleItemIndex } }
 
                             LazyColumn(
                                     modifier = Modifier
@@ -3635,6 +3651,16 @@ fun RoomTimelineScreen(
                             }
                         }
                             
+                            // Sticky date pill — shows date of oldest visible event while scrolling up
+                            net.vrkknn.andromuks.utils.StickyDateIndicator(
+                                oldestVisibleDate = oldestVisibleDateRoom,
+                                scrollPositionKey = scrollKeyRoom,
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 8.dp)
+                                    .zIndex(1f)
+                            )
+
                             // Pull-to-refresh indicator (outside LazyColumn, inside Box)
                             PullRefreshIndicator(
                                 refreshing = isRefreshingPull,
@@ -3644,7 +3670,7 @@ fun RoomTimelineScreen(
                         }
                     }
                     }
-                    
+
                     // 4. Typing notification area (stacks naturally above text box)
                     TypingNotificationArea(
                         typingUsers = appViewModel.getTypingUsersForRoom(roomId),

@@ -156,6 +156,12 @@ val oldestInResponse = positiveEvents.minOfOrNull { it.timelineRowid }
 
 Using `!= 0L` here would include `-1` entries, causing `oldestInResponse` to be `-1` and the next pagination request to use an invalid cursor.
 
+## Date Dividers and Sticky Date Indicator
+
+`buildTimelineFromChain()` inserts `TimelineItem.DateDivider` (and `BubbleTimelineItem.DateDivider`) items between consecutive events whose dates differ. These are synthetic UI items with no `timelineRowid`; they are never stored in the cache.
+
+A `StickyDateIndicator` composable (`utils/StickyDateIndicator.kt`) reads the date of the oldest visible item (event or date-divider) and displays a pill-shaped overlay below the header. See **Sticky Date Indicator** in `CLAUDE.md` for full behavioural and layout documentation.
+
 ## Known Gaps
 
 - `m.room.member` profile-hint events also flow through `updateMemberProfilesFromEvents` (line ~5337), which uses `timelineRowid >= 0L` as its filter. This is intentional: profile hints should update the member cache even though they are not rendered. Do not change that filter to `> 0L`.

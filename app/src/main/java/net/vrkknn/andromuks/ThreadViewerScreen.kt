@@ -74,6 +74,7 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -1271,8 +1272,23 @@ fun ThreadViewerScreen(
                     }
 
                     // 2. Thread Timeline
+                    // clipToBounds ensures the date pill slides from behind the header rather than over it
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+                    // Standard layout (oldest first, no reverseLayout) — first visible index is oldest
+                    val oldestVisibleDateThread by remember(timelineItems) {
+                        derivedStateOf {
+                            val idx = listState.firstVisibleItemIndex
+                            when (val item = timelineItems.getOrNull(idx)) {
+                                is TimelineItem.Event -> formatDate(item.event.timestamp)
+                                is TimelineItem.DateDivider -> item.date
+                                else -> null
+                            }
+                        }
+                    }
+                    val scrollKeyThread by remember { derivedStateOf { listState.firstVisibleItemIndex } }
+
                     LazyColumn(
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        modifier = Modifier.fillMaxSize(),
                         state = listState,
                         contentPadding =
                             androidx.compose.foundation.layout.PaddingValues(
@@ -1426,7 +1442,19 @@ fun ThreadViewerScreen(
                             }
                         }
                     }
-                    
+
+                    // Sticky date pill — shows date of oldest visible event while scrolling up
+                    net.vrkknn.andromuks.utils.StickyDateIndicator(
+                        oldestVisibleDate = oldestVisibleDateThread,
+                        scrollPositionKey = scrollKeyThread,
+                        reverseScrollLayout = false,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 8.dp)
+                            .zIndex(1f)
+                    )
+                    } // end Box (Thread Timeline)
+
                     // 4. Typing notification area
                     TypingNotificationArea(
                         typingUsers = appViewModel.typingUsers,
