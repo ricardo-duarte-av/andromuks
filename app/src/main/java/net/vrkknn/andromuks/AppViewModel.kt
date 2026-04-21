@@ -1844,6 +1844,8 @@ class AppViewModel : ViewModel() {
 
     fun updateImageAuthToken(token: String) {
         imageAuthToken = token
+        appContext?.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            ?.edit()?.putString("image_auth_token", token)?.apply()
     }
 
     fun setCallActive(active: Boolean) = callsWidgetsCoordinator.setCallActive(active)

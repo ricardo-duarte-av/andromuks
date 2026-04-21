@@ -95,9 +95,12 @@ class FCMService : FirebaseMessagingService() {
         val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
         val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
         val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
-        
+        // Prefer the JWT image_auth_token for media downloads (required for encrypted media).
+        // Falls back to gomuks_auth_token if the image token hasn't been persisted yet.
+        val imageAuthToken = sharedPrefs.getString("image_auth_token", "").takeIf { !it.isNullOrBlank() } ?: authToken
+
         if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
-            enhancedNotificationDisplay = EnhancedNotificationDisplay(this, homeserverUrl, authToken)
+            enhancedNotificationDisplay = EnhancedNotificationDisplay(this, homeserverUrl, imageAuthToken)
             enhancedNotificationDisplay?.createNotificationChannel()
         }
     }

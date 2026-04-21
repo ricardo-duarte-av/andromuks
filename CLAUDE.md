@@ -215,6 +215,8 @@ See **[docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md)** for full documentation.
 
 FCM `high_priority` is set by the gomuks backend based on whether the push rule has `sound: true`. If a room's notifications only arrive on screen wake, verify the Matrix push rule for that room includes sound.
 
+**Image auth token invariant:** The gomuks backend sends an `image_auth_token` (JWT, `image_only: true`) via WebSocket after connecting. This JWT is required for downloading `?encrypted=true` media — `gomuks_auth_token` alone is rejected for encrypted content. `AppViewModel.updateImageAuthToken` persists it to `AndromuksAppPrefs / image_auth_token` on every receipt. `FCMService` reads this key at startup and passes it to `EnhancedNotificationDisplay`, falling back to `gomuks_auth_token` only on first launch. Without the JWT, image notifications render as text-only ("Sent an image") in release builds.
+
 ## Bridge Support (Mautrix / Beeper)
 
 See **[docs/bridges.md](docs/bridges.md)** for full documentation.
