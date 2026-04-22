@@ -46,6 +46,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicatorDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -1060,6 +1061,23 @@ fun AppNavigation(
     // Notify the parent about the ViewModel creation
     onViewModelCreated(appViewModel)
 
+    // Register the unauthorized-navigation callback for the full lifetime of the nav graph.
+    // This handles 401 errors that fire after auth_check has already been popped (i.e. the user
+    // is on room_list or a timeline). AuthCheck also registers its own copy, which wins while
+    // it is on the back stack; once it is gone this one takes over.
+    DisposableEffect(navController) {
+        appViewModel.setUnauthorizedNavigationCallback { homeserverUrl, username ->
+            val encodedUrl = java.net.URLEncoder.encode(homeserverUrl, "UTF-8")
+            val encodedUsername = java.net.URLEncoder.encode(username, "UTF-8")
+            navController.navigate("login?url=$encodedUrl&username=$encodedUsername") {
+                popUpTo(0) { inclusive = true }
+            }
+        }
+        onDispose {
+            appViewModel.setUnauthorizedNavigationCallback { _, _ -> }
+        }
+    }
+
     LaunchedEffect(appViewModel.pendingShareNavigationRequested) {
         if (appViewModel.pendingShareNavigationRequested) {
             navController.navigate("simple_room_list") {
@@ -1112,7 +1130,21 @@ fun AppNavigation(
         modifier = modifier
             .background(androidx.compose.material3.MaterialTheme.colorScheme.background)
     ) {
-        composable("login") { LoginScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
+        composable(
+            route = "login?url={url}&username={username}",
+            arguments = listOf(
+                navArgument("url") { defaultValue = "https://"; type = NavType.StringType },
+                navArgument("username") { defaultValue = ""; type = NavType.StringType },
+            )
+        ) { backStackEntry ->
+            LoginScreen(
+                navController = navController,
+                modifier = modifier,
+                appViewModel = appViewModel,
+                initialUrl = backStackEntry.arguments?.getString("url") ?: "https://",
+                initialUsername = backStackEntry.arguments?.getString("username") ?: "",
+            )
+        }
         composable("room_maker") {
             RoomMakerScreen(
                 appViewModel = appViewModel,

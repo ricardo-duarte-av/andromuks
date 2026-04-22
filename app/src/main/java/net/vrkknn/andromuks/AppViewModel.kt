@@ -3578,6 +3578,14 @@ class AppViewModel : ViewModel() {
     var onNavigateToRoomList: (() -> Unit)? = null
     private var pendingNavigation = false
     private var navigationCallbackTriggered = false // Prevent multiple triggers
+
+    // Unauthorized (401) navigation callback — called with (homeserverUrl, username) so the
+    // login screen can be pre-filled when a token expires during an active session.
+    private var onUnauthorized: ((homeserverUrl: String, username: String) -> Unit)? = null
+
+    fun setUnauthorizedNavigationCallback(callback: (homeserverUrl: String, username: String) -> Unit) {
+        onUnauthorized = callback
+    }
     
     // Pending room navigation from shortcuts
     internal var pendingRoomNavigation: String? = null
@@ -5161,12 +5169,21 @@ class AppViewModel : ViewModel() {
         
         try {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+
+            // Capture pre-fill values before clearing so the login screen can restore them.
+            val savedHomeserverUrl = prefs.getString("homeserver_url", "") ?: ""
+            val rawUserId = prefs.getString("current_user_id", "") ?: ""
+            // Matrix user ID is "@localpart:homeserver" — extract the localpart for the login form.
+            val savedUsername = if (rawUserId.startsWith("@") && rawUserId.contains(":")) {
+                rawUserId.removePrefix("@").substringBefore(":")
+            } else rawUserId
+
             val editor = prefs.edit()
-            
+
             // Clear auth token (this will cause AuthCheck to navigate to login)
             editor.remove("gomuks_auth_token")
             editor.remove("homeserver_url")
-            
+
             // Clear run_id
             editor.remove("ws_run_id")
             
@@ -5193,7 +5210,16 @@ class AppViewModel : ViewModel() {
             // Stop WebSocket service
             WebSocketService.stopService()
             
-            android.util.Log.i("Andromuks", "AppViewModel: Credentials cleared due to 401 Unauthorized - app will navigate to login on next AuthCheck (commit success: $commitSuccess)")
+            android.util.Log.i("Andromuks", "AppViewModel: Credentials cleared due to 401 Unauthorized - navigating to login (commit success: $commitSuccess)")
+
+            // Navigate to login with pre-filled homeserver URL and username.
+            // The callback is invoked on the main thread since NavController requires it.
+            val cb = onUnauthorized
+            if (cb != null) {
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    cb(savedHomeserverUrl, savedUsername)
+                }
+            }
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to clear credentials on 401 error", e)
             logActivity("401 Error Handling Failed - ${e.message}", null)

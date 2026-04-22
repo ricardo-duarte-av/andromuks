@@ -55,9 +55,15 @@ fun rememberImeVisible(): Boolean {
 }
 
 @Composable
-fun LoginScreen(navController: NavController, modifier: Modifier = Modifier, appViewModel: AppViewModel = viewModel()) {
-    var url by remember { mutableStateOf("https://") }
-    var username by remember { mutableStateOf("") }
+fun LoginScreen(
+    navController: NavController,
+    modifier: Modifier = Modifier,
+    appViewModel: AppViewModel = viewModel(),
+    initialUrl: String = "https://",
+    initialUsername: String = "",
+) {
+    var url by remember { mutableStateOf(initialUrl.ifBlank { "https://" }) }
+    var username by remember { mutableStateOf(initialUsername) }
     var password by remember { mutableStateOf("") }
     val client = remember { OkHttpClient.Builder().build() }
     val scope = rememberCoroutineScope()
