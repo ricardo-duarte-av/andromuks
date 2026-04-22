@@ -212,32 +212,24 @@ class FCMService : FirebaseMessagingService() {
                                         pendingNotifications.add(notificationData.roomId)
                                     }
 
-                                    serviceScope.launch {
-                                        try {
-                                            // Check if notification was cancelled while we were preparing it
-                                            val wasCancelled = synchronized(pendingNotificationsLock) {
-                                                !pendingNotifications.contains(notificationData.roomId)
-                                            }
-
-                                            if (wasCancelled) {
-                                                if (BuildConfig.DEBUG) Log.d(TAG, "Notification for room ${notificationData.roomId} was cancelled before showing (legacy path) - skipping")
-                                                return@launch
-                                            }
-
+                                    try {
+                                        val wasCancelled = synchronized(pendingNotificationsLock) {
+                                            !pendingNotifications.contains(notificationData.roomId)
+                                        }
+                                        if (!wasCancelled) {
                                             withContext(NonCancellable) {
                                                 enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
-                                                // Remove from pending after notification is shown
                                                 synchronized(pendingNotificationsLock) {
                                                     pendingNotifications.remove(notificationData.roomId)
                                                 }
                                             }
-                                        } catch (e: Exception) {
-                                            Log.e(TAG, "Error showing enhanced notification", e)
-                                            e.printStackTrace()
-                                            // Remove from pending on error
-                                            synchronized(pendingNotificationsLock) {
-                                                pendingNotifications.remove(notificationData.roomId)
-                                            }
+                                        } else {
+                                            if (BuildConfig.DEBUG) Log.d(TAG, "Notification for room ${notificationData.roomId} was cancelled before showing (legacy path) - skipping")
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Error showing enhanced notification (legacy path)", e)
+                                        synchronized(pendingNotificationsLock) {
+                                            pendingNotifications.remove(notificationData.roomId)
                                         }
                                     }
                                 }
@@ -446,33 +438,25 @@ class FCMService : FirebaseMessagingService() {
                 synchronized(pendingNotificationsLock) {
                     pendingNotifications.add(roomId)
                 }
-                
-                serviceScope.launch {
-                    try {
-                        // Check if notification was cancelled while we were preparing it
-                        val wasCancelled = synchronized(pendingNotificationsLock) {
-                            !pendingNotifications.contains(roomId)
-                        }
-                        
-                        if (wasCancelled) {
-                            if (BuildConfig.DEBUG) Log.d(TAG, "Notification for room $roomId was cancelled before showing - skipping")
-                            return@launch
-                        }
-                        
+
+                try {
+                    val wasCancelled = synchronized(pendingNotificationsLock) {
+                        !pendingNotifications.contains(roomId)
+                    }
+                    if (!wasCancelled) {
                         withContext(NonCancellable) {
                             enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
-                            // Remove from pending after notification is shown
                             synchronized(pendingNotificationsLock) {
                                 pendingNotifications.remove(roomId)
                             }
                         }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error showing enhanced notification", e)
-                        e.printStackTrace()
-                        // Remove from pending on error
-                        synchronized(pendingNotificationsLock) {
-                            pendingNotifications.remove(roomId)
-                        }
+                    } else {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Notification for room $roomId was cancelled before showing - skipping")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error showing enhanced notification", e)
+                    synchronized(pendingNotificationsLock) {
+                        pendingNotifications.remove(roomId)
                     }
                 }
             }
