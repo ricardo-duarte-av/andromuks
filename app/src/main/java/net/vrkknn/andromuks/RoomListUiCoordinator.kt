@@ -332,7 +332,7 @@ internal class RoomListUiCoordinator(private val vm: AppViewModel) {
                         val enrichedSpaceRooms =
                             spaceRooms.mapNotNull { room ->
                                 roomMap[room.id] ?: allRooms.firstOrNull { it.id == room.id } ?: room
-                            }
+                            }.sortedByDescending { it.sortingTimestamp ?: 0L }
                         if (BuildConfig.DEBUG)
                             android.util.Log.d(
                                 "Andromuks",
