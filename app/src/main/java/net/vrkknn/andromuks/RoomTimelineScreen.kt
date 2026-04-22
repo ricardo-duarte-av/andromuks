@@ -118,6 +118,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.surfaceColorAtElevation
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -3276,6 +3277,10 @@ fun RoomTimelineScreen(
                             appViewModel.fullRefreshRoomTimeline(roomId)
                         }
                     )
+
+                    if (isProcessingBatch) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
 
                     if (appViewModel.notificationActionInProgress) {
                         ExpressiveStatusRow(
