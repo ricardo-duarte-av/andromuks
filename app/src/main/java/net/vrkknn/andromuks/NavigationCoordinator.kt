@@ -150,6 +150,15 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
 
                     delay(100)
 
+                    // Abort if a concurrent navigation superseded this one while we were suspended.
+                    if (currentRoomId != roomId) {
+                        android.util.Log.d(
+                            "Andromuks",
+                            "🔵 navigateToRoomWithCache: Aborting after flush — superseded by currentRoomId=$currentRoomId",
+                        )
+                        return@launch
+                    }
+
                     val cacheAfterFlush = RoomTimelineCache.getCachedEventCount(roomId)
                     android.util.Log.d(
                         "Andromuks",
@@ -335,6 +344,15 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                         "Andromuks",
                         "🔵 navigateToRoomWithCache: Pending items finished - roomId=$roomId, waitDuration=${waitDuration}ms, isProcessingPendingItems=$isProcessingPendingItems",
                     )
+                }
+
+                // Abort if navigation was superseded during the pending-items wait.
+                if (currentRoomId != roomId) {
+                    android.util.Log.d(
+                        "Andromuks",
+                        "🔵 navigateToRoomWithCache: Aborting before requestRoomTimeline — superseded by currentRoomId=$currentRoomId",
+                    )
+                    return@launch
                 }
 
                 timelineEvents = emptyList()

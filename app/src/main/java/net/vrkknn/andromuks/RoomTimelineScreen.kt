@@ -886,30 +886,32 @@ fun RoomTimelineScreen(
                     pendingNotificationJumpEventId = eventId
                 }
             } else {
-                // Different room — try to pop back to room_list so its reactive handler navigates
+                // Different room — handle navigation here directly, regardless of back stack.
+                // Previously this delegated to RoomListScreen.LaunchedEffect(navigationTrigger)
+                // when room_list was in the back stack, but that path has a race: multiple
+                // LaunchedEffect blocks in RoomListScreen (Unit, spacesLoaded, navigationTrigger)
+                // all fire on re-entry and race to consume directRoomNavigation, so the trigger
+                // handler can read null and skip navigation entirely.
                 if (BuildConfig.DEBUG) Log.d(
                     "Andromuks",
-                    "RoomTimelineScreen: Navigation for different room $targetRoomId (current=$roomId), popping to room_list"
+                    "RoomTimelineScreen: Navigation for different room $targetRoomId (current=$roomId)"
                 )
+                val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
+                appViewModel.clearDirectRoomNavigation()
+                appViewModel.flushSyncBatchForRoom(targetRoomId)
+                appViewModel.navigateToRoomWithCache(targetRoomId, notificationTimestamp)
                 val poppedToRoomList = navController.popBackStack("room_list", inclusive = false)
-                if (!poppedToRoomList) {
-                    // room_list is not in the back stack — this happens when the app was launched
-                    // directly into a room from a notification or shortcut (auth_check's popUpTo
-                    // removes room_list). Navigate directly to the target room, replacing the
-                    // current timeline so pressing Back doesn't return to the old room.
-                    if (BuildConfig.DEBUG) Log.d(
-                        "Andromuks",
-                        "RoomTimelineScreen: room_list not in back stack, navigating directly to $targetRoomId"
-                    )
-                    val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
-                    appViewModel.clearDirectRoomNavigation()
-                    appViewModel.flushSyncBatchForRoom(targetRoomId)
-                    appViewModel.navigateToRoomWithCache(targetRoomId, notificationTimestamp)
+                if (poppedToRoomList) {
+                    // room_list was in the stack — navigate forward from there so Back works naturally
+                    navController.navigate("room_timeline/$targetRoomId") {
+                        popUpTo("auth_check") { inclusive = true }
+                    }
+                } else {
+                    // room_list not in back stack — replace current room_timeline entry
                     navController.navigate("room_timeline/$targetRoomId") {
                         popUpTo("room_timeline/$roomId") { inclusive = true }
                     }
                 }
-                // If poppedToRoomList == true, RoomListScreen's LaunchedEffect handles the rest
             }
         }
     }
