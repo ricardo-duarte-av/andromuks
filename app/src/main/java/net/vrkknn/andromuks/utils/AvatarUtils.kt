@@ -63,7 +63,7 @@ object AvatarUtils {
      * @return The uppercase character, or empty string if extraction fails
      */
     fun getFallbackCharacter(displayName: String?, userId: String, index: Int = 0): String {
-        val source = displayName?.takeIf { it.isNotBlank() } ?: userId
+        val source = displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix("@").substringBefore(":")
         if (source.isEmpty() || source.length <= index) {
             return ""
         }
@@ -123,13 +123,17 @@ object AvatarUtils {
     }
     
     /**
-     * Converts an MXC URL to a proper HTTP URL for loading avatars
-     * @param mxcUrl The MXC URL from the room data (e.g., "mxc://nexy7574.co.uk/CedROJ82UFmQys8c6nOzlBsL0W4TeIsJ")
-     * @param homeserverUrl The homeserver URL (e.g., "https://webmuks.aguiarvieira.pt")
-     * @return The HTTP URL for loading the avatar, or null if conversion fails
+     * Converts an MXC URL to a proper HTTP URL for loading avatars.
+     * When [userId] is provided the backend fallback parameter is appended so the server
+     * renders a coloured-initial placeholder when the media is unavailable.
      */
-    fun mxcToHttpUrl(mxcUrl: String?, homeserverUrl: String): String? {
-        return buildMediaUrl(mxcUrl, homeserverUrl, includeAvatarParams = true)
+    fun mxcToHttpUrl(
+        mxcUrl: String?,
+        homeserverUrl: String,
+        userId: String? = null,
+        displayName: String? = null
+    ): String? {
+        return buildMediaUrl(mxcUrl, homeserverUrl, includeAvatarParams = true, userId = userId, displayName = displayName)
     }
     
     /**
@@ -144,12 +148,11 @@ object AvatarUtils {
     fun getAvatarUrl(
         context: Context,
         mxcUrl: String?,
-        homeserverUrl: String
+        homeserverUrl: String,
+        userId: String? = null,
+        displayName: String? = null
     ): String? {
-        // PERFORMANCE: Don't do synchronous runBlocking for disk access during composition
-        // Simply return the HTTP URL and let AsyncImage/Coil handle its own caching and lookup
-        // Coil handles both memory and disk caching efficiently
-        return mxcToHttpUrl(mxcUrl, homeserverUrl)
+        return mxcToHttpUrl(mxcUrl, homeserverUrl, userId, displayName)
     }
     
     /**
@@ -178,16 +181,20 @@ object AvatarUtils {
      * If the cached value is a local file path and the file no longer exists (eviction),
      * the entry is removed and the HTTP URL is returned so Coil can refetch.
      */
-    fun getAvatarUrlForRoomListCached(mxcUrl: String?, homeserverUrl: String): String? {
+    fun getAvatarUrlForRoomListCached(
+        mxcUrl: String?,
+        homeserverUrl: String,
+        userId: String? = null,
+        displayName: String? = null
+    ): String? {
         if (mxcUrl == null) return null
         val cached = resolvedUrlCache[mxcUrl]
         if (cached != null) {
-            // HTTP URLs are always usable; local paths must still exist on disk
             if (cached.startsWith("http", ignoreCase = true)) return cached
             if (File(cached).exists()) return cached
             resolvedUrlCache.remove(mxcUrl)
         }
-        return mxcToHttpUrl(mxcUrl, homeserverUrl)
+        return mxcToHttpUrl(mxcUrl, homeserverUrl, userId, displayName)
     }
 
     /**
@@ -202,18 +209,18 @@ object AvatarUtils {
     suspend fun getAvatarUrlForRoomList(
         context: Context,
         mxcUrl: String?,
-        homeserverUrl: String
+        homeserverUrl: String,
+        userId: String? = null,
+        displayName: String? = null
     ): String? {
         if (mxcUrl == null) return null
-        
-        // 0. Check in-memory resolution cache first — but validate file paths still exist
+
         resolvedUrlCache[mxcUrl]?.let { cached ->
             if (cached.startsWith("http", ignoreCase = true)) return cached
             if (File(cached).exists()) return cached
             resolvedUrlCache.remove(mxcUrl)
         }
-        
-        // 1. Check CircleAvatarCache first (pre-processed circular avatars)
+
         val circleCachedFile = CircleAvatarCache.getCachedFile(context, mxcUrl)
         if (circleCachedFile != null) {
             val path = circleCachedFile.absolutePath
@@ -221,18 +228,14 @@ object AvatarUtils {
             return path
         }
 
-        // 2. Check IntelligentMediaCache (original images)
         val cachedFile = IntelligentMediaCache.getCachedFile(context, mxcUrl)
         if (cachedFile != null) {
             val path = cachedFile.absolutePath
             if (resolvedUrlCache.size < MAX_RESOLVED_URL_CACHE_SIZE) resolvedUrlCache[mxcUrl] = path
             return path
         }
-        
-        // 3. Convert to HTTP URL (Coil will check its cache, then network)
-        val httpUrl = mxcToHttpUrl(mxcUrl, homeserverUrl)
-        // Don't cache HTTP URLs — they'll be replaced by local paths once Coil downloads them
-        return httpUrl
+
+        return mxcToHttpUrl(mxcUrl, homeserverUrl, userId, displayName)
     }
 
     /**
@@ -312,7 +315,9 @@ object AvatarUtils {
     private fun buildMediaUrl(
         mxcUrl: String?,
         homeserverUrl: String,
-        includeAvatarParams: Boolean
+        includeAvatarParams: Boolean,
+        userId: String? = null,
+        displayName: String? = null
     ): String? {
         if (mxcUrl.isNullOrBlank() || mxcUrl == "null") return null
 
@@ -331,7 +336,17 @@ object AvatarUtils {
 
             val server = parts[0]
             val mediaId = parts[1]
-            val thumbnailParams = if (includeAvatarParams) "?thumbnail=avatar&size=256" else ""
+
+            val thumbnailParams = if (includeAvatarParams) {
+                val fallbackParam = if (userId != null) {
+                    val colorInt = getUserColor(userId)
+                    val colorHex = String.format("#%06x", 0xFFFFFF and colorInt)
+                    val letter = getFallbackCharacter(displayName, userId)
+                    "&fallback=" + URLEncoder.encode("$colorHex:$letter", "UTF-8")
+                } else ""
+                "?thumbnail=avatar&size=256$fallbackParam"
+            } else ""
+
             val rawUrl = "$homeserverUrl/_gomuks/media/$server/$mediaId$thumbnailParams"
 
             if (rawUrl.contains("/_gomuks/media/")) {

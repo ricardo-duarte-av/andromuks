@@ -66,30 +66,39 @@ fun AvatarImage(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
-    
+
     // Use shared ImageLoader singleton with optimized memory cache
     val imageLoader = remember { ImageLoaderSingleton.get(context) }
-    
+
+    // Resolve effective identity for colour/letter generation
+    val effectiveUserId = userId ?: fallbackText
+    val effectiveDisplayName = displayName ?: fallbackText
+
+    // SVG data URI used when mxcUrl is null or media fails to load.
+    // Scales perfectly at any dp size; consistent with the web frontend.
+    val svgFallbackUri = remember(effectiveUserId, effectiveDisplayName) {
+        AvatarUtils.generateLocalFallbackAvatar(effectiveDisplayName, effectiveUserId)
+    }
+
     // Get avatar URL - use CircleAvatarCache if useCircleCache is true (for RoomListScreen)
     // PERFORMANCE: For room list, try the synchronous in-memory cache first to avoid the
     // null → LaunchedEffect → recompose cycle.  Only fall back to the suspend path on cache miss.
-    var avatarUrl by remember(mxcUrl, useCircleCache) {
-        if (useCircleCache && mxcUrl != null) {
-            // Synchronous: check in-memory resolved-URL cache (ConcurrentHashMap get, no I/O)
-            val cached = AvatarUtils.getAvatarUrlForRoomListCached(mxcUrl, homeserverUrl)
+    // When mxcUrl is null we use the local SVG so there is always a non-null URL.
+    var avatarUrl by remember(mxcUrl, useCircleCache, effectiveUserId) {
+        if (mxcUrl == null) {
+            mutableStateOf(svgFallbackUri as String?)
+        } else if (useCircleCache) {
+            val cached = AvatarUtils.getAvatarUrlForRoomListCached(mxcUrl, homeserverUrl, effectiveUserId, effectiveDisplayName)
             mutableStateOf(cached)
         } else {
-            // Normal flow: Check MediaCache -> Coil -> Network
-            mutableStateOf(AvatarUtils.getAvatarUrl(context, mxcUrl, homeserverUrl))
+            mutableStateOf(AvatarUtils.getAvatarUrl(context, mxcUrl, homeserverUrl, effectiveUserId, effectiveDisplayName))
         }
     }
-    
-    // For RoomListScreen, resolve via suspend path only when the synchronous cache missed
-    // (avatarUrl will be an HTTP URL in that case, not a local path).
-    // Once resolved, the in-memory cache is populated so future compositions skip this entirely.
+
+    // For RoomListScreen, resolve via suspend path only when the synchronous cache missed.
     LaunchedEffect(mxcUrl, useCircleCache) {
         if (useCircleCache && mxcUrl != null) {
-            val resolved = AvatarUtils.getAvatarUrlForRoomList(context, mxcUrl, homeserverUrl)
+            val resolved = AvatarUtils.getAvatarUrlForRoomList(context, mxcUrl, homeserverUrl, effectiveUserId, effectiveDisplayName)
             if (resolved != avatarUrl) {
                 avatarUrl = resolved
             }
@@ -164,30 +173,11 @@ fun AvatarImage(
     }
     
     // Compute fallback info
-    val fallbackLetter = remember(displayName, userId, fallbackText, size) {
-        val letter = if (userId != null) {
+    val fallbackLetter = remember(displayName, userId, fallbackText) {
+        if (userId != null) {
             AvatarUtils.getFallbackCharacter(displayName, userId)
         } else {
             fallbackText.take(1).uppercase()
-        }
-        
-        // For small avatars (read markers), use circled letter emoji for better visibility
-        // Circled letters: ⓐ-ⓩ (U+24B6-U+24CF) for lowercase, Ⓐ-Ⓩ (U+24B6-U+24CF) for uppercase
-        if (size.value <= 16) { // Small avatars (read markers are 14.dp)
-            val char = letter.firstOrNull() ?: '?'
-            if (char.isLetter()) {
-                val base = if (char.isUpperCase()) 0x24B6 else 0x24D0 // Ⓐ or ⓐ
-                val offset = char.code - (if (char.isUpperCase()) 'A'.code else 'a'.code)
-                if (offset in 0..25) {
-                    String(Character.toChars(base + offset))
-                } else {
-                    letter
-                }
-            } else {
-                letter
-            }
-        } else {
-            letter
         }
     }
     
@@ -214,8 +204,8 @@ fun AvatarImage(
             .size(size)
             .clip(CircleShape)
             .then(
-                // Only add background when showing fallback (no URL or load failed)
-                if (avatarUrl == null || imageLoadFailed) {
+                // Background only for the text placeholder shown during fast scroll or SVG failure
+                if (imageLoadFailed || (!imageHasLoaded && !shouldLoadImage)) {
                     Modifier.background(backgroundColor ?: MaterialTheme.colorScheme.primaryContainer)
                 } else {
                     Modifier
@@ -237,8 +227,8 @@ fun AvatarImage(
                     contentScale = ContentScale.Crop
                 )
             }
-            // Show text fallback if no URL, failed to load, or not visible yet
-            avatarUrl == null || imageLoadFailed || !shouldLoadImage -> {
+            // Show text fallback if SVG itself failed, or image not yet loaded during fast scroll
+            imageLoadFailed || !shouldLoadImage -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -331,19 +321,24 @@ fun AvatarImage(
                             }
                         },
                         onError = {
-                            // Stale file path after cache eviction/trim: drop resolved entry and retry via HTTP
+                            if (avatarUrlForRequest.startsWith("data:")) {
+                                // SVG itself failed — last resort: text fallback
+                                imageLoadFailed = true
+                                return@AsyncImage
+                            }
+                            // Stale file path after cache eviction/trim: retry via HTTP
                             if (mxcUrl != null && !avatarUrlForRequest.startsWith("http", ignoreCase = true)) {
                                 AvatarUtils.removeResolvedUrl(mxcUrl)
-                                val httpUrl = AvatarUtils.mxcToHttpUrl(mxcUrl, homeserverUrl)
+                                val httpUrl = AvatarUtils.mxcToHttpUrl(mxcUrl, homeserverUrl, effectiveUserId, effectiveDisplayName)
                                 if (httpUrl != null) {
                                     avatarUrl = httpUrl
-                                    imageLoadFailed = false
                                     shouldLoadImage = true
                                     return@AsyncImage
                                 }
                             }
-                            // Mark as failed so fallback shows
-                            imageLoadFailed = true
+                            // Media failed — fall back to local SVG
+                            avatarUrl = svgFallbackUri
+                            shouldLoadImage = true
                         }
                     )
                 } else if (currentAvatarUrl != null && !imageHasLoaded) {

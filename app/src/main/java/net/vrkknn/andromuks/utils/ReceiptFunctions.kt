@@ -436,7 +436,10 @@ fun InlineReadReceiptAvatars(
 ) {
     val context = LocalContext.current
     var showReceiptDialog by remember { mutableStateOf(false) }
-    
+    // Read memberUpdateCounter in the composable body so Compose recomposes when profiles arrive
+    @Suppress("UNUSED_VARIABLE")
+    val memberUpdateCounter = appViewModel?.memberUpdateCounter
+
     if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Called with ${receipts.size} receipts for sender: $messageSender")
     if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Receipt users: ${receipts.map { it.userId }}")
     
@@ -447,30 +450,21 @@ fun InlineReadReceiptAvatars(
     // Filter out the message sender from read receipts
     val filteredReceipts = receipts.filter { it.userId != messageSender }
     if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: After filtering: ${filteredReceipts.size} receipts, users: ${filteredReceipts.map { it.userId }}")
-    
+
+    val receiptUserIds = remember(filteredReceipts) {
+        filteredReceipts.map { it.userId }.toSet()
+    }
+
     // OPPORTUNISTIC PROFILE LOADING: Request profiles for read receipt users
-    LaunchedEffect(filteredReceipts.map { it.userId }, roomId, appViewModel?.memberUpdateCounter) {
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: LaunchedEffect triggered - receipts: ${filteredReceipts.size}, roomId: $roomId, memberUpdateCounter: ${appViewModel?.memberUpdateCounter}")
-        
-        if (appViewModel != null && roomId != null && filteredReceipts.isNotEmpty()) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Requesting profiles for ${filteredReceipts.size} read receipt users")
-            filteredReceipts.forEach { receipt ->
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Processing receipt for user: ${receipt.userId}")
-                
-                // Check if profile is already cached to avoid unnecessary requests
-                val existingProfile = appViewModel.getUserProfile(receipt.userId, roomId)
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Profile check for ${receipt.userId} - cached: ${existingProfile != null}, displayName: ${existingProfile?.displayName}")
-                
+    // Key only on user IDs (not memberUpdateCounter) to avoid re-running on every sync_complete
+    LaunchedEffect(receiptUserIds, roomId) {
+        if (appViewModel != null && roomId != null && receiptUserIds.isNotEmpty()) {
+            receiptUserIds.forEach { userId ->
+                val existingProfile = appViewModel.getUserProfile(userId, roomId)
                 if (existingProfile == null) {
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Profile not cached for ${receipt.userId}, requesting...")
-                    appViewModel.requestUserProfileOnDemand(receipt.userId, roomId)
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Profile request sent for ${receipt.userId}")
-                } else {
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Profile already cached for ${receipt.userId} - displayName: ${existingProfile.displayName}")
+                    appViewModel.requestUserProfileOnDemand(userId, roomId)
                 }
             }
-        } else {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Skipping profile requests - appViewModel: ${appViewModel != null}, roomId: $roomId, receipts: ${filteredReceipts.size}")
         }
     }
     
@@ -621,7 +615,10 @@ fun AnimatedInlineReadReceiptAvatars(
 ) {
     val context = LocalContext.current
     var showReceiptDialog by remember { mutableStateOf(false) }
-    
+    // Read memberUpdateCounter in the composable body so Compose recomposes when profiles arrive
+    @Suppress("UNUSED_VARIABLE")
+    val memberUpdateCounter = appViewModel?.memberUpdateCounter
+
     // Get receipt movements for animation
     val receiptMovements = appViewModel?.getReceiptMovements() ?: emptyMap()
     val animationTrigger = appViewModel?.receiptAnimationTrigger ?: 0L
