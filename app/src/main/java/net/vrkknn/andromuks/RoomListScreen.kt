@@ -228,10 +228,6 @@ fun RoomListScreen(
     val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
     val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
     val uiState by appViewModel.rememberRoomListUiState()
-    // CRASH FIX: Observe "rush" / batch flush state once and reuse everywhere (TabBar + header indicator).
-    val isProcessingBatch by appViewModel.isProcessingSyncBatch.collectAsState()
-    val processingBatchSize by appViewModel.processingBatchSize.collectAsState()
-    val processedInBatch by appViewModel.processedInBatch.collectAsState()
     val connectionState by SyncRepository.connectionState.collectAsState()
     val imageToken = uiState.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     var coldStartRefreshing by remember { mutableStateOf(false) }
@@ -334,12 +330,6 @@ fun RoomListScreen(
     // DEBUG: Log state changes to identify why "Refreshing rooms..." is stuck
     LaunchedEffect(coldStartRefreshing, shouldBlockForPending, effectiveSpacesLoaded, effectiveInitialSyncComplete, stableSection.rooms.size) {
         android.util.Log.d("Andromuks", "🔴 RoomListScreen: Loading state - coldStartRefreshing=$coldStartRefreshing, shouldBlockForPending=$shouldBlockForPending, effectiveSpacesLoaded=$effectiveSpacesLoaded, effectiveInitialSyncComplete=$effectiveInitialSyncComplete, hasRooms=${stableSection.rooms.isNotEmpty()}, roomCount=${stableSection.rooms.size}")
-    }
-    // DEBUG: Prove whether the UI is actually seeing the batch/rush state flip.
-    LaunchedEffect(isProcessingBatch) {
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "RoomListScreen: isProcessingBatch=$isProcessingBatch")
-        }
     }
     // CRASH FIX: Track animation state to prevent stableSection updates during tab animations.
     // animationGeneration increments on each type-change so the guard LaunchedEffect restarts,
@@ -1141,58 +1131,11 @@ fun RoomListScreen(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            // PHASE 1: Pulsing processing indicator - show when sync is processing OR when room list is updating
-                            // CRASH FIX: Show warning color when batch processing (rushing) to indicate tab switching is disabled
-                            // Reuse isProcessingBatch from top level (line 183) - no need to collect twice
-                            var showSyncIndicator by remember { mutableStateOf(false) }
-                            LaunchedEffect(uiState.roomListUpdateCounter) {
-                                if (uiState.roomListUpdateCounter > 0) {
-                                    showSyncIndicator = true
-                                    //if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Showing sync indicator (counter=${uiState.roomListUpdateCounter})")
-                                    kotlinx.coroutines.delay(500) // Show for 0.5 seconds to be more visible
-                                    showSyncIndicator = false
-                                }
-                            }
-                            // DEBUG: Log batch processing state changes
-                            LaunchedEffect(isProcessingBatch) {
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: isProcessingBatch changed to $isProcessingBatch")
-                            }
-                            // Normal sync indicator (blue, pulsing)
-                            AnimatedVisibility(
-                                visible = uiState.isProcessingPendingItems || showSyncIndicator || isProcessingBatch,
-                                enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.5f, animationSpec = tween(200)),
-                                exit = fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.5f, animationSpec = tween(200))
-                            ) {
-                                val infiniteTransition = rememberInfiniteTransition(label = "sync_pulse")
-                                val alpha by infiniteTransition.animateFloat(
-                                    initialValue = 0.3f,
-                                    targetValue = 1f,
-                                    animationSpec = infiniteRepeatable(
-                                        animation = tween(1000, easing = FastOutSlowInEasing),
-                                        repeatMode = RepeatMode.Reverse
-                                    ),
-                                    label = "sync_pulse_alpha"
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .size(10.dp)
-                                        .background(
-                                            MaterialTheme.colorScheme.primary.copy(alpha = alpha),
-                                            CircleShape
-                                        )
-                                )
-                            }
-                            // "RUSH" text indicator for batch processing (error color, next to sync pill)
-                            // No animation - appears instantly since batch processing is brief
-                            if (isProcessingBatch) {
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: RUSH indicator visible - isProcessingBatch=true, count=$processingBatchSize")
-                                Text(
-                                    text = if (processingBatchSize > 0) "$processingBatchSize RUSH" else "RUSH",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.padding(start = 6.dp)
-                                )
-                            }
+                            SyncBatchIndicator(
+                                appViewModel = appViewModel,
+                                isProcessingPendingItems = uiState.isProcessingPendingItems,
+                                roomListUpdateCounter = uiState.roomListUpdateCounter
+                            )
                         }
                         if (!me?.displayName.isNullOrBlank() && appViewModel.currentUserId.isNotBlank()) {
                             Text(
@@ -1681,8 +1624,7 @@ fun RoomListScreen(
                     // This ensures timestamps are immediately up-to-date when user switches sections
                     smartTimestampUpdateCounter++
                 },
-                appViewModel = appViewModel,
-                isProcessingBatch = isProcessingBatch
+                appViewModel = appViewModel
             )
         }
         
@@ -2707,12 +2649,62 @@ fun formatTimeAgo(timestamp: Long?): String {
 }
 
 @Composable
+private fun SyncBatchIndicator(
+    appViewModel: AppViewModel,
+    isProcessingPendingItems: Boolean,
+    roomListUpdateCounter: Int
+) {
+    val isProcessingBatch by appViewModel.isProcessingSyncBatch.collectAsState()
+    val processingBatchSize by appViewModel.processingBatchSize.collectAsState()
+    var showSyncIndicator by remember { mutableStateOf(false) }
+    LaunchedEffect(roomListUpdateCounter) {
+        if (roomListUpdateCounter > 0) {
+            showSyncIndicator = true
+            kotlinx.coroutines.delay(500)
+            showSyncIndicator = false
+        }
+    }
+    AnimatedVisibility(
+        visible = isProcessingPendingItems || showSyncIndicator || isProcessingBatch,
+        enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.5f, animationSpec = tween(200)),
+        exit = fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.5f, animationSpec = tween(200))
+    ) {
+        val infiniteTransition = rememberInfiniteTransition(label = "sync_pulse")
+        val alpha by infiniteTransition.animateFloat(
+            initialValue = 0.3f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1000, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "sync_pulse_alpha"
+        )
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .background(
+                    MaterialTheme.colorScheme.primary.copy(alpha = alpha),
+                    CircleShape
+                )
+        )
+    }
+    if (isProcessingBatch) {
+        Text(
+            text = if (processingBatchSize > 0) "$processingBatchSize RUSH" else "RUSH",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(start = 6.dp)
+        )
+    }
+}
+
+@Composable
 fun TabBar(
     currentSection: RoomSection,
     onSectionSelected: (RoomSectionType) -> Unit,
-    appViewModel: AppViewModel,
-    isProcessingBatch: Boolean = false
+    appViewModel: AppViewModel
 ) {
+    val isProcessingBatch by appViewModel.isProcessingSyncBatch.collectAsState()
     val showAllRoomListTabs = appViewModel.showAllRoomListTabs
 
     Surface(
@@ -3094,12 +3086,12 @@ fun SpacesListContent(
             }
         }
         
-        items(filteredSpaces.size) { idx ->
+        items(filteredSpaces.size, key = { filteredSpaces[it].id }) { idx ->
             val space = filteredSpaces[idx]
             SpaceListItem(
                 space = space,
                 isSelected = false,
-                onClick = { 
+                onClick = {
                     appViewModel.enterSpace(space.id)
                 },
                 homeserverUrl = appViewModel.homeserverUrl,
@@ -3136,12 +3128,12 @@ fun BridgesListContent(
             }
         }
         
-        items(filteredBridges.size) { idx ->
+        items(filteredBridges.size, key = { filteredBridges[it].id }) { idx ->
             val bridge = filteredBridges[idx]
             SpaceListItem(
                 space = bridge,
                 isSelected = false,
-                onClick = { 
+                onClick = {
                     appViewModel.enterBridge(bridge.id)
                 },
                 homeserverUrl = appViewModel.homeserverUrl,

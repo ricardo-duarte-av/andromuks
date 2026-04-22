@@ -301,7 +301,7 @@ class AppViewModel : ViewModel() {
         requireInitComplete: Boolean = false,
         roomId: String? = null
     ): Boolean {
-        android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: START - roomId=$roomId, timeoutMs=$timeoutMs, requireInitComplete=$requireInitComplete, currentRoomId=$currentRoomId")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: START - roomId=$roomId, timeoutMs=$timeoutMs, requireInitComplete=$requireInitComplete, currentRoomId=$currentRoomId")
         val startTime = System.currentTimeMillis()
         return withTimeoutOrNull(timeoutMs) {
             var pollCount = 0
@@ -331,12 +331,12 @@ class AppViewModel : ViewModel() {
                 
                 if (pollCount % 10 == 0 || (!pendingReady || !syncReady || !initReady || !timelineReady)) {
                     // Log every 10 polls or when not ready
-                    android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: Polling - roomId=$roomId, pollCount=$pollCount, pendingReady=$pendingReady, syncReady=$syncReady, initReady=$initReady, timelineReady=$timelineReady, isTimelineLoading=$isTimelineLoading, timelineEvents.size=${timelineEvents.size}, currentRoomId=$currentRoomId")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: Polling - roomId=$roomId, pollCount=$pollCount, pendingReady=$pendingReady, syncReady=$syncReady, initReady=$initReady, timelineReady=$timelineReady, isTimelineLoading=$isTimelineLoading, timelineEvents.size=${timelineEvents.size}, currentRoomId=$currentRoomId")
                 }
                 
                 if (pendingReady && syncReady && initReady && timelineReady) {
                     val elapsed = System.currentTimeMillis() - startTime
-                    android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: READY - roomId=$roomId, elapsed=${elapsed}ms, pollCount=$pollCount")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: READY - roomId=$roomId, elapsed=${elapsed}ms, pollCount=$pollCount")
                     break
                 }
                 delay(pollDelayMs)
@@ -3061,12 +3061,12 @@ class AppViewModel : ViewModel() {
     
     
     fun onInitComplete() {
-        android.util.Log.d("Andromuks", "🟣 onInitComplete: START - initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded, initialSyncCompleteQueue.size=${initialSyncCompleteQueue.size}")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 onInitComplete: START - initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded, initialSyncCompleteQueue.size=${initialSyncCompleteQueue.size}")
         addStartupProgressMessage("Initialization complete - processing ${initialSyncCompleteQueue.size} sync messages")
         
         // CRITICAL FIX: Set initialSyncPhase = true to stop queueing and start processing queued messages
         initialSyncPhase = true
-        android.util.Log.d("Andromuks", "🟣 onInitComplete: Set initialSyncPhase=true, will process ${initialSyncCompleteQueue.size} queued initial sync_complete messages")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 onInitComplete: Set initialSyncPhase=true, will process ${initialSyncCompleteQueue.size} queued initial sync_complete messages")
 
         // Start WebSocket pinger immediately on init_complete so low-traffic accounts don't wait for first sync_complete
         net.vrkknn.andromuks.WebSocketService.startPingLoopOnInitComplete()
@@ -3187,12 +3187,12 @@ class AppViewModel : ViewModel() {
                                         val shouldUnblock = when {
                                             hasSpacesInfo -> {
                                                 // First message with clear_state=true - has spaces info, unblock immediately
-                                                android.util.Log.d("Andromuks", "🟣 onInitComplete: First message has clear_state=true with spaces info - will unblock after processing")
+                                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 onInitComplete: First message has clear_state=true with spaces info - will unblock after processing")
                                                 true
                                             }
                                             (currentIndex + 1) >= 2 -> {
                                                 // Processed 2 messages (~200 rooms) - enough to show UI
-                                                android.util.Log.d("Andromuks", "🟣 onInitComplete: Processed 2 messages (~200 rooms) - will unblock UI")
+                                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 onInitComplete: Processed 2 messages (~200 rooms) - will unblock UI")
                                                 true
                                             }
                                             else -> false
@@ -3207,7 +3207,7 @@ class AppViewModel : ViewModel() {
                                             withContext(Dispatchers.Main) {
                                                 val roomCount = roomMap.size
                                                 val reason = if (hasSpacesInfo) "first message with clear_state=true (spaces info)" else "processed 2 messages (~200 rooms)"
-                                                android.util.Log.d("Andromuks", "🟣 onInitComplete: EARLY UNBLOCK - $reason, have $roomCount rooms - Setting initialSyncComplete=true to unblock UI (processing continues in background)")
+                                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 onInitComplete: EARLY UNBLOCK - $reason, have $roomCount rooms - Setting initialSyncComplete=true to unblock UI (processing continues in background)")
                                                 initialSyncComplete = true
                                                 spacesLoaded = true
                                                 // CRITICAL FIX: Allow commands immediately on early unblock
@@ -3216,7 +3216,7 @@ class AppViewModel : ViewModel() {
                                                 flushPendingCommandsQueue()
                                                 // Don't call checkStartupComplete() here - it will wait for initialSyncProcessingComplete
                                                 // This ensures UI shows early but room list waits for all processing
-                                                android.util.Log.d("Andromuks", "🟣 onInitComplete: EARLY UNBLOCK - UI can show early, but room list will wait for all ${queuedMessages.size} messages to process")
+                                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 onInitComplete: EARLY UNBLOCK - UI can show early, but room list will wait for all ${queuedMessages.size} messages to process")
                                             }
                                         }
                                     }
@@ -3239,7 +3239,7 @@ class AppViewModel : ViewModel() {
                                     ensureCurrentUserProfileLoaded()
                                     initialSyncProcessingComplete = true
                                     withContext(Dispatchers.Main) {
-                                        android.util.Log.d("Andromuks", "🟣 onInitComplete: Finished processing ${queuedMessages.size} messages (early unblock didn't trigger) - Setting initialSyncComplete=true, spacesLoaded=true, processingComplete=true")
+                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 onInitComplete: Finished processing ${queuedMessages.size} messages (early unblock didn't trigger) - Setting initialSyncComplete=true, spacesLoaded=true, processingComplete=true")
                                         initialSyncComplete = true
                                         spacesLoaded = true
                                         // CRITICAL FIX: Allow commands immediately after initial sync completes
@@ -3247,17 +3247,17 @@ class AppViewModel : ViewModel() {
                                         canSendCommandsToBackend = true
                                         flushPendingCommandsQueue()
                                         checkStartupComplete() // Check if startup is complete
-                                        android.util.Log.d("Andromuks", "🟣 onInitComplete: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null} - UI can now be shown")
+                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 onInitComplete: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null} - UI can now be shown")
                                     }
                                 }
                             } else {
                                 // Queue was empty - set flags immediately
-                                android.util.Log.d("Andromuks", "🟣 onInitComplete: No queued messages - setting initialSyncComplete immediately")
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 onInitComplete: No queued messages - setting initialSyncComplete immediately")
                                 // CRITICAL: Ensure profile is loaded before marking processing complete
                                 ensureCurrentUserProfileLoaded()
                                 initialSyncProcessingComplete = true
                                 withContext(Dispatchers.Main) {
-                                    android.util.Log.d("Andromuks", "🟣 onInitComplete: Setting initialSyncComplete=true, spacesLoaded=true, processingComplete=true (empty queue)")
+                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 onInitComplete: Setting initialSyncComplete=true, spacesLoaded=true, processingComplete=true (empty queue)")
                                     initialSyncComplete = true
                                     spacesLoaded = true
                                     
@@ -3267,7 +3267,7 @@ class AppViewModel : ViewModel() {
                                     flushPendingCommandsQueue()
                                     
                                     checkStartupComplete() // Check if startup is complete
-                                    android.util.Log.d("Andromuks", "🟣 onInitComplete: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null}")
+                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 onInitComplete: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null}")
                                 }
                             }
                         }
@@ -3287,7 +3287,7 @@ class AppViewModel : ViewModel() {
                         // CRITICAL FIX: If early unblock didn't set initialSyncComplete, set it now
                         // If early unblock already set it, just ensure spacesLoaded is set
                         if (!initialSyncComplete) {
-                            android.util.Log.d("Andromuks", "🟣 Initial sync processing: Setting initialSyncComplete=true, spacesLoaded=true, processingComplete=true")
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Initial sync processing: Setting initialSyncComplete=true, spacesLoaded=true, processingComplete=true")
                             initialSyncComplete = true
                             spacesLoaded = true
                         } else {
@@ -3295,7 +3295,7 @@ class AppViewModel : ViewModel() {
                             if (!spacesLoaded) {
                                 spacesLoaded = true
                             }
-                            android.util.Log.d("Andromuks", "🟣 Initial sync processing: All messages processed - processingComplete=true (early unblock already set initialSyncComplete)")
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Initial sync processing: All messages processed - processingComplete=true (early unblock already set initialSyncComplete)")
                         }
                         
                         // CRITICAL FIX: Allow commands immediately after initial sync completes
@@ -3313,7 +3313,7 @@ class AppViewModel : ViewModel() {
                         // CRITICAL FIX: Call checkStartupComplete() AFTER all state is set on Main thread
                         // This ensures proper visibility and prevents race conditions
                         checkStartupComplete()
-                        android.util.Log.d("Andromuks", "🟣 Initial sync processing: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null}, isStartupComplete=$isStartupComplete - Room list can now be shown")
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Initial sync processing: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null}, isStartupComplete=$isStartupComplete - Room list can now be shown")
                         }
                     }
                     
@@ -3867,10 +3867,10 @@ class AppViewModel : ViewModel() {
                 // While false, any sync_complete the pipeline dispatches to this VM goes into
                 // initialSyncCompleteQueue instead of being applied directly to the UI.
                 initialSyncProcessingComplete = true
-                android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Setting initializationComplete=true, initialSyncComplete=true, processingComplete=true (already-initialized WebSocket)")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: Setting initializationComplete=true, initialSyncComplete=true, processingComplete=true (already-initialized WebSocket)")
                 initializationComplete = true  // CRITICAL: init_complete was already received by primary instance
                 initialSyncComplete = true
-                android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: initializationComplete=$initializationComplete, initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, profile=${currentUserProfile != null}")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Attaching to WebSocket: initializationComplete=$initializationComplete, initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, profile=${currentUserProfile != null}")
 
                 // Capture messages already processed by the pipeline (pre-registration) and
                 // prepend them into initialSyncCompleteQueue so they sort before any post-
@@ -6937,10 +6937,10 @@ class AppViewModel : ViewModel() {
     }
 
     fun processSendCompleteEvent(eventData: JSONObject, error: String? = null) {
-        android.util.Log.d("Andromuks", "AppViewModel: processSendCompleteEvent called")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processSendCompleteEvent called")
         try {
             val event = TimelineEvent.fromJson(eventData)
-            android.util.Log.d("Andromuks", "AppViewModel: Created timeline event from send_complete: ${event.eventId}, type=${event.type}, eventRoomId=${event.roomId}, sender=${event.sender}, currentRoomId=$currentRoomId, currentUserId=$currentUserId")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Created timeline event from send_complete: ${event.eventId}, type=${event.type}, eventRoomId=${event.roomId}, sender=${event.sender}, currentRoomId=$currentRoomId, currentUserId=$currentUserId")
 
             val echoTxId = event.transactionId
             // "not sent" is the backend's placeholder meaning "still in flight" — not a real error.
@@ -6986,7 +6986,7 @@ class AppViewModel : ViewModel() {
             // Update shortcuts BEFORE room check so it works for any room, not just current room
             if ((event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker") 
                 && event.sender == currentUserId && event.roomId.isNotEmpty()) {
-                android.util.Log.d("Andromuks", "AppViewModel: SHORTCUT - Message sent by user, preparing shortcut update for room ${event.roomId}")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SHORTCUT - Message sent by user, preparing shortcut update for room ${event.roomId}")
                 
                 // Store conversationsApi in local variable to avoid smart cast issue
                 val api = conversationsApi
@@ -7000,19 +7000,19 @@ class AppViewModel : ViewModel() {
                         // Room found - update timestamp to current message timestamp
                         val updatedTimestamp = normalizeTimestamp(event.timestamp, event.unsigned?.optLong("age_ts") ?: 0L)
                         room = room.copy(sortingTimestamp = updatedTimestamp)
-                        android.util.Log.d("Andromuks", "AppViewModel: SHORTCUT - Room found, updating shortcut for ${room.name} with timestamp $updatedTimestamp")
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SHORTCUT - Room found, updating shortcut for ${room.name} with timestamp $updatedTimestamp")
                         
                         // Update shortcuts asynchronously
                         viewModelScope.launch(Dispatchers.Default) {
                             api.updateShortcutsFromSyncRooms(listOf(room))
-                            android.util.Log.d("Andromuks", "AppViewModel: SHORTCUT - Successfully updated shortcut for room ${room.name} after sending message")
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SHORTCUT - Successfully updated shortcut for room ${room.name} after sending message")
                         }
                     } else {
                         android.util.Log.w("Andromuks", "AppViewModel: SHORTCUT - Room ${event.roomId} not found in roomMap or getRoomById, cannot update shortcut")
                     }
                 }
             } else {
-                android.util.Log.d("Andromuks", "AppViewModel: SHORTCUT - Skipping shortcut update: type=${event.type}, sender=${event.sender}, currentUserId=$currentUserId, roomId=${event.roomId}")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SHORTCUT - Skipping shortcut update: type=${event.type}, sender=${event.sender}, currentUserId=$currentUserId, roomId=${event.roomId}")
             }
             
             // Only process timeline updates if it's for the current room
@@ -7698,7 +7698,7 @@ class AppViewModel : ViewModel() {
         // Update shortcuts immediately on message response (when we know it was sent successfully)
         // rather than waiting for send_complete which may not arrive or may be delayed
         if (!isError && roomId.isNotEmpty()) {
-            android.util.Log.d("Andromuks", "AppViewModel: SHORTCUT - Message successfully sent to room $roomId, updating shortcut")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SHORTCUT - Message successfully sent to room $roomId, updating shortcut")
             
             val api = conversationsApi
             if (api != null) {
@@ -7709,7 +7709,7 @@ class AppViewModel : ViewModel() {
                     val updatedRoom = room.copy(sortingTimestamp = System.currentTimeMillis())
                     viewModelScope.launch(Dispatchers.Default) {
                         api.updateShortcutsFromSyncRooms(listOf(updatedRoom))
-                        android.util.Log.d("Andromuks", "AppViewModel: SHORTCUT - Successfully updated shortcut for room ${updatedRoom.name} after sending message")
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SHORTCUT - Successfully updated shortcut for room ${updatedRoom.name} after sending message")
                     }
                 } else {
                     android.util.Log.w("Andromuks", "AppViewModel: SHORTCUT - Room $roomId not found in roomMap, cannot update shortcut")
@@ -9228,7 +9228,7 @@ class AppViewModel : ViewModel() {
                 paginateRequestMaxTimelineIds[paginateRequestId] = maxTimelineId // Track max_timeline_id used for progress detection
                 
                 // Log paginate request
-                android.util.Log.d("Andromuks", "paginate: Room - $roomId, MaxTimelineRowID - $maxTimelineId, Limit - $limit")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "paginate: Room - $roomId, MaxTimelineRowID - $maxTimelineId, Limit - $limit")
                 
                 val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
                     "room_id" to roomId,
