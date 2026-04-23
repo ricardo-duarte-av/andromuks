@@ -67,6 +67,25 @@ Avatars (room, sender, current user) are loaded before the notification is poste
 
 Fallback avatars (generated lettermarks from room/sender name) are used whenever the real avatar is unavailable.
 
+### Image notifications — two-phase approach
+
+Image messages (notifications where the FCM payload contains an `image` field) use a deferred download pattern to avoid the same Doze/network restriction that affects avatar loading:
+
+**Phase 1 — FCM callback (`showEnhancedNotification`):** The notification is posted immediately with the message text body (e.g. a caption or "📷 Photo"). No image download is attempted. The image URL and MXC cache key are parsed and passed to `NotificationImageWorker.enqueue()`.
+
+**Phase 2 — `NotificationImageWorker`:** A `CoroutineWorker` constrained to `NetworkType.CONNECTED`. WorkManager schedules it via `JobScheduler`, which grants a network-accessible execution window outside Doze. When it runs:
+
+1. Checks if the notification is still active (bail if dismissed).
+2. Checks `IntelligentMediaCache` disk cache; downloads via `IntelligentMediaCache.downloadAndCache` only on a miss.
+3. Wraps the file in a `FileProvider` `content://` URI.
+4. Extracts the existing `MessagingStyle` from the active notification.
+5. Rebuilds the style — replaces the last message with a new `Message.setData(mimeType, imageUri)` version.
+6. Re-posts with the same notification ID and `setSilent(true)` (no sound/vibration on update).
+
+The worker uses `ExistingWorkPolicy.REPLACE` keyed by `"notif_image_$roomId"` so that rapid back-to-back image messages for the same room don't pile up. It retries up to twice on transient download failure.
+
+**Auth token:** The worker receives the `image_auth_token` (JWT) from `EnhancedNotificationDisplay` at enqueue time, not from SharedPreferences, so the token is always the freshest value available at the moment the FCM message was received.
+
 ### Dismiss handling
 
 `handleDismissNotification` cancels active notifications for a room when the backend signals the conversation was read. It will **not** cancel if:

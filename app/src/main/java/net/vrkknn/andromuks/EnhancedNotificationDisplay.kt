@@ -432,83 +432,40 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 .setIcon(senderAvatarIcon)
                 .build()
             
-            // Download image for image notifications
-            val imageUri = if (hasImage) {
-                try {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Downloading image for notification: ${notificationData.image}")
-                    
-                    // Parse the image URL and convert to MXC format for caching
-                    val (mxcUrl, httpUrl) = when {
-                        notificationData.image.startsWith("mxc://") -> {
-                            // Already an MXC URL
-                            val mxc = notificationData.image
-                            val http = MediaUtils.mxcToHttpUrl(mxc, homeserverUrl)
-                            Pair(mxc, http)
-                        }
-                        notificationData.image.startsWith("_gomuks/media/") -> {
-                            // Relative _gomuks URL - convert to MXC and HTTP
-                            val parts = notificationData.image.removePrefix("_gomuks/media/").split("?")[0].split("/", limit = 2)
-                            val mxc = if (parts.size == 2) "mxc://${parts[0]}/${parts[1]}" else null
-                            val http = if (mxc != null) "$homeserverUrl/${notificationData.image}" else null // Keep query params like ?encrypted=true
-                            Pair(mxc, http)
-                        }
-                        notificationData.image.contains("/_gomuks/media/") -> {
-                            // Full HTTP URL containing _gomuks/media/ - extract the relative part
-                            val gomuksIndex = notificationData.image.indexOf("/_gomuks/media/")
-                            val relativePart = notificationData.image.substring(gomuksIndex + 1) // Remove leading /
-                            val parts = relativePart.removePrefix("_gomuks/media/").split("?")[0].split("/", limit = 2)
-                            val mxc = if (parts.size == 2) "mxc://${parts[0]}/${parts[1]}" else null
-                            val http = notificationData.image // Keep full URL including query params like ?encrypted=true
-                            Pair(mxc, http)
-                        }
-                        else -> {
-                            Log.w(TAG, "Unrecognized image URL format: ${notificationData.image}")
-                            Pair(null, null)
-                        }
+            // Image downloading is deferred to NotificationImageWorker (Phase 2).
+            // We post the notification now with text only; the worker downloads the image
+            // in the background once network is confirmed available (outside Doze restrictions)
+            // and updates the notification in-place via a second notify() call with the same ID.
+            // Parse image URL parts here so the worker has both the HTTP URL and MXC cache key.
+            val (deferredMxcUrl, deferredHttpUrl) = if (hasImage) {
+                when {
+                    notificationData.image!!.startsWith("mxc://") -> {
+                        val mxc = notificationData.image
+                        val http = net.vrkknn.andromuks.utils.MediaUtils.mxcToHttpUrl(mxc, homeserverUrl)
+                        Pair(mxc, http)
                     }
-                    
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Parsed image URLs - MXC: $mxcUrl, HTTP: $httpUrl")
-                    
-                    if (mxcUrl != null && httpUrl != null) {
-                        // Check cache first
-                        val cachedFile = IntelligentMediaCache.getCachedFile(context, mxcUrl)
-                        val imageFile = if (cachedFile != null && cachedFile.exists()) {
-                            if (BuildConfig.DEBUG) Log.d(TAG, "Using cached image: ${cachedFile.absolutePath}")
-                            cachedFile
-                        } else {
-                            // Download and cache
-                            if (BuildConfig.DEBUG) Log.d(TAG, "Downloading image from: $httpUrl")
-                            val downloadedFile = IntelligentMediaCache.downloadAndCache(context, mxcUrl, httpUrl, authToken)
-                            if (downloadedFile != null && downloadedFile.exists()) {
-                                if (BuildConfig.DEBUG) Log.d(TAG, "Downloaded image to cache: ${downloadedFile.absolutePath}")
-                                downloadedFile
-                            } else {
-                                Log.w(TAG, "Failed to download image for notification")
-                                null
-                            }
-                        }
-                        
-                        if (imageFile != null) {
-                            // Use FileProvider to create a content:// URI that can be accessed by the notification system
-                            FileProvider.getUriForFile(
-                                context,
-                                "pt.aguiarvieira.andromuks.fileprovider",
-                                imageFile
-                            )
-                        } else {
-                            null
-                        }
-                    } else {
-                        Log.w(TAG, "Could not parse image URL: ${notificationData.image}")
-                        null
+                    notificationData.image.startsWith("_gomuks/media/") -> {
+                        val parts = notificationData.image.removePrefix("_gomuks/media/").split("?")[0].split("/", limit = 2)
+                        val mxc = if (parts.size == 2) "mxc://${parts[0]}/${parts[1]}" else null
+                        val http = if (mxc != null) "$homeserverUrl/${notificationData.image}" else null
+                        Pair(mxc, http)
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error downloading image for notification", e)
-                    null
+                    notificationData.image.contains("/_gomuks/media/") -> {
+                        val gomuksIndex = notificationData.image.indexOf("/_gomuks/media/")
+                        val relativePart = notificationData.image.substring(gomuksIndex + 1)
+                        val parts = relativePart.removePrefix("_gomuks/media/").split("?")[0].split("/", limit = 2)
+                        val mxc = if (parts.size == 2) "mxc://${parts[0]}/${parts[1]}" else null
+                        Pair(mxc, notificationData.image)
+                    }
+                    else -> {
+                        Log.w(TAG, "Unrecognized image URL format: ${notificationData.image}")
+                        Pair(null, null)
+                    }
                 }
             } else {
-                null
+                Pair(null, null)
             }
+            val imageUri: android.net.Uri? = null // Phase 1 always posts without image
             
             // Process message body - use HTML if available, otherwise fall back to plain text
             val messageBody = if (!notificationData.htmlBody.isNullOrEmpty()) {
@@ -800,37 +757,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     }
                     .build()
                 
-                // Grant URI permission for image if present
-                // CRITICAL FIX: Grant permissions to multiple packages that might need to access the image
-                // System UI, notification service, and Android Auto all need access
-                if (imageUri != null) {
-                    try {
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Granting URI permission for notification image: $imageUri")
-                        val packagesToGrant = listOf(
-                            "com.android.systemui",  // System UI package for notifications
-                            "com.google.android.projection.gearhead",  // Android Auto
-                            "com.google.android.gms",  // Google Play Services (for Auto)
-                            context.packageName  // Our own package (for notification updates)
-                        )
-                        for (packageName in packagesToGrant) {
-                            try {
-                                context.grantUriPermission(
-                                    packageName,
-                                    imageUri,
-                                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                )
-                                if (BuildConfig.DEBUG) Log.d(TAG, "Granted URI permission to: $packageName")
-                            } catch (e: Exception) {
-                                // Some packages might not exist on all devices - that's okay
-                                if (BuildConfig.DEBUG) Log.d(TAG, "Could not grant URI permission to $packageName (may not exist): ${e.message}")
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Error granting URI permission for notification image", e)
-                    }
-                }
-                
-                // Show notification
+                // Show notification (Phase 1 — always text-only, image comes in Phase 2)
                 val notificationManager = NotificationManagerCompat.from(context)
                 if (BuildConfig.DEBUG) {
                     // On Android 8.0+, defaults may be 0 even if channel has sound - channel controls it
@@ -857,6 +784,29 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     Log.d(TAG, "✓ Notification posted successfully for room: ${notificationData.roomId}")
                 }
             } // End synchronized block
+
+            // Phase 2: enqueue image download outside the synchronized block (no lock needed).
+            // The worker will call notify() again with the same ID once the image is ready,
+            // updating the notification in-place without re-alerting the user (setSilent=true).
+            if (hasImage && deferredHttpUrl != null) {
+                val mimeType = when {
+                    notificationData.image!!.contains(".jpg", ignoreCase = true) ||
+                    notificationData.image.contains(".jpeg", ignoreCase = true) -> "image/jpeg"
+                    notificationData.image.contains(".png", ignoreCase = true) -> "image/png"
+                    notificationData.image.contains(".gif", ignoreCase = true) -> "image/gif"
+                    notificationData.image.contains(".webp", ignoreCase = true) -> "image/webp"
+                    else -> "image/jpeg"
+                }
+                NotificationImageWorker.enqueue(
+                    context = context,
+                    roomId = notificationData.roomId,
+                    eventId = notificationData.eventId,
+                    imageUrl = deferredHttpUrl,
+                    mxcUrl = deferredMxcUrl,
+                    mimeType = mimeType,
+                    authToken = authToken
+                )
+            }
             
             // SHORTCUT OPTIMIZATION: Shortcuts already updated above when notification is shown
             // Using efficient single-room update via updateShortcutsFromSyncRooms

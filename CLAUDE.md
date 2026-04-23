@@ -213,7 +213,9 @@ See **[docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md)** for full documentation.
 
 `FCMService` receives encrypted FCM payloads, decrypts them with the stored push key, and delegates to `EnhancedNotificationDisplay` to post `MessagingStyle` notifications.
 
-**Critical invariant:** Never block notification posting on a network download during Doze mode. `EnhancedNotificationDisplay` checks `PowerManager.isDeviceIdleMode` before any avatar download — if true, it skips the download and uses a fallback avatar immediately. Removing this guard causes notifications to batch and fire all at once when the screen turns on.
+**Critical invariant — avatar downloads:** Never block notification posting on a network download during Doze mode. `EnhancedNotificationDisplay` checks `PowerManager.isDeviceIdleMode` before any avatar download — if true, it skips the download and uses a fallback avatar immediately. Removing this guard causes notifications to batch and fire all at once when the screen turns on.
+
+**Critical invariant — image messages:** Image notifications use a **two-phase approach** to avoid the same Doze restriction. Phase 1 (FCM callback): post the notification immediately with the text body only — no image download. Phase 2 (`NotificationImageWorker`): a `CoroutineWorker` constrained to `NetworkType.CONNECTED` downloads the image via `IntelligentMediaCache`, extracts the existing `MessagingStyle` from the active notification, and re-posts with the same notification ID + `setSilent(true)`. WorkManager's `JobScheduler` backing grants network access outside Doze. Do **not** move the image download back into the FCM callback — it will silently fail during Doze and fall back to text-only. See **[docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md)** for the full two-phase protocol.
 
 FCM `high_priority` is set by the gomuks backend based on whether the push rule has `sound: true`. If a room's notifications only arrive on screen wake, verify the Matrix push rule for that room includes sound.
 
