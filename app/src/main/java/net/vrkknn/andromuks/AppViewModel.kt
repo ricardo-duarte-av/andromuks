@@ -4200,6 +4200,17 @@ class AppViewModel : ViewModel() {
         // user navigates directly from room A to room B (currentRoomId is already room B by then).
         if (roomId.isNotEmpty() && previousRoomId != roomId) {
             currentRoomState = null
+            // Also clear stale timeline events immediately. Without this, the new room's screen
+            // briefly renders the previous room's events because timelineEvents still belongs to
+            // the old room at the moment Compose first composes the new RoomTimelineScreen.
+            // The isWarmTimelineReturn guard in LaunchedEffect(roomId) reads
+            // "currentRoomId==roomId && timelineEvents.isNotEmpty()" — after currentRoomId is
+            // updated but before the async coroutine clears the events, both conditions are true
+            // even though the events belong to a different room.
+            // Skip for BUBBLE instances which manage their own timeline state.
+            if (instanceRole != InstanceRole.BUBBLE) {
+                timelineEvents = emptyList()
+            }
         }
 
         // Update typingUsers to show typing users for the new room

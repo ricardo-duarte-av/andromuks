@@ -2723,14 +2723,19 @@ fun RoomTimelineScreen(
         }
         appViewModel.promoteToPrimaryIfNeeded("room_timeline_$roomId")
         
-        // PERFORMANCE FIX: Only call navigateToRoomWithCache if room isn't already loaded
-        // RoomListScreen already calls it when user clicks, so we skip duplicate processing
-        val isAlreadyLoaded = appViewModel.currentRoomId == roomId && appViewModel.timelineEvents.isNotEmpty()
+        // PERFORMANCE FIX: Only call navigateToRoomWithCache if room isn't already loaded.
+        // RoomListScreen already calls it when user clicks, so we skip duplicate processing.
+        // Also treat isTimelineLoading==true as "already in progress" — after the fix that
+        // synchronously clears timelineEvents on room switch, timelineEvents will be empty but
+        // the load coroutine is already running (isTimelineLoading=true). Without this guard the
+        // LaunchedEffect would fire a second navigateToRoomWithCache for the same room.
+        val isAlreadyLoaded = appViewModel.currentRoomId == roomId &&
+            (appViewModel.timelineEvents.isNotEmpty() || appViewModel.isTimelineLoading)
         if (!isAlreadyLoaded) {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room $roomId not yet loaded, calling navigateToRoomWithCache")
             appViewModel.navigateToRoomWithCache(roomId)
         } else {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room $roomId already loaded (${appViewModel.timelineEvents.size} events), skipping navigateToRoomWithCache")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room $roomId already loaded/loading (${appViewModel.timelineEvents.size} events, isTimelineLoading=${appViewModel.isTimelineLoading}), skipping navigateToRoomWithCache")
         }
         
         if (!isWarmTimelineReturn) {
