@@ -759,31 +759,41 @@ fun RoomTimelineScreen(
     val roomItem = appViewModel.getRoomById(roomId)
     val isDirectMessage = roomItem?.isDirectMessage ?: false
 
-    // For DM rooms, calculate the display name from member profiles
-    // Note: isDirectMessage can only be true if roomItem is not null, so roomItem != null check is redundant
+    // m.heroes fallback: any room (DM or group) with no display name and no canonical alias
+    // derives its name and avatar from the first non-self, non-service member (Matrix m.heroes /
+    // MSC4171).
+    val needsHeroesFallback = (roomName.isBlank() || roomName == roomId) &&
+        roomItem?.canonicalAlias.isNullOrBlank()
+
+    // Name: use heroes for any nameless room; otherwise use the room name as-is.
     val displayRoomName =
-        if (isDirectMessage) {
+        if (needsHeroesFallback) {
             val memberMap = appViewModel.getMemberMap(roomId)
-            val otherParticipant = memberMap.keys.find { it != myUserId }
-            val otherProfile = otherParticipant?.let { memberMap[it] }
-            otherProfile?.displayName ?: otherParticipant ?: roomName
+            val serviceMembers = appViewModel.functionalMembersCache[roomId] ?: emptySet()
+            val hero = memberMap.entries
+                .filter { (userId, _) -> userId != myUserId && userId !in serviceMembers }
+                .firstOrNull()
+            val heroProfile = hero?.value
+            val heroUserId = hero?.key
+            heroProfile?.displayName?.takeIf { it.isNotBlank() }
+                ?: heroUserId?.removePrefix("@")?.substringBefore(":")
+                ?: roomName
         } else {
             roomName
         }
 
-    // For DM rooms, get the avatar from the other participant
+    // Avatar: heroes avatar for nameless rooms; otherwise the room's own avatar.
     // CRITICAL FIX: Use roomItem.avatarUrl as fallback (like RoomListScreen does)
     // This ensures avatars show even if member map isn't populated yet
-    // Note: isDirectMessage can only be true if roomItem is not null, so roomItem != null check is redundant
     val displayAvatarUrl =
-        if (isDirectMessage) {
+        if (needsHeroesFallback) {
             val memberMap = appViewModel.getMemberMap(roomId)
-            val otherParticipant = memberMap.keys.find { it != myUserId }
-            val otherProfile = otherParticipant?.let { memberMap[it] }
-            // Use member profile avatar, fallback to roomItem avatar, then room state avatar
-            otherProfile?.avatarUrl ?: roomItem.avatarUrl ?: appViewModel.currentRoomState?.avatarUrl
+            val serviceMembers = appViewModel.functionalMembersCache[roomId] ?: emptySet()
+            val hero = memberMap.entries
+                .filter { (userId, _) -> userId != myUserId && userId !in serviceMembers }
+                .firstOrNull()
+            hero?.value?.avatarUrl ?: roomItem?.avatarUrl ?: appViewModel.currentRoomState?.avatarUrl
         } else {
-            // For group rooms, use roomItem avatar as fallback (like RoomListScreen)
             roomItem?.avatarUrl ?: appViewModel.currentRoomState?.avatarUrl
         }
 

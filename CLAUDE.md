@@ -254,6 +254,17 @@ FCM `high_priority` is set by the gomuks backend based on whether the push rule 
 
 Both are background operations, not fresh loads. If tracked as `timelineRequests`, the paginate response clears `eventChainMap` and loses any events that arrived via sync_complete in the window between when the paginate was sent and when the response arrived. This race manifests visibly in bridge rooms — where the bridge delivers messages with a delay relative to when the server processes the paginate — as messages from the other party vanishing after the user sends a new message. Reopening the room restores them (because `processCachedEvents` reads from the full cache). The fix is confirmed in `TimelineCacheCoordinator.kt` (`requestRoomTimeline`).
 
+## Room Display Name & Avatar Resolution (m.heroes)
+
+`displayRoomName` and `displayAvatarUrl` are computed near the top of `RoomTimelineScreen` and `BubbleTimelineScreen` using a unified fallback chain that applies to **all** room types (DM and group):
+
+1. **Room has a name** (`roomName` is non-blank and not equal to the raw `roomId`) **or** a canonical alias → use `roomName` / `roomItem?.avatarUrl` directly.
+2. **No name and no canonical alias** (`needsHeroesFallback = true`) → apply m.heroes: pick the first member who is neither the current user nor a service member (per `io.element.functional_members`), use their display name and avatar. Falls back to the member's localpart (`@user:domain` → `user`) if no display name is set, and ultimately to the raw `roomName` string if no eligible member is found.
+
+Service members are read from `AppViewModel.functionalMembersCache[roomId]` (a `Map<String, Set<String>>` populated when `io.element.functional_members` state events are processed). The cache is `internal` and directly accessible from both screen files.
+
+**Why not special-case DMs:** Mautrix bridges often set a proper room name and avatar via room account data — those should be respected. The heroes path activates only when the room genuinely has no name or alias, which covers nameless DMs just as well as nameless group rooms. There is no separate DM code path for name/avatar resolution.
+
 ## Bridge Support (Mautrix / Beeper)
 
 See **[docs/bridges.md](docs/bridges.md)** for full documentation.
