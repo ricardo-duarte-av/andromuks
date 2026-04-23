@@ -6105,10 +6105,28 @@ fun RoomHeader(
             }
 
             if (bridgeInfo != null && bridgeInfo.hasRenderableIcon) {
+                // SHARED TRANSITION: match the "bridge-badge-${roomId}" key used in RoomListItem.
+                val bridgeBadgeModifier: Modifier = if (sharedTransitionScope != null && animatedVisibilityScope != null && roomId != null) {
+                    with(sharedTransitionScope) {
+                        Modifier.sharedBounds(
+                            rememberSharedContentState(key = "bridge-badge-${roomId}"),
+                            animatedVisibilityScope = animatedVisibilityScope,
+                            boundsTransform = { _, _ ->
+                                spring(
+                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                    stiffness = Spring.StiffnessLow
+                                )
+                            },
+                            renderInOverlayDuringTransition = true,
+                            zIndexInOverlay = 2f
+                        )
+                    }
+                } else Modifier
                 BridgeNetworkBadge(
                     bridgeInfo = bridgeInfo,
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
+                    modifier = bridgeBadgeModifier,
                     onClick = onRefreshClick
                 )
             } else {

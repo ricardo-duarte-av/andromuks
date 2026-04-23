@@ -244,6 +244,7 @@ The app has first-class support for Matrix bridges (e.g. Mautrix bridges for Wha
 - Bridge detection (`BridgeInfo`, `BridgeInfoCache`, `parseBridgeInfoEvent`)
 - Bridges tab in `RoomListScreen` (`RoomSectionType.BRIDGES`)
 - Bridge icon / background in timeline top bar (`BridgeNetworkBadge`, `BridgeBackgroundLayer`)
+- Bridge badge shared-element transition from room list to timeline header (key `"bridge-badge-${roomId}"`, uses `sharedBounds`)
 - Per-message bridge profiles (`com.beeper.per_message_profile`)
 - Bridge send status (`com.beeper.message_send_status`) — delivery icons, Delivery Info dialog, functional members (`io.element.functional_members` / MSC4171)
 

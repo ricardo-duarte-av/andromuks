@@ -1989,14 +1989,35 @@ fun RoomListItem(
                     // PERFORMANCE: Use lightweight AsyncImage directly instead of full AvatarImage.
                     // Protocol icons are small static images — they don't need BlurHash, fallback
                     // letters, CircleAvatarCache, or scroll-awareness.
+                    // SHARED TRANSITION: keyed by room.id (not by protocol URL) so that each room's
+                    // badge gets a unique key even when multiple rooms share the same bridge protocol.
                     room.bridgeProtocolAvatarUrl?.let { protocolAvatarUrl ->
                         val badgeUrl = remember(protocolAvatarUrl) {
                             net.vrkknn.andromuks.utils.AvatarUtils.mxcToHttpUrl(protocolAvatarUrl, homeserverUrl)
                         }
                         if (badgeUrl != null) {
+                            // Build sharedBounds modifier outside the Box so we don't mix
+                            // BoxScope and SharedTransitionScope implicit receivers.
+                            val sharedBoundsModifier: Modifier = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                                with(sharedTransitionScope) {
+                                    Modifier.sharedBounds(
+                                        rememberSharedContentState(key = "bridge-badge-${room.id}"),
+                                        animatedVisibilityScope = animatedVisibilityScope,
+                                        boundsTransform = { _, _ ->
+                                            spring(
+                                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                stiffness = Spring.StiffnessMedium
+                                            )
+                                        },
+                                        renderInOverlayDuringTransition = true,
+                                        zIndexInOverlay = 2f
+                                    )
+                                }
+                            } else Modifier
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.BottomEnd)
+                                    .then(sharedBoundsModifier)
                                     .size(16.dp)
                                     .background(
                                         MaterialTheme.colorScheme.surface,

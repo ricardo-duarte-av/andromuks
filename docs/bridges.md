@@ -23,6 +23,17 @@ In `RoomListScreen`, the **Bridges** tab (`RoomSectionType.BRIDGES`) groups brid
 
 In `RoomTimelineScreen` and `BubbleTimelineScreen`, the top bar normally shows a **Refresh** icon button. When the current room is bridged (`roomState?.bridgeInfo?.hasRenderableIcon == true`), the refresh icon is replaced by a `BridgeNetworkBadge` (from `ui/components/BridgeDecorations.kt`). The badge shows the bridge protocol avatar and still triggers `onRefreshClick` when tapped. `BridgeNetworkBadge` also has an optional non-clickable variant (no `onClick`). Additionally, `BridgeBackgroundLayer` renders a blurred, low-opacity version of the bridge avatar as a subtle background in the timeline.
 
+## Bridge Badge Shared-Element Transition
+
+When opening a bridged room from `RoomListScreen`, the bridge protocol badge flies from the room list item to the `BridgeNetworkBadge` in `RoomHeader`, matching the existing room-avatar shared-element flight.
+
+**Implementation:**
+- `RoomListItem` (list side): computes a `sharedBoundsModifier` with key `"bridge-badge-${room.id}"` inside `with(sharedTransitionScope)`, then applies it via `.then()` on the badge `Box` between `.align(BottomEnd)` and `.size(16.dp)`. The modifier is computed outside the `with` block so that `BoxScope.align()` and `SharedTransitionScope.sharedBounds()` are called in their respective receiver contexts without conflict.
+- `RoomHeader` (destination side): same key `"bridge-badge-${roomId}"`. The modifier is computed and passed into `BridgeNetworkBadge` via its existing `modifier` parameter. No API change to `BridgeNetworkBadge` was needed.
+- Uses `sharedBounds` (not `sharedElement`) because the visual representation differs between the two ends — 16 dp circle with border/background in the list vs. 36 dp `IconButton` in the header. `sharedBounds` animates the region and cross-fades the content.
+
+**Key invariant:** The shared key is always `"bridge-badge-${roomId}"` — keyed on the **room ID**, not on the bridge protocol avatar URL. Multiple rooms on the same bridge network (e.g., several WhatsApp conversations) each get a distinct key, so only the badge for the room being opened participates in the transition. Using the protocol URL as the key would cause all rooms sharing that protocol to register a shared element simultaneously, breaking the animation.
+
 ## Per-Message Bridge Profiles
 
 Mautrix bridges can attach `com.beeper.per_message_profile` to individual message events, overriding the sender's display name and avatar for that specific message (used for ghost users representing external network contacts). Handled in `TimelineEventItem`, `RoomTimelineScreen`, `BubbleTimelineScreen`, `ThreadViewerScreen`, and `ChatBubbleScreen`.
