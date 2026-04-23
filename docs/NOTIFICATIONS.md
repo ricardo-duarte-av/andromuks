@@ -40,7 +40,12 @@ If notifications for a room are only arriving when the screen is turned on, chec
 
 Media endpoints (`/_gomuks/media/...`) require a gomuks HMAC token for authentication. The session cookie (`gomuks_auth_token`) is only valid when an active OkHttp session exists — it is rejected in the `NotificationImageWorker` context where no such session is maintained. The server accepts the token as either a `?image_auth=<token>` query parameter or an `Authorization: Image <token>` header.
 
-**Push payload token (used for notifications):** The gomuks backend embeds an `image_auth` field at the top level of every push payload batch that contains messages. This is a 24-hour HMAC token generated once per batch (`generateImageToken(24*time.Hour)` in `push.go`). `FCMService.handleMessageNotification` reads this token and appends it to the image URL as `?image_auth=<token>` (or `&image_auth=<token>` if `?encrypted=true` is already present) before the URL is stored in `NotificationData.image`. By the time `NotificationImageWorker` downloads the file, the credential is already in the URL.
+**Push payload token (used for notifications):** The gomuks backend embeds an `image_auth` field at the top level of every push payload batch that contains messages. This is a 24-hour HMAC token generated once per batch (`generateImageToken(24*time.Hour)` in `push.go`). `FCMService.handleMessageNotification` reads this token (`batchImageAuth`) and uses it for all media downloads in that notification:
+
+- **Message image URL** — appended as `?image_auth=<token>` before storing in `NotificationData.image`. By the time `NotificationImageWorker` downloads the file, the credential is already in the URL.
+- **Avatar URLs** — the token is stored in `NotificationData.imageAuthToken` and threaded to `EnhancedNotificationDisplay.loadAvatarBitmap`, which appends `?image_auth=<token>` to the HTTP download URL for `/_gomuks/media/` endpoints. The persistent session token (`image_auth_token` from SharedPrefs) is used as a fallback when no batch token is available (e.g. for the current user's avatar).
+
+**Avatar URL normalisation:** Push payloads can send avatar URLs in three forms (`mxc://server/mediaId`, `_gomuks/media/server/mediaId[?params]`, or a full `https://host/_gomuks/media/server/mediaId[?params]` URL). `FCMService.normalizeToMxcUrl()` strips query params and converts any form to the canonical `mxc://server/mediaId` before it is stored in `NotificationData`. This matches the key the main app uses in `IntelligentMediaCache` (via `AvatarImage.kt`'s back-fill), so a notification download is a guaranteed cache hit for any avatar the main app has already displayed.
 
 **WebSocket token (used by the main app):** The backend also issues an `image_auth_token` via a WebSocket command after connecting. `AppViewModel.updateImageAuthToken` persists it to `AndromuksAppPrefs / image_auth_token`. This is a separate mechanism used by the running app for in-session media requests; it is **not** involved in notification image downloads.
 
@@ -57,13 +62,15 @@ Responsible for building and posting the actual `Notification` via `Notification
 
 ### Avatar loading
 
-Avatars (room, sender, current user) are loaded before the notification is posted. The load order is:
+Avatars (room, sender, current user) are downloaded synchronously in the FCM callback before the notification is posted. The load order is:
 
-1. Check `IntelligentMediaCache` (disk cache) — no network required.
-2. If not cached and device **is in Doze** (`PowerManager.isDeviceIdleMode`) — return `null`, use fallback avatar immediately.
-3. If not cached and device is awake — download via `IntelligentMediaCache.downloadAndCache` and cache for next time.
+1. Check `IntelligentMediaCache` (disk cache, keyed by `mxc://server/mediaId`) — no network required.
+2. If not cached — attempt download via `IntelligentMediaCache.downloadAndCache` using the auth-bearing HTTP URL (`/_gomuks/media/...?image_auth=<token>`). This may fail silently in Doze; in that case step 3 applies.
+3. On any failure — use a generated letter-mark fallback avatar. The notification still posts immediately.
 
-**Critical invariant:** Never block notification posting on a network download during Doze. Doze restricts network access even after a high-priority FCM wake-up; blocking here causes all notifications to batch and fire when the screen turns on. The Doze guard in `loadAvatarBitmap` and the inline current-user avatar block enforces this.
+The miss rate in practice is low because `AvatarImage.kt` back-fills `IntelligentMediaCache` (using the MXC URL as key) after every successful Coil load in the UI. Since notification avatar URLs are normalised to the same MXC key (`normalizeToMxcUrl`), a notification fetch hits the same cache entry the main app wrote. Avatars for contacts the user has never seen in the UI (first-ever notification from that sender) will fall back to a letter-mark on first delivery and be correct on subsequent notifications once the main app has had a chance to cache them.
+
+Note: there is **no** `PowerManager.isDeviceIdleMode` guard in the current implementation — unlike image downloads (which are fully deferred to `NotificationImageWorker`), avatar downloads run in the FCM callback and rely on the cache being warm.
 
 Fallback avatars (generated lettermarks from room/sender name) are used whenever the real avatar is unavailable.
 

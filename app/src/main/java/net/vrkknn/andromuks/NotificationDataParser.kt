@@ -17,7 +17,8 @@ data class NotificationData(
     val roomAvatarUrl: String?,
     val timestamp: Long?,
     val unreadCount: Int?,
-    val image: String? = null
+    val image: String? = null,
+    val imageAuthToken: String? = null
 )
 
 class NotificationDataParser {

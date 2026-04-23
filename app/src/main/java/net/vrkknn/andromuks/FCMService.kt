@@ -395,9 +395,12 @@ class FCMService : FirebaseMessagingService() {
                 val image = message.optString("image").takeIf { it.isNotEmpty() }
                 if (BuildConfig.DEBUG) Log.d(TAG, "Extracted image field: $image")
                 
-                // Convert relative URLs to full URLs
-                val avatarUrl = senderAvatar?.let { convertToFullUrl(it) }
-                val roomAvatarUrl = roomAvatar?.let { convertToFullUrl(it) }
+                // Normalize avatar URLs to canonical mxc://server/mediaId form so
+                // IntelligentMediaCache always uses the same key regardless of the URL format
+                // the push payload sends (mxc://, relative _gomuks/, or full HTTP).
+                // This ensures a cache hit when the main app already fetched the same avatar.
+                val avatarUrl = normalizeToMxcUrl(senderAvatar) ?: senderAvatar
+                val roomAvatarUrl = normalizeToMxcUrl(roomAvatar) ?: roomAvatar
                 val imageUrl = image?.let { rawUrl ->
                     val httpUrl = convertToFullUrl(rawUrl) ?: return@let null
                     if (batchImageAuth != null) {
@@ -407,7 +410,7 @@ class FCMService : FirebaseMessagingService() {
                         httpUrl
                     }
                 }
-                
+
                 if (BuildConfig.DEBUG) Log.d(TAG, "Avatar URLs - sender: $avatarUrl, room: $roomAvatarUrl, image: $imageUrl")
                 
                 // Determine if this is a DM or Group room
@@ -426,7 +429,8 @@ class FCMService : FirebaseMessagingService() {
                     roomAvatarUrl = roomAvatarUrl,
                     timestamp = timestamp,
                     unreadCount = 1,
-                    image = imageUrl
+                    image = imageUrl,
+                    imageAuthToken = batchImageAuth
                 )
                 
                 // Check if room is marked as low priority - skip notifications for low priority rooms
@@ -478,6 +482,37 @@ class FCMService : FirebaseMessagingService() {
         }
     }
     
+    /**
+     * Normalize any avatar URL form to a canonical mxc:// URL.
+     *
+     * gomuks push payloads can send avatar URLs in three forms:
+     *   - mxc://server/mediaId                                          (ideal)
+     *   - _gomuks/media/server/mediaId[?params]                         (relative)
+     *   - https://host/_gomuks/media/server/mediaId[?params]            (full HTTP)
+     *
+     * All three refer to the same content. Normalising to mxc://server/mediaId gives
+     * IntelligentMediaCache a stable, query-param-free key that matches the key the
+     * main app uses when it caches the same avatar via its own media pipeline.
+     *
+     * Returns null for URLs that can't be mapped to an MXC form (plain HTTPS without
+     * the /_gomuks/media/ path), which loadAvatarBitmap handles via its else branch.
+     */
+    private fun normalizeToMxcUrl(url: String?): String? {
+        if (url.isNullOrEmpty()) return null
+        if (url.startsWith("mxc://")) return url
+
+        // Extract "server/mediaId" from either the relative or the full-HTTP gomuks form.
+        // Strip query params — they are irrelevant to media identity.
+        val mediaPath = when {
+            url.startsWith("_gomuks/media/") -> url.removePrefix("_gomuks/media/").substringBefore("?")
+            url.contains("/_gomuks/media/") -> url.substringAfter("/_gomuks/media/").substringBefore("?")
+            else -> return null
+        }
+
+        // mediaPath is now "server/mediaId"; reconstruct as mxc://
+        return if (mediaPath.contains("/")) "mxc://$mediaPath" else null
+    }
+
     /**
      * Convert relative Gomuks media URL to full URL
      */

@@ -333,31 +333,31 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val hasImage = !notificationData.image.isNullOrEmpty()
             if (BuildConfig.DEBUG) Log.d(TAG, "showEnhancedNotification - hasImage: $hasImage, image: ${notificationData.image}")
             // Load avatars asynchronously with fallbacks
-            val roomAvatarIcon = notificationData.roomAvatarUrl?.let { 
-                loadAvatarAsIcon(it) 
+            val roomAvatarIcon = notificationData.roomAvatarUrl?.let {
+                loadAvatarAsIcon(it, notificationData.imageAuthToken)
             } ?: run {
                 // Create fallback avatar for room (use room name + room ID)
                 if (BuildConfig.DEBUG) Log.d(TAG, "No room avatar URL, creating fallback for: ${notificationData.roomName}")
                 createFallbackAvatarIcon(notificationData.roomName, notificationData.roomId)
             }
-            
-            val senderAvatarIcon = notificationData.avatarUrl?.let { 
-                loadAvatarAsIcon(it)
+
+            val senderAvatarIcon = notificationData.avatarUrl?.let {
+                loadAvatarAsIcon(it, notificationData.imageAuthToken)
             } ?: run {
                 // Create fallback avatar for sender
                 if (BuildConfig.DEBUG) Log.d(TAG, "No sender avatar URL, creating fallback for: $senderDisplayNameForDisplay")
                 createFallbackAvatarIcon(senderDisplayNameForDisplay, notificationData.sender)
             }
-            
+
             // Load room avatar bitmap for large icon
-            val roomAvatarBitmap = notificationData.roomAvatarUrl?.let { 
-                loadAvatarBitmap(it) 
+            val roomAvatarBitmap = notificationData.roomAvatarUrl?.let {
+                loadAvatarBitmap(it, notificationData.imageAuthToken)
             } ?: createFallbackAvatarBitmap(notificationData.roomName, notificationData.roomId, 128)
             val circularRoomAvatar = createCircularBitmap(roomAvatarBitmap)
-            
+
             // Load sender avatar bitmap
-            val senderAvatarBitmap = notificationData.avatarUrl?.let { 
-                loadAvatarBitmap(it)
+            val senderAvatarBitmap = notificationData.avatarUrl?.let {
+                loadAvatarBitmap(it, notificationData.imageAuthToken)
             } ?: createFallbackAvatarBitmap(senderDisplayNameForDisplay, notificationData.sender, 128)
             val circularSenderAvatar = createCircularBitmap(senderAvatarBitmap)
             
@@ -374,8 +374,15 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         if (BuildConfig.DEBUG) Log.d(TAG, "Using cached avatar for current user: $avatarUrl")
                         android.graphics.BitmapFactory.decodeFile(cachedFile.absolutePath)
                     } else {
-                        val httpUrl = MediaUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
-                        if (httpUrl != null) {
+                        val baseHttpUrl = MediaUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
+                        if (baseHttpUrl != null) {
+                            // Use ?image_auth= for gomuks media endpoints (same as other avatar downloads)
+                            val httpUrl = if (authToken.isNotEmpty() && baseHttpUrl.contains("/_gomuks/media/")) {
+                                val sep = if (baseHttpUrl.contains("?")) "&" else "?"
+                                "$baseHttpUrl${sep}image_auth=$authToken"
+                            } else {
+                                baseHttpUrl
+                            }
                             val downloadedFile = IntelligentMediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
                             if (downloadedFile != null) {
                                 if (BuildConfig.DEBUG) Log.d(TAG, "Downloaded current user avatar to cache: ${downloadedFile.absolutePath}")
@@ -389,9 +396,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                             null
                         }
                     }
-                    
+
                     // Apply circular transformation to match other avatars
-                    avatarBitmap?.let { 
+                    avatarBitmap?.let {
                         IconCompat.createWithBitmap(createCircularBitmap(it))
                     }
                 } else {
@@ -1039,21 +1046,21 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      * Falls back to bitmap-based icon if ContentUri creation fails
      * Uses in-memory cache to avoid reloading the same avatar on every notification update
      */
-    private suspend fun loadAvatarAsIcon(avatarUrl: String): IconCompat? {
+    private suspend fun loadAvatarAsIcon(avatarUrl: String, imageAuthToken: String? = null): IconCompat? {
         return try {
             // Check cache first to avoid reloading
             avatarIconCache[avatarUrl]?.let { cachedIcon ->
                 if (BuildConfig.DEBUG) Log.d(TAG, "Using cached avatar icon for: $avatarUrl")
                 return cachedIcon
             }
-            
+
             if (BuildConfig.DEBUG) Log.d(TAG, "━━━ loadAvatarAsIcon called ━━━")
             if (BuildConfig.DEBUG) Log.d(TAG, "  Avatar URL: $avatarUrl")
-            
+
             // Load bitmap (from cache or download)
-            val bitmap = loadAvatarBitmap(avatarUrl)
+            val bitmap = loadAvatarBitmap(avatarUrl, imageAuthToken)
             if (BuildConfig.DEBUG) Log.d(TAG, "  Bitmap loaded: ${bitmap != null}")
-            
+
             val icon = if (bitmap != null) {
                 // Make it circular and use directly as adaptive bitmap
                 val circularBitmap = createCircularBitmap(bitmap)
@@ -1063,10 +1070,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 Log.w(TAG, "  ✗✗✗ FAILED: loadAvatarBitmap returned null, using default icon")
                 createDefaultAdaptiveIcon()
             }
-            
+
             // Cache the icon for future use
             avatarIconCache[avatarUrl] = icon
-            
+
             icon
         } catch (e: Exception) {
             Log.e(TAG, "  ✗✗✗ EXCEPTION: Error loading avatar as icon: $avatarUrl", e)
@@ -1225,48 +1232,60 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     }
     
     /**
-     * Load avatar bitmap from URL (handles both MXC and HTTP URLs)
+     * Load avatar bitmap from URL (handles both MXC and HTTP URLs).
+     *
+     * Uses [imageAuthToken] (the per-batch HMAC token from the push payload) to authenticate
+     * against /_gomuks/media/ endpoints via ?image_auth=. Falls back to the session-level
+     * [authToken] when no batch token is available. The stable MXC/relative URL is used as
+     * the IntelligentMediaCache key so the cached file survives across push batches even though
+     * the HMAC token changes.
      */
-    private suspend fun loadAvatarBitmap(avatarUrl: String): Bitmap? = withContext(Dispatchers.IO) {
+    private suspend fun loadAvatarBitmap(avatarUrl: String, imageAuthToken: String? = null): Bitmap? = withContext(Dispatchers.IO) {
         try {
             if (BuildConfig.DEBUG) Log.d(TAG, "loadAvatarBitmap called with: $avatarUrl")
-            
+
             if (avatarUrl.isEmpty()) {
                 Log.w(TAG, "Avatar URL is empty, returning null")
                 return@withContext null
             }
-            
-            // Check if we have a cached version first
-            val cachedFile = IntelligentMediaCache.getCachedFile(context, avatarUrl)
 
+            // Check disk/memory cache first. avatarUrl is used as a stable key (MXC or relative
+            // path — no auth token in the key so hits survive across push batches).
+            val cachedFile = IntelligentMediaCache.getCachedFile(context, avatarUrl)
             if (cachedFile != null) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Using cached avatar file: ${cachedFile.absolutePath}")
                 return@withContext android.graphics.BitmapFactory.decodeFile(cachedFile.absolutePath)
             }
 
-            // Convert MXC URL to HTTP URL
-            val httpUrl = when {
-                avatarUrl.startsWith("mxc://") -> {
-                    AvatarUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
-                }
-                avatarUrl.startsWith("_gomuks/") -> {
-                    "$homeserverUrl/$avatarUrl"
-                }
-                else -> {
-                    avatarUrl
-                }
+            // Build the base HTTP URL from the MXC or relative form.
+            val baseHttpUrl = when {
+                avatarUrl.startsWith("mxc://") -> AvatarUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
+                avatarUrl.startsWith("_gomuks/") -> "$homeserverUrl/$avatarUrl"
+                else -> avatarUrl
             }
-            
-            if (httpUrl == null) {
+
+            if (baseHttpUrl == null) {
                 Log.e(TAG, "Failed to convert avatar URL to HTTP URL: $avatarUrl")
                 return@withContext null
             }
-            
-            if (BuildConfig.DEBUG) Log.d(TAG, "Downloading and caching avatar from: $httpUrl")
-            
-            // Download and cache using IntelligentMediaCache
+
+            // Append ?image_auth=<token> for gomuks media endpoints. The per-batch token
+            // (imageAuthToken) is preferred; the persistent session token (authToken) is the
+            // fallback. Both are HMAC tokens the server accepts via query parameter.
+            val effectiveToken = imageAuthToken?.takeIf { it.isNotEmpty() } ?: authToken
+            val httpUrl = if (effectiveToken.isNotEmpty() && baseHttpUrl.contains("/_gomuks/media/")) {
+                val sep = if (baseHttpUrl.contains("?")) "&" else "?"
+                "$baseHttpUrl${sep}image_auth=$effectiveToken"
+            } else {
+                baseHttpUrl
+            }
+
+            if (BuildConfig.DEBUG) Log.d(TAG, "Downloading and caching avatar from: $baseHttpUrl (auth token present: ${effectiveToken.isNotEmpty()})")
+
+            // Pass the stable MXC/relative URL as the cache key, and the auth-bearing HTTP URL
+            // as the download source. This matches how NotificationImageWorker handles images.
             val downloadedFile = IntelligentMediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
-            
+
             if (downloadedFile != null) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Successfully downloaded and cached avatar: ${downloadedFile.absolutePath}")
                 android.graphics.BitmapFactory.decodeFile(downloadedFile.absolutePath)
