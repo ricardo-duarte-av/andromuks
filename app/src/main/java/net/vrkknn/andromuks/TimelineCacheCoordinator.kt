@@ -708,7 +708,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 val wasAdded = roomsWithPendingPaginate.add(roomId)
                 if (wasAdded && isWebSocketConnected()) {
                     val paginateRequestId = requestIdCounter++
-                    timelineRequests[paginateRequestId] = roomId
+                    backgroundPrefetchRequests[paginateRequestId] = roomId
                     val result = sendWebSocketCommand(
                         "paginate",
                         paginateRequestId,
@@ -720,7 +720,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         ),
                     )
                     if (result != WebSocketResult.SUCCESS && !isWebSocketConnected()) {
-                        timelineRequests.remove(paginateRequestId)
+                        backgroundPrefetchRequests.remove(paginateRequestId)
                         roomsWithPendingPaginate.remove(roomId)
                     }
                 }
@@ -840,7 +840,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         wasAdded
                 ) {
                     val paginateRequestId = requestIdCounter++
-                    timelineRequests[paginateRequestId] = roomId
+                    backgroundPrefetchRequests[paginateRequestId] = roomId
                     if (BuildConfig.DEBUG)
                         android.util.Log.d(
                             "Andromuks",
@@ -861,7 +861,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     if (result != WebSocketResult.SUCCESS) {
                         if (!isWebSocketConnected()) {
                             // Truly not connected — drop tracking; will retry on next room open.
-                            timelineRequests.remove(paginateRequestId)
+                            backgroundPrefetchRequests.remove(paginateRequestId)
                             roomsWithPendingPaginate.remove(roomId)
                             android.util.Log.w(
                                 "Andromuks",

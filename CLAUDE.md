@@ -221,6 +221,21 @@ FCM `high_priority` is set by the gomuks backend based on whether the push rule 
 
 **Image auth token invariant:** The gomuks backend sends an `image_auth_token` (JWT, `image_only: true`) via WebSocket after connecting. This JWT is required for downloading `?encrypted=true` media — `gomuks_auth_token` alone is rejected for encrypted content. `AppViewModel.updateImageAuthToken` persists it to `AndromuksAppPrefs / image_auth_token` on every receipt. `FCMService` reads this key at startup and passes it to `EnhancedNotificationDisplay`, falling back to `gomuks_auth_token` only on first launch. Without the JWT, image notifications render as text-only ("Sent an image") in release builds.
 
+## Timeline Paginate Routing (`TimelineCacheCoordinator`)
+
+`TimelineCacheCoordinator` maintains three maps for in-flight paginate requests:
+
+- **`timelineRequests`** — initial room-open paginates (true fresh loads, no cached events). Responses call `buildEditChainsFromEvents(timelineList, clearExisting=true)` via `handleTimelineResponse`, which **clears `eventChainMap`** and rebuilds from only the paginate response list.
+- **`backgroundPrefetchRequests`** — catch-up / background paginates. Responses call `handleBackgroundPrefetch`, which merges the response into `RoomTimelineCache` and then calls `processCachedEvents(getCachedEventsForTimeline(roomId))` — rebuilding from the **full merged cache**.
+- **`paginateRequests`** — user-triggered pull-to-paginate (older history). Responses call `buildEditChainsFromEvents(timelineList, clearExisting=false)` — appends to existing `eventChainMap`.
+
+**Critical invariant:** The two "catch-up" paginates sent at room-open time in `requestRoomTimeline` must use `backgroundPrefetchRequests`, never `timelineRequests`:
+
+1. **Cache-hit path** (room has cached events): sends a paginate to "fetch any newer events from server." The cached events are already showing; this paginate only fills gaps.
+2. **LRU-restore path** (room restored from LRU): sends a paginate to pull events the LRU restore may have missed.
+
+Both are background operations, not fresh loads. If tracked as `timelineRequests`, the paginate response clears `eventChainMap` and loses any events that arrived via sync_complete in the window between when the paginate was sent and when the response arrived. This race manifests visibly in bridge rooms — where the bridge delivers messages with a delay relative to when the server processes the paginate — as messages from the other party vanishing after the user sends a new message. Reopening the room restores them (because `processCachedEvents` reads from the full cache). The fix is confirmed in `TimelineCacheCoordinator.kt` (`requestRoomTimeline`).
+
 ## Bridge Support (Mautrix / Beeper)
 
 See **[docs/bridges.md](docs/bridges.md)** for full documentation.
