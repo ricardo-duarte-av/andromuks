@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.automirrored.filled.Message
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Edit
@@ -402,14 +403,14 @@ fun MessageMenuBar(
                             )
                             if (menuConfig.onViewInThread != null) {
                                 DropdownMenuItem(
-                                    text = { Text("View in thread") },
+                                    text = { Text("Thread") },
                                     onClick = {
                                         moreExpanded = false
                                         onDismiss()
                                         menuConfig.onViewInThread.invoke()
                                     },
                                     leadingIcon = {
-                                        Icon(Icons.Filled.Forum, contentDescription = null)
+                                        Icon(Icons.AutoMirrored.Filled.Message, contentDescription = null)
                                     }
                                 )
                             }

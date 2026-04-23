@@ -199,6 +199,24 @@ A pill-shaped overlay that appears at the top of each timeline screen (below the
 
 **Known limitation:** if a message interleaves text and tables (text → table → more text), the non-table text nodes are all rendered together above the table cards. The relative ordering of text-after-table is lost. This is acceptable for typical Matrix messages where tables are at the end or occupy the whole message body.
 
+## Message Menu (`utils/MessageMenuBar.kt`)
+
+The message long-press menu is implemented as a bottom bar (`MessageMenuBar`) driven by `MessageMenuConfig`. It has 6 fixed action buttons (React, Reply, Edit, Delete, Original, History) plus a **More (+)** dropdown.
+
+**More dropdown items (in order):**
+- Pin / Unpin — gated on `canPin` / `canUnpin`
+- Reactions — enabled only when the event has reactions
+- Source — opens raw JSON in `CodeViewer`
+- Copy — copies rendered text to clipboard
+- Text — opens rendered text in `CodeViewer`
+- **Thread** — navigates to `ThreadViewerScreen` for the thread root; only shown when `onViewInThread != null`
+- Delivery Info — shown only for bridge messages with send-status data (`onShowBridgeDeliveryInfo != null`)
+- Send Error — shown only when the event has a local send error
+
+**Thread item wiring:** `onViewInThread` in `MessageMenuConfig` is populated in `RoomTimelineScreen` (`onShowMenu` callback, line ~3634) and `BubbleTimelineScreen` (`onShowMenu` callback, line ~2906) — but only when `event.isThreadMessage()` returns `true`. The callback URL-encodes both `roomId` and the thread root event ID, then navigates to `"thread_viewer/$encodedRoomId/$encodedThreadRoot"`.
+
+The Thread item uses `Icons.AutoMirrored.Filled.Message` as its icon.
+
 ## Message Sending
 
 See **[docs/MESSAGE_SENDING.md](docs/MESSAGE_SENDING.md)** for full documentation.
