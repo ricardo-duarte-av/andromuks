@@ -350,6 +350,11 @@ class FCMService : FirebaseMessagingService() {
         try {
             val messagesArray = jsonObject.getJSONArray("messages")
             if (BuildConfig.DEBUG) Log.d(TAG, "Found ${messagesArray.length()} messages in notification")
+            // image_auth is a top-level token generated once per push batch (24h lifetime).
+            // It must be appended as ?image_auth=<token> to media URLs — the server validates
+            // it as an HMAC token (not a session lookup), which is the only auth that works
+            // in the WorkManager context where there is no active OkHttp session.
+            val batchImageAuth = jsonObject.optString("image_auth", "").takeIf { it.isNotEmpty() }
             
             // Process each message
             for (i in 0 until messagesArray.length()) {
@@ -393,7 +398,15 @@ class FCMService : FirebaseMessagingService() {
                 // Convert relative URLs to full URLs
                 val avatarUrl = senderAvatar?.let { convertToFullUrl(it) }
                 val roomAvatarUrl = roomAvatar?.let { convertToFullUrl(it) }
-                val imageUrl = image?.let { convertToFullUrl(it) }
+                val imageUrl = image?.let { rawUrl ->
+                    val httpUrl = convertToFullUrl(rawUrl) ?: return@let null
+                    if (batchImageAuth != null) {
+                        val sep = if (httpUrl.contains("?")) "&" else "?"
+                        "$httpUrl${sep}image_auth=$batchImageAuth"
+                    } else {
+                        httpUrl
+                    }
+                }
                 
                 if (BuildConfig.DEBUG) Log.d(TAG, "Avatar URLs - sender: $avatarUrl, room: $roomAvatarUrl, image: $imageUrl")
                 

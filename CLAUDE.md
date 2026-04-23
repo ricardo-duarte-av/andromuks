@@ -237,7 +237,11 @@ See **[docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md)** for full documentation.
 
 FCM `high_priority` is set by the gomuks backend based on whether the push rule has `sound: true`. If a room's notifications only arrive on screen wake, verify the Matrix push rule for that room includes sound.
 
-**Image auth token invariant:** The gomuks backend sends an `image_auth_token` (JWT, `image_only: true`) via WebSocket after connecting. This JWT is required for downloading `?encrypted=true` media — `gomuks_auth_token` alone is rejected for encrypted content. `AppViewModel.updateImageAuthToken` persists it to `AndromuksAppPrefs / image_auth_token` on every receipt. `FCMService` reads this key at startup and passes it to `EnhancedNotificationDisplay`, falling back to `gomuks_auth_token` only on first launch. Without the JWT, image notifications render as text-only ("Sent an image") in release builds.
+**Image auth token invariant:** Media endpoints (`/_gomuks/media/...`) require a gomuks-issued HMAC token — the session cookie (`gomuks_auth_token`) is **not** accepted by the server when there is no active OkHttp session (i.e. in `NotificationImageWorker`). The server accepts the token either as `?image_auth=<token>` query parameter or as `Authorization: Image <token>` header.
+
+For notification image downloads specifically, the gomuks backend embeds a fresh `image_auth` HMAC token at the **top level** of every push payload that contains messages (24-hour lifetime, generated once per batch in `push.go`). `FCMService.handleMessageNotification` extracts this token and appends it to the image URL as `?image_auth=<token>` (using `&` if the URL already has query params such as `?encrypted=true`). By the time the URL reaches `NotificationImageWorker`, the token is already embedded — no separate auth header is needed.
+
+The WebSocket `image_auth_token` command (received after connecting, persisted to `AndromuksAppPrefs / image_auth_token` by `AppViewModel.updateImageAuthToken`) is a **separate mechanism** used by the main app for in-session media requests. It is not used for notification image downloads.
 
 ## Timeline Paginate Routing (`TimelineCacheCoordinator`)
 

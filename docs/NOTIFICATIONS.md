@@ -38,11 +38,11 @@ If notifications for a room are only arriving when the screen is turned on, chec
 
 ### Image auth token
 
-The gomuks backend issues a short-lived JWT image token (`image_auth_token` WebSocket command) after the WebSocket connects. This token is required for downloading `?encrypted=true` media; the WebSocket session token (`gomuks_auth_token`) is **not** accepted for encrypted content.
+Media endpoints (`/_gomuks/media/...`) require a gomuks HMAC token for authentication. The session cookie (`gomuks_auth_token`) is only valid when an active OkHttp session exists — it is rejected in the `NotificationImageWorker` context where no such session is maintained. The server accepts the token as either a `?image_auth=<token>` query parameter or an `Authorization: Image <token>` header.
 
-**`AppViewModel.updateImageAuthToken`** persists the token to `AndromuksAppPrefs / image_auth_token` on every receipt (the backend refreshes it periodically).
+**Push payload token (used for notifications):** The gomuks backend embeds an `image_auth` field at the top level of every push payload batch that contains messages. This is a 24-hour HMAC token generated once per batch (`generateImageToken(24*time.Hour)` in `push.go`). `FCMService.handleMessageNotification` reads this token and appends it to the image URL as `?image_auth=<token>` (or `&image_auth=<token>` if `?encrypted=true` is already present) before the URL is stored in `NotificationData.image`. By the time `NotificationImageWorker` downloads the file, the credential is already in the URL.
 
-**`FCMService.onCreate`** reads `image_auth_token` from SharedPreferences and passes it to `EnhancedNotificationDisplay` as the download credential, falling back to `gomuks_auth_token` only if no image token has been stored yet (first launch, before the first WebSocket session). Without this, image notifications always fall back to the text body ("Sent an image") in the release build.
+**WebSocket token (used by the main app):** The backend also issues an `image_auth_token` via a WebSocket command after connecting. `AppViewModel.updateImageAuthToken` persists it to `AndromuksAppPrefs / image_auth_token`. This is a separate mechanism used by the running app for in-session media requests; it is **not** involved in notification image downloads.
 
 ## EnhancedNotificationDisplay
 
@@ -84,7 +84,7 @@ Image messages (notifications where the FCM payload contains an `image` field) u
 
 The worker uses `ExistingWorkPolicy.REPLACE` keyed by `"notif_image_$roomId"` so that rapid back-to-back image messages for the same room don't pile up. It retries up to twice on transient download failure.
 
-**Auth token:** The worker receives the `image_auth_token` (JWT) from `EnhancedNotificationDisplay` at enqueue time, not from SharedPreferences, so the token is always the freshest value available at the moment the FCM message was received.
+**Auth token:** The image URL passed to the worker already contains `?image_auth=<token>` (appended in `FCMService.handleMessageNotification` from the push payload's top-level `image_auth` field). No separate credential lookup is needed at download time.
 
 ### Dismiss handling
 
