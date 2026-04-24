@@ -485,6 +485,8 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                         "Andromuks",
                         "AppViewModel: Updated currentUserProfile - userId: $userId, displayName: $display, avatarUrl: $avatar",
                     )
+                // Profile was the last missing condition for startup — re-check now that it's set.
+                checkStartupComplete()
             }
 
             queueProfileForBatchSave(userId, memberProfile)

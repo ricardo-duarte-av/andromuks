@@ -9808,6 +9808,29 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d("Andromuks", "AppViewModel: Finished sending room state requests for ${uncachedRoomIds.size} uncached rooms. Waiting for responses...")
             }
+
+            // Safety timeout: if any get_room_state response is dropped (backend hiccup, deleted room,
+            // etc.) pendingRoomStateResponses never reaches 0 and allRoomStatesLoaded is never set,
+            // permanently blocking checkStartupComplete(). Force-complete after 15 s.
+            val timeoutMs = 15_000L
+            val pollIntervalMs = 250L
+            val deadline = System.currentTimeMillis() + timeoutMs
+            while (System.currentTimeMillis() < deadline) {
+                val remaining = synchronized(pendingRoomStateResponses) { pendingRoomStateResponses.size }
+                if (remaining == 0) break
+                delay(pollIntervalMs)
+            }
+            val stillPending = synchronized(pendingRoomStateResponses) { pendingRoomStateResponses.size }
+            if (stillPending > 0) {
+                android.util.Log.w(
+                    "Andromuks",
+                    "AppViewModel: loadAllRoomStatesAfterInitComplete timed out with $stillPending room(s) still pending — forcing allRoomStatesLoaded=true to unblock startup"
+                )
+                allRoomStatesLoaded = true
+                canSendCommandsToBackend = true
+                flushPendingCommandsQueue()
+                checkStartupComplete()
+            }
         }
     }
     
