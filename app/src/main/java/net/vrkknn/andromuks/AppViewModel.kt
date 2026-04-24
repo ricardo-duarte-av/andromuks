@@ -5623,6 +5623,9 @@ class AppViewModel : ViewModel() {
     internal fun applyAggregatedReactionsFromEvents(events: List<TimelineEvent>, source: String) =
         reactionCoordinator.applyAggregatedReactionsFromEvents(events, source)
 
+    internal fun removeReaction(reactionEvent: ReactionEvent) =
+        reactionCoordinator.removeReaction(reactionEvent)
+
     /**
      * Ensure timeline cache is fresh (cache-only approach, no DB loading)
      * If cache is empty or room is not actively cached, triggers paginate request
@@ -8801,7 +8804,6 @@ class AppViewModel : ViewModel() {
                         if (relatesToEventId.isNotBlank() && emoji.isNotBlank() && relType == "m.annotation") {
                             // Check if this reaction has been redacted
                             if (event.redactedBy != null) {
-                                // Remove this reaction by processing it as if the user toggled it off
                                 val reactionEvent = ReactionEvent(
                                     roomId = roomId,
                                     eventId = event.eventId,
@@ -8813,8 +8815,9 @@ class AppViewModel : ViewModel() {
                                         event.unsigned?.optLong("age_ts") ?: 0L
                                     )
                                 )
-                                // Process the reaction - it will be removed since the user is already in the list
-                                processReactionEvent(reactionEvent)
+                                // Use dedicated removal — bypasses the dedup guard that would block
+                                // removal when the reaction was already processed in a prior sync.
+                                removeReaction(reactionEvent)
                             } else {
                                 // Normal reaction, add it                             
                                 // Process all reactions normally - no special handling for our own reactions

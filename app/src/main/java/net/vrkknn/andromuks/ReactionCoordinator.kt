@@ -263,6 +263,51 @@ internal class ReactionCoordinator(
         }
     }
 
+    fun removeReaction(reactionEvent: ReactionEvent) {
+        val reactionKey = "${reactionEvent.sender}_${reactionEvent.emoji}_${reactionEvent.relatesToEventId}"
+
+        // Remove from dedup set so a future re-add (e.g. user reacts again) is not blocked.
+        vm.processedReactions.remove(reactionKey)
+
+        val currentReactions = vm.messageReactions.toMutableMap()
+        val eventReactions = currentReactions[reactionEvent.relatesToEventId]?.toMutableList() ?: return
+
+        val existingIndex = eventReactions.indexOfFirst { it.emoji == reactionEvent.emoji }
+        if (existingIndex < 0) return
+
+        val existing = eventReactions[existingIndex]
+        val updatedUsers = existing.users.toMutableList()
+        val updatedUserReactions = existing.userReactions.toMutableList()
+
+        val userIndex = updatedUserReactions.indexOfFirst { it.userId == reactionEvent.sender }
+        if (userIndex < 0) return
+
+        updatedUsers.remove(reactionEvent.sender)
+        updatedUserReactions.removeAt(userIndex)
+
+        if (updatedUserReactions.isEmpty()) {
+            eventReactions.removeAt(existingIndex)
+        } else {
+            eventReactions[existingIndex] = existing.copy(
+                count = updatedUserReactions.size,
+                users = updatedUsers,
+                userReactions = updatedUserReactions
+            )
+        }
+
+        currentReactions[reactionEvent.relatesToEventId] = eventReactions
+        vm.messageReactions = currentReactions
+        vm.reactionUpdateCounter++
+        vm.updateCounter++
+
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: removeReaction - removed ${reactionEvent.emoji} from ${reactionEvent.sender} on ${reactionEvent.relatesToEventId}"
+            )
+        }
+    }
+
     fun processReactionFromTimeline(event: TimelineEvent): Boolean {
         if (event.type != "m.reaction") return false
 
