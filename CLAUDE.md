@@ -284,6 +284,48 @@ The app has first-class support for Matrix bridges (e.g. Mautrix bridges for Wha
 - Per-message bridge profiles (`com.beeper.per_message_profile`)
 - Bridge send status (`com.beeper.message_send_status`) — delivery icons, Delivery Info dialog, functional members (`io.element.functional_members` / MSC4171)
 
+## User Profile Architecture
+
+### Two sources, two caches
+
+| Source | Cache | Key |
+|---|---|---|
+| `m.room.member` event content (sync_complete, paginate, get_specific_room_state) | `ProfileCache.flattenedMemberCache` | `"roomId:userId"` |
+| `get_profile` response (Matrix global profile endpoint) | `ProfileCache.globalProfileCache` | `userId` |
+
+**Critical invariant:** `m.room.member` data is **always room-scoped**. A user can have a global profile "Alice", a per-room name "Alice (WA)" in a WhatsApp bridge room, and "Alice (TG)" in a Telegram bridge room — all different. `storeMemberProfile` (`MemberProfilesCoordinator`) must **never** promote a room profile to `globalProfileCache`. Only `handleProfileResponse` (the `get_profile` response handler) may write to `globalProfileCache`.
+
+`RoomMemberCache` (`roomId → userId → MemberProfile`) is a parallel legacy store updated alongside `flattenedMemberCache` for backward compatibility. It is the source of truth for the mention list.
+
+### Resolution order (`getUserProfile`)
+
+1. `ProfileCache.flattenedMemberCache["roomId:userId"]` — room-specific override (highest priority)
+2. `RoomMemberCache.getMember(roomId, userId)` — legacy room store
+3. `currentUserProfile` — fast path for the local user
+4. `ProfileCache.globalProfileCache[userId]` — global fallback
+
+### Write path (`storeMemberProfile`)
+
+When a room profile arrives and **no global profile exists yet**: store in `flattenedMemberCache` + `roomMemberIndex`. Do **not** promote to global — that slot must remain empty until a `get_profile` round-trip fills it.
+
+When a global profile exists and the room profile **differs**: store in `flattenedMemberCache` (genuine per-room override).
+
+When a global profile exists and they **match**: remove any existing room entry — the global is sufficient.
+
+`updateGlobalProfile` (called only from `handleProfileResponse`) writes to `globalProfileCache` and calls `cleanupMatchingRoomProfiles` to remove room entries that now match the new global.
+
+### `getMemberMap` and the timeline
+
+`getMemberMap(roomId)` iterates `ProfileCache.roomMemberIndex[roomId]` (users with room-specific entries), falls back to their global profile if the flattened slot is missing, then appends any timeline event senders not yet in the map. Receipt-only users (no messages sent in the room) only appear in `getMemberMap` after their `m.room.member` state has been fetched and stored in `flattenedMemberCache`.
+
+`RoomTimelineScreen` and `RoomInfo.kt` both drive avatar/name rendering via `remember(roomId, appViewModel.memberUpdateCounter) { getMemberMap(roomId) }`. `memberUpdateCounter` increments whenever `storeMemberProfile` or `parseMemberEventsForProfileUpdate` changes any profile.
+
+### Pre-render profile fetch (initial paginate only)
+
+When an initial room-open paginate response arrives, the app issues **one** `get_specific_room_state` for all user IDs that have no cached profile — collecting senders, mention targets, reply targets, and read receipt holders from the response in a single pass. `handleInitialTimelineBuild` (which sets `isTimelineLoading = false` and makes the timeline visible) is called only inside the `onComplete` callback of this request, so the timeline never renders with missing profiles. A 5-second timeout fires `onComplete` as a fallback if the backend does not respond.
+
+This is implemented in `requestRoomProfilesForRender` (`AppViewModel`) and called from `processEventsArray` inside `handleTimelineResponse` (`TimelineCacheCoordinator`). Background prefetch and user pull-to-paginate are unaffected.
+
 ## Read Receipts
 
 See **[docs/RECEIPTS.md](docs/RECEIPTS.md)** for full documentation.

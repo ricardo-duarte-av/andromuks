@@ -1510,42 +1510,53 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                 "AppViewModel: Pagination complete - roomId=$roomId, isPaginating set to ${if (roomId == currentRoomId) "FALSE" else "unchanged (background)"}",
                             )
                     } else {
-                        // This is an initial paginate - build timeline from chain mapping
+                        // This is an initial paginate — collect all user IDs from events and
+                        // receipts, fetch any missing room profiles, then render.
                         if (BuildConfig.DEBUG)
                             android.util.Log.d(
                                 "Andromuks",
                                 "🟡 handleTimelineResponse: Initial paginate - roomId=$roomId, requestId=$requestId, timelineList.size=${timelineList.size}, isTimelineLoading=$isTimelineLoading",
                             )
-                        handleInitialTimelineBuild(roomId, timelineList)
-                        if (BuildConfig.DEBUG)
-                            android.util.Log.d(
-                                "Andromuks",
-                                "🟡 handleTimelineResponse: After handleInitialTimelineBuild - roomId=$roomId, requestId=$requestId, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading",
-                            )
-                        // Clean up pending paginate tracking when initial paginate completes
-                        if (isInitialPaginate) {
-                            timelineRequests.remove(requestId)
-                            roomsWithPendingPaginate.remove(roomId)
-                            if (BuildConfig.DEBUG)
-                                android.util.Log.d(
-                                    "Andromuks",
-                                    "🟡 handleTimelineResponse: Cleaned up tracking - roomId=$roomId, requestId=$requestId, remaining timelineRequests=${timelineRequests.size}",
-                                )
+
+                        // Peek at receipts JSON to collect receipt holder user IDs synchronously
+                        // (the async receipt-processing coroutine below uses the same JSON later).
+                        val receiptUserIds = mutableSetOf<String>()
+                        val receiptsForIds = (data as? JSONObject)?.optJSONObject("receipts")
+                        if (receiptsForIds != null) {
+                            receiptsForIds.keys().forEach { eventId ->
+                                val arr = receiptsForIds.optJSONArray(eventId)
+                                if (arr != null) {
+                                    for (i in 0 until arr.length()) {
+                                        arr.optJSONObject(i)?.optString("user_id")
+                                            ?.takeIf { it.isNotBlank() }
+                                            ?.let { receiptUserIds.add(it) }
+                                    }
+                                }
+                            }
                         }
 
-                        // CRITICAL FIX: After initial pagination completes, automatically request
-                        // member
-                        // profiles
-                        // for all users in the timeline using get_specific_room_state
-                        // This ensures room-specific display names and avatars are loaded correctly
-                        if (timelineList.isNotEmpty()) {
+                        val doRender = {
+                            handleInitialTimelineBuild(roomId, timelineList)
                             if (BuildConfig.DEBUG)
                                 android.util.Log.d(
                                     "Andromuks",
-                                    "AppViewModel: Initial pagination completed for $roomId, requesting member profiles for ${timelineList.size} events",
+                                    "🟡 handleTimelineResponse: After handleInitialTimelineBuild - roomId=$roomId, requestId=$requestId, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading",
                                 )
-                            requestUpdatedRoomProfiles(roomId, timelineList)
+                            if (isInitialPaginate) {
+                                timelineRequests.remove(requestId)
+                                roomsWithPendingPaginate.remove(roomId)
+                                if (BuildConfig.DEBUG)
+                                    android.util.Log.d(
+                                        "Andromuks",
+                                        "🟡 handleTimelineResponse: Cleaned up tracking - roomId=$roomId, requestId=$requestId, remaining timelineRequests=${timelineRequests.size}",
+                                    )
+                            }
                         }
+
+                        // Gate rendering on a single get_specific_room_state for all missing
+                        // profiles (senders + receipt holders + mention targets).
+                        // If all profiles are cached, doRender() fires immediately.
+                        requestRoomProfilesForRender(roomId, timelineList, receiptUserIds, doRender)
                     }
 
                     // Mark room as read when timeline is successfully loaded - use most recent

@@ -98,16 +98,13 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
     }
 
     fun storeMemberProfile(roomId: String, userId: String, profile: MemberProfile) {
-        val existingGlobalProfileEntry = ProfileCache.getGlobalProfile(userId)
-        val existingGlobalProfile = existingGlobalProfileEntry?.profile
+        val existingGlobalProfile = ProfileCache.getGlobalProfileProfile(userId)
 
         if (existingGlobalProfile == null) {
-            ProfileCache.setGlobalProfile(
-                userId,
-                ProfileCache.CachedProfileEntry(profile, System.currentTimeMillis()),
-            )
-            ProfileCache.removeFlattenedProfile(roomId, userId)
-            ProfileCache.removeFromRoomIndex(roomId, userId)
+            // No global profile known — m.room.member is always room-scoped, never promote it to global.
+            // Only get_profile responses (via updateGlobalProfile) may write to globalProfileCache.
+            ProfileCache.setFlattenedProfile(roomId, userId, profile)
+            ProfileCache.addToRoomIndex(roomId, userId)
         } else {
             val profilesDiffer =
                 existingGlobalProfile.displayName != profile.displayName ||
@@ -117,6 +114,7 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                 ProfileCache.setFlattenedProfile(roomId, userId, profile)
                 ProfileCache.addToRoomIndex(roomId, userId)
             } else {
+                // Room profile matches global — no separate room entry needed.
                 ProfileCache.removeFlattenedProfile(roomId, userId)
                 ProfileCache.removeFromRoomIndex(roomId, userId)
             }

@@ -4512,6 +4512,8 @@ class AppViewModel : ViewModel() {
     internal val joinRoomCallbacks = mutableMapOf<Int, (Pair<String?, String?>?) -> Unit>() // requestId -> callback
     private val roomSpecificStateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for get_specific_room_state requests)
     private val roomSpecificProfileCallbacks = mutableMapOf<Int, (String?, String?) -> Unit>() // requestId -> (displayName, avatarUrl) callback
+    // One-shot callbacks fired after get_specific_room_state response, used to gate initial timeline rendering
+    private val timelineRenderCallbacks = mutableMapOf<Int, () -> Unit>()
     internal val fullMemberListRequests = mutableMapOf<Int, String>() // requestId -> roomId (for get_room_state with include_members requests)
     private val mentionsRequests = mutableMapOf<Int, Unit>() // requestId -> Unit (for get_mentions requests)
     private val mentionEventRequests = mutableMapOf<Int, Pair<String, String>>() // requestId -> (roomId, eventId) for fetching reply targets
@@ -6193,7 +6195,82 @@ class AppViewModel : ViewModel() {
         sendWebSocketCommand("get_specific_room_state", requestId, mapOf("keys" to keysList))
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent get_specific_room_state request with ID $requestId for ${userIdList.size} members")
     }
-    
+
+    /**
+     * Fetch room-specific profiles for all users referenced in a paginate response (message
+     * senders, mention targets, reply targets, and receipt holders), then invoke [onComplete].
+     *
+     * Users that already have any profile cached are excluded from the request. If every user is
+     * already cached, [onComplete] is called immediately. A 5-second timeout ensures [onComplete]
+     * fires even if the backend never responds.
+     *
+     * Intended for the initial-paginate path only: call this instead of
+     * [requestUpdatedRoomProfiles] when the timeline should not render until profiles are ready.
+     */
+    internal fun requestRoomProfilesForRender(
+        roomId: String,
+        timelineEvents: List<TimelineEvent>,
+        receiptUserIds: Set<String>,
+        onComplete: () -> Unit,
+    ) {
+        // Collect all user IDs referenced by this paginate response
+        val allUserIds = mutableSetOf<String>()
+        allUserIds.addAll(receiptUserIds)
+        val eventById = timelineEvents.associateBy { it.eventId }
+        for (event in timelineEvents) {
+            if (event.sender.isNotBlank()) allUserIds.add(event.sender)
+            val content = event.content ?: event.decrypted
+            content?.optJSONObject("m.mentions")?.optJSONArray("user_ids")?.let { arr ->
+                for (i in 0 until arr.length()) arr.optString(i)?.takeIf { it.isNotBlank() }?.let { allUserIds.add(it) }
+            }
+            event.getReplyInfo()?.eventId?.let { repliedToId ->
+                eventById[repliedToId]?.sender?.takeIf { it.isNotBlank() }?.let { allUserIds.add(it) }
+            }
+        }
+
+        // Exclude current user and anyone we already have a profile for
+        val missing = allUserIds.filter { userId ->
+            userId != currentUserId && getUserProfile(userId, roomId) == null
+        }
+
+        if (missing.isEmpty() || !isWebSocketConnected()) {
+            onComplete()
+            return
+        }
+
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: requestRoomProfilesForRender - fetching ${missing.size} missing profiles for room $roomId before render")
+
+        val requestId = requestIdCounter++
+        roomSpecificStateRequests[requestId] = roomId
+
+        // Store the render callback — fired by handleRoomSpecificStateResponse on response or timeout
+        var called = false
+        val safeCallback = {
+            if (!called) {
+                called = true
+                timelineRenderCallbacks.remove(requestId)
+                onComplete()
+            }
+        }
+        timelineRenderCallbacks[requestId] = safeCallback
+
+        val batchKeys = missing.map { "$roomId:$it" }
+        batchProfileRequestKeys[requestId] = batchKeys
+        batchKeys.forEach { pendingProfileRequests.add(it) }
+        synchronized(pendingProfileBatch) { pendingProfileBatch[roomId]?.removeAll(missing.toSet()) }
+
+        val keysList = missing.map { userId ->
+            mapOf("room_id" to roomId, "type" to "m.room.member", "state_key" to userId)
+        }
+        sendWebSocketCommand("get_specific_room_state", requestId, mapOf("keys" to keysList))
+
+        // Timeout: render anyway if the backend doesn't respond within 5 seconds
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(5_000L)
+            safeCallback()
+        }
+    }
+
     /**
      * Request emoji pack data from a room using get_specific_room_state
      */
@@ -8120,6 +8197,10 @@ class AppViewModel : ViewModel() {
                 }
             }
         }
+
+        // Fire the timeline render callback if this was a pre-render profile fetch.
+        // safeCallback is idempotent so double-invocation (response + timeout) is harmless.
+        timelineRenderCallbacks.remove(requestId)?.invoke()
     }
     
     /**
@@ -8627,9 +8708,7 @@ class AppViewModel : ViewModel() {
                     val displayName = content.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
                     val avatarUrl = content.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
                     val profile = MemberProfile(displayName, avatarUrl)
-                    RoomMemberCache.updateMember(roomId, userId, profile)
-                    // PERFORMANCE: Also add to global cache for O(1) lookups
-                    ProfileCache.setGlobalProfile(userId, ProfileCache.CachedProfileEntry(profile, System.currentTimeMillis()))
+                    storeMemberProfile(roomId, userId, profile)
                 }
             } else if (event.type == "m.room.member" && event.timelineRowid != 0L) {
                 // Timeline member event (join/leave that should show in timeline)
