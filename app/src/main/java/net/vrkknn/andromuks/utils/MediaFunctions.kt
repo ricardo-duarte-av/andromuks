@@ -2,6 +2,7 @@ package net.vrkknn.andromuks.utils
 
 import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -51,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -3401,7 +3403,7 @@ fun VideoPlayerDialog(
                             if (BuildConfig.DEBUG) Log.e("Andromuks", "VideoPlayerDialog: Empty video URL!")
                         }
                         useController = true
-                        controllerShowTimeoutMs = 3000
+                        controllerShowTimeoutMs = 1500
                         controllerHideOnTouch = true
                         // Hide fullscreen button (the X button in top right)
                         // Note: setShowFullscreenButton might not be available in all ExoPlayer versions
@@ -4051,7 +4053,7 @@ fun VideoPlayerDialog(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(bottom = 8.dp)
+                    .padding(bottom = 56.dp)
                     .pointerInput(Unit) {
                         // Combined tap and drag gestures for seeking
                         detectTapGestures(
@@ -4081,25 +4083,60 @@ fun VideoPlayerDialog(
                         )
                     }
             ) {
-                @OptIn(ExperimentalMaterial3ExpressiveApi::class)
-                LinearWavyProgressIndicator(
-                    progress = { progressState.value },
-                modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp) // Slightly taller for better visibility
-                        .padding(horizontal = 16.dp),
-                    color = primaryColor,
-                    trackColor = primaryColor.copy(alpha = 0.3f),
-                    // Flatten wave when paused or ended, animate when playing
-                    amplitude = { 
-                        if (isPlaying && playbackState == androidx.media3.common.Player.STATE_READY) {
-                            1.0f // Maximum waviness when playing
-                        } else {
-                            0.0f // Flat when paused or ended
-                        }
-                    },
-                    wavelength = WavyProgressIndicatorDefaults.LinearIndeterminateWavelength
+                val horizontalPaddingDp = 16.dp
+                val barHeightDp = 6.dp
+                val thumbHeightDp = 14.dp
+
+                // Smoothly interpolate progress between 100 ms position polls.
+                // LinearEasing makes the thumb glide at a constant speed between ticks
+                // rather than jumping, which matters most for short videos.
+                val smoothProgress by animateFloatAsState(
+                    targetValue = progressState.value,
+                    animationSpec = tween(durationMillis = 100, easing = LinearEasing),
+                    label = "videoProgressThumb"
                 )
+
+                // Inner box whose height matches the thumb, with the bar and the
+                // position indicator sharing the same coordinate space so the line
+                // is vertically centred on the bar's axis.
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(thumbHeightDp)
+                        .padding(horizontal = horizontalPaddingDp)
+                ) {
+                    @OptIn(ExperimentalMaterial3ExpressiveApi::class)
+                    LinearWavyProgressIndicator(
+                        progress = { smoothProgress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(barHeightDp),
+                        color = primaryColor,
+                        trackColor = primaryColor.copy(alpha = 0.3f),
+                        // Flatten wave when paused or ended, animate when playing
+                        amplitude = {
+                            if (isPlaying && playbackState == androidx.media3.common.Player.STATE_READY) {
+                                1.0f // Maximum waviness when playing
+                            } else {
+                                0.0f // Flat when paused or ended
+                            }
+                        },
+                        wavelength = WavyProgressIndicatorDefaults.LinearIndeterminateWavelength
+                    )
+                    // Vertical position indicator – same bounds as the outer Box so
+                    // (0, 0)→(0, size.height) bisects the bar's horizontal axis.
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val thumbX = (smoothProgress * size.width).coerceIn(0f, size.width)
+                        drawLine(
+                            color = primaryColor.copy(alpha = 0.92f),
+                            start = androidx.compose.ui.geometry.Offset(thumbX, 0f),
+                            end = androidx.compose.ui.geometry.Offset(thumbX, size.height),
+                            strokeWidth = 5.dp.toPx(),
+                            cap = androidx.compose.ui.graphics.StrokeCap.Round
+                        )
+                    }
+                }
             }
             
             // Top toolbar with action buttons
