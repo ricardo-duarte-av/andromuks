@@ -51,7 +51,29 @@ Helper extensions live in `ConnectionState.kt`: `isReady()`, `isDisconnected()`,
 **Fix — `SyncRepository` no-VM buffer:**
 - `processSyncCompletePipeline()` now buffers up to 500 `sync_complete` messages in `noVmBuffer` instead of dropping them.
 - The buffer is epoch-tracked (`noVmBufferEpoch`). `WebSocketService.updateConnectionState()` calls `SyncRepository.clearSyncBuffer()` on every `Disconnected` transition, advancing the epoch so messages from a stale connection are never replayed into a new session.
-- `AppViewModel.attachToExistingWebSocketIfAvailable()` calls `SyncRepository.triggerBufferedSyncDrain()` after setting `initialSyncPhase = true`. This re-enqueues buffered messages back into `syncCompleteChannel` so they are processed immediately by the newly attached VM in pipeline order.
+- When a VM attaches, `attachToExistingWebSocketIfAvailable()` calls `SyncRepository.takeBufferedMessages()` to retrieve the buffered messages and merges them with any messages in `initialSyncCompleteQueue`. All messages are then processed synchronously inside a `Dispatchers.Default` coroutine; navigation fires via `populateFromCacheAndNavigateAfterAttach()` only after processing completes (on the Main thread).
+
+**Critical:** do **NOT** use `triggerBufferedSyncDrain()` here — it re-enqueues to the async channel, which means navigation fires before rooms are populated, causing them to pop in one-by-one.
+
+## `initialSyncPhase` / Drain-Sentinel Attach-Gate
+
+`initialSyncPhase` must stay `false` until navigation is about to fire. The SyncRepository pipeline (running concurrently on `Dispatchers.IO`) may still have messages in `syncCompleteChannel` that were not yet moved to `noVmBuffer` at the moment `takeBufferedMessages()` is called — so `noVmBuffer` can appear empty even though messages are in transit. With `initialSyncPhase = false`, any pipeline-dispatched messages land in `initialSyncCompleteQueue` instead of being applied to the UI directly.
+
+To know exactly when the pipeline has finished dispatching all in-transit messages, `attachToExistingWebSocketIfAvailable` enqueues a `DRAIN_SENTINEL` into `syncCompleteChannel` immediately after registering the VM. Because the channel is FIFO and the pipeline is single-threaded, when the sentinel is processed all prior messages have been dispatched and are sitting in `initialSyncCompleteQueue`. The sentinel callback (on IO thread) dispatches to Main, takes a snapshot of the queue, batch-processes it on `Dispatchers.Default`, sets `initialSyncPhase = true`, and then calls `populateFromCacheAndNavigateAfterAttach()`. This guarantees the room list is fully populated before the user sees `RoomListScreen`.
+
+## `setWebSocket` Ordering Invariant
+
+In `setWebSocket` (the OkHttp `onOpen` handler), `serviceInstance.webSocket` must be assigned **before** calling `updateConnectionState(ConnectionState.Ready)`.
+
+The monitoring coroutine periodically calls `detectAndRecoverStateCorruption()` on a different thread. If it runs between the state update and the webSocket assignment, it sees `Ready + webSocket==null`, wrongly resets state to `Disconnected`, and the notification gets permanently stuck at "Connecting..." even though the socket is alive and delivering messages.
+
+**Safe order:** set `webSocket`, `connectionStartTime`, `lastMessageReceivedTimestamp`, `lastPongTimestamp` first — then call `updateConnectionState(Ready)`.
+
+## Persistent Notification Desync
+
+The notification text in release builds is driven purely by `connectionState` (not by the `isConnected` parameter passed to `updateConnectionStatus`). It uses a dedup key `"$currentState-$callbackMissing"` and skips updates when the key hasn't changed.
+
+If state gets stuck at `Disconnected` (e.g., via the corruption detector race above), every subsequent `updateConnectionStatus` call returns early and the notification never recovers until the next actual state transition.
 
 ## Unified Monitoring (every 1s, `startUnifiedMonitoring()`)
 
