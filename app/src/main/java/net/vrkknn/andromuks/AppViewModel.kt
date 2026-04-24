@@ -3756,27 +3756,49 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "🟣 ensureCurrentUserProfileLoaded: START - currentUserProfile=${currentUserProfile != null}, currentUserId=$currentUserId")
         }
         if (currentUserProfile == null && currentUserId.isNotBlank()) {
-            // CRITICAL FIX: Check ProfileCache singleton first before requesting from server
-            // This ensures currentUserProfile is populated even if profile was loaded in another AppViewModel instance
+            val context = appContext
+            // Fast path 1: SharedPreferences cache (survives process restarts — no network needed).
+            // Both keys must be non-null: null means the key was never written (profile not yet
+            // fetched), "" means it was fetched and the field is genuinely blank.
+            if (context != null) {
+                val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                val cachedDisplayName = prefs.getString("current_user_display_name", null)
+                val cachedAvatarMxc = prefs.getString("current_user_avatar_mxc", null)
+                if (cachedDisplayName != null && cachedAvatarMxc != null) {
+                    currentUserProfile = UserProfile(
+                        userId = currentUserId,
+                        displayName = cachedDisplayName,
+                        avatarUrl = cachedAvatarMxc
+                    )
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d("Andromuks", "🟣 ensureCurrentUserProfileLoaded: Populated from SharedPreferences - userId: $currentUserId, displayName: $cachedDisplayName")
+                    }
+                    checkStartupComplete()
+                    // Background refresh so the profile stays current across restarts
+                    requestUserProfile(currentUserId)
+                    return
+                }
+            }
+
+            // Fast path 2: in-process ProfileCache (populated by another VM instance in the same process)
             val cachedProfile = ProfileCache.getGlobalProfileProfile(currentUserId)
             if (cachedProfile != null) {
-                // Profile exists in singleton cache - populate currentUserProfile from cache
                 currentUserProfile = UserProfile(
                     userId = currentUserId,
                     displayName = cachedProfile.displayName,
                     avatarUrl = cachedProfile.avatarUrl
                 )
                 persistCurrentUserAvatarMxcIfChanged(cachedProfile.avatarUrl)
+                persistCurrentUserDisplayNameIfChanged(cachedProfile.displayName)
                 if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "🟣 ensureCurrentUserProfileLoaded: Populated from cache - userId: $currentUserId, displayName: ${cachedProfile.displayName}")
+                    android.util.Log.d("Andromuks", "🟣 ensureCurrentUserProfileLoaded: Populated from ProfileCache - userId: $currentUserId, displayName: ${cachedProfile.displayName}")
                 }
-                // Trigger checkStartupComplete since profile is now loaded
                 checkStartupComplete()
                 return
             }
-            
-            // Profile not in cache - request from server
-            if (appContext != null) {
+
+            // Network path: nothing cached yet — request from server
+            if (context != null) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d("Andromuks", "🟣 ensureCurrentUserProfileLoaded: Profile missing from cache, requesting from server - userId: $currentUserId")
                 }
@@ -6791,15 +6813,17 @@ class AppViewModel : ViewModel() {
     internal fun persistCurrentUserAvatarMxcIfChanged(avatarMxc: String?) {
         val context = appContext ?: return
         val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-        val current = prefs.getString("current_user_avatar_mxc", null)
-        if (current == avatarMxc) return
-        val editor = prefs.edit()
-        if (avatarMxc.isNullOrBlank()) {
-            editor.remove("current_user_avatar_mxc")
-        } else {
-            editor.putString("current_user_avatar_mxc", avatarMxc)
-        }
-        editor.apply()
+        val value = avatarMxc ?: ""
+        if (prefs.getString("current_user_avatar_mxc", null) == value) return
+        prefs.edit().putString("current_user_avatar_mxc", value).apply()
+    }
+
+    internal fun persistCurrentUserDisplayNameIfChanged(displayName: String?) {
+        val context = appContext ?: return
+        val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+        val value = displayName ?: ""
+        if (prefs.getString("current_user_display_name", null) == value) return
+        prefs.edit().putString("current_user_display_name", value).apply()
     }
     
     // Profile management - in-memory only, loaded opportunistically when rendering events
@@ -8379,6 +8403,7 @@ class AppViewModel : ViewModel() {
                                     avatarUrl = avatarUrl
                                 )
                                 persistCurrentUserAvatarMxcIfChanged(avatarUrl)
+                                persistCurrentUserDisplayNameIfChanged(displayName)
                                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Set currentUserProfile from member event - displayName: '$displayName', avatarUrl: '$avatarUrl'")
                             }
                             

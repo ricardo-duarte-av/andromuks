@@ -480,6 +480,7 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
             if (userId == currentUserId) {
                 currentUserProfile = UserProfile(userId = userId, displayName = display, avatarUrl = avatar)
                 persistCurrentUserAvatarMxcIfChanged(avatar)
+                persistCurrentUserDisplayNameIfChanged(display)
                 if (BuildConfig.DEBUG)
                     android.util.Log.d(
                         "Andromuks",

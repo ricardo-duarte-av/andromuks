@@ -263,8 +263,8 @@ object SyncRepository {
 
     private val _events = MutableSharedFlow<SyncEvent>(
         replay = 0,
-        extraBufferCapacity = 256,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST
+        extraBufferCapacity = 1024,
+        onBufferOverflow = BufferOverflow.DROP_LATEST
     )
     val events: SharedFlow<SyncEvent> = _events.asSharedFlow()
 

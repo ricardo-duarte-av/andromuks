@@ -163,3 +163,16 @@ A composable-local `var navigationHandled by remember { mutableStateOf(false) }`
 **Root cause:** `loadAllRoomStatesAfterInitComplete()` waits indefinitely for every `pendingRoomStateResponses` entry to be removed. A single missing response keeps `allRoomStatesLoaded=false` forever, permanently blocking `checkStartupComplete()`.
 
 **Fix:** After all `get_room_state` requests are dispatched, a 15-second polling loop waits for `pendingRoomStateResponses` to drain. If it still has entries at the deadline, `allRoomStatesLoaded` is force-set to `true` and `checkStartupComplete()` is called — the same path any successful response would have taken.
+
+### 6. `currentUserProfile` startup gate has no timeout and no SharedPreferences cache
+**Symptom:** App stuck on AuthCheck indefinitely on cold start. Logs show "BLOCKED - missing: profile" even after all sync messages are processed. Opening the user's own profile screen resolves it in that session but the bug recurs on next restart.
+
+**Root cause:** Two compounding issues:
+1. `ensureCurrentUserProfileLoaded()` only checked the in-process `ProfileCache` singleton (populated by a previous VM instance in the same process) and then fell through to a `get_profile` network request. Only the avatar MXC URL was persisted to SharedPreferences — the display name was never saved — so `ProfileCache` was always empty on a fresh process start and a network request was always required.
+2. The `_events` SharedFlow (capacity 256, `DROP_OLDEST`) could drop the `get_profile` response when flooded by burst traffic (e.g. on first login with many `get_room_state` responses). With no timeout on the `profile` condition in `checkStartupComplete()`, a dropped response caused a permanent hang.
+
+**Fix (AppViewModel / MemberProfilesCoordinator):**
+- `persistCurrentUserDisplayNameIfChanged()` added alongside the existing `persistCurrentUserAvatarMxcIfChanged()`. Both are called from every `currentUserProfile` write path (`handleProfileResponse`, `m.room.member` state event, `ProfileCache` fast path).
+- Key semantics: `""` = key present, field is genuinely blank; `null` (key absent) = never fetched, must request. Both persist functions now always call `putString` (never `remove`) so the key's presence is the fetch-complete signal.
+- `ensureCurrentUserProfileLoaded()` checks SharedPreferences first (fast path 1) — if **both** `current_user_display_name` and `current_user_avatar_mxc` keys are non-null, `currentUserProfile` is populated immediately and `checkStartupComplete()` is called without waiting for the network. A background `requestUserProfile` still fires to refresh the data. If either key is absent the network path is taken as before.
+- `SyncRepository._events` buffer raised from 256 to 1024 and overflow policy changed from `DROP_OLDEST` to `DROP_LATEST` so burst responses never evict already-queued earlier responses.

@@ -55,7 +55,7 @@ OkHttp WebSocket (Matrix protocol) + SQLite (BootstrapLoader)
 
 - **`AppViewModel`** — Master state holder. Processes sync events, manages timeline rendering, coordinates all subsystems. Extremely large (the central hub). See **[docs/APPVIEWMODEL.md](docs/APPVIEWMODEL.md)** for a full reference of every state field and function.
 - **`WebSocketService`** — Foreground service keeping the Matrix connection alive. Monitors health via 15s ping / 60s timeout. Handles reconnection with exponential backoff and is network-change-aware.
-- **`SyncRepository`** — Sits between the WebSocket and AppViewModel; coordinates event flow.
+- **`SyncRepository`** — Sits between the WebSocket and AppViewModel; coordinates event flow. The `_events` SharedFlow has `extraBufferCapacity = 1024` and `BufferOverflow.DROP_LATEST` — burst traffic (e.g. many `get_room_state` responses on first login) sheds the newest arrivals rather than evicting already-queued responses. `sync_complete` messages bypass `_events` entirely and go to a separate `syncCompleteChannel` (UNLIMITED).
 - **Coordinator classes** (18+) — Each owns a specific feature domain (reactions, read receipts, typing, FCM, uploads, navigation, settings, etc.). They decompose AppViewModel complexity.
 - **Cache classes** (12+) — `RoomTimelineCache`, `RoomListCache`, `RoomMemberCache`, `ProfileCache`, `SpaceListCache`, etc. Singleton in-memory stores shared across Activities.
 
@@ -303,6 +303,26 @@ The app has first-class support for Matrix bridges (e.g. Mautrix bridges for Wha
 2. `RoomMemberCache.getMember(roomId, userId)` — legacy room store
 3. `currentUserProfile` — fast path for the local user
 4. `ProfileCache.globalProfileCache[userId]` — global fallback
+
+### `currentUserProfile` SharedPreferences cache
+
+`currentUserProfile` (the logged-in user's own global profile) is cached in `AndromuksAppPrefs` SharedPreferences so that `checkStartupComplete()` can be ungated immediately on the next cold start without waiting for a `get_profile` round-trip.
+
+**Keys:** `current_user_display_name`, `current_user_avatar_mxc`
+
+**Sentinel contract:**
+- Key **absent** (`getString` returns `null`) — profile has never been fetched; a `get_profile` network request is required.
+- Key **present with value `""`** — profile was fetched and the field is genuinely blank (user has no display name / no avatar).
+- Key **present with non-blank value** — use directly.
+
+Both `persistCurrentUserAvatarMxcIfChanged` and `persistCurrentUserDisplayNameIfChanged` always call `putString` (never `remove`) so the presence of the key is unambiguously the "already fetched" signal.
+
+**Fast path in `ensureCurrentUserProfileLoaded()`:**
+1. Check SharedPreferences — if **both** keys are non-null, populate `currentUserProfile` and call `checkStartupComplete()` immediately. A background `requestUserProfile` still fires to keep the cached value fresh.
+2. Check in-process `ProfileCache` singleton — populated when another VM instance in the same process already fetched the profile.
+3. Network — `get_profile` request; response writes both SharedPreferences keys via `persistCurrentUserDisplayNameIfChanged` + `persistCurrentUserAvatarMxcIfChanged`.
+
+**Write paths:** all three paths that assign `currentUserProfile` must call both persist functions: `MemberProfilesCoordinator.handleProfileResponse`, the `m.room.member` state-event path in `AppViewModel`, and the `ProfileCache` fast path in `ensureCurrentUserProfileLoaded`.
 
 ### Write path (`storeMemberProfile`)
 
