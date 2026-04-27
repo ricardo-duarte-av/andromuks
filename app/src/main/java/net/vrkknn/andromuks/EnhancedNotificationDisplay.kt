@@ -549,11 +549,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 val systemNotificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 val notifID = notificationData.roomId.hashCode()
                 
+                val existingNotification = try {
+                    systemNotificationManager.activeNotifications?.lastOrNull { it.id == notifID }
+                } catch (e: Exception) { null }
+
                 // Extract existing MessagingStyle if available (with proper error handling)
                 val existingStyle = try {
-                    systemNotificationManager.activeNotifications
-                        ?.lastOrNull { it.id == notifID }
-                        ?.let { MessagingStyle.extractMessagingStyleFromNotification(it.notification) }
+                    existingNotification?.let { MessagingStyle.extractMessagingStyleFromNotification(it.notification) }
                 } catch (e: Exception) {
                     Log.w(TAG, "Could not extract messaging style", e)
                     null
@@ -676,6 +678,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     .setAutoCancel(true)
                     .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                     .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                    .apply {
+                        if (existingNotification != null) {
+                            setWhen(existingNotification.notification.`when`)
+                        } else {
+                            setWhen(notificationData.timestamp ?: System.currentTimeMillis())
+                        }
+                    }
                     .apply {
                     // Set large icon (always set if available)
                     setLargeIcon(largeIconBitmap)
@@ -1519,6 +1528,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         null
                     }
                 })
+                .apply {
+                    setWhen(existingNotification.notification.`when`)
+                }
                 .apply {
                     // Preserve event_id in extras
                     if (eventId != null) {
