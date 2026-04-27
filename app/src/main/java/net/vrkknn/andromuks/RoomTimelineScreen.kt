@@ -2009,7 +2009,7 @@ fun RoomTimelineScreen(
     // This fixes the issue where own messages show username instead of display name/avatar
     val memberMapWithFallback = remember(memberMap, appViewModel.currentUserProfile, myUserId) {
         val enhancedMap = memberMap.toMutableMap()
-        
+
         // If current user is not in member map but we have currentUserProfile, add it
         if (myUserId.isNotBlank() && !enhancedMap.containsKey(myUserId)) {
             val currentProfile = appViewModel.currentUserProfile
@@ -2018,14 +2018,19 @@ fun RoomTimelineScreen(
                     displayName = currentProfile.displayName,
                     avatarUrl = currentProfile.avatarUrl
                 )
-                if (BuildConfig.DEBUG) Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Added current user profile to memberMapWithFallback - userId: $myUserId, displayName: ${currentProfile.displayName}"
-                )
             }
         }
-        
-        enhancedMap
+
+        // Apply Matrix-ID fallback name for entries with blank displayName so the UI never
+        // shows a blank sender. The "" sentinel means "profile fetched, no name configured";
+        // the room-specific profile is still authoritative — this is only a display transform.
+        enhancedMap.mapValues { (userId, profile) ->
+            val fallbackName = userId.removePrefix("@").substringBefore(":")
+            MemberProfile(
+                displayName = profile.displayName?.takeIf { it.isNotBlank() } ?: fallbackName,
+                avatarUrl = profile.avatarUrl,
+            )
+        }
     }
 
     // List state and auto-scroll to bottom when data loads/changes

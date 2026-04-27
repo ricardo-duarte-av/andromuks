@@ -18,6 +18,43 @@
 3. `currentUserProfile` — fast path for the local user
 4. `ProfileCache.globalProfileCache[userId]` — global fallback
 
+## "Do We Have the Profile?" — The Authoritative Check
+
+**`ProfileCache.hasFlattenedProfile(roomId, userId)`** is the canonical "we already have this user's room profile" signal used by `requestUserProfileOnDemand`. If it returns `true`, no `get_specific_room_state` request is issued, regardless of whether `displayName` or `avatarUrl` are blank.
+
+| `hasFlattenedProfile` | Meaning | Action in `requestUserProfileOnDemand` |
+|---|---|---|
+| `false` | No room-specific profile stored yet | Send `get_specific_room_state` |
+| `true` | Profile stored (may be `MemberProfile("","")`) | Skip — profile already fetched |
+
+A stored `MemberProfile("", "")` is intentional: the `""` sentinel means "profile was fetched and the field is genuinely blank (user has no display name / no avatar configured)." The rendering layer applies a fallback name from the Matrix ID rather than re-requesting (see **Rendering Fallback** below).
+
+This check replaced the previous `getUserProfile() != null && displayName != null && avatarUrl != null` guard, which incorrectly consulted the global profile cache and treated `""` (non-null) as "fully resolved" while callers used `isNullOrBlank()` semantics — causing a permanent deadlock where `TimelineEventItem` wanted to fetch but `requestUserProfileOnDemand` said "already done."
+
+## When `get_specific_room_state` Is Requested
+
+`requestUserProfileOnDemand` fires when a timeline event arrives from a sender not yet in `flattenedMemberCache` for that room. The two triggers:
+
+1. **`LaunchedEffect(timelineEvents)`** in `RoomTimelineScreen` — runs after `timelineEvents` changes; calls `requestUserProfileOnDemand` for every sender whose profile is `null` or has a blank `displayName` *and* is not yet in `flattenedMemberCache`.
+2. **`LaunchedEffect(event.sender, event.roomId)`** in `TimelineEventItem` — runs once per new event; calls `requestUserProfileOnDemand` if `userProfileCache[sender]` is missing or both fields are blank.
+
+Requests are batched with an 80 ms flush delay (`PROFILE_BATCH_DELAY_MS`) and throttled per `roomId:userId` to once per 5 seconds (`PROFILE_REQUEST_THROTTLE_MS`) to avoid redundant requests during scroll recycling.
+
+When the profile hint (`m.room.member` with `timeline_rowid: 0`) **is** present in the `sync_complete` payload, `populateMemberCacheFromSync` stores the profile and increments `memberUpdateCounter` before `processSyncEventsArray` runs — so `hasFlattenedProfile` returns `true` by the time any `LaunchedEffect` fires and no network request is needed.
+
+## Rendering Fallback (`memberMapWithFallback`)
+
+`RoomTimelineScreen` builds `memberMapWithFallback` via a `remember(memberMap, ...)` block that:
+1. Starts from `memberMap` (the reactive `remember(roomId, memberUpdateCounter)` result).
+2. Injects `currentUserProfile` if the local user is missing from the map.
+3. Applies a display-name fallback transform over every entry:
+   ```kotlin
+   displayName = profile.displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix("@").substringBefore(":")
+   ```
+   Users with `displayName = ""` (no Matrix display name configured) are shown as the local part of their Matrix ID (e.g., `@alice:server` → `alice`). `avatarUrl` is passed through unchanged — a blank avatar simply shows the generated initials placeholder.
+
+This transform is purely presentational; the stored `MemberProfile("", "")` in the cache is unaffected.
+
 ## `currentUserProfile` SharedPreferences Cache
 
 `currentUserProfile` (the logged-in user's own global profile) is cached in `AndromuksAppPrefs` SharedPreferences so that `checkStartupComplete()` can be ungated immediately on the next cold start without waiting for a `get_profile` round-trip.
@@ -45,6 +82,15 @@ Every call to `storeMemberProfile` unconditionally writes to both `flattenedMemb
 Do **not** skip the write even when the room profile matches the global profile: doing so silently removes users from `getMemberMap`'s ProfileCache path, causing avatar/name to fall back to text placeholders until the next `memberUpdateCounter` cycle.
 
 `updateGlobalProfile` (called only from `handleProfileResponse`) writes to `globalProfileCache` and calls `cleanupMatchingRoomProfiles` to remove room entries that now match the new global.
+
+## `UserInfoScreen` — Always Fresh, Bypasses Guard
+
+`UserInfoScreen` (`utils/UserInfo.kt`) uses `requestPerRoomMemberState` (not `requestUserProfileOnDemand`) to fetch the per-room profile. This function:
+- Has **no guard, no throttle, no pending-request check** — it always sends `get_specific_room_state` immediately.
+- Stores `roomSpecificProfileCallbacks[requestId] = callback` so the response is delivered directly to the screen via callback.
+- `handleRoomSpecificStateResponse` detects the callback and **returns early** before `parseMemberEventsForProfileUpdate` — the response bypasses the cache update path entirely.
+
+This means `UserInfoScreen` always shows the freshest backend data regardless of what is cached, and it does not pollute the timeline's cache with its fetches.
 
 ## `getMemberMap` and the Timeline
 

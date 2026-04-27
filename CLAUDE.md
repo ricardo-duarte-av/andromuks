@@ -117,7 +117,7 @@ When adding features, follow the existing Coordinator pattern: create a `*Coordi
 | Message sending protocol, local echo, error states | [docs/MESSAGE_SENDING.md](docs/MESSAGE_SENDING.md) |
 | Message long-press menu (`MessageMenuBar`) | [docs/MESSAGE_MENU.md](docs/MESSAGE_MENU.md) |
 | Power levels parsing and `canPin` | [docs/POWER_LEVELS.md](docs/POWER_LEVELS.md) |
-| User profile architecture (two caches, resolution order, SharedPrefs) | [docs/USER_PROFILES.md](docs/USER_PROFILES.md) |
+| User profile architecture (two caches, resolution order, "do we have it?" sentinel, rendering fallback, UserInfoScreen bypass) | [docs/USER_PROFILES.md](docs/USER_PROFILES.md) |
 | Read receipts invariants and update paths | [docs/RECEIPTS.md](docs/RECEIPTS.md) |
 | Push notifications (FCM, two-phase images, image auth token) | [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md) |
 | Bridge support (detection, tab, badges, per-message profiles) | [docs/bridges.md](docs/bridges.md) |

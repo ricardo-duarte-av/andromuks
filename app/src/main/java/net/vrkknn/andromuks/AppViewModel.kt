@@ -5947,13 +5947,10 @@ class AppViewModel : ViewModel() {
     }
     
     fun requestUserProfileOnDemand(userId: String, roomId: String) {
-        // CRITICAL FIX: Check if we have a valid profile (not just non-null)
-        // A profile with blank displayName should still be requested to get the actual name
-        val existingProfile = getUserProfile(userId, roomId)
-        if (existingProfile != null && existingProfile.displayName != null && existingProfile.avatarUrl != null) {
-            // Both fields are non-null: profile has been fetched. Values are either real or ""
-            // (confirmed absent by backend). Either way, no need to request again.
-            //android.util.Log.d("Andromuks", "AppViewModel: Profile already cached for $userId, skipping request")
+        // Room-specific profile presence is the authoritative "already have it" signal.
+        // A stored MemberProfile("","") is valid — the user genuinely has no name/avatar;
+        // rendering will fall back to the Matrix ID username via getMemberMapWithFallback().
+        if (ProfileCache.hasFlattenedProfile(roomId, userId)) {
             return
         }
 
