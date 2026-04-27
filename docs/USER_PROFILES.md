@@ -40,11 +40,9 @@ Both `persistCurrentUserAvatarMxcIfChanged` and `persistCurrentUserDisplayNameIf
 
 ## Write Path (`storeMemberProfile`)
 
-| Situation | Action |
-|---|---|
-| Room profile arrives, **no global profile exists yet** | Store in `flattenedMemberCache` + `roomMemberIndex`. Do **not** promote to global — that slot must remain empty until a `get_profile` round-trip fills it. |
-| Global profile exists and room profile **differs** | Store in `flattenedMemberCache` (genuine per-room override). |
-| Global profile exists and they **match** | Remove any existing room entry — the global is sufficient. |
+Every call to `storeMemberProfile` unconditionally writes to both `flattenedMemberCache` and `roomMemberIndex` for the `(roomId, userId)` pair. `m.room.member` events are authoritative — the room-specific entry must always exist so `getMemberMap` reliably finds the user via `ProfileCache.getRoomUserIds`.
+
+Do **not** skip the write even when the room profile matches the global profile: doing so silently removes users from `getMemberMap`'s ProfileCache path, causing avatar/name to fall back to text placeholders until the next `memberUpdateCounter` cycle.
 
 `updateGlobalProfile` (called only from `handleProfileResponse`) writes to `globalProfileCache` and calls `cleanupMatchingRoomProfiles` to remove room entries that now match the new global.
 
@@ -52,7 +50,7 @@ Both `persistCurrentUserAvatarMxcIfChanged` and `persistCurrentUserDisplayNameIf
 
 `getMemberMap(roomId)` iterates `ProfileCache.roomMemberIndex[roomId]` (users with room-specific entries), falls back to their global profile if the flattened slot is missing, then appends any timeline event senders not yet in the map. Receipt-only users (no messages sent in the room) only appear in `getMemberMap` after their `m.room.member` state has been fetched and stored in `flattenedMemberCache`.
 
-`RoomTimelineScreen` and `RoomInfo.kt` both drive avatar/name rendering via `remember(roomId, appViewModel.memberUpdateCounter) { getMemberMap(roomId) }`. `memberUpdateCounter` increments whenever `storeMemberProfile` or `parseMemberEventsForProfileUpdate` changes any profile.
+`RoomTimelineScreen` and `RoomInfo.kt` both drive avatar/name rendering via `remember(roomId, appViewModel.memberUpdateCounter) { getMemberMap(roomId) }`. `memberUpdateCounter` increments for **every** `m.room.member` join event received while the app is visible and past initial sync — not only for actual joins or profile changes. This guarantees `memberMap` recomputes in the same pass as the timeline update regardless of whether the profile data changed, so avatars and display names are never stale on first render.
 
 ## Pre-Render Profile Fetch (Initial Paginate Only)
 

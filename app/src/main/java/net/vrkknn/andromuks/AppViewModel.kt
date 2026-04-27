@@ -2537,42 +2537,29 @@ class AppViewModel : ViewModel() {
                                 
                                 val profile = MemberProfile(displayName, avatarUrl)
                                 val previousProfile = memberMap[userId]
-                                
+
                                 // Update singleton cache
                                 RoomMemberCache.updateMember(roomId, userId, profile)
-                                
-                                // Check if this is actually a new join (not just a profile change)
-                                val isNewJoin = previousProfile == null
-                                
-                                // Check if this is a profile change (join -> join with different profile data)
-                                val isProfileChange = prevMembership == "join" && membership == "join" && !isNewJoin &&
-                                    (previousProfile?.displayName != displayName || previousProfile?.avatarUrl != avatarUrl)
-                                
-                                // Use storeMemberProfile to ensure optimization (only store room-specific if differs from global)
+
+                                // Track profile changes for debug logging
+                                val isProfileChange = prevMembership == "join" && membership == "join" && previousProfile != null &&
+                                    (previousProfile.displayName != displayName || previousProfile.avatarUrl != avatarUrl)
+
                                 storeMemberProfile(roomId, userId, profile)
                                 
-                                // COLD START FIX: Only trigger UI updates for actual real-time changes, not historical data
-                                // During initial sync (before initialSyncComplete), all member events are historical and shouldn't trigger UI updates
-                                // After initial sync is complete, only actual state transitions (invite→join, leave→join) should trigger updates
-                                val isActualNewJoin = isNewJoin && (prevMembership == null || prevMembership == "invite" || prevMembership == "leave")
-
-                                if (isNewJoin || isProfileChange) {
-                                    anyMemberChanged = true
-                                }
+                                // Every m.room.member join event is authoritative — always mark as changed
+                                // so the batched UI update path fires even for unchanged profiles.
+                                anyMemberChanged = true
 
                                 // BATTERY OPTIMIZATION: Only trigger UI updates when foregrounded AND initial sync is complete
                                 // Cache is still updated (for accuracy), but no recompositions during initial sync or when backgrounded
                                 // CRITICAL: Check initialSyncComplete (not initializationComplete) because we're still processing
                                 // historical data from queued sync_complete messages even after initializationComplete is set
                                 if (isAppVisible && initialSyncComplete) {
-                                    if (isActualNewJoin) {
-                                        // New joins are critical - trigger member update immediately
-                                        memberUpdateCounter++
-                                    } else if (isProfileChange) {
-                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile change detected for $userId - displayName: '$displayName', avatarUrl: '$avatarUrl'")
-                                        // Trigger UI update for profile changes
-                                        memberUpdateCounter++
-                                    }
+                                    if (BuildConfig.DEBUG && isProfileChange) android.util.Log.d("Andromuks", "AppViewModel: Profile change detected for $userId - displayName: '$displayName', avatarUrl: '$avatarUrl'")
+                                    // Always increment directly so memberMap recomputes before or alongside
+                                    // the timeline update — avoids a stale first render with no avatar.
+                                    memberUpdateCounter++
                                 }
                                 // Removed debug log for member changes during initial sync to reduce log spam
                                 //android.util.Log.d("Andromuks", "AppViewModel: Cached joined member '$userId' in room '$roomId' -> displayName: '$displayName'")

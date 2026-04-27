@@ -100,25 +100,11 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
     fun storeMemberProfile(roomId: String, userId: String, profile: MemberProfile) {
         val existingGlobalProfile = ProfileCache.getGlobalProfileProfile(userId)
 
-        if (existingGlobalProfile == null) {
-            // No global profile known — m.room.member is always room-scoped, never promote it to global.
-            // Only get_profile responses (via updateGlobalProfile) may write to globalProfileCache.
-            ProfileCache.setFlattenedProfile(roomId, userId, profile)
-            ProfileCache.addToRoomIndex(roomId, userId)
-        } else {
-            val profilesDiffer =
-                existingGlobalProfile.displayName != profile.displayName ||
-                    existingGlobalProfile.avatarUrl != profile.avatarUrl
-
-            if (profilesDiffer) {
-                ProfileCache.setFlattenedProfile(roomId, userId, profile)
-                ProfileCache.addToRoomIndex(roomId, userId)
-            } else {
-                // Room profile matches global — no separate room entry needed.
-                ProfileCache.removeFlattenedProfile(roomId, userId)
-                ProfileCache.removeFromRoomIndex(roomId, userId)
-            }
-        }
+        // m.room.member events are authoritative — always store room-specific profile.
+        // Never skip based on a matching global profile: the room-specific entry must always
+        // exist so getMemberMap reliably finds this user via ProfileCache's room index.
+        ProfileCache.setFlattenedProfile(roomId, userId, profile)
+        ProfileCache.addToRoomIndex(roomId, userId)
 
         RoomMemberCache.updateMember(roomId, userId, profile)
 
