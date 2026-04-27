@@ -64,6 +64,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
@@ -114,6 +115,7 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import net.vrkknn.andromuks.utils.MediaPreviewDialog
 import net.vrkknn.andromuks.utils.UploadingDialog
 import net.vrkknn.andromuks.utils.MediaUploadUtils
@@ -1092,6 +1094,22 @@ fun ThreadViewerScreen(
     // List state
     val listState = rememberLazyListState()
 
+    // Scroll position to restore when returning from EventContextScreen
+    var pendingEventContextScrollRestore by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+
+    // Restore scroll position when returning from EventContextScreen
+    LaunchedEffect(navController) {
+        snapshotFlow { navController.currentBackStackEntry?.destination?.route }
+            .distinctUntilChanged()
+            .collect { route ->
+                val restore = pendingEventContextScrollRestore
+                if (restore != null && route?.startsWith("thread_viewer") == true) {
+                    pendingEventContextScrollRestore = null
+                    listState.scrollToItem(restore.first, restore.second)
+                }
+            }
+    }
+
     // Auto-scroll to bottom on initial load
     LaunchedEffect(timelineItems.size) {
         if (timelineItems.isNotEmpty()) {
@@ -1363,6 +1381,7 @@ fun ThreadViewerScreen(
                                                 } else {
                                                     val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
                                                     val encodedEventId = java.net.URLEncoder.encode(eventId, "UTF-8")
+                                                    pendingEventContextScrollRestore = listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
                                                     navController.navigate("event_context/$encodedRoomId/$encodedEventId")
                                                 }
                                             },

@@ -162,6 +162,42 @@ Using `!= 0L` here would include `-1` entries, causing `oldestInResponse` to be 
 
 A `StickyDateIndicator` composable (`utils/StickyDateIndicator.kt`) reads the date of the oldest visible item (event or date-divider) and displays a pill-shaped overlay below the header. See **Sticky Date Indicator** in `CLAUDE.md` for full behavioural and layout documentation.
 
+## Reply Jump Navigation
+
+When the user taps the reply-preview banner on a message, `onScrollToMessage` fires with the target `eventId`. Two paths:
+
+### Target is in the current timeline
+
+The target index is found in `timelineItems`. The current scroll position is pushed onto `jumpBackStack` before scrolling:
+
+```kotlin
+jumpBackStack.addLast(listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset)
+coroutineScope.launch { listState.scrollToItem(reversedIndex); highlightedEventId = eventId }
+```
+
+`BackHandler` (in `RoomTimelineScreen` and `BubbleTimelineScreen`) pops the stack and scrolls back on Back press. **While `jumpBackStack` is non-empty the handler is enabled, which suppresses Android's Predictive Back animation** — the Back gesture performs the in-list scroll-back instead.
+
+### Target is NOT in the current timeline
+
+The event pre-dates the loaded window. NavController navigates to `EventContextScreen`:
+
+```kotlin
+pendingEventContextScrollRestore = listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+navController.navigate("event_context/$encodedRoomId/$encodedEventId")
+```
+
+`EventContextScreen` fetches the event plus ±5 neighbours via `getEventContext` and displays them in a standalone list, scrolled to the target event.
+
+Scroll restoration on return uses a `LaunchedEffect(navController)` + `snapshotFlow` on `currentBackStackEntry?.destination?.route`. When the route reverts to the originating screen's route, `pendingEventContextScrollRestore` is consumed and `listState.scrollToItem(index, offset)` restores the exact position:
+
+| Screen | Route prefix checked |
+|--------|---------------------|
+| `RoomTimelineScreen` | `room_timeline` |
+| `BubbleTimelineScreen` | `chat_bubble` |
+| `ThreadViewerScreen` | `thread_viewer` |
+
+This path does **not** add a `BackHandler`, so Android's Predictive Back animation works normally when navigating through `EventContextScreen`.
+
 ## Known Gaps
 
 - `m.room.member` profile-hint events also flow through `updateMemberProfilesFromEvents` (line ~5337), which uses `timelineRowid >= 0L` as its filter. This is intentional: profile hints should update the member cache even though they are not rendered. Do not change that filter to `> 0L`.

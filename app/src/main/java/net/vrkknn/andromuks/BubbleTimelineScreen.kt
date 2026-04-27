@@ -716,6 +716,8 @@ fun BubbleTimelineScreen(
     var highlightRequestId by remember(roomId) { mutableStateOf(0) }
     // Back-stack for reply jumps: each entry is (firstVisibleItemIndex, scrollOffset)
     val jumpBackStack = remember(roomId) { ArrayDeque<Pair<Int, Int>>() }
+    // Scroll position to restore when returning from EventContextScreen
+    var pendingEventContextScrollRestore by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var pendingNotificationJumpEventId by remember(roomId) {
         mutableStateOf(appViewModel.consumePendingHighlightEvent(roomId))
     }
@@ -1664,6 +1666,19 @@ fun BubbleTimelineScreen(
         } finally {
             isAnimatedScrolling = false
         }
+    }
+
+    // Restore scroll position when returning from EventContextScreen
+    LaunchedEffect(navController) {
+        snapshotFlow { navController.currentBackStackEntry?.destination?.route }
+            .distinctUntilChanged()
+            .collect { route ->
+                val restore = pendingEventContextScrollRestore
+                if (restore != null && route?.startsWith("chat_bubble") == true) {
+                    pendingEventContextScrollRestore = null
+                    listState.scrollToItem(restore.first, restore.second)
+                }
+            }
     }
 
     // Prefetch guardband assets around the viewport (+50 above, +50 below).
@@ -2810,6 +2825,7 @@ fun BubbleTimelineScreen(
                                                 } else {
                                                     val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
                                                     val encodedEventId = java.net.URLEncoder.encode(eventId, "UTF-8")
+                                                    pendingEventContextScrollRestore = listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
                                                     navController.navigate("event_context/$encodedRoomId/$encodedEventId")
                                                 }
                                             },

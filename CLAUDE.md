@@ -112,7 +112,7 @@ When adding features, follow the existing Coordinator pattern: create a `*Coordi
 | WebSocket lifecycle, reconnection, No-VM race, drain-sentinel | [docs/WEBSOCKET_LIFECYCLE.md](docs/WEBSOCKET_LIFECYCLE.md) |
 | AppViewModel state fields & functions | [docs/APPVIEWMODEL.md](docs/APPVIEWMODEL.md) |
 | `currentRoomState` and `timelineEvents` clearing invariants | [docs/STATE_INVARIANTS.md](docs/STATE_INVARIANTS.md) |
-| Timeline event rendering rules, rowid gates, related_events | [docs/TIMELINE_EVENTS.md](docs/TIMELINE_EVENTS.md) |
+| Timeline event rendering rules, rowid gates, related_events, reply jump navigation | [docs/TIMELINE_EVENTS.md](docs/TIMELINE_EVENTS.md) |
 | Timeline paginate routing (`TimelineCacheCoordinator`) | [docs/TIMELINE_PAGINATE.md](docs/TIMELINE_PAGINATE.md) |
 | Message sending protocol, local echo, error states | [docs/MESSAGE_SENDING.md](docs/MESSAGE_SENDING.md) |
 | Message long-press menu (`MessageMenuBar`) | [docs/MESSAGE_MENU.md](docs/MESSAGE_MENU.md) |
