@@ -10068,6 +10068,7 @@ class AppViewModel : ViewModel() {
             
             // First pass: create MentionEvent objects and collect reply targets
             for (event in events) {
+                if (event.type == "com.beeper.message_send_status") continue
                 val roomId = event.roomId
                 val room = getRoomById(roomId)
                 val roomName = room?.name
