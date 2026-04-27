@@ -66,18 +66,10 @@ object IntelligentMediaCache {
         return mxcUrl.removePrefix("mxc://")
     }
     
-    /**
-     * Get the full cache file path, ensuring the server subdirectory exists.
-     */
     private fun getCacheFile(context: Context, mxcUrl: String): File {
         val cacheDir = getCacheDir(context)
         val relativePath = getCacheKey(mxcUrl)
-        val cacheFile = File(cacheDir, relativePath)
-        
-        // Ensure parent directory exists (server subdirectory)
-        cacheFile.parentFile?.mkdirs()
-        
-        return cacheFile
+        return File(cacheDir, relativePath)
     }
     
     /**
@@ -273,7 +265,8 @@ object IntelligentMediaCache {
     ): File? = withContext(Dispatchers.IO) {
         try {
             val cachedFile = getCacheFile(context, mxcUrl)
-            
+            cachedFile.parentFile?.mkdirs()
+
             // Check if already cached
             if (cachedFile.exists()) {
                 // Register in cache entries if not already there

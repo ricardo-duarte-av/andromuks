@@ -833,9 +833,6 @@ private fun MediaContent(
 ) {
     val density = LocalDensity.current
     
-    // Suspend disk/network loads while the timeline is scrolling; memory cache still serves instantly.
-    val isScrollingFast = net.vrkknn.andromuks.ui.components.LocalIsScrollingFast.current
-
     // Determine if we're using thumbnails
     // MSC4230: Skip thumbnails for animated images (GIF, animated PNG, animated WebP) to ensure animation plays
     // Thumbnails for animated images are typically static JPG/PNG, so we need to use the original
@@ -999,17 +996,14 @@ private fun MediaContent(
                     contentAlignment = Alignment.Center
                 ) {
                     val context = LocalContext.current
-                    val coroutineScope = rememberCoroutineScope()
 
                     // Use shared ImageLoader singleton with custom User-Agent
                     val imageLoader = remember { ImageLoaderSingleton.get(context) }
 
-                    // PERFORMANCE: Use IntelligentMediaCache for smart caching
-                    var cachedFile by remember { mutableStateOf<File?>(null) }
                     val displayMxcUrl = remember(mediaMessage.url, mediaMessage.info.thumbnailUrl, useThumbnail) {
                         if (useThumbnail) mediaMessage.info.thumbnailUrl!! else mediaMessage.url
                     }
-                    // If cache-based decode fails, retry once with Coil caches disabled (forces backend fetch).
+                    // If decode fails, retry once with Coil caches disabled (forces backend fetch).
                     var bypassCoilCache by remember(displayMxcUrl) { mutableStateOf(false) }
                     val displayIsEncrypted = if (useThumbnail) {
                         mediaMessage.info.thumbnailIsEncrypted
@@ -1017,36 +1011,25 @@ private fun MediaContent(
                         isEncrypted
                     }
 
-                    // Load cached file in background for the chosen resource (thumbnail or full)
-                    LaunchedEffect(displayMxcUrl) {
-                        cachedFile = IntelligentMediaCache.getCachedFile(context, displayMxcUrl)
+                    val imageUrl = remember(displayMxcUrl, displayIsEncrypted) {
+                        val targetHttp = if (useThumbnail) {
+                            MediaUtils.mxcToThumbnailUrl(displayMxcUrl, homeserverUrl, registerMapping = false)
+                        } else {
+                            MediaUtils.mxcToHttpUrl(displayMxcUrl, homeserverUrl, registerMapping = false)
+                        } ?: MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl, registerMapping = false)
+
+                        if (displayIsEncrypted && targetHttp != null) {
+                            val separator = if (targetHttp.contains("?")) "&" else "?"
+                            "$targetHttp${separator}encrypted=true"
+                        } else {
+                            targetHttp
+                        }
                     }
 
-                    val imageUrl =
-                        remember(displayMxcUrl, displayIsEncrypted, cachedFile, mediaMessage.url, useThumbnail) {
-                            if (cachedFile != null) {
-                                // Use cached file
-                                if (BuildConfig.DEBUG) Log.d(
-                                    "Andromuks",
-                                    "MediaMessage: Using cached file for display resource: ${cachedFile!!.absolutePath}"
-                                )
-                                cachedFile!!.absolutePath
-                            } else {
-                                // PERFORMANCE: Use thumbnail URL if available and requested
-                                val targetHttp = if (useThumbnail) {
-                                    MediaUtils.mxcToThumbnailUrl(displayMxcUrl, homeserverUrl)
-                                } else {
-                                    MediaUtils.mxcToHttpUrl(displayMxcUrl, homeserverUrl)
-                                } ?: MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
-                                
-                                if (displayIsEncrypted && targetHttp != null) {
-                                    val separator = if (targetHttp.contains("?")) "&" else "?"
-                                    "$targetHttp${separator}encrypted=true"
-                                } else {
-                                    targetHttp
-                                }
-                            }
-                        }
+                    LaunchedEffect(imageUrl, displayMxcUrl) {
+                        val url = imageUrl ?: return@LaunchedEffect
+                        CoilUrlMapper.registerMapping(url, displayMxcUrl)
+                    }
 
                     // NOTE: Coil handles caching automatically with memoryCachePolicy and
                     // diskCachePolicy
@@ -1261,18 +1244,12 @@ private fun MediaContent(
                             // memberUpdateCounter) changes. Without remember{}, rapid recompositions cause
                             // every in-flight image load to be cancelled and restarted, leaving images
                             // permanently stuck at the BlurHash placeholder.
-                            val imageRequest = remember(imageUrl, bypassCoilCache, isScrollingFast, cachedFile, authToken) {
+                            val imageRequest = remember(imageUrl, bypassCoilCache, authToken) {
                                 ImageRequest.Builder(context)
                                     .data(imageUrl ?: "")
-                                    .apply {
-                                        if (cachedFile == null) {
-                                            addHeader("Cookie", "gomuks_auth=$authToken")
-                                        }
-                                    }
+                                    .addHeader("Cookie", "gomuks_auth=$authToken")
                                     .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                    .diskCachePolicy(if (bypassCoilCache || isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                    .networkCachePolicy(if (isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                    .size(600, 600)
+                                    .diskCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
                                     .crossfade(300)
                                     .build()
                             }
@@ -1306,16 +1283,6 @@ private fun MediaContent(
                                     }
                                 },
                                 onError = {
-                                    if (cachedFile != null) {
-                                        val badMxcUrl = displayMxcUrl
-                                        if (BuildConfig.DEBUG) {
-                                            Log.w("Andromuks", "MediaFunctions: onError decoding cached file. Evicting mxc=$badMxcUrl path=${cachedFile?.absolutePath}")
-                                        }
-                                        cachedFile = null
-                                        coroutineScope.launch {
-                                            IntelligentMediaCache.evictCachedFile(context, badMxcUrl)
-                                        }
-                                    }
                                     bypassCoilCache = true
                                 },
                                 onLoading = { state ->
@@ -1495,59 +1462,34 @@ private fun MediaContent(
                                     )
                                 }
                             } else if (thumbnailUrl != null) {
-                                // Render video thumbnail
-                                // PERFORMANCE: Use thumbnail URL for video preview
-                                val thumbnailHttpUrl =
-                                    MediaUtils.mxcToThumbnailUrl(thumbnailUrl, homeserverUrl)
-                                val thumbnailFinalUrl =
-                                    if (mediaMessage.info.thumbnailIsEncrypted && thumbnailHttpUrl != null) {
-                                        val separator = if (thumbnailHttpUrl.contains("?")) "&" else "?"
-                                        "$thumbnailHttpUrl${separator}encrypted=true"
+                                val thumbnailFinalUrl = remember(thumbnailUrl, mediaMessage.info.thumbnailIsEncrypted) {
+                                    val httpUrl = MediaUtils.mxcToThumbnailUrl(thumbnailUrl, homeserverUrl, registerMapping = false)
+                                    if (mediaMessage.info.thumbnailIsEncrypted && httpUrl != null) {
+                                        val separator = if (httpUrl.contains("?")) "&" else "?"
+                                        "$httpUrl${separator}encrypted=true"
                                     } else {
-                                        thumbnailHttpUrl
+                                        httpUrl
                                     }
+                                }
+
+                                LaunchedEffect(thumbnailFinalUrl, thumbnailUrl) {
+                                    val url = thumbnailFinalUrl ?: return@LaunchedEffect
+                                    CoilUrlMapper.registerMapping(url, thumbnailUrl)
+                                }
 
                                 // One-time retry with Coil caches disabled if thumbnail decode fails.
                                 var bypassCoilCacheForVideoThumb by remember(thumbnailFinalUrl) { mutableStateOf(false) }
 
-                                // PERFORMANCE FIX: Decode video BlurHash asynchronously
-                                var decodedVideoBlurHash by remember(mediaMessage.info.thumbnailBlurHash) {
-                                    mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
-                                }
-                                
-                                LaunchedEffect(mediaMessage.info.thumbnailBlurHash) {
-                                    mediaMessage.info.thumbnailBlurHash?.let { blurHash ->
-                                        withContext(Dispatchers.Default) {
-                                            val bitmap = BlurHashUtils.decodeBlurHash(blurHash, 32, 32)
-                                            if (bitmap != null) {
-                                                decodedVideoBlurHash = bitmap.asImageBitmap()
-                                            }
-                                        }
-                                    }
-                                }
-                                
-                                val thumbnailBlurHashPainter = remember(decodedVideoBlurHash, mediaMessage.info.thumbnailBlurHash) {
-                                    decodedVideoBlurHash?.let { 
-                                        BitmapPainter(it) 
-                                    } ?: BitmapPainter(
-                                        BlurHashUtils.createPlaceholderBitmap(
-                                            32,
-                                            32,
-                                            androidx.compose.ui.graphics.Color.Gray
-                                        )
-                                    )
-                                }
+                                // Reuse the outer videoBlurHashPainter — avoids decoding the same BlurHash twice
+                                val thumbnailBlurHashPainter = videoBlurHashPainter
 
-                                // Same stability fix as image: remember the request so Coil does not
-                                // restart in-flight loads on unrelated recompositions.
-                                val videoThumbnailRequest = remember(thumbnailFinalUrl, bypassCoilCacheForVideoThumb, isScrollingFast, authToken) {
+                                val videoThumbnailRequest = remember(thumbnailFinalUrl, bypassCoilCacheForVideoThumb, authToken) {
                                     ImageRequest.Builder(context)
                                         .data(thumbnailFinalUrl)
                                         .addHeader("Cookie", "gomuks_auth=$authToken")
                                         .memoryCachePolicy(if (bypassCoilCacheForVideoThumb) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                        .diskCachePolicy(if (bypassCoilCacheForVideoThumb || isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                        .networkCachePolicy(if (isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                        .size(600, 600)
+                                        .diskCachePolicy(if (bypassCoilCacheForVideoThumb) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                                        .crossfade(300)
                                         .build()
                                 }
                                 AsyncImage(

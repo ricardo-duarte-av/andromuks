@@ -10,7 +10,6 @@ import coil.request.SuccessResult
 import java.io.File
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
-import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.CircleAvatarCache
 
 object AvatarUtils {
@@ -224,13 +223,6 @@ object AvatarUtils {
         val circleCachedFile = CircleAvatarCache.getCachedFile(context, mxcUrl)
         if (circleCachedFile != null) {
             val path = circleCachedFile.absolutePath
-            if (resolvedUrlCache.size < MAX_RESOLVED_URL_CACHE_SIZE) resolvedUrlCache[mxcUrl] = path
-            return path
-        }
-
-        val cachedFile = IntelligentMediaCache.getCachedFile(context, mxcUrl)
-        if (cachedFile != null) {
-            val path = cachedFile.absolutePath
             if (resolvedUrlCache.size < MAX_RESOLVED_URL_CACHE_SIZE) resolvedUrlCache[mxcUrl] = path
             return path
         }
