@@ -244,8 +244,15 @@ suspend fun bubbleProcessTimelineEvents(
         // Filter out redaction events
         if (event.type == "m.room.redaction") return@filter false
         // Filter out org.matrix.msc4075.* events (call notifications - should be hidden)
-        if (event.type.startsWith("org.matrix.msc4075.") || 
+        if (event.type.startsWith("org.matrix.msc4075.") ||
             event.decryptedType?.startsWith("org.matrix.msc4075.") == true) {
+            return@filter false
+        }
+        // Filter out Element Call reaction events and call membership state events
+        if (event.type == "io.element.call.reaction" ||
+            event.decryptedType == "io.element.call.reaction" ||
+            event.type == "org.matrix.msc3401.call.member" ||
+            event.decryptedType == "org.matrix.msc3401.call.member") {
             return@filter false
         }
         // Only allow events in the whitelist

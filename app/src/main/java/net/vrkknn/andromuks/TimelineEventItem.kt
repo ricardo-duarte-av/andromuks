@@ -52,6 +52,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -694,11 +695,39 @@ private fun MessageTypeContent(
             return
         }
         else -> {
-            Text(
-                text = "Event type: ${event.type}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            val menuConfig = if (onShowMenu != null) {
+                MessageMenuConfig(
+                    event = event,
+                    canEdit = false,
+                    canDelete = myUserId != null && event.sender == myUserId,
+                    canViewOriginal = true,
+                    canViewEditHistory = false,
+                    canPin = false,
+                    isPinned = false,
+                    onReply = { onReply(event) },
+                    onReact = { onReact(event) },
+                    onEdit = {},
+                    onDelete = { onDelete(event) },
+                    onPin = {},
+                    onUnpin = {},
+                    onShowEditHistory = null,
+                    appViewModel = appViewModel
+                )
+            } else null
+            Box(
+                modifier = Modifier.pointerInput(event.eventId) {
+                    detectTapGestures(
+                        onLongPress = { menuConfig?.let { onShowMenu?.invoke(it) } }
+                    )
+                }
+            ) {
+                Text(
+                    text = "Event type: ${event.type}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
         }
     }
 }
