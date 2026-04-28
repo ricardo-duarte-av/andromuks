@@ -730,7 +730,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         if (BuildConfig.DEBUG) Log.d(TAG, "Normal notification (bubble open=$bubbleAlreadyOpen, visible=$bubbleIsVisible): ${notificationData.roomId}")
                         // CRITICAL: Do NOT call setSilent() at all for normal notifications
                         // Calling setSilent(false) doesn't work - instead, explicitly set sound/vibration
-                        setOnlyAlertOnce(true) // Prevent heads-up flicker on rapid updates
+                        // Only suppress re-alerting on updates; new notifications must alert so Wear OS picks them up
+                        if (existingNotification != null) setOnlyAlertOnce(true)
                         setPriority(NotificationCompat.PRIORITY_HIGH)
                         // CRITICAL: On Android 8.0+, channels control sound/vibration
                         // We must ensure the channel has sound enabled, then the notification will use it
@@ -770,6 +771,11 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     // Add mark as read action
                     val markReadAction = createMarkReadAction(notificationData)
                     addAction(markReadAction)
+                    // Wear OS: surface reply action on the watch
+                    extend(
+                        NotificationCompat.WearableExtender()
+                            .addAction(replyAction)
+                    )
                     }
                     .build()
                 
