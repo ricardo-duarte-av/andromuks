@@ -37,6 +37,9 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
             directRoomNavigation = roomId
             directRoomNavigationTimestamp = notificationTimestamp
             directRoomNavigationTrigger++
+            // Prevent onAppBecameVisible from restoring the previously open room on top of this
+            // explicit navigation request — the target room takes priority.
+            pendingRoomToRestore = null
             if (!targetEventId.isNullOrBlank()) {
                 this@NavigationCoordinator.setPendingHighlightEvent(roomId, targetEventId)
             }

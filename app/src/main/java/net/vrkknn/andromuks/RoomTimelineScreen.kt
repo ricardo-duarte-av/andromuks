@@ -918,8 +918,12 @@ fun RoomTimelineScreen(
                 )
                 val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
                 appViewModel.clearDirectRoomNavigation()
-                appViewModel.flushSyncBatchForRoom(targetRoomId)
+                // Set currentRoomId to targetRoomId BEFORE suspending in flushSyncBatchForRoom.
+                // If flush suspends (up to 500ms), any concurrent LaunchedEffect watching
+                // currentRoomId will see the new room, not the old one, preventing stale room
+                // timeline events from being restored for the previous room.
                 appViewModel.navigateToRoomWithCache(targetRoomId, notificationTimestamp)
+                appViewModel.flushSyncBatchForRoom(targetRoomId)
                 val poppedToRoomList = navController.popBackStack("room_list", inclusive = false)
                 if (poppedToRoomList) {
                     // room_list was in the stack — navigate forward from there so Back works naturally

@@ -194,7 +194,11 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
             // Notify service of app visibility change
             WebSocketService.setAppVisibility(true)
 
-            if (currentRoomId.isEmpty()) {
+            // Only restore the previously-open room if there is no explicit navigation request
+            // pending (FCM notification / shortcut). directRoomNavigation takes priority — it
+            // already cleared pendingRoomToRestore in setDirectRoomNavigation, but guard here
+            // as well in case of any ordering edge case (e.g. broadcast arrives before onResume).
+            if (currentRoomId.isEmpty() && directRoomNavigation == null) {
                 val roomToRestore = pendingRoomToRestore
                 if (!roomToRestore.isNullOrEmpty()) {
                     if (BuildConfig.DEBUG)
