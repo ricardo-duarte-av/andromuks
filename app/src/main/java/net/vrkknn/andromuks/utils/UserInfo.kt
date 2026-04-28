@@ -1977,22 +1977,58 @@ fun UserInfoScreen(
                     val sharedRoomsCount = userProfileInfo!!.mutualRooms.size
                     val isSharedRoomsAvailable = sharedRoomsCount > 0
                     
+                    var isCreatingDm by remember { mutableStateOf(false) }
+                    
                     Button(
                         onClick = {
-                            if (isDmAvailable) {
+                            if (isDmAvailable && joinedDmRoomId != null) {
                                 val encodedRoomId = java.net.URLEncoder.encode(joinedDmRoomId, "UTF-8")
                                 navController.navigate("room_timeline/$encodedRoomId")
+                            } else {
+                                isCreatingDm = true
+                                appViewModel.createRoom(
+                                    name = null,
+                                    topic = null,
+                                    roomAliasName = null,
+                                    preset = "trusted_private_chat",
+                                    isDirect = true,
+                                    invite = listOf(userId),
+                                    initialState = listOf(
+                                        mapOf(
+                                            "type" to "m.room.encryption",
+                                            "content" to mapOf("algorithm" to "m.megolm.v1.aes-sha2")
+                                        )
+                                    )
+                                ) { newRoomId, error ->
+                                    coroutineScope.launch(Dispatchers.Main) {
+                                        isCreatingDm = false
+                                        if (newRoomId != null) {
+                                            val encodedRoomId = java.net.URLEncoder.encode(newRoomId, "UTF-8")
+                                            navController.navigate("room_timeline/$encodedRoomId")
+                                        } else {
+                                            Toast.makeText(context, "Failed to create DM: $error", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
                             }
                         },
-                        enabled = isDmAvailable,
+                        enabled = !isCreatingDm,
                         modifier = Modifier
                             .weight(1f)
                             .heightIn(min = 48.dp)
                     ) {
-                        Text(
-                            text = "Go to\nDM",
-                            textAlign = TextAlign.Center
-                        )
+                        if (isCreatingDm) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text(
+                                text = if (isDmAvailable) "Go to\nDM" else "Create\nDM",
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
 
                     Button(
