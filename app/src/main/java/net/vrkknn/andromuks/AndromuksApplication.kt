@@ -6,6 +6,7 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
@@ -34,6 +35,21 @@ class AndromuksApplication : Application() {
         super.onCreate()
         if (BuildConfig.DEBUG) {
             Log.d("Andromuks", "AndromuksApplication: onCreate()")
+        }
+        migrateLegacyImageCache()
+    }
+
+    private fun migrateLegacyImageCache() {
+        val legacyDir = cacheDir.resolve("image_cache")
+        if (legacyDir.exists()) {
+            applicationScope.launch(Dispatchers.IO) {
+                try {
+                    legacyDir.deleteRecursively()
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "AndromuksApplication: deleted legacy cacheDir/image_cache")
+                } catch (e: Exception) {
+                    Log.w("Andromuks", "AndromuksApplication: failed to delete legacy image cache", e)
+                }
+            }
         }
     }
     
