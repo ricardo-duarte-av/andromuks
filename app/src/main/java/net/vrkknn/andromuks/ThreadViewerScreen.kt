@@ -1075,8 +1075,9 @@ fun ThreadViewerScreen(
                     event.content?.has("com.beeper.per_message_profile") == true ||
                         event.decrypted?.has("com.beeper.per_message_profile") == true
 
+                val timeDifference = if (previousEvent != null) kotlin.math.abs(event.timestamp - previousEvent.timestamp) else 0L
                 val isConsecutive =
-                    !hasPerMessageProfile && previousEvent?.sender == event.sender
+                    !hasPerMessageProfile && previousEvent?.sender == event.sender && timeDifference <= 5 * 60 * 1000
 
                 // Add the event
                 items.add(
@@ -1345,9 +1346,11 @@ fun ThreadViewerScreen(
                                                 "com.beeper.per_message_profile"
                                             ) == true
 
+                                    val timeDifference = if (previousEvent != null) kotlin.math.abs(event.timestamp - previousEvent.timestamp) else 0L
                                     val isConsecutive =
                                         !hasPerMessageProfile &&
-                                            previousEvent?.sender == event.sender
+                                            previousEvent?.sender == event.sender &&
+                                            timeDifference <= 5 * 60 * 1000
 
                                     // Add a little extra spacing before non-consecutive messages
                                     // (only when there was a previous event).

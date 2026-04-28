@@ -1614,8 +1614,10 @@ fun BubbleTimelineScreen(
                     event.decrypted?.has("com.beeper.per_message_profile") == true
 
                 // Check if this is a consecutive message from the same sender
+                val timeDifference = if (previousEvent != null) kotlin.math.abs(event.timestamp - previousEvent.timestamp) else 0L
                 val isConsecutive = !hasPerMessageProfile && 
-                    previousEvent?.sender == event.sender
+                    previousEvent?.sender == event.sender &&
+                    timeDifference <= 5 * 60 * 1000
 
                 // Add the event with pre-computed flags
                 items.add(BubbleTimelineItem.Event(
