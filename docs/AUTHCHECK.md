@@ -164,18 +164,6 @@ A composable-local `var navigationHandled by remember { mutableStateOf(false) }`
 
 **Fix:** After all `get_room_state` requests are dispatched, a 15-second polling loop waits for `pendingRoomStateResponses` to drain. If it still has entries at the deadline, `allRoomStatesLoaded` is force-set to `true` and `checkStartupComplete()` is called — the same path any successful response would have taken.
 
-### 7. `navigateToRoomListIfNeeded` force-navigates away from room opened via notification tap
-
-**Symptom:** Tapping an FCM notification correctly opens the room timeline, but a moment later (once the WebSocket finishes startup) the app redirects back to `RoomListScreen`.
-
-**Root cause:** The notification tap flow stores the target room in `directRoomNavigation`, navigates to `room_timeline/<id>`, and then clears `directRoomNavigation`. When `checkStartupComplete()` later fires the navigation callback, it finds `directRoomNavigation == null` and falls through to `navigateToRoomListIfNeeded("default flow")`. That path has `shouldForceNavigation = true`, so it pops the back-stack back to `room_list` even though the user is already on the correct timeline.
-
-**Fix:** Added `appViewModel.openedViaDirectNotification: Boolean` flag. All call sites that navigate to `room_timeline` as a result of a notification or shortcut tap (in `RoomListScreen` LaunchedEffects and in `RoomTimelineScreen`'s `LaunchedEffect(navTrigger)` handler) set this flag to `true` immediately before calling `navigateToRoomTimelineForExternalEntry`. `navigateToRoomListIfNeeded` checks the flag and bails out early (clearing `isLoading` but skipping the `popBackStack`) when it is `true`.
-
-**Critical invariant:** Every call to `navController.navigateToRoomTimelineForExternalEntry(roomId)` that is triggered by a notification or shortcut **must** be preceded by `appViewModel.openedViaDirectNotification = true`. Missing even one site re-introduces the redirect-back-to-room_list race.
-
----
-
 ### 6. `currentUserProfile` startup gate has no timeout and no SharedPreferences cache
 **Symptom:** App stuck on AuthCheck indefinitely on cold start. Logs show "BLOCKED - missing: profile" even after all sync messages are processed. Opening the user's own profile screen resolves it in that session but the bug recurs on next restart.
 
@@ -188,3 +176,21 @@ A composable-local `var navigationHandled by remember { mutableStateOf(false) }`
 - Key semantics: `""` = key present, field is genuinely blank; `null` (key absent) = never fetched, must request. Both persist functions now always call `putString` (never `remove`) so the key's presence is the fetch-complete signal.
 - `ensureCurrentUserProfileLoaded()` checks SharedPreferences first (fast path 1) — if **both** `current_user_display_name` and `current_user_avatar_mxc` keys are non-null, `currentUserProfile` is populated immediately and `checkStartupComplete()` is called without waiting for the network. A background `requestUserProfile` still fires to refresh the data. If either key is absent the network path is taken as before.
 - `SyncRepository._events` buffer raised from 256 to 1024 and overflow policy changed from `DROP_OLDEST` to `DROP_LATEST` so burst responses never evict already-queued earlier responses.
+
+### 7. `navigateToRoomListIfNeeded` force-navigates away from room opened via notification tap
+
+**Symptom:** Tapping an FCM notification correctly opens the room timeline, but a moment later (once the WebSocket finishes startup) the app redirects back to `RoomListScreen`.
+
+**Root cause:** The notification tap flow stores the target room in `directRoomNavigation`, navigates to `room_timeline/<id>`, and then clears `directRoomNavigation`. When `checkStartupComplete()` later fires the navigation callback, it finds `directRoomNavigation == null` and falls through to `navigateToRoomListIfNeeded("default flow")`. That path has `shouldForceNavigation = true`, so it pops the back-stack back to `room_list` even though the user is already on the correct timeline.
+
+**Fix:** Added `appViewModel.openedViaDirectNotification: Boolean` flag. All call sites that navigate to `room_timeline` as a result of a notification or shortcut tap (in `RoomListScreen` LaunchedEffects and in `RoomTimelineScreen`'s `LaunchedEffect(navTrigger)` handler) set this flag to `true` immediately before calling `navigateToRoomTimelineForExternalEntry`. `navigateToRoomListIfNeeded` checks the flag and bails out early (clearing `isLoading` but skipping the `popBackStack`) when it is `true`.
+
+**Critical invariant:** Every call to `navController.navigateToRoomTimelineForExternalEntry(roomId)` that is triggered by a notification or shortcut **must** be preceded by `appViewModel.openedViaDirectNotification = true`. Missing even one site re-introduces the redirect-back-to-room_list race.
+
+### 8. Navigation callback redirects `simple_room_list` to `room_list` during share flow
+
+**Symptom:** Opening a share intent causes `SimplerRoomListScreen` to appear briefly and then instantly redirect to `RoomListScreen`.
+
+**Root cause:** Two handlers compete for the share-navigation handshake. `MainActivity`'s `LaunchedEffect(pendingShareNavigationRequested)` fires first on warm start — it navigates to `simple_room_list` and calls `markPendingShareNavigationHandled()`, which sets `pendingShareNavigationRequested = false`. When AuthCheck's navigation callback fires later (WebSocket startup complete), it checks `pendingShare != null && pendingShareNavigationRequested` and finds the second condition `false`, so it skips the share guard entirely and falls through to `navigateToRoomListIfNeeded("default flow")`. That function has `shouldForceNavigation = true` for "default flow" but its existing `simple_room_list` exemption is only in the `!shouldForceNavigation` branch, so it force-navigates to `room_list`.
+
+**Fix:** The navigation callback now returns early whenever `pendingShare != null`, regardless of `pendingShareNavigationRequested`. `navigateToRoomListIfNeeded` also has a `pendingShare != null` guard at the top as defence-in-depth.

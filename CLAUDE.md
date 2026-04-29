@@ -70,6 +70,8 @@ OkHttp WebSocket (Matrix protocol) + SQLite (BootstrapLoader)
 
 `LoginScreen` → `RoomListScreen` (or `SimplerRoomListScreen`) → `RoomTimelineScreen` / `ThreadViewerScreen` / `MentionsScreen` / `RoomMakerScreen`
 
+**Share-to-room flow:** Android share intents land in `MainActivity`, which sets `pendingShare` and `pendingShareNavigationRequested = true` in AppViewModel. Two handlers consume this: `MainActivity`'s `LaunchedEffect(pendingShareNavigationRequested)` navigates to `SimplerRoomListScreen` immediately and calls `markPendingShareNavigationHandled()`, and AuthCheck's navigation callback also checks for it. Because both can fire, the navigation callback must guard on `pendingShare != null` (not `pendingShareNavigationRequested`) to avoid redirecting back to `room_list` after the flag has been cleared. `navigateToRoomListIfNeeded` similarly guards against redirecting while a share is in progress.
+
 Android chat bubbles use `ChatBubbleActivity` → `BubbleTimelineScreen`.
 
 **Bubble VM timeline isolation invariant:** When `SyncEvent.RoomListSingletonReplicated` fires, secondary VM instances refresh their timeline by calling `restoreFromLruCache(roomId)` for every room in `RoomTimelineCache.getOpenedRooms()`. That set is a **singleton** shared across all Activities. A bubble VM must **not** iterate it — doing so causes `restoreFromLruCache` to overwrite `timelineEvents` with whatever room the main app last opened. Bubble VMs (`instanceRole == BUBBLE`) only refresh `currentRoomId`. See `AppViewModel.kt` `RoomListSingletonReplicated` handler.
