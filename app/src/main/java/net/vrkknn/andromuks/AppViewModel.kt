@@ -8996,7 +8996,7 @@ class AppViewModel : ViewModel() {
      * state update runs on Main to keep the UI responsive when opening a room from cache.
      * @param rebuildComplete If non-null, completed when the rebuild and state update are done (so callers can run post-rebuild steps).
      */
-    internal fun buildTimelineFromChain(rebuildComplete: CompletableDeferred<Unit>? = null) {
+    internal fun buildTimelineFromChain(rebuildComplete: CompletableDeferred<Unit>? = null, expectedRoomId: String? = null) {
         viewModelScope.launch(Dispatchers.Main) {
             val shouldSkip = shouldSkipTimelineRebuild.value
             if (shouldSkip) {
@@ -9011,7 +9011,7 @@ class AppViewModel : ViewModel() {
                 return@launch
             }
             viewModelScope.launch(Dispatchers.Default) {
-                executeTimelineRebuild(rebuildComplete)
+                executeTimelineRebuild(rebuildComplete, expectedRoomId)
             }
         }
     }
@@ -9021,7 +9021,7 @@ class AppViewModel : ViewModel() {
      * Separated from buildTimelineFromChain() to allow debouncing.
      * @param rebuildComplete If non-null, completed on Main after state is updated (so callers can run post-rebuild steps).
      */
-    private suspend fun executeTimelineRebuild(rebuildComplete: CompletableDeferred<Unit>? = null) {
+    private suspend fun executeTimelineRebuild(rebuildComplete: CompletableDeferred<Unit>? = null, expectedRoomId: String? = null) {
         if (BuildConfig.DEBUG) {
             val callStack = Thread.currentThread().stackTrace.take(5).joinToString(" -> ") { it.methodName }
             android.util.Log.d(
@@ -9194,6 +9194,15 @@ class AppViewModel : ViewModel() {
             
             // State updates and animation logic must run on Main
             withContext(Dispatchers.Main) {
+                // Guard against stale writes: if this rebuild was pinned to a specific room
+                // (e.g. from processCachedEvents launched on Dispatchers.Default) but the user
+                // has since navigated to a different room, discard the result entirely.
+                if (expectedRoomId != null && currentRoomId != expectedRoomId) {
+                    if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "executeTimelineRebuild: Discarding stale rebuild for $expectedRoomId (currentRoomId=$currentRoomId)")
+                    isTimelineLoading = false
+                    rebuildComplete?.complete(Unit)
+                    return@withContext
+                }
                 val previousEventIds = this@AppViewModel.timelineEvents.map { it.eventId }.toSet()
                 val newEventIds = sortedTimelineEvents.map { it.eventId }.toSet()
                 val actuallyNewMessages = newEventIds - previousEventIds

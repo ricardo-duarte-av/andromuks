@@ -569,9 +569,15 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 }
                 processEditRelationships()
                 val rebuildComplete = CompletableDeferred<Unit>()
-                buildTimelineFromChain(rebuildComplete)
+                buildTimelineFromChain(rebuildComplete, expectedRoomId = roomId)
                 rebuildComplete.await()
                 withContext(Dispatchers.Main) {
+                    // Guard: if the user navigated away from this room while background processing
+                    // ran, discard all post-processing state updates for it (profiles, reactions, etc.).
+                    if (currentRoomId != roomId) {
+                        if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "processCachedEvents: Discarding stale post-processing for $roomId (currentRoomId=$currentRoomId)")
+                        return@withContext
+                    }
                     val expectedMinEvents = cachedEvents.size - editEventCount
                     if (timelineEvents.size < expectedMinEvents * 0.9) {
                         android.util.Log.w(
