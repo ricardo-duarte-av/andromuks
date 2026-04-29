@@ -239,6 +239,13 @@ fun AuthCheckScreen(
             appViewModel.updateHomeserverUrl(homeserverUrl)
             appViewModel.updateAuthToken(token)
             fun navigateToRoomListIfNeeded(reason: String) {
+                // Don't redirect while a share-to-room flow is active. The user is on
+                // simple_room_list picking a destination; force-navigating to room_list would
+                // discard their in-progress share.
+                if (appViewModel.pendingShare != null) {
+                    appViewModel.isLoading = false
+                    return
+                }
                 if (appViewModel.getDirectRoomNavigation() != null) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
@@ -323,10 +330,19 @@ fun AuthCheckScreen(
                 
                 // When user shared media (single or multiple) without picking a room, go to room picker first.
                 // This must run before direct room so multi-file share doesn't land on RoomTimelineScreen and crash.
-                if (appViewModel.pendingShare != null && appViewModel.pendingShareNavigationRequested) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Pending share needs room selection, navigating to simple_room_list")
-                    navController.navigate("simple_room_list") { launchSingleTop = true }
-                    appViewModel.markPendingShareNavigationHandled()
+                // Always return early when pendingShare != null — MainActivity's LaunchedEffect may have already
+                // consumed pendingShareNavigationRequested (set it to false) before this callback fires, so we
+                // cannot rely on pendingShareNavigationRequested being true here. Returning unconditionally prevents
+                // the callback from falling through to navigateToRoomListIfNeeded and redirecting away from
+                // simple_room_list while the user is picking a room to share to.
+                if (appViewModel.pendingShare != null) {
+                    if (appViewModel.pendingShareNavigationRequested) {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Pending share needs room selection, navigating to simple_room_list")
+                        navController.navigate("simple_room_list") { launchSingleTop = true }
+                        appViewModel.markPendingShareNavigationHandled()
+                    } else {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Pending share in progress (navigation already handled) — skipping redirect")
+                    }
                     return@setNavigationCallback
                 }
                 
