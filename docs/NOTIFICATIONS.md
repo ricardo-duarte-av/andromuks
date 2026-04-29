@@ -105,6 +105,32 @@ Chat bubbles (Android 11+) are tracked via the `BubbleTracker` singleton. `FCMSe
 
 Auto-expanded bubbles are tracked in `EnhancedNotificationDisplay.autoExpandedBubbleRooms` to avoid re-expanding on every notification update.
 
+## Notification Tap Navigation
+
+Tapping a notification PendingIntent delivers the intent to `MainActivity` via `onCreate` (cold start) or `onNewIntent` (warm start). Both paths call:
+
+```
+appViewModel.setDirectRoomNavigation(roomId, notificationTimestamp, targetEventId)
+```
+
+This sets `directRoomNavigation`, increments `directRoomNavigationTrigger`, and clears `pendingRoomToRestore`.
+
+### `openedViaDirectNotification` invariant
+
+Every code path that navigates to `room_timeline/<id>` as a result of a notification or shortcut tap **must** set `appViewModel.openedViaDirectNotification = true` immediately before calling `navController.navigateToRoomTimelineForExternalEntry(roomId)`.
+
+This flag is checked inside `navigateToRoomListIfNeeded`. When `true`, the force-navigation back to `room_list` (which fires when the startup navigation callback runs after `directRoomNavigation` has already been consumed) is suppressed.
+
+Affected call sites (all must set the flag):
+- `RoomListScreen.kt` — every `navigateToRoomTimelineForExternalEntry` call inside LaunchedEffects for `directRoomId`/`pendingRoomId` paths (cached and non-cached), the spacesLoaded observer, the timeout fallback, and the `navigationTrigger` reactive handler.
+- `RoomTimelineScreen.kt` — the `LaunchedEffect(navTrigger)` "different room" handler.
+
+Missing the flag at any site re-introduces the redirect-back-to-room_list race (Bug 7 in AUTHCHECK.md).
+
+### `isTimelineLoading` reset in abort paths
+
+`navigateToRoomWithCache` sets `isTimelineLoading = true` synchronously before launching its coroutine. The coroutine contains two early-return abort checks (after the batch flush, and before `requestRoomTimeline`) that trigger when a concurrent navigation supersedes the current one (`currentRoomId != roomId`). Both abort handlers reset `isTimelineLoading = false` when `currentRoomId.isEmpty()` (user navigated back to room list), preventing the loading spinner from sticking permanently.
+
 ## Shortcut / conversation API
 
 Each room notification creates or updates a `ShortcutInfoCompat` (via `ConversationsApi`) so Android associates the notification with a conversation shortcut. This is required for `MessagingStyle` and bubble support.

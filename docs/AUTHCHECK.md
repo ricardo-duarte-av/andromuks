@@ -164,6 +164,18 @@ A composable-local `var navigationHandled by remember { mutableStateOf(false) }`
 
 **Fix:** After all `get_room_state` requests are dispatched, a 15-second polling loop waits for `pendingRoomStateResponses` to drain. If it still has entries at the deadline, `allRoomStatesLoaded` is force-set to `true` and `checkStartupComplete()` is called — the same path any successful response would have taken.
 
+### 7. `navigateToRoomListIfNeeded` force-navigates away from room opened via notification tap
+
+**Symptom:** Tapping an FCM notification correctly opens the room timeline, but a moment later (once the WebSocket finishes startup) the app redirects back to `RoomListScreen`.
+
+**Root cause:** The notification tap flow stores the target room in `directRoomNavigation`, navigates to `room_timeline/<id>`, and then clears `directRoomNavigation`. When `checkStartupComplete()` later fires the navigation callback, it finds `directRoomNavigation == null` and falls through to `navigateToRoomListIfNeeded("default flow")`. That path has `shouldForceNavigation = true`, so it pops the back-stack back to `room_list` even though the user is already on the correct timeline.
+
+**Fix:** Added `appViewModel.openedViaDirectNotification: Boolean` flag. All call sites that navigate to `room_timeline` as a result of a notification or shortcut tap (in `RoomListScreen` LaunchedEffects and in `RoomTimelineScreen`'s `LaunchedEffect(navTrigger)` handler) set this flag to `true` immediately before calling `navigateToRoomTimelineForExternalEntry`. `navigateToRoomListIfNeeded` checks the flag and bails out early (clearing `isLoading` but skipping the `popBackStack`) when it is `true`.
+
+**Critical invariant:** Every call to `navController.navigateToRoomTimelineForExternalEntry(roomId)` that is triggered by a notification or shortcut **must** be preceded by `appViewModel.openedViaDirectNotification = true`. Missing even one site re-introduces the redirect-back-to-room_list race.
+
+---
+
 ### 6. `currentUserProfile` startup gate has no timeout and no SharedPreferences cache
 **Symptom:** App stuck on AuthCheck indefinitely on cold start. Logs show "BLOCKED - missing: profile" even after all sync messages are processed. Opening the user's own profile screen resolves it in that session but the bug recurs on next restart.
 

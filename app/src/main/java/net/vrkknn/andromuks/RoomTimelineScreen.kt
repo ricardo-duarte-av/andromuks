@@ -924,6 +924,7 @@ fun RoomTimelineScreen(
                 // timeline events from being restored for the previous room.
                 appViewModel.navigateToRoomWithCache(targetRoomId, notificationTimestamp)
                 appViewModel.flushSyncBatchForRoom(targetRoomId)
+                appViewModel.openedViaDirectNotification = true
                 val poppedToRoomList = navController.popBackStack("room_list", inclusive = false)
                 if (poppedToRoomList) {
                     // room_list was in the stack — navigate forward from there so Back works naturally

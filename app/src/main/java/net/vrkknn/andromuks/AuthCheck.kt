@@ -268,6 +268,14 @@ fun AuthCheckScreen(
                     // If we're on room_timeline/... or chat_bubble/... and we should force navigation,
                     // navigate to room_list anyway (user opened app via app shortcut, not pinned shortcut)
                     if (shouldForceNavigation && (currentRoute.startsWith("room_timeline/") || currentRoute.startsWith("chat_bubble/"))) {
+                        // Do NOT force-navigate if the user arrived here via a direct notification tap.
+                        // RoomListScreen (or AuthCheck itself) already consumed directRoomNavigation and
+                        // navigated to room_timeline — navigating back to room_list would undo that work.
+                        if (appViewModel.openedViaDirectNotification) {
+                            if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Skipping force navigation to room_list ($reason) — user arrived via direct notification tap")
+                            appViewModel.isLoading = false
+                            return
+                        }
                         if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Force navigating to room_list ($reason) - clearing previous navigation stack (currentRoute: $currentRoute)")
                         appViewModel.isLoading = false
                         showStartupMorphOverlay = false

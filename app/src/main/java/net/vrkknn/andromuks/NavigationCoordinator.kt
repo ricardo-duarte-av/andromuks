@@ -159,6 +159,11 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                             "Andromuks",
                             "🔵 navigateToRoomWithCache: Aborting after flush — superseded by currentRoomId=$currentRoomId",
                         )
+                        // If no room is actively loading (user navigated back to room list),
+                        // reset isTimelineLoading so the spinner does not stick permanently.
+                        if (currentRoomId.isEmpty()) {
+                            isTimelineLoading = false
+                        }
                         return@launch
                     }
 
@@ -355,6 +360,9 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                         "Andromuks",
                         "🔵 navigateToRoomWithCache: Aborting before requestRoomTimeline — superseded by currentRoomId=$currentRoomId",
                     )
+                    if (currentRoomId.isEmpty()) {
+                        isTimelineLoading = false
+                    }
                     return@launch
                 }
 
