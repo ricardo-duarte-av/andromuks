@@ -663,13 +663,14 @@ internal class SyncRoomsCoordinator(
                     // (in the background thread, before processParsedSyncResult runs)
                     // This ensures invites are loaded before the UI checks for them
         
-                    // CRITICAL FIX: Process read receipts from sync_complete for ALL rooms, not just the currently open one
-                    // This ensures receipts are updated even when rooms are not currently open
-                    // Receipts are stored globally (by eventId) but should be updated whenever sync_complete arrives
-                    // PERF: Skip during initial sync — no rooms are open/cached yet, so receipt work is entirely wasted.
-                    //       Paginate will provide authoritative receipts when rooms are first opened.
+                    // Process read receipts from sync_complete for cached/open rooms only.
+                    // The per-room isActivelyCached || isCurrentRoom guard below handles the "nothing cached
+                    // yet" case (initial bulk sync), so no outer initialSyncProcessingComplete guard is needed.
+                    // Using initialSyncProcessingComplete here caused a race on reconnect: onInitComplete()
+                    // launches the coroutine that sets it asynchronously, so the first resume sync_complete
+                    // could arrive while it was still false, silently dropping receipts for cached rooms.
                     val data = syncJson.optJSONObject("data")
-                    if (data != null && initialSyncProcessingComplete) {
+                    if (data != null) {
                         val rooms = data.optJSONObject("rooms")
                         if (rooms != null) {
                             var anyReceiptsProcessed = false

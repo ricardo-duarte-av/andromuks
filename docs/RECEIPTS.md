@@ -50,7 +50,9 @@ Called from `SyncRoomsCoordinator.processParsedSyncResult` for rooms that are ac
 
 After processing all rooms, calls `ReadReceiptCache.setAll(readReceipts)` once.
 
-**Skipped during initial sync** (`!initialSyncProcessingComplete`) — paginate provides authoritative receipts when rooms are first opened, so processing sync receipts before the timeline is loaded is wasted work.
+**Gated per room** — only processed when `RoomTimelineCache.isRoomActivelyCached(roomId) || currentRoomId == roomId`. Rooms that have never been opened have no timeline cache, so receipts for them are skipped; paginate provides authoritative receipts when those rooms are first opened.
+
+A previous guard (`initialSyncProcessingComplete`) was removed because it was set asynchronously inside `onInitComplete()`'s launched coroutine, creating a race on reconnect: the first resume sync_complete could arrive while `initialSyncProcessingComplete` was still `false`, silently dropping receipts for already-cached rooms. The per-room cache check is both sufficient and race-free.
 
 ### 2. Paginate — authoritative, per-event replacement
 
