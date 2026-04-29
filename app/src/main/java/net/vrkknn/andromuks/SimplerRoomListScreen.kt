@@ -104,6 +104,20 @@ fun SimplerRoomListScreen(
         }
     }
 
+    // Auto-navigate when a Direct Share room was pre-selected: once rooms are visible, skip
+    // the picker and go straight to the room timeline.
+    val pendingShareTargetRoomId = appViewModel.pendingShareTargetRoomId
+    LaunchedEffect(showRooms, pendingShareTargetRoomId) {
+        val targetId = pendingShareTargetRoomId ?: return@LaunchedEffect
+        if (!showRooms) return@LaunchedEffect
+        if (rooms.none { it.id == targetId }) return@LaunchedEffect
+        appViewModel.selectPendingShareRoom(targetId)
+        appViewModel.navigateToRoomWithCache(targetId)
+        navController.navigate("room_timeline/$targetId") {
+            popUpTo("simple_room_list") { inclusive = true }
+        }
+    }
+
     AndromuksTheme {
         Surface(
             modifier = modifier.fillMaxSize(),

@@ -447,7 +447,8 @@ class AppViewModel : ViewModel() {
         private set
     var pendingShareUpdateCounter by mutableStateOf(0)
         private set
-    private var pendingShareTargetRoomId: String? = null
+    var pendingShareTargetRoomId by mutableStateOf<String?>(null)
+        private set
 
     fun setPendingShare(
         items: List<SharedMediaItem>,
@@ -464,7 +465,7 @@ class AppViewModel : ViewModel() {
         )
         pendingShare = PendingSharePayload(items, text)
         pendingShareTargetRoomId = null
-        pendingShareNavigationRequested = autoSelectRoomId == null
+        pendingShareNavigationRequested = true
         pendingShareUpdateCounter++
         if (!autoSelectRoomId.isNullOrBlank()) {
             pendingShareTargetRoomId = autoSelectRoomId
@@ -7892,8 +7893,18 @@ class AppViewModel : ViewModel() {
                 
                 if (sortedRooms.isNotEmpty()) {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Refreshing shortcuts on startup with ${sortedRooms.size} active rooms (top 4 will be used)")
-                    // Use updateConversationShortcuts which handles the top 4 selection internally
-                    api.updateConversationShortcuts(sortedRooms)
+                    // Reorder so rooms the user has sent to come first (most recently sent first),
+                    // then fill remaining slots with the timestamp-based sorted list.
+                    val sentIds = api.getSentRoomIds()
+                    val reorderedRooms = if (sentIds.isEmpty()) {
+                        sortedRooms
+                    } else {
+                        val roomsById = sortedRooms.associateBy { it.id }
+                        val sentFirst = sentIds.mapNotNull { roomsById[it] }
+                        val remaining = sortedRooms.filter { it.id !in sentIds.toSet() }
+                        sentFirst + remaining
+                    }
+                    api.updateConversationShortcuts(reorderedRooms)
                 } else {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No active rooms found (no timestamps, unread, or message previews), skipping shortcut refresh on startup")
                 }

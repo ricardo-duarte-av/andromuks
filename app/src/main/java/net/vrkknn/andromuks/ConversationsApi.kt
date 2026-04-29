@@ -52,6 +52,19 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         private const val MAX_SHORTCUTS = 4
         private const val SHORTCUT_UPDATE_DEBOUNCE_MS = 30000L // 30 seconds debounce
         private const val MIN_SHORTCUT_UPDATE_INTERVAL_MS = 300000L // 5 minutes: cooldown after actual update to prevent spam (reduced from 1 hour to allow avatar updates)
+        private const val SENT_ROOMS_PREFS = "sent_rooms_tracker"
+        private const val SENT_ROOMS_KEY = "sent_room_ids"
+        private const val MAX_SENT_ROOMS = 10
+        // Bump this whenever the shortcut schema changes (categories, etc.) to force a
+        // one-time wipe-and-republish so existing shortcuts pick up the new metadata.
+        private const val SHORTCUTS_SCHEMA_VERSION = 2
+        private const val SCHEMA_VERSION_KEY = "shortcuts_schema_version"
+        // App-specific category used for Direct Share.  Must match shortcuts.xml <share-target>.
+        const val CATEGORY_SHARE_TARGET = "pt.aguiarvieira.andromuks.category.SHARE_TARGET"
+    }
+
+    private val sentRoomsPrefs by lazy {
+        context.getSharedPreferences(SENT_ROOMS_PREFS, android.content.Context.MODE_PRIVATE)
     }
     
     // Single shared scope for all shortcut work — avoids creating a new scope on every sync
@@ -430,7 +443,26 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) {
             return@withContext
         }
-        
+
+        try {
+            // If the shortcut schema changed, wipe all existing shortcuts so they are
+            // re-published with the current categories (including CATEGORY_SHARE_TARGET).
+            val storedVersion = sentRoomsPrefs.getInt(SCHEMA_VERSION_KEY, 0)
+            if (storedVersion != SHORTCUTS_SCHEMA_VERSION) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "initializeShortcutCache: schema version mismatch ($storedVersion vs $SHORTCUTS_SCHEMA_VERSION), wiping all shortcuts")
+                ShortcutManagerCompat.removeAllDynamicShortcuts(context)
+                lastShortcutData = emptyMap()
+                lastShortcutStableIds = emptySet()
+                lastNameAvatar = emptyMap()
+                lastAvatarCachePresence.clear()
+                shortcutHasAvatarIcon.clear()
+                sentRoomsPrefs.edit().putInt(SCHEMA_VERSION_KEY, SHORTCUTS_SCHEMA_VERSION).apply()
+                return@withContext  // cache is empty; callers will addShortcut() on next update
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during schema version check", e)
+        }
+
         try {
             val existingShortcuts = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_DYNAMIC)
             
@@ -816,6 +848,37 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         }
     }
     
+    /**
+     * Record that the user sent a message in this room and push it to the top of the shortcut list.
+     * Persists an ordered list of sent-to room IDs (up to MAX_SENT_ROOMS) in SharedPreferences
+     * so that startup can prioritize rooms the user actually writes in.
+     */
+    fun onRoomActivity(room: RoomItem) {
+        val current = getSentRoomIds().toMutableList()
+        current.remove(room.id)
+        current.add(0, room.id)
+        if (current.size > MAX_SENT_ROOMS) current.subList(MAX_SENT_ROOMS, current.size).clear()
+        sentRoomsPrefs.edit().putString(SENT_ROOMS_KEY, current.joinToString(",")).apply()
+
+        if (!cacheInitialized) {
+            scope.launch {
+                initializeShortcutCache()
+                cacheInitialized = true
+                processSyncRooms(listOf(room))
+            }
+            return
+        }
+        processSyncRooms(listOf(room))
+    }
+
+    fun onUserSentToRoom(room: RoomItem) = onRoomActivity(room)
+
+    /** Returns the ordered list of room IDs the user has sent messages to (most recent first). */
+    fun getSentRoomIds(): List<String> {
+        val raw = sentRoomsPrefs.getString(SENT_ROOMS_KEY, "") ?: ""
+        return if (raw.isEmpty()) emptyList() else raw.split(",").filter { it.isNotBlank() }
+    }
+
     /**
      * Convert RoomItem to ConversationShortcut
      */
@@ -1225,7 +1288,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             .setLongLabel(shortcut.roomName)
             .setIcon(icon)
             .setIntent(intent)
-            .setCategories(setOf("android.shortcut.conversation"))
+            .setCategories(setOf("android.shortcut.conversation", CATEGORY_SHARE_TARGET))
             .setIsConversation()
             .setLongLived(true)
             .build()

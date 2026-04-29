@@ -28,6 +28,7 @@ internal class MessageSendCoordinator(
         mentions: List<String> = emptyList(),
         urlPreviews: JSONArray = JSONArray()
     ) {
+        notifyUserSentTo(roomId)
         val reqId = vm.getAndIncrementRequestId()
 
         if (BuildConfig.DEBUG) {
@@ -64,6 +65,7 @@ internal class MessageSendCoordinator(
             android.util.Log.d("Andromuks", "AppViewModel: sendMessage called with roomId: '$roomId', text: '$text'")
         }
 
+        notifyUserSentTo(roomId)
         val result = sendMessageInternal(roomId, text)
 
         // Offline/not-ready cases are already covered:
@@ -85,6 +87,7 @@ internal class MessageSendCoordinator(
             android.util.Log.d("Andromuks", "AppViewModel: sendMessage called with roomId: '$roomId', text: '$text', urlPreviews=${urlPreviews.length()}")
         }
 
+        notifyUserSentTo(roomId)
         val result = sendMessageInternal(roomId, text, urlPreviews)
 
         if (result != WebSocketResult.SUCCESS) {
@@ -175,6 +178,7 @@ internal class MessageSendCoordinator(
             )
         }
 
+        notifyUserSentTo(roomId)
         val now = System.currentTimeMillis()
 
         synchronized(vm.pendingNotificationMessagesLock) {
@@ -385,6 +389,7 @@ internal class MessageSendCoordinator(
             )
         }
 
+        notifyUserSentTo(roomId)
         val result = sendReplyInternal(roomId, text, originalEvent)
 
         if (result != WebSocketResult.SUCCESS) {
@@ -520,6 +525,7 @@ internal class MessageSendCoordinator(
         }
 
         if (WebSocketService.getWebSocket() == null) return
+        notifyUserSentTo(roomId)
         val messageRequestId = vm.getAndIncrementRequestId()
 
         vm.messageRequests[messageRequestId] = roomId
@@ -661,6 +667,7 @@ internal class MessageSendCoordinator(
             )
         }
 
+        notifyUserSentTo(roomId)
         val messageRequestId = vm.getAndIncrementRequestId()
 
         vm.trackOutgoingRequest(messageRequestId, roomId)
@@ -743,6 +750,7 @@ internal class MessageSendCoordinator(
             )
         }
 
+        notifyUserSentTo(roomId)
         val messageRequestId = vm.getAndIncrementRequestId()
 
         vm.messageRequests[messageRequestId] = roomId
@@ -866,6 +874,7 @@ internal class MessageSendCoordinator(
             )
         }
 
+        notifyUserSentTo(roomId)
         val messageRequestId = vm.getAndIncrementRequestId()
 
         vm.messageRequests[messageRequestId] = roomId
@@ -937,6 +946,7 @@ internal class MessageSendCoordinator(
         }
 
         if (WebSocketService.getWebSocket() == null) return
+        notifyUserSentTo(roomId)
         val messageRequestId = vm.getAndIncrementRequestId()
 
         vm.messageRequests[messageRequestId] = roomId
@@ -1056,5 +1066,11 @@ internal class MessageSendCoordinator(
             android.util.Log.d("Andromuks", "AppViewModel: Sending thread reply with data: $commandData")
         }
         vm.sendWebSocketCommand("send_message", messageRequestId, commandData)
+        notifyUserSentTo(roomId)
+    }
+
+    private fun notifyUserSentTo(roomId: String) {
+        val room = vm.getRoomById(roomId) ?: return
+        vm.conversationsApi?.onUserSentToRoom(room)
     }
 }

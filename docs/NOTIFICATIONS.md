@@ -134,3 +134,5 @@ Missing the flag at any site re-introduces the redirect-back-to-room_list race (
 ## Shortcut / conversation API
 
 Each room notification creates or updates a `ShortcutInfoCompat` (via `ConversationsApi`) so Android associates the notification with a conversation shortcut. This is required for `MessagingStyle` and bubble support.
+
+`ConversationsApi.onRoomActivity(roomItem)` is called inside the `synchronized` block in `showEnhancedNotification`, **after** `notificationManager.notify()`. This ensures only notifications that are actually posted push the room to the top of the Direct Share ranking — silent/suppressed notifications (low-priority rooms, same-room-app-visible suppression, bubble-already-visible silent updates) exit via early `return` before reaching the synchronized block and do not affect the ranking.

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+        Declares MainActivity as a share target so that dynamic shortcuts published with
+        the pt.aguiarvieira.andromuks.category.SHARE_TARGET category appear as Direct
+        Share targets in the Android share sheet (API 29+).
+    -->
+    <share-target android:targetClass="net.vrkknn.andromuks.MainActivity">
+        <data android:mimeType="image/*" />
+        <data android:mimeType="video/*" />
+        <data android:mimeType="audio/*" />
+        <data android:mimeType="text/plain" />
+        <data android:mimeType="application/*" />
+        <!-- Must match the category set on every sharing shortcut via setCategories() -->
+        <category android:name="pt.aguiarvieira.andromuks.category.SHARE_TARGET" />
+    </share-target>
+</shortcuts>

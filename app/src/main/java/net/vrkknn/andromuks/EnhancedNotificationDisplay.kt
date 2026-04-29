@@ -805,6 +805,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "✓ Notification posted successfully for room: ${notificationData.roomId}")
                 }
+                // Push room to top of the active-rooms tracker only after a notification was actually posted
+                conversationsApi?.onRoomActivity(roomItem)
             } // End synchronized block
 
             // Phase 2: enqueue image download outside the synchronized block (no lock needed).

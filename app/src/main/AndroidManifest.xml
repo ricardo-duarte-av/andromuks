@@ -113,6 +113,10 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="vnd.android.cursor.item/vnd.net.vrkknn.andromuks.matrix.user" />
             </intent-filter>
+            <!-- Required for Direct Share: links dynamic shortcuts to this activity as share targets -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
         
         <!-- ShortcutActivity - Direct room navigation for shortcuts -->

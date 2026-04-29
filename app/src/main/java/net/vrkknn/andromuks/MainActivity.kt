@@ -470,7 +470,11 @@ class MainActivity : ComponentActivity() {
             pendingShareIntent = intent
             return
         }
-        val targetRoomId = intent.getStringExtra(PersonsApi.EXTRA_ROOM_ID)
+        // Intent.EXTRA_SHORTCUT_ID is set by the system when the user picks a Direct Share
+        // target from the share sheet.  Our shortcut IDs are room IDs (start with "!").
+        val shortcutRoomId = intent.getStringExtra(Intent.EXTRA_SHORTCUT_ID)
+            ?.takeIf { it.startsWith("!") }
+        val targetRoomId = intent.getStringExtra(PersonsApi.EXTRA_ROOM_ID) ?: shortcutRoomId
         val targetUserId = intent.getStringExtra(PersonsApi.EXTRA_USER_ID)
         val shareItems = extractShareItems(intent)
         val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
@@ -493,9 +497,12 @@ class MainActivity : ComponentActivity() {
             if (!targetUserId.isNullOrBlank()) {
                 appViewModel.reportPersonShortcutUsed(targetUserId)
             }
-            appViewModel.setDirectRoomNavigation(targetRoomId)
-            appViewModel.navigateToRoomWithCache(targetRoomId)
-            appViewModel.markPendingShareNavigationHandled()
+            // SimplerRoomListScreen auto-navigates once rooms are loaded, so no direct navigation here.
+            // For non-shortcut room targets (EXTRA_ROOM_ID), set direct navigation as a hint for AuthCheck.
+            if (shortcutRoomId == null) {
+                appViewModel.setDirectRoomNavigation(targetRoomId)
+                appViewModel.navigateToRoomWithCache(targetRoomId)
+            }
         }
 
         // Prevent re-processing of the same intent
