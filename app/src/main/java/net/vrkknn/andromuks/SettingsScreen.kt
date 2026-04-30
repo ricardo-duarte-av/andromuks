@@ -1184,6 +1184,14 @@ fun ClientPreferencesScreen(
                 onValueChange = { appViewModel.setGomuksGlobalSendTypingNotifications(it) }
             )
 
+            GomuksPreferenceCard(
+                title = "Display read receipts",
+                description = "Stored in account data — applies across all your Matrix clients. " +
+                    "When disabled, read receipt avatars are hidden from the timeline.",
+                value = appViewModel.accountGlobalDisplayReadReceipts,
+                onValueChange = { appViewModel.setGomuksGlobalDisplayReadReceipts(it) }
+            )
+
             Text(
                 text = "Global (this device only)",
                 style = MaterialTheme.typography.headlineSmall,
@@ -1226,6 +1234,13 @@ fun ClientPreferencesScreen(
                 description = "Stored locally on this device. Overrides the global (all-devices) setting.",
                 value = appViewModel.deviceGlobalSendTypingNotifications,
                 onValueChange = { appViewModel.setDeviceGlobalSendTypingNotifications(it) }
+            )
+
+            GomuksPreferenceCard(
+                title = "Display read receipts",
+                description = "Stored locally on this device. Overrides the global (all-devices) setting.",
+                value = appViewModel.deviceGlobalDisplayReadReceipts,
+                onValueChange = { appViewModel.setDeviceGlobalDisplayReadReceipts(it) }
             )
 
             Text(
@@ -1333,6 +1348,12 @@ fun RoomPreferencesScreen(
     var roomDeviceSendTyping by remember(roomId, roomPrefsVersion) {
         mutableStateOf(appViewModel.getDeviceRoomSendTypingNotifications(roomId))
     }
+    var roomAccountDisplayReceipts by remember(roomId, roomPrefsVersion) {
+        mutableStateOf(appViewModel.getAccountRoomDisplayReadReceipts(roomId))
+    }
+    var roomDeviceDisplayReceipts by remember(roomId, roomPrefsVersion) {
+        mutableStateOf(appViewModel.getDeviceRoomDisplayReadReceipts(roomId))
+    }
 
     Scaffold(
         topBar = {
@@ -1416,6 +1437,17 @@ fun RoomPreferencesScreen(
                 }
             )
 
+            GomuksPreferenceCard(
+                title = "Display read receipts",
+                description = "Stored in room account data — applies to this room on all your Matrix clients. " +
+                    "When disabled, read receipt avatars are hidden in this room.",
+                value = roomAccountDisplayReceipts,
+                onValueChange = {
+                    roomAccountDisplayReceipts = it
+                    appViewModel.setGomuksRoomDisplayReadReceipts(roomId, it)
+                }
+            )
+
             Text(
                 text = "Room (this device only)",
                 style = MaterialTheme.typography.headlineSmall,
@@ -1472,6 +1504,16 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomDeviceSendTyping = it
                     appViewModel.setDeviceRoomSendTypingNotifications(roomId, it)
+                }
+            )
+
+            GomuksPreferenceCard(
+                title = "Display read receipts",
+                description = "Stored locally on this device for this room. Overrides all other preferences for this room on this device.",
+                value = roomDeviceDisplayReceipts,
+                onValueChange = {
+                    roomDeviceDisplayReceipts = it
+                    appViewModel.setDeviceRoomDisplayReadReceipts(roomId, it)
                 }
             )
 

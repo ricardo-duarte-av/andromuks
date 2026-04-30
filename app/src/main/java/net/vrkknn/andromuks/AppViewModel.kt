@@ -452,6 +452,10 @@ class AppViewModel : ViewModel() {
         internal set
     var deviceGlobalSendTypingNotifications: Boolean? by mutableStateOf(null)
         internal set
+    var accountGlobalDisplayReadReceipts: Boolean? by mutableStateOf(null)
+        internal set
+    var deviceGlobalDisplayReadReceipts: Boolean? by mutableStateOf(null)
+        internal set
     // Bumped whenever room-level gomuks prefs change so composables recompose
     var gomuksRoomPrefsVersion by mutableStateOf(0)
         internal set
@@ -10343,6 +10347,44 @@ class AppViewModel : ViewModel() {
 
     fun getAccountRoomSendTypingNotifications(roomId: String): Boolean? =
         getRoomAccountGomuksPref(roomId, "send_typing_notifications")
+
+    fun getAccountRoomDisplayReadReceipts(roomId: String): Boolean? =
+        getRoomAccountGomuksPref(roomId, "display_read_receipts")
+
+    /**
+     * Resolves whether to display read receipts for a room (display_read_receipts).
+     * Absent = true (default behaviour is to show). Resolution order: room-device →
+     * room-account → global-device → global-account → true.
+     */
+    fun resolveDisplayReadReceipts(roomId: String?): Boolean {
+        @Suppress("UNUSED_VARIABLE") val _v = gomuksRoomPrefsVersion
+        if (roomId != null) {
+            val roomDevice = settingsCoordinator.getDeviceRoomDisplayReadReceipts(roomId)
+            if (roomDevice != null) return roomDevice
+            val roomAccount = getRoomAccountGomuksPref(roomId, "display_read_receipts")
+            if (roomAccount != null) return roomAccount
+        }
+        val devGlobal = deviceGlobalDisplayReadReceipts
+        if (devGlobal != null) return devGlobal
+        val accGlobal = accountGlobalDisplayReadReceipts
+        if (accGlobal != null) return accGlobal
+        return true
+    }
+
+    fun setGomuksGlobalDisplayReadReceipts(value: Boolean?) =
+        accountDataCoordinator.setGomuksGlobalDisplayReadReceipts(value)
+
+    fun setGomuksRoomDisplayReadReceipts(roomId: String, value: Boolean?) =
+        accountDataCoordinator.setGomuksRoomDisplayReadReceipts(roomId, value)
+
+    fun setDeviceGlobalDisplayReadReceipts(value: Boolean?) =
+        settingsCoordinator.setDeviceGlobalDisplayReadReceipts(value)
+
+    fun setDeviceRoomDisplayReadReceipts(roomId: String, value: Boolean?) =
+        settingsCoordinator.setDeviceRoomDisplayReadReceipts(roomId, value)
+
+    fun getDeviceRoomDisplayReadReceipts(roomId: String): Boolean? =
+        settingsCoordinator.getDeviceRoomDisplayReadReceipts(roomId)
 
     /**
      * Resolves whether to send read receipts for a room (send_read_receipts).

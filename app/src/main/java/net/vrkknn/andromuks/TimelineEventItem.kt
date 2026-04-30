@@ -3507,13 +3507,15 @@ fun TimelineEventItem(
                 // This ensures receipts from other rooms (with same eventId) don't show up
                 // Also handles backward compatibility: receipts without roomId (empty string) are shown for the current room
                 allReceipts.filter { receipt ->
-                    receipt.eventId == event.eventId && 
+                    receipt.eventId == event.eventId &&
                     (receipt.roomId == event.roomId || receipt.roomId.isBlank()) // Match roomId or allow empty (backward compat)
                 }
             } else {
                 emptyList()
             }
         }
+    @Suppress("NAME_SHADOWING")
+    val readReceipts = if (appViewModel?.resolveDisplayReadReceipts(event.roomId) != false) readReceipts else emptyList()
 
     // Early check for emote message (before rendering layout)
     val isEmoteMessage = when {

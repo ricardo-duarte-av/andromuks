@@ -349,6 +349,34 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         gomuksRoomPrefsVersion++
     }
 
+    fun setDeviceGlobalDisplayReadReceipts(value: Boolean?) = with(vm) {
+        deviceGlobalDisplayReadReceipts = value
+        appContext?.let { ctx ->
+            val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            if (value == null) editor.remove("gomuks_device_display_read_receipts")
+            else editor.putBoolean("gomuks_device_display_read_receipts", value)
+            editor.apply()
+        }
+    }
+
+    fun getDeviceRoomDisplayReadReceipts(roomId: String): Boolean? = with(vm) {
+        val ctx = appContext ?: return null
+        val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+        return booleanPrefOrNull(prefs, "gomuks_room_display_read_receipts_$roomId")
+    }
+
+    fun setDeviceRoomDisplayReadReceipts(roomId: String, value: Boolean?) = with(vm) {
+        appContext?.let { ctx ->
+            val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            val key = "gomuks_room_display_read_receipts_$roomId"
+            if (value == null) editor.remove(key) else editor.putBoolean(key, value)
+            editor.apply()
+        }
+        gomuksRoomPrefsVersion++
+    }
+
     fun loadSettings(context: Context? = null) = with(vm) {
         val contextToUse = context ?: appContext
         contextToUse?.let { ctx ->
@@ -368,6 +396,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             deviceGlobalSendBundledUrlPreviews = booleanPrefOrNull(prefs, "gomuks_device_send_bundled_url_previews")
             deviceGlobalSendReadReceipts = booleanPrefOrNull(prefs, "gomuks_device_send_read_receipts")
             deviceGlobalSendTypingNotifications = booleanPrefOrNull(prefs, "gomuks_device_send_typing_notifications")
+            deviceGlobalDisplayReadReceipts = booleanPrefOrNull(prefs, "gomuks_device_display_read_receipts")
 
             val defaultIntervalMin = (SyncBatchProcessor.DEFAULT_BATCH_INTERVAL_MS / 60_000L).toInt()
             backgroundPurgeIntervalMinutes = prefs.getInt("background_purge_interval_minutes", defaultIntervalMin)

@@ -389,7 +389,10 @@ internal class SyncRoomsCoordinator(
                         accountGlobalSendTypingNotifications = content?.let {
                             if (it.has("send_typing_notifications")) it.optBoolean("send_typing_notifications") else null
                         }
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processAccountData - fi.mau.gomuks.preferences show_media_previews=$accountGlobalShowMediaPreviews render_url_previews=$accountGlobalRenderUrlPreviews send_bundled_url_previews=$accountGlobalSendBundledUrlPreviews send_read_receipts=$accountGlobalSendReadReceipts send_typing_notifications=$accountGlobalSendTypingNotifications")
+                        accountGlobalDisplayReadReceipts = content?.let {
+                            if (it.has("display_read_receipts")) it.optBoolean("display_read_receipts") else null
+                        }
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processAccountData - fi.mau.gomuks.preferences show_media_previews=$accountGlobalShowMediaPreviews render_url_previews=$accountGlobalRenderUrlPreviews send_bundled_url_previews=$accountGlobalSendBundledUrlPreviews send_read_receipts=$accountGlobalSendReadReceipts send_typing_notifications=$accountGlobalSendTypingNotifications display_read_receipts=$accountGlobalDisplayReadReceipts")
                     }
 
                     // CRITICAL: Log completion of account data processing for debugging startup stalls

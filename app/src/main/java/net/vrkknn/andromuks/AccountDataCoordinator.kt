@@ -334,4 +334,15 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         sendGomuksRoomPref(roomId, "send_typing_notifications", value)
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: room $roomId send_typing_notifications=$value")
     }
+
+    fun setGomuksGlobalDisplayReadReceipts(value: Boolean?) = with(vm) {
+        sendGomuksGlobalPref("display_read_receipts", value)
+        accountGlobalDisplayReadReceipts = value
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: global display_read_receipts=$value")
+    }
+
+    fun setGomuksRoomDisplayReadReceipts(roomId: String, value: Boolean?) {
+        sendGomuksRoomPref(roomId, "display_read_receipts", value)
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: room $roomId display_read_receipts=$value")
+    }
 }
