@@ -444,6 +444,14 @@ class AppViewModel : ViewModel() {
         internal set
     var deviceGlobalSendBundledUrlPreviews: Boolean? by mutableStateOf(null)
         internal set
+    var accountGlobalSendReadReceipts: Boolean? by mutableStateOf(null)
+        internal set
+    var deviceGlobalSendReadReceipts: Boolean? by mutableStateOf(null)
+        internal set
+    var accountGlobalSendTypingNotifications: Boolean? by mutableStateOf(null)
+        internal set
+    var deviceGlobalSendTypingNotifications: Boolean? by mutableStateOf(null)
+        internal set
     // Bumped whenever room-level gomuks prefs change so composables recompose
     var gomuksRoomPrefsVersion by mutableStateOf(0)
         internal set
@@ -10329,6 +10337,82 @@ class AppViewModel : ViewModel() {
 
     fun getAccountRoomSendBundledUrlPreviews(roomId: String): Boolean? =
         getRoomAccountGomuksPref(roomId, "send_bundled_url_previews")
+
+    fun getAccountRoomSendReadReceipts(roomId: String): Boolean? =
+        getRoomAccountGomuksPref(roomId, "send_read_receipts")
+
+    fun getAccountRoomSendTypingNotifications(roomId: String): Boolean? =
+        getRoomAccountGomuksPref(roomId, "send_typing_notifications")
+
+    /**
+     * Resolves whether to send read receipts for a room (send_read_receipts).
+     * Absent = true (default behaviour is to send). Resolution order: room-device →
+     * room-account → global-device → global-account → true.
+     */
+    fun resolveSendReadReceipts(roomId: String?): Boolean {
+        @Suppress("UNUSED_VARIABLE") val _v = gomuksRoomPrefsVersion
+        if (roomId != null) {
+            val roomDevice = settingsCoordinator.getDeviceRoomSendReadReceipts(roomId)
+            if (roomDevice != null) return roomDevice
+            val roomAccount = getRoomAccountGomuksPref(roomId, "send_read_receipts")
+            if (roomAccount != null) return roomAccount
+        }
+        val devGlobal = deviceGlobalSendReadReceipts
+        if (devGlobal != null) return devGlobal
+        val accGlobal = accountGlobalSendReadReceipts
+        if (accGlobal != null) return accGlobal
+        return true
+    }
+
+    /**
+     * Resolves whether to send typing notifications for a room (send_typing_notifications).
+     * Absent = true (default behaviour is to send). Resolution order: room-device →
+     * room-account → global-device → global-account → true.
+     */
+    fun resolveSendTypingNotifications(roomId: String?): Boolean {
+        @Suppress("UNUSED_VARIABLE") val _v = gomuksRoomPrefsVersion
+        if (roomId != null) {
+            val roomDevice = settingsCoordinator.getDeviceRoomSendTypingNotifications(roomId)
+            if (roomDevice != null) return roomDevice
+            val roomAccount = getRoomAccountGomuksPref(roomId, "send_typing_notifications")
+            if (roomAccount != null) return roomAccount
+        }
+        val devGlobal = deviceGlobalSendTypingNotifications
+        if (devGlobal != null) return devGlobal
+        val accGlobal = accountGlobalSendTypingNotifications
+        if (accGlobal != null) return accGlobal
+        return true
+    }
+
+    fun setGomuksGlobalSendReadReceipts(value: Boolean?) =
+        accountDataCoordinator.setGomuksGlobalSendReadReceipts(value)
+
+    fun setGomuksGlobalSendTypingNotifications(value: Boolean?) =
+        accountDataCoordinator.setGomuksGlobalSendTypingNotifications(value)
+
+    fun setGomuksRoomSendReadReceipts(roomId: String, value: Boolean?) =
+        accountDataCoordinator.setGomuksRoomSendReadReceipts(roomId, value)
+
+    fun setGomuksRoomSendTypingNotifications(roomId: String, value: Boolean?) =
+        accountDataCoordinator.setGomuksRoomSendTypingNotifications(roomId, value)
+
+    fun setDeviceGlobalSendReadReceipts(value: Boolean?) =
+        settingsCoordinator.setDeviceGlobalSendReadReceipts(value)
+
+    fun setDeviceGlobalSendTypingNotifications(value: Boolean?) =
+        settingsCoordinator.setDeviceGlobalSendTypingNotifications(value)
+
+    fun setDeviceRoomSendReadReceipts(roomId: String, value: Boolean?) =
+        settingsCoordinator.setDeviceRoomSendReadReceipts(roomId, value)
+
+    fun setDeviceRoomSendTypingNotifications(roomId: String, value: Boolean?) =
+        settingsCoordinator.setDeviceRoomSendTypingNotifications(roomId, value)
+
+    fun getDeviceRoomSendReadReceipts(roomId: String): Boolean? =
+        settingsCoordinator.getDeviceRoomSendReadReceipts(roomId)
+
+    fun getDeviceRoomSendTypingNotifications(roomId: String): Boolean? =
+        settingsCoordinator.getDeviceRoomSendTypingNotifications(roomId)
 
     fun loadSettings(context: Context? = null) = settingsCoordinator.loadSettings(context)
     /**

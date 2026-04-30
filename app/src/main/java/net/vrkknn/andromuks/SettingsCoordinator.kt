@@ -293,6 +293,62 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         gomuksRoomPrefsVersion++
     }
 
+    fun setDeviceGlobalSendReadReceipts(value: Boolean?) = with(vm) {
+        deviceGlobalSendReadReceipts = value
+        appContext?.let { ctx ->
+            val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            if (value == null) editor.remove("gomuks_device_send_read_receipts")
+            else editor.putBoolean("gomuks_device_send_read_receipts", value)
+            editor.apply()
+        }
+    }
+
+    fun getDeviceRoomSendReadReceipts(roomId: String): Boolean? = with(vm) {
+        val ctx = appContext ?: return null
+        val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+        return booleanPrefOrNull(prefs, "gomuks_room_send_read_receipts_$roomId")
+    }
+
+    fun setDeviceRoomSendReadReceipts(roomId: String, value: Boolean?) = with(vm) {
+        appContext?.let { ctx ->
+            val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            val key = "gomuks_room_send_read_receipts_$roomId"
+            if (value == null) editor.remove(key) else editor.putBoolean(key, value)
+            editor.apply()
+        }
+        gomuksRoomPrefsVersion++
+    }
+
+    fun setDeviceGlobalSendTypingNotifications(value: Boolean?) = with(vm) {
+        deviceGlobalSendTypingNotifications = value
+        appContext?.let { ctx ->
+            val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            if (value == null) editor.remove("gomuks_device_send_typing_notifications")
+            else editor.putBoolean("gomuks_device_send_typing_notifications", value)
+            editor.apply()
+        }
+    }
+
+    fun getDeviceRoomSendTypingNotifications(roomId: String): Boolean? = with(vm) {
+        val ctx = appContext ?: return null
+        val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+        return booleanPrefOrNull(prefs, "gomuks_room_send_typing_notifications_$roomId")
+    }
+
+    fun setDeviceRoomSendTypingNotifications(roomId: String, value: Boolean?) = with(vm) {
+        appContext?.let { ctx ->
+            val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            val key = "gomuks_room_send_typing_notifications_$roomId"
+            if (value == null) editor.remove(key) else editor.putBoolean(key, value)
+            editor.apply()
+        }
+        gomuksRoomPrefsVersion++
+    }
+
     fun loadSettings(context: Context? = null) = with(vm) {
         val contextToUse = context ?: appContext
         contextToUse?.let { ctx ->
@@ -310,6 +366,8 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             deviceGlobalShowMediaPreviews = booleanPrefOrNull(prefs, "gomuks_device_show_media_previews")
             deviceGlobalRenderUrlPreviews = booleanPrefOrNull(prefs, "gomuks_device_render_url_previews")
             deviceGlobalSendBundledUrlPreviews = booleanPrefOrNull(prefs, "gomuks_device_send_bundled_url_previews")
+            deviceGlobalSendReadReceipts = booleanPrefOrNull(prefs, "gomuks_device_send_read_receipts")
+            deviceGlobalSendTypingNotifications = booleanPrefOrNull(prefs, "gomuks_device_send_typing_notifications")
 
             val defaultIntervalMin = (SyncBatchProcessor.DEFAULT_BATCH_INTERVAL_MS / 60_000L).toInt()
             backgroundPurgeIntervalMinutes = prefs.getInt("background_purge_interval_minutes", defaultIntervalMin)

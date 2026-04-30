@@ -312,4 +312,26 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         sendGomuksRoomPref(roomId, "send_bundled_url_previews", value)
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: room $roomId send_bundled_url_previews=$value")
     }
+
+    fun setGomuksGlobalSendReadReceipts(value: Boolean?) = with(vm) {
+        sendGomuksGlobalPref("send_read_receipts", value)
+        accountGlobalSendReadReceipts = value
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: global send_read_receipts=$value")
+    }
+
+    fun setGomuksGlobalSendTypingNotifications(value: Boolean?) = with(vm) {
+        sendGomuksGlobalPref("send_typing_notifications", value)
+        accountGlobalSendTypingNotifications = value
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: global send_typing_notifications=$value")
+    }
+
+    fun setGomuksRoomSendReadReceipts(roomId: String, value: Boolean?) {
+        sendGomuksRoomPref(roomId, "send_read_receipts", value)
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: room $roomId send_read_receipts=$value")
+    }
+
+    fun setGomuksRoomSendTypingNotifications(roomId: String, value: Boolean?) {
+        sendGomuksRoomPref(roomId, "send_typing_notifications", value)
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: room $roomId send_typing_notifications=$value")
+    }
 }

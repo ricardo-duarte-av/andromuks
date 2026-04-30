@@ -1168,6 +1168,22 @@ fun ClientPreferencesScreen(
                 onValueChange = { appViewModel.setGomuksGlobalSendBundledUrlPreviews(it) }
             )
 
+            GomuksPreferenceCard(
+                title = "Send read receipts",
+                description = "Stored in account data — applies across all your Matrix clients. " +
+                    "When disabled, mark_read commands are not sent, so others cannot see when you have read messages.",
+                value = appViewModel.accountGlobalSendReadReceipts,
+                onValueChange = { appViewModel.setGomuksGlobalSendReadReceipts(it) }
+            )
+
+            GomuksPreferenceCard(
+                title = "Send typing notifications",
+                description = "Stored in account data — applies across all your Matrix clients. " +
+                    "When disabled, no typing indicator is sent while you type.",
+                value = appViewModel.accountGlobalSendTypingNotifications,
+                onValueChange = { appViewModel.setGomuksGlobalSendTypingNotifications(it) }
+            )
+
             Text(
                 text = "Global (this device only)",
                 style = MaterialTheme.typography.headlineSmall,
@@ -1196,6 +1212,20 @@ fun ClientPreferencesScreen(
                 description = "Stored locally on this device. Overrides the global (all-devices) setting.",
                 value = appViewModel.deviceGlobalSendBundledUrlPreviews,
                 onValueChange = { appViewModel.setDeviceGlobalSendBundledUrlPreviews(it) }
+            )
+
+            GomuksPreferenceCard(
+                title = "Send read receipts",
+                description = "Stored locally on this device. Overrides the global (all-devices) setting.",
+                value = appViewModel.deviceGlobalSendReadReceipts,
+                onValueChange = { appViewModel.setDeviceGlobalSendReadReceipts(it) }
+            )
+
+            GomuksPreferenceCard(
+                title = "Send typing notifications",
+                description = "Stored locally on this device. Overrides the global (all-devices) setting.",
+                value = appViewModel.deviceGlobalSendTypingNotifications,
+                onValueChange = { appViewModel.setDeviceGlobalSendTypingNotifications(it) }
             )
 
             Text(
@@ -1291,6 +1321,18 @@ fun RoomPreferencesScreen(
     var roomDeviceSendBundled by remember(roomId, roomPrefsVersion) {
         mutableStateOf(appViewModel.getDeviceRoomSendBundledUrlPreviews(roomId))
     }
+    var roomAccountSendReadReceipts by remember(roomId, roomPrefsVersion) {
+        mutableStateOf(appViewModel.getAccountRoomSendReadReceipts(roomId))
+    }
+    var roomDeviceSendReadReceipts by remember(roomId, roomPrefsVersion) {
+        mutableStateOf(appViewModel.getDeviceRoomSendReadReceipts(roomId))
+    }
+    var roomAccountSendTyping by remember(roomId, roomPrefsVersion) {
+        mutableStateOf(appViewModel.getAccountRoomSendTypingNotifications(roomId))
+    }
+    var roomDeviceSendTyping by remember(roomId, roomPrefsVersion) {
+        mutableStateOf(appViewModel.getDeviceRoomSendTypingNotifications(roomId))
+    }
 
     Scaffold(
         topBar = {
@@ -1352,6 +1394,28 @@ fun RoomPreferencesScreen(
                 }
             )
 
+            GomuksPreferenceCard(
+                title = "Send read receipts",
+                description = "Stored in room account data — applies to this room on all your Matrix clients. " +
+                    "When disabled, mark_read commands are not sent for this room.",
+                value = roomAccountSendReadReceipts,
+                onValueChange = {
+                    roomAccountSendReadReceipts = it
+                    appViewModel.setGomuksRoomSendReadReceipts(roomId, it)
+                }
+            )
+
+            GomuksPreferenceCard(
+                title = "Send typing notifications",
+                description = "Stored in room account data — applies to this room on all your Matrix clients. " +
+                    "When disabled, no typing indicator is sent while you type in this room.",
+                value = roomAccountSendTyping,
+                onValueChange = {
+                    roomAccountSendTyping = it
+                    appViewModel.setGomuksRoomSendTypingNotifications(roomId, it)
+                }
+            )
+
             Text(
                 text = "Room (this device only)",
                 style = MaterialTheme.typography.headlineSmall,
@@ -1388,6 +1452,26 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomDeviceSendBundled = it
                     appViewModel.setDeviceRoomSendBundledUrlPreviews(roomId, it)
+                }
+            )
+
+            GomuksPreferenceCard(
+                title = "Send read receipts",
+                description = "Stored locally on this device for this room. Overrides all other preferences for this room on this device.",
+                value = roomDeviceSendReadReceipts,
+                onValueChange = {
+                    roomDeviceSendReadReceipts = it
+                    appViewModel.setDeviceRoomSendReadReceipts(roomId, it)
+                }
+            )
+
+            GomuksPreferenceCard(
+                title = "Send typing notifications",
+                description = "Stored locally on this device for this room. Overrides all other preferences for this room on this device.",
+                value = roomDeviceSendTyping,
+                onValueChange = {
+                    roomDeviceSendTyping = it
+                    appViewModel.setDeviceRoomSendTypingNotifications(roomId, it)
                 }
             )
 

@@ -174,6 +174,11 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
             lastMarkReadSent[roomId] = eventId
             optimisticallyClearUnreadCounts(roomId)
 
+            if (!resolveSendReadReceipts(roomId)) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: markRoomAsRead suppressed for $roomId (send_read_receipts disabled)")
+                return
+            }
+
             val result = markRoomAsReadInternal(roomId, eventId)
 
             if (result != WebSocketResult.SUCCESS) {
@@ -227,6 +232,12 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
                     )
                     onComplete()
                 }
+                return
+            }
+
+            if (!resolveSendReadReceipts(roomId)) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: markRoomAsReadFromNotification suppressed for $roomId (send_read_receipts disabled)")
+                onComplete?.invoke()
                 return
             }
 

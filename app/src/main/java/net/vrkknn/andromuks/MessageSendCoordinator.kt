@@ -138,6 +138,11 @@ internal class MessageSendCoordinator(
     }
 
     fun sendTyping(roomId: String) {
+        if (!vm.resolveSendTypingNotifications(roomId)) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendTyping suppressed for $roomId (send_typing_notifications disabled)")
+            return
+        }
+
         val currentTime = System.currentTimeMillis()
         val lastSent = lastTypingSent[roomId] ?: 0L
         if (currentTime - lastSent < typingSendIntervalMs) {
