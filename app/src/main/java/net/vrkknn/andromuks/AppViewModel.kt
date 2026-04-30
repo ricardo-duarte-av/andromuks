@@ -432,13 +432,19 @@ class AppViewModel : ViewModel() {
         internal set
 
     // ── Gomuks preferences ────────────────────────────────────────────────────
-    // Global show_media_previews from fi.mau.gomuks.preferences account data (all devices)
     var accountGlobalShowMediaPreviews: Boolean? by mutableStateOf(null)
         internal set
-    // Global show_media_previews stored on this device only (SharedPrefs)
     var deviceGlobalShowMediaPreviews: Boolean? by mutableStateOf(null)
         internal set
-    // Version counter bumped whenever room-level gomuks prefs change, so composables recompose
+    var accountGlobalRenderUrlPreviews: Boolean? by mutableStateOf(null)
+        internal set
+    var deviceGlobalRenderUrlPreviews: Boolean? by mutableStateOf(null)
+        internal set
+    var accountGlobalSendBundledUrlPreviews: Boolean? by mutableStateOf(null)
+        internal set
+    var deviceGlobalSendBundledUrlPreviews: Boolean? by mutableStateOf(null)
+        internal set
+    // Bumped whenever room-level gomuks prefs change so composables recompose
     var gomuksRoomPrefsVersion by mutableStateOf(0)
         internal set
 
@@ -10243,6 +10249,86 @@ class AppViewModel : ViewModel() {
         val content = roomData?.optJSONObject("content") ?: roomData
         return if (content != null && content.has("show_media_previews")) content.optBoolean("show_media_previews") else null
     }
+
+    private fun getRoomAccountGomuksPref(roomId: String, key: String): Boolean? {
+        val roomData = RoomAccountDataCache.getRoomAccountData(roomId, "fi.mau.gomuks.preferences")
+        val content = roomData?.optJSONObject("content") ?: roomData
+        return if (content != null && content.has(key)) content.optBoolean(key) else null
+    }
+
+    /**
+     * Resolves whether to show URL previews for a room (render_url_previews).
+     * Resolution order: room-device → room-account → global-device → global-account → legacy showLinkPreviews.
+     */
+    fun resolveRenderUrlPreviews(roomId: String?): Boolean {
+        @Suppress("UNUSED_VARIABLE") val _v = gomuksRoomPrefsVersion
+        if (roomId != null) {
+            val roomDevice = settingsCoordinator.getDeviceRoomRenderUrlPreviews(roomId)
+            if (roomDevice != null) return roomDevice
+            val roomAccount = getRoomAccountGomuksPref(roomId, "render_url_previews")
+            if (roomAccount != null) return roomAccount
+        }
+        val devGlobal = deviceGlobalRenderUrlPreviews
+        if (devGlobal != null) return devGlobal
+        val accGlobal = accountGlobalRenderUrlPreviews
+        if (accGlobal != null) return accGlobal
+        return showLinkPreviews
+    }
+
+    /**
+     * Resolves whether to send bundled URL previews for a room (send_bundled_url_previews).
+     * Resolution order: room-device → room-account → global-device → global-account → legacy sendLinkPreviews.
+     */
+    fun resolveSendBundledUrlPreviews(roomId: String?): Boolean {
+        @Suppress("UNUSED_VARIABLE") val _v = gomuksRoomPrefsVersion
+        if (roomId != null) {
+            val roomDevice = settingsCoordinator.getDeviceRoomSendBundledUrlPreviews(roomId)
+            if (roomDevice != null) return roomDevice
+            val roomAccount = getRoomAccountGomuksPref(roomId, "send_bundled_url_previews")
+            if (roomAccount != null) return roomAccount
+        }
+        val devGlobal = deviceGlobalSendBundledUrlPreviews
+        if (devGlobal != null) return devGlobal
+        val accGlobal = accountGlobalSendBundledUrlPreviews
+        if (accGlobal != null) return accGlobal
+        return sendLinkPreviews
+    }
+
+    fun setGomuksGlobalRenderUrlPreviews(value: Boolean?) =
+        accountDataCoordinator.setGomuksGlobalRenderUrlPreviews(value)
+
+    fun setGomuksGlobalSendBundledUrlPreviews(value: Boolean?) =
+        accountDataCoordinator.setGomuksGlobalSendBundledUrlPreviews(value)
+
+    fun setGomuksRoomRenderUrlPreviews(roomId: String, value: Boolean?) =
+        accountDataCoordinator.setGomuksRoomRenderUrlPreviews(roomId, value)
+
+    fun setGomuksRoomSendBundledUrlPreviews(roomId: String, value: Boolean?) =
+        accountDataCoordinator.setGomuksRoomSendBundledUrlPreviews(roomId, value)
+
+    fun setDeviceGlobalRenderUrlPreviews(value: Boolean?) =
+        settingsCoordinator.setDeviceGlobalRenderUrlPreviews(value)
+
+    fun setDeviceGlobalSendBundledUrlPreviews(value: Boolean?) =
+        settingsCoordinator.setDeviceGlobalSendBundledUrlPreviews(value)
+
+    fun setDeviceRoomRenderUrlPreviews(roomId: String, value: Boolean?) =
+        settingsCoordinator.setDeviceRoomRenderUrlPreviews(roomId, value)
+
+    fun setDeviceRoomSendBundledUrlPreviews(roomId: String, value: Boolean?) =
+        settingsCoordinator.setDeviceRoomSendBundledUrlPreviews(roomId, value)
+
+    fun getDeviceRoomRenderUrlPreviews(roomId: String): Boolean? =
+        settingsCoordinator.getDeviceRoomRenderUrlPreviews(roomId)
+
+    fun getDeviceRoomSendBundledUrlPreviews(roomId: String): Boolean? =
+        settingsCoordinator.getDeviceRoomSendBundledUrlPreviews(roomId)
+
+    fun getAccountRoomRenderUrlPreviews(roomId: String): Boolean? =
+        getRoomAccountGomuksPref(roomId, "render_url_previews")
+
+    fun getAccountRoomSendBundledUrlPreviews(roomId: String): Boolean? =
+        getRoomAccountGomuksPref(roomId, "send_bundled_url_previews")
 
     fun loadSettings(context: Context? = null) = settingsCoordinator.loadSettings(context)
     /**

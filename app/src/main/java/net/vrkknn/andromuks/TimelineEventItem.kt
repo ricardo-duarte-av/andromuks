@@ -833,7 +833,7 @@ private fun LinkPreviewsSection(
     authToken: String,
     appViewModel: AppViewModel?
 ) {
-    if (appViewModel?.showLinkPreviews != true) return
+    if (appViewModel?.resolveRenderUrlPreviews(event.roomId) != true) return
     if (event.redactedBy != null) return
 
     val previews = remember(event.eventId) {

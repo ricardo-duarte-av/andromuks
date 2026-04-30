@@ -377,7 +377,13 @@ internal class SyncRoomsCoordinator(
                         accountGlobalShowMediaPreviews = content?.let {
                             if (it.has("show_media_previews")) it.optBoolean("show_media_previews") else null
                         }
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processAccountData - fi.mau.gomuks.preferences show_media_previews=$accountGlobalShowMediaPreviews")
+                        accountGlobalRenderUrlPreviews = content?.let {
+                            if (it.has("render_url_previews")) it.optBoolean("render_url_previews") else null
+                        }
+                        accountGlobalSendBundledUrlPreviews = content?.let {
+                            if (it.has("send_bundled_url_previews")) it.optBoolean("send_bundled_url_previews") else null
+                        }
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processAccountData - fi.mau.gomuks.preferences show_media_previews=$accountGlobalShowMediaPreviews render_url_previews=$accountGlobalRenderUrlPreviews send_bundled_url_previews=$accountGlobalSendBundledUrlPreviews")
                     }
 
                     // CRITICAL: Log completion of account data processing for debugging startup stalls

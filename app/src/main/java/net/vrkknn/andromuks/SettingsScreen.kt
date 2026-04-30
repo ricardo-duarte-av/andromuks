@@ -221,74 +221,6 @@ fun SettingsScreen(
                 }
             }
 
-            // Show link previews
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            text = "Show link previews",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "When a message contains a link preview (com.beeper.linkpreviews), display it as a card below the message bubble.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    Switch(
-                        checked = appViewModel.showLinkPreviews,
-                        onCheckedChange = { appViewModel.toggleShowLinkPreviews() }
-                    )
-                }
-            }
-
-            // Send link previews
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            text = "Send link previews",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "Show a preview bar above the text input when a URL is typed. Tap the refresh icon on a card to fetch the preview; it will be attached to the message on send.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    Switch(
-                        checked = appViewModel.sendLinkPreviews,
-                        onCheckedChange = { appViewModel.toggleSendLinkPreviews() }
-                    )
-                }
-            }
-
             // ── Background Sync Section ──────────────────────────────────────
             Text(
                 text = "Background Sync",
@@ -1220,6 +1152,22 @@ fun ClientPreferencesScreen(
                 onValueChange = { appViewModel.setGomuksGlobalPrefs(it) }
             )
 
+            GomuksPreferenceCard(
+                title = "Show link previews",
+                description = "Stored in account data — applies across all your Matrix clients. " +
+                    "When enabled, link preview cards from messages are displayed below the bubble.",
+                value = appViewModel.accountGlobalRenderUrlPreviews,
+                onValueChange = { appViewModel.setGomuksGlobalRenderUrlPreviews(it) }
+            )
+
+            GomuksPreferenceCard(
+                title = "Send link previews",
+                description = "Stored in account data — applies across all your Matrix clients. " +
+                    "When enabled, a preview bar appears above the text input when a URL is typed and the preview is attached on send.",
+                value = appViewModel.accountGlobalSendBundledUrlPreviews,
+                onValueChange = { appViewModel.setGomuksGlobalSendBundledUrlPreviews(it) }
+            )
+
             Text(
                 text = "Global (this device only)",
                 style = MaterialTheme.typography.headlineSmall,
@@ -1234,6 +1182,20 @@ fun ClientPreferencesScreen(
                     "Use \"Default\" to inherit from the global preference.",
                 value = appViewModel.deviceGlobalShowMediaPreviews,
                 onValueChange = { appViewModel.setDeviceGlobalShowMediaPreviews(it) }
+            )
+
+            GomuksPreferenceCard(
+                title = "Show link previews",
+                description = "Stored locally on this device. Overrides the global (all-devices) setting.",
+                value = appViewModel.deviceGlobalRenderUrlPreviews,
+                onValueChange = { appViewModel.setDeviceGlobalRenderUrlPreviews(it) }
+            )
+
+            GomuksPreferenceCard(
+                title = "Send link previews",
+                description = "Stored locally on this device. Overrides the global (all-devices) setting.",
+                value = appViewModel.deviceGlobalSendBundledUrlPreviews,
+                onValueChange = { appViewModel.setDeviceGlobalSendBundledUrlPreviews(it) }
             )
 
             Text(
@@ -1311,11 +1273,23 @@ fun RoomPreferencesScreen(
     navController: NavController
 ) {
     val roomPrefsVersion = appViewModel.gomuksRoomPrefsVersion
-    var roomAccountState by remember(roomId, roomPrefsVersion) {
+    var roomAccountShowMedia by remember(roomId, roomPrefsVersion) {
         mutableStateOf(appViewModel.getAccountRoomShowMediaPreviews(roomId))
     }
-    var roomDeviceState by remember(roomId, roomPrefsVersion) {
+    var roomDeviceShowMedia by remember(roomId, roomPrefsVersion) {
         mutableStateOf(appViewModel.getDeviceRoomShowMediaPreviews(roomId))
+    }
+    var roomAccountRenderUrl by remember(roomId, roomPrefsVersion) {
+        mutableStateOf(appViewModel.getAccountRoomRenderUrlPreviews(roomId))
+    }
+    var roomDeviceRenderUrl by remember(roomId, roomPrefsVersion) {
+        mutableStateOf(appViewModel.getDeviceRoomRenderUrlPreviews(roomId))
+    }
+    var roomAccountSendBundled by remember(roomId, roomPrefsVersion) {
+        mutableStateOf(appViewModel.getAccountRoomSendBundledUrlPreviews(roomId))
+    }
+    var roomDeviceSendBundled by remember(roomId, roomPrefsVersion) {
+        mutableStateOf(appViewModel.getDeviceRoomSendBundledUrlPreviews(roomId))
     }
 
     Scaffold(
@@ -1349,10 +1323,32 @@ fun RoomPreferencesScreen(
                 title = "Show image and video previews",
                 description = "Stored in room account data — applies to this room on all your Matrix clients. " +
                     "Overrides the global preference for this room.",
-                value = roomAccountState,
+                value = roomAccountShowMedia,
                 onValueChange = {
-                    roomAccountState = it
+                    roomAccountShowMedia = it
                     appViewModel.setGomuksRoomPrefs(roomId, it)
+                }
+            )
+
+            GomuksPreferenceCard(
+                title = "Show link previews",
+                description = "Stored in room account data — applies to this room on all your Matrix clients. " +
+                    "Overrides the global preference for this room.",
+                value = roomAccountRenderUrl,
+                onValueChange = {
+                    roomAccountRenderUrl = it
+                    appViewModel.setGomuksRoomRenderUrlPreviews(roomId, it)
+                }
+            )
+
+            GomuksPreferenceCard(
+                title = "Send link previews",
+                description = "Stored in room account data — applies to this room on all your Matrix clients. " +
+                    "Overrides the global preference for this room.",
+                value = roomAccountSendBundled,
+                onValueChange = {
+                    roomAccountSendBundled = it
+                    appViewModel.setGomuksRoomSendBundledUrlPreviews(roomId, it)
                 }
             )
 
@@ -1368,10 +1364,30 @@ fun RoomPreferencesScreen(
                 title = "Show image and video previews",
                 description = "Stored locally on this device for this room. Overrides all other preferences for this room on this device. " +
                     "Use \"Default\" to inherit from the room (all-devices) setting.",
-                value = roomDeviceState,
+                value = roomDeviceShowMedia,
                 onValueChange = {
-                    roomDeviceState = it
+                    roomDeviceShowMedia = it
                     appViewModel.setDeviceRoomShowMediaPreviews(roomId, it)
+                }
+            )
+
+            GomuksPreferenceCard(
+                title = "Show link previews",
+                description = "Stored locally on this device for this room. Overrides all other preferences for this room on this device.",
+                value = roomDeviceRenderUrl,
+                onValueChange = {
+                    roomDeviceRenderUrl = it
+                    appViewModel.setDeviceRoomRenderUrlPreviews(roomId, it)
+                }
+            )
+
+            GomuksPreferenceCard(
+                title = "Send link previews",
+                description = "Stored locally on this device for this room. Overrides all other preferences for this room on this device.",
+                value = roomDeviceSendBundled,
+                onValueChange = {
+                    roomDeviceSendBundled = it
+                    appViewModel.setDeviceRoomSendBundledUrlPreviews(roomId, it)
                 }
             )
 

@@ -3073,7 +3073,7 @@ fun BubbleTimelineScreen(
                                 }
 
                                 // URL preview composition bar
-                                if (appViewModel.sendLinkPreviews) {
+                                if (appViewModel.resolveSendBundledUrlPreviews(roomId)) {
                                     UrlPreviewCompositionBar(
                                         text = draft,
                                         controller = urlPreviewController,

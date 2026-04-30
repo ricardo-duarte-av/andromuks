@@ -229,8 +229,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         sendWebSocketCommand("set_account_data", requestId, commandData)
     }
 
-    fun setGomuksGlobalPrefs(showMediaPreviews: Boolean?) = with(vm) {
-        // Preserve existing keys — only touch the keys we manage
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    private fun sendGomuksGlobalPref(key: String, value: Boolean?) = with(vm) {
         val existingContent = AccountDataCache.getAccountData("fi.mau.gomuks.preferences")
             ?.optJSONObject("content")
         val contentMap = mutableMapOf<String, Any>()
@@ -242,20 +243,15 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
                 if (v != null && v != org.json.JSONObject.NULL) contentMap[k] = v
             }
         }
-        if (showMediaPreviews != null) contentMap["show_media_previews"] = showMediaPreviews
-        else contentMap.remove("show_media_previews")
-
+        if (value != null) contentMap[key] = value else contentMap.remove(key)
         val requestId = requestIdCounter++
         sendWebSocketCommand("set_account_data", requestId, mapOf(
             "type" to "fi.mau.gomuks.preferences",
             "content" to contentMap
         ))
-        accountGlobalShowMediaPreviews = showMediaPreviews
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: set global fi.mau.gomuks.preferences show_media_previews=$showMediaPreviews (preserved ${contentMap.size - (if (showMediaPreviews != null) 1 else 0)} other keys)")
     }
 
-    fun setGomuksRoomPrefs(roomId: String, showMediaPreviews: Boolean?) = with(vm) {
-        // Preserve existing keys — only touch the keys we manage
+    private fun sendGomuksRoomPref(roomId: String, key: String, value: Boolean?) = with(vm) {
         val existingData = RoomAccountDataCache.getRoomAccountData(roomId, "fi.mau.gomuks.preferences")
         val existingContent = existingData?.optJSONObject("content") ?: existingData
         val contentMap = mutableMapOf<String, Any>()
@@ -267,23 +263,53 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
                 if (v != null && v != org.json.JSONObject.NULL) contentMap[k] = v
             }
         }
-        if (showMediaPreviews != null) contentMap["show_media_previews"] = showMediaPreviews
-        else contentMap.remove("show_media_previews")
-
+        if (value != null) contentMap[key] = value else contentMap.remove(key)
         val requestId = requestIdCounter++
         sendWebSocketCommand("set_account_data", requestId, mapOf(
             "type" to "fi.mau.gomuks.preferences",
             "content" to contentMap,
             "room_id" to roomId
         ))
-        // Optimistically update room cache, preserving other keys in the stored JSONObject
         val contentObj = existingContent?.let { org.json.JSONObject(it.toString()) } ?: org.json.JSONObject()
-        if (showMediaPreviews != null) contentObj.put("show_media_previews", showMediaPreviews)
-        else contentObj.remove("show_media_previews")
+        if (value != null) contentObj.put(key, value) else contentObj.remove(key)
         val dataObj = org.json.JSONObject()
         dataObj.put("content", contentObj)
         RoomAccountDataCache.setRoomAccountData(roomId, "fi.mau.gomuks.preferences", dataObj)
         gomuksRoomPrefsVersion++
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: set room fi.mau.gomuks.preferences for $roomId show_media_previews=$showMediaPreviews")
+    }
+
+    // ── Public setters ────────────────────────────────────────────────────────
+
+    fun setGomuksGlobalPrefs(showMediaPreviews: Boolean?) = with(vm) {
+        sendGomuksGlobalPref("show_media_previews", showMediaPreviews)
+        accountGlobalShowMediaPreviews = showMediaPreviews
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: global show_media_previews=$showMediaPreviews")
+    }
+
+    fun setGomuksGlobalRenderUrlPreviews(value: Boolean?) = with(vm) {
+        sendGomuksGlobalPref("render_url_previews", value)
+        accountGlobalRenderUrlPreviews = value
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: global render_url_previews=$value")
+    }
+
+    fun setGomuksGlobalSendBundledUrlPreviews(value: Boolean?) = with(vm) {
+        sendGomuksGlobalPref("send_bundled_url_previews", value)
+        accountGlobalSendBundledUrlPreviews = value
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: global send_bundled_url_previews=$value")
+    }
+
+    fun setGomuksRoomPrefs(roomId: String, showMediaPreviews: Boolean?) {
+        sendGomuksRoomPref(roomId, "show_media_previews", showMediaPreviews)
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: room $roomId show_media_previews=$showMediaPreviews")
+    }
+
+    fun setGomuksRoomRenderUrlPreviews(roomId: String, value: Boolean?) {
+        sendGomuksRoomPref(roomId, "render_url_previews", value)
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: room $roomId render_url_previews=$value")
+    }
+
+    fun setGomuksRoomSendBundledUrlPreviews(roomId: String, value: Boolean?) {
+        sendGomuksRoomPref(roomId, "send_bundled_url_previews", value)
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: room $roomId send_bundled_url_previews=$value")
     }
 }

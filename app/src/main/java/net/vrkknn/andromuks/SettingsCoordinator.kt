@@ -237,6 +237,62 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         gomuksRoomPrefsVersion++
     }
 
+    fun setDeviceGlobalRenderUrlPreviews(value: Boolean?) = with(vm) {
+        deviceGlobalRenderUrlPreviews = value
+        appContext?.let { ctx ->
+            val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            if (value == null) editor.remove("gomuks_device_render_url_previews")
+            else editor.putBoolean("gomuks_device_render_url_previews", value)
+            editor.apply()
+        }
+    }
+
+    fun getDeviceRoomRenderUrlPreviews(roomId: String): Boolean? = with(vm) {
+        val ctx = appContext ?: return null
+        val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+        return booleanPrefOrNull(prefs, "gomuks_room_render_url_previews_$roomId")
+    }
+
+    fun setDeviceRoomRenderUrlPreviews(roomId: String, value: Boolean?) = with(vm) {
+        appContext?.let { ctx ->
+            val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            val key = "gomuks_room_render_url_previews_$roomId"
+            if (value == null) editor.remove(key) else editor.putBoolean(key, value)
+            editor.apply()
+        }
+        gomuksRoomPrefsVersion++
+    }
+
+    fun setDeviceGlobalSendBundledUrlPreviews(value: Boolean?) = with(vm) {
+        deviceGlobalSendBundledUrlPreviews = value
+        appContext?.let { ctx ->
+            val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            if (value == null) editor.remove("gomuks_device_send_bundled_url_previews")
+            else editor.putBoolean("gomuks_device_send_bundled_url_previews", value)
+            editor.apply()
+        }
+    }
+
+    fun getDeviceRoomSendBundledUrlPreviews(roomId: String): Boolean? = with(vm) {
+        val ctx = appContext ?: return null
+        val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+        return booleanPrefOrNull(prefs, "gomuks_room_send_bundled_url_previews_$roomId")
+    }
+
+    fun setDeviceRoomSendBundledUrlPreviews(roomId: String, value: Boolean?) = with(vm) {
+        appContext?.let { ctx ->
+            val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            val key = "gomuks_room_send_bundled_url_previews_$roomId"
+            if (value == null) editor.remove(key) else editor.putBoolean(key, value)
+            editor.apply()
+        }
+        gomuksRoomPrefsVersion++
+    }
+
     fun loadSettings(context: Context? = null) = with(vm) {
         val contextToUse = context ?: appContext
         contextToUse?.let { ctx ->
@@ -252,6 +308,8 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             sendLinkPreviews = prefs.getBoolean("send_link_previews", true)
             elementCallBaseUrl = prefs.getString("element_call_base_url", "") ?: ""
             deviceGlobalShowMediaPreviews = booleanPrefOrNull(prefs, "gomuks_device_show_media_previews")
+            deviceGlobalRenderUrlPreviews = booleanPrefOrNull(prefs, "gomuks_device_render_url_previews")
+            deviceGlobalSendBundledUrlPreviews = booleanPrefOrNull(prefs, "gomuks_device_send_bundled_url_previews")
 
             val defaultIntervalMin = (SyncBatchProcessor.DEFAULT_BATCH_INTERVAL_MS / 60_000L).toInt()
             backgroundPurgeIntervalMinutes = prefs.getInt("background_purge_interval_minutes", defaultIntervalMin)
