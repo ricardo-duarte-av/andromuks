@@ -351,38 +351,46 @@ fun AdaptiveMessageText(
     onUserClick: (String) -> Unit = {},
     onMatrixUserClick: (String) -> Unit = onUserClick,
     onRoomLinkClick: (RoomLink) -> Unit = {},
-    onCodeBlockClick: (String) -> Unit = {}
+    onCodeBlockClick: (String) -> Unit = {},
+    hasBeenEdited: Boolean = false
 ) {
     // For redacted messages, always use plain text to show the deletion message
     val isRedacted = event.redactedBy != null
-    
+
     // Check if this is an emoji-only message
     // For HTML messages, also check the formatted_body for custom emoji images
-    val formattedBody = event.content?.optString("formatted_body") 
+    val formattedBody = event.content?.optString("formatted_body")
         ?: event.decrypted?.optString("formatted_body")
         ?: event.localContent?.optString("sanitized_html")
-    
-    val isEmojiOnly = remember(body, formattedBody) { 
+
+    val isEmojiOnly = remember(body, formattedBody) {
         isEmojiOnlyMessage(body) || (formattedBody != null && isCustomEmojiOnlyHtml(formattedBody))
     }
-    
-    // Check if HTML rendering is supported and available (and not redacted)
-    // Support HTML if either the original event or the format parameter indicates HTML
-    val supportsHtml = !isRedacted && (supportsHtmlRendering(event) || format == "org.matrix.custom.html")
+
+    // When the message has been edited, only trust the edit's own format/body — the original
+    // event's sanitized_html is stale and must not be used to drive rendering decisions.
+    val supportsHtml = !isRedacted && if (hasBeenEdited) {
+        format == "org.matrix.custom.html"
+    } else {
+        supportsHtmlRendering(event) || format == "org.matrix.custom.html"
+    }
     if (supportsHtml) {
-        // CRITICAL FIX: Check if sanitized_html exists - if it does, always pass null to use it
-        // sanitized_html has proper anchor tags, while formatted_body may not
-        val hasSanitizedHtml = event.localContent?.optString("sanitized_html")?.isNotBlank() == true
-        
-        // Only pass htmlContent if:
-        // 1. sanitized_html does NOT exist (so we need to use formatted_body or edit content)
-        // 2. AND body contains HTML tags (indicating it's from an edit with HTML format)
-        val htmlContent = if (!hasSanitizedHtml && format == "org.matrix.custom.html" && body.contains("<") && body.contains(">")) {
-            // No sanitized_html, and body contains HTML tags - likely from an edit, pass it
+        val htmlContent = if (hasBeenEdited) {
+            // Always pass the (already-resolved) edit body directly so HtmlMessageText
+            // does not fall back to the original event's stale sanitized_html.
             body
         } else {
-            // Either sanitized_html exists (prefer it) or body is plain text - let HtmlMessageText extract from event
-            null
+            // CRITICAL FIX: Check if sanitized_html exists - if it does, always pass null to use it
+            // sanitized_html has proper anchor tags, while formatted_body may not
+            val hasSanitizedHtml = event.localContent?.optString("sanitized_html")?.isNotBlank() == true
+            // Only pass htmlContent if:
+            // 1. sanitized_html does NOT exist (so we need to use formatted_body or edit content)
+            // 2. AND body contains HTML tags (indicating it's from an edit with HTML format)
+            if (!hasSanitizedHtml && format == "org.matrix.custom.html" && body.contains("<") && body.contains(">")) {
+                body
+            } else {
+                null
+            }
         }
         HtmlMessageText(
             event = event,
@@ -394,7 +402,7 @@ fun AdaptiveMessageText(
             onRoomLinkClick = onRoomLinkClick,
             appViewModel = appViewModel,
             isEmojiOnly = isEmojiOnly,
-            htmlContent = htmlContent, // Pass HTML edit content if available, otherwise null to extract from event
+            htmlContent = htmlContent,
             onCodeBlockClick = onCodeBlockClick
         )
     } else {
@@ -1737,7 +1745,8 @@ private fun RoomTextMessageContent(
                                 onUserClick = onUserClick,
                                 onMatrixUserClick = onUserClick,
                                 onRoomLinkClick = onRoomLinkClick,
-                                onCodeBlockClick = onCodeBlockClick
+                                onCodeBlockClick = onCodeBlockClick,
+                                hasBeenEdited = hasBeenEdited
                             )
                         }
                         if (hasBeenEdited) {
@@ -1841,7 +1850,8 @@ private fun RoomTextMessageContent(
                             onUserClick = onUserClick,
                             onMatrixUserClick = onUserClick,
                             onRoomLinkClick = onRoomLinkClick,
-                            onCodeBlockClick = onCodeBlockClick
+                            onCodeBlockClick = onCodeBlockClick,
+                            hasBeenEdited = hasBeenEdited
                         )
                     }
                     if (hasBeenEdited) {
@@ -2268,6 +2278,15 @@ private fun EncryptedMessageContent(
             } else {
                 body
             }
+
+        // Resolve the format for the final (possibly edited) content
+        val finalFormat = if (editedBy != null && !isRedacted) {
+            val newContent = (editedBy.decrypted ?: editedBy.content)?.optJSONObject("m.new_content")
+            val editFormatRaw = newContent?.optString("format", "") ?: ""
+            if (editFormatRaw.isBlank()) format else editFormatRaw
+        } else {
+            format
+        }
 
         val contentForHtml = editContent ?: decrypted
         val isHorizontalRule = !isRedacted && isHorizontalRuleMessage(event, contentForHtml, msgType)
@@ -2798,8 +2817,8 @@ private fun EncryptedMessageContent(
                             val messageBody: @Composable () -> Unit = {
                                 AdaptiveMessageText(
                                     event = event,
-                                    body = body,
-                                    format = format,
+                                    body = finalBody,
+                                    format = finalFormat,
                                     userProfileCache = userProfileCache,
                                     homeserverUrl = homeserverUrl,
                                     authToken = authToken,
@@ -2809,7 +2828,8 @@ private fun EncryptedMessageContent(
                                     onUserClick = onUserClick,
                                     onMatrixUserClick = onUserClick,
                                     onRoomLinkClick = onRoomLinkClick,
-                                    onCodeBlockClick = onCodeBlockClick
+                                    onCodeBlockClick = onCodeBlockClick,
+                                    hasBeenEdited = encryptedHasBeenEdited
                                 )
                             }
                             if (encryptedHasBeenEdited) {
@@ -2873,8 +2893,8 @@ private fun EncryptedMessageContent(
                             val messageBody: @Composable () -> Unit = {
                                 AdaptiveMessageText(
                                     event = event,
-                                    body = body,
-                                    format = format,
+                                    body = finalBody,
+                                    format = finalFormat,
                                     userProfileCache = userProfileCache,
                                     homeserverUrl = homeserverUrl,
                                     authToken = authToken,
@@ -2884,7 +2904,8 @@ private fun EncryptedMessageContent(
                                     onUserClick = onUserClick,
                                     onMatrixUserClick = onUserClick,
                                     onRoomLinkClick = onRoomLinkClick,
-                                    onCodeBlockClick = onCodeBlockClick
+                                    onCodeBlockClick = onCodeBlockClick,
+                                    hasBeenEdited = encryptedHasBeenEdited
                                 )
                             }
                             if (encryptedHasBeenEdited) {
