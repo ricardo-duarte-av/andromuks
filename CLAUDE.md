@@ -132,3 +132,4 @@ When adding features, follow the existing Coordinator pattern: create a `*Coordi
 | Offline connection indicator (CloudOff, placement per screen) | [docs/OFFLINE_INDICATOR.md](docs/OFFLINE_INDICATOR.md) |
 | Timeline media loading (Coil vs IntelligentMediaCache split, ImageRequest stability, BlurHash) | [docs/MEDIA_LOADING.md](docs/MEDIA_LOADING.md) |
 | Settings & preferences (4-scope gomuks prefs, resolution order, reactivity, UI screens) | [docs/SETTINGS_PREFS.md](docs/SETTINGS_PREFS.md) |
+| Emoji picker, search, generated data files, JVM 64 KB chunk pattern | [docs/EMOJI.md](docs/EMOJI.md) |

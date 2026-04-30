@@ -116,10 +116,14 @@ fun EmojiSelectionDialog(
     customEmojiPacks: List<net.vrkknn.andromuks.AppViewModel.EmojiPack> = emptyList(),
     allowCustomReactions: Boolean = true
 ) {
-    // Calculate total categories: 1 (recent) + emojiCategories.size + customEmojiPacks.size
-    val totalCategories = 1 + emojiCategories.size + customEmojiPacks.size
     var selectedCategory by remember { mutableStateOf(0) }
     var searchText by remember { mutableStateOf("") }
+    val allEmojis = remember { EmojiData.getAllEmojis() }
+
+    // Auto-switch to the "All" tab (index 1) whenever the user starts typing
+    LaunchedEffect(searchText) {
+        if (searchText.isNotBlank() && selectedCategory != 1) selectedCategory = 1
+    }
     
     Dialog(
         onDismissRequest = onDismiss,
@@ -171,7 +175,30 @@ fun EmojiSelectionDialog(
                         }
                     }
                     
-                    // Standard emoji category tabs (index 1 to emojiCategories.size)
+                    // All emoji tab (index 1) — auto-selected when searching
+                    item(key = "all") {
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { selectedCategory = 1 },
+                            color = if (selectedCategory == 1)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Text(
+                                text = "🌐",
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = if (selectedCategory == 1)
+                                    MaterialTheme.colorScheme.onPrimary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    // Standard emoji category tabs (index 2+ via originalIndex+1)
                     // Filter out the "Recent" category since we manually create the recent tab
                     val filteredCategories = emojiCategories.filter { it.name != "Recent" }
                     items(
@@ -262,42 +289,31 @@ fun EmojiSelectionDialog(
                 ) {
                     // Determine which emojis to show based on selected category
                     val baseEmojis: List<Any> = when {
-                        selectedCategory == 0 -> recentEmojis // Recent tab
-                        selectedCategory <= emojiCategories.size -> {
-                            // Standard emoji category (offset by 1 for recent tab)
-                            emojiCategories[selectedCategory - 1].emojis
-                        }
+                        selectedCategory == 0 -> recentEmojis
+                        selectedCategory == 1 -> allEmojis
+                        selectedCategory <= emojiCategories.size -> emojiCategories[selectedCategory - 1].emojis
                         else -> {
-                            // Custom emoji pack (offset by 1 + emojiCategories.size)
                             val packIndex = selectedCategory - 1 - emojiCategories.size
-                            if (packIndex >= 0 && packIndex < customEmojiPacks.size) {
+                            if (packIndex >= 0 && packIndex < customEmojiPacks.size)
                                 customEmojiPacks[packIndex].emojis
-                            } else {
+                            else
                                 emptyList()
-                            }
                         }
                     }
-                    
-                    // Filter emojis based on search text
-                    // When searching, search across all categories for better results
+
+                    // Filter by search text
                     val filteredEmojis = if (searchText.isBlank()) {
                         baseEmojis
                     } else {
                         when {
-                            selectedCategory == 0 -> {
-                                // Search recent emojis
+                            selectedCategory == 0 ->
                                 baseEmojis.filter { (it as? String)?.contains(searchText, ignoreCase = true) == true }
-                            }
-                            selectedCategory <= emojiCategories.size -> {
-                                // Search across all standard emojis
-                                EmojiData.getAllEmojis().filter { it.contains(searchText, ignoreCase = true) }
-                            }
-                            else -> {
-                                // Search custom emojis in current pack
-                                baseEmojis.filter { 
-                                    (it as? net.vrkknn.andromuks.AppViewModel.CustomEmoji)?.name?.contains(searchText, ignoreCase = true) == true 
+                            selectedCategory == 1 || selectedCategory <= emojiCategories.size ->
+                                EmojiData.searchEmojis(searchText)
+                            else ->
+                                baseEmojis.filter {
+                                    (it as? net.vrkknn.andromuks.AppViewModel.CustomEmoji)?.name?.contains(searchText, ignoreCase = true) == true
                                 }
-                            }
                         }
                     }
                     
