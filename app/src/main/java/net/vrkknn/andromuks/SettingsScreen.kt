@@ -1192,6 +1192,14 @@ fun ClientPreferencesScreen(
                 onValueChange = { appViewModel.setGomuksGlobalDisplayReadReceipts(it) }
             )
 
+            GomuksPreferenceCard(
+                title = "Show hidden events",
+                description = "Stored in account data — applies across all your Matrix clients. " +
+                    "When enabled, event types not normally rendered (call notifications, state changes, unknown types) are shown in the timeline.",
+                value = appViewModel.accountGlobalShowHiddenEvents,
+                onValueChange = { appViewModel.setGomuksGlobalShowHiddenEvents(it) }
+            )
+
             Text(
                 text = "Global (this device only)",
                 style = MaterialTheme.typography.headlineSmall,
@@ -1241,6 +1249,13 @@ fun ClientPreferencesScreen(
                 description = "Stored locally on this device. Overrides the global (all-devices) setting.",
                 value = appViewModel.deviceGlobalDisplayReadReceipts,
                 onValueChange = { appViewModel.setDeviceGlobalDisplayReadReceipts(it) }
+            )
+
+            GomuksPreferenceCard(
+                title = "Show hidden events",
+                description = "Stored locally on this device. Overrides the global (all-devices) setting.",
+                value = appViewModel.deviceGlobalShowHiddenEvents,
+                onValueChange = { appViewModel.setDeviceGlobalShowHiddenEvents(it) }
             )
 
             Text(
@@ -1354,6 +1369,12 @@ fun RoomPreferencesScreen(
     var roomDeviceDisplayReceipts by remember(roomId, roomPrefsVersion) {
         mutableStateOf(appViewModel.getDeviceRoomDisplayReadReceipts(roomId))
     }
+    var roomAccountShowHidden by remember(roomId, roomPrefsVersion) {
+        mutableStateOf(appViewModel.getAccountRoomShowHiddenEvents(roomId))
+    }
+    var roomDeviceShowHidden by remember(roomId, roomPrefsVersion) {
+        mutableStateOf(appViewModel.getDeviceRoomShowHiddenEvents(roomId))
+    }
 
     Scaffold(
         topBar = {
@@ -1448,6 +1469,17 @@ fun RoomPreferencesScreen(
                 }
             )
 
+            GomuksPreferenceCard(
+                title = "Show hidden events",
+                description = "Stored in room account data — applies to this room on all your Matrix clients. " +
+                    "When enabled, normally-hidden event types are shown in this room's timeline.",
+                value = roomAccountShowHidden,
+                onValueChange = {
+                    roomAccountShowHidden = it
+                    appViewModel.setGomuksRoomShowHiddenEvents(roomId, it)
+                }
+            )
+
             Text(
                 text = "Room (this device only)",
                 style = MaterialTheme.typography.headlineSmall,
@@ -1514,6 +1546,16 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomDeviceDisplayReceipts = it
                     appViewModel.setDeviceRoomDisplayReadReceipts(roomId, it)
+                }
+            )
+
+            GomuksPreferenceCard(
+                title = "Show hidden events",
+                description = "Stored locally on this device for this room. Overrides all other preferences for this room on this device.",
+                value = roomDeviceShowHidden,
+                onValueChange = {
+                    roomDeviceShowHidden = it
+                    appViewModel.setDeviceRoomShowHiddenEvents(roomId, it)
                 }
             )
 

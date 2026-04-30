@@ -668,12 +668,14 @@ fun ThreadViewerScreen(
 
     // PERFORMANCE: Use background processing for heavy filtering and sorting operations
     var sortedEvents by remember { mutableStateOf<List<TimelineEvent>>(emptyList()) }
+    val showHiddenEvents = appViewModel.resolveShowHiddenEvents(roomId)
 
     // Process thread events in background when threadMessages changes
-    LaunchedEffect(threadMessages) {
+    LaunchedEffect(threadMessages, showHiddenEvents) {
         sortedEvents = processTimelineEvents(
             timelineEvents = threadMessages,
-            allowedEventTypes = allowedEventTypes
+            allowedEventTypes = allowedEventTypes,
+            showHiddenEvents = showHiddenEvents
         )
     }
 

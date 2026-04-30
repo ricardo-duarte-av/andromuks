@@ -456,6 +456,10 @@ class AppViewModel : ViewModel() {
         internal set
     var deviceGlobalDisplayReadReceipts: Boolean? by mutableStateOf(null)
         internal set
+    var accountGlobalShowHiddenEvents: Boolean? by mutableStateOf(null)
+        internal set
+    var deviceGlobalShowHiddenEvents: Boolean? by mutableStateOf(null)
+        internal set
     // Bumped whenever room-level gomuks prefs change so composables recompose
     var gomuksRoomPrefsVersion by mutableStateOf(0)
         internal set
@@ -10350,6 +10354,44 @@ class AppViewModel : ViewModel() {
 
     fun getAccountRoomDisplayReadReceipts(roomId: String): Boolean? =
         getRoomAccountGomuksPref(roomId, "display_read_receipts")
+
+    fun getAccountRoomShowHiddenEvents(roomId: String): Boolean? =
+        getRoomAccountGomuksPref(roomId, "show_hidden_events")
+
+    /**
+     * Resolves whether to show hidden/unknown event types for a room (show_hidden_events).
+     * Absent = false (default is to hide, current behaviour). Resolution order: room-device →
+     * room-account → global-device → global-account → false.
+     */
+    fun resolveShowHiddenEvents(roomId: String?): Boolean {
+        @Suppress("UNUSED_VARIABLE") val _v = gomuksRoomPrefsVersion
+        if (roomId != null) {
+            val roomDevice = settingsCoordinator.getDeviceRoomShowHiddenEvents(roomId)
+            if (roomDevice != null) return roomDevice
+            val roomAccount = getRoomAccountGomuksPref(roomId, "show_hidden_events")
+            if (roomAccount != null) return roomAccount
+        }
+        val devGlobal = deviceGlobalShowHiddenEvents
+        if (devGlobal != null) return devGlobal
+        val accGlobal = accountGlobalShowHiddenEvents
+        if (accGlobal != null) return accGlobal
+        return false
+    }
+
+    fun setGomuksGlobalShowHiddenEvents(value: Boolean?) =
+        accountDataCoordinator.setGomuksGlobalShowHiddenEvents(value)
+
+    fun setGomuksRoomShowHiddenEvents(roomId: String, value: Boolean?) =
+        accountDataCoordinator.setGomuksRoomShowHiddenEvents(roomId, value)
+
+    fun setDeviceGlobalShowHiddenEvents(value: Boolean?) =
+        settingsCoordinator.setDeviceGlobalShowHiddenEvents(value)
+
+    fun setDeviceRoomShowHiddenEvents(roomId: String, value: Boolean?) =
+        settingsCoordinator.setDeviceRoomShowHiddenEvents(roomId, value)
+
+    fun getDeviceRoomShowHiddenEvents(roomId: String): Boolean? =
+        settingsCoordinator.getDeviceRoomShowHiddenEvents(roomId)
 
     /**
      * Resolves whether to display read receipts for a room (display_read_receipts).

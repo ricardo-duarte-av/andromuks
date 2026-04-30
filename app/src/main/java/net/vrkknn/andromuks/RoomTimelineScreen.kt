@@ -431,7 +431,8 @@ internal fun formatDate(timestamp: Long): String {
 /** PERFORMANCE: Helper function to process timeline events in background */
 suspend fun processTimelineEvents(
     timelineEvents: List<TimelineEvent>,
-    allowedEventTypes: Set<String>
+    allowedEventTypes: Set<String>,
+    showHiddenEvents: Boolean = false
 ): List<TimelineEvent> = withContext(Dispatchers.Default) {
     if (BuildConfig.DEBUG) Log.d(
         "Andromuks",
@@ -451,9 +452,11 @@ suspend fun processTimelineEvents(
     }
 
     val filteredEvents = timelineEvents.filter { event ->
-        // Filter out redaction events
+        // Redaction events are always hidden (they replace other events, not standalone content)
         if (event.type == "m.room.redaction") return@filter false
-        // Filter out org.matrix.msc4075.* events (call notifications - should be hidden)
+        // When show_hidden_events is on, pass everything else through
+        if (showHiddenEvents) return@filter true
+        // Filter out org.matrix.msc4075.* events (call notifications)
         if (event.type.startsWith("org.matrix.msc4075.") ||
             event.decryptedType?.startsWith("org.matrix.msc4075.") == true) {
             return@filter false
@@ -1905,13 +1908,14 @@ fun RoomTimelineScreen(
 
     // PERFORMANCE: Use background processing for heavy filtering and sorting operations
     var sortedEvents by remember { mutableStateOf<List<TimelineEvent>>(emptyList()) }
-    
+    val showHiddenEvents = appViewModel.resolveShowHiddenEvents(roomId)
+
     // Process timeline events in background when this room's timeline changes.
     // IMPORTANT: Do NOT key this effect on global counters (like timelineUpdateCounter),
     // otherwise updates in other rooms would trigger unnecessary work here.
     // PERFORMANCE: Gate logging on app visibility and current room, but still process events
     // (needed for when app comes back to foreground)
-    LaunchedEffect(timelineEvents) {
+    LaunchedEffect(timelineEvents, showHiddenEvents) {
         val shouldLog = appViewModel.isAppVisible && appViewModel.currentRoomId == roomId
         if (shouldLog && BuildConfig.DEBUG) {
             Log.d(
@@ -1921,7 +1925,8 @@ fun RoomTimelineScreen(
         }
         sortedEvents = processTimelineEvents(
             timelineEvents = timelineEvents,
-            allowedEventTypes = allowedEventTypes
+            allowedEventTypes = allowedEventTypes,
+            showHiddenEvents = showHiddenEvents
         )
     }
 

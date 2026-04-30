@@ -377,6 +377,34 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         gomuksRoomPrefsVersion++
     }
 
+    fun setDeviceGlobalShowHiddenEvents(value: Boolean?) = with(vm) {
+        deviceGlobalShowHiddenEvents = value
+        appContext?.let { ctx ->
+            val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            if (value == null) editor.remove("gomuks_device_show_hidden_events")
+            else editor.putBoolean("gomuks_device_show_hidden_events", value)
+            editor.apply()
+        }
+    }
+
+    fun getDeviceRoomShowHiddenEvents(roomId: String): Boolean? = with(vm) {
+        val ctx = appContext ?: return null
+        val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+        return booleanPrefOrNull(prefs, "gomuks_room_show_hidden_events_$roomId")
+    }
+
+    fun setDeviceRoomShowHiddenEvents(roomId: String, value: Boolean?) = with(vm) {
+        appContext?.let { ctx ->
+            val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            val key = "gomuks_room_show_hidden_events_$roomId"
+            if (value == null) editor.remove(key) else editor.putBoolean(key, value)
+            editor.apply()
+        }
+        gomuksRoomPrefsVersion++
+    }
+
     fun loadSettings(context: Context? = null) = with(vm) {
         val contextToUse = context ?: appContext
         contextToUse?.let { ctx ->
@@ -397,6 +425,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             deviceGlobalSendReadReceipts = booleanPrefOrNull(prefs, "gomuks_device_send_read_receipts")
             deviceGlobalSendTypingNotifications = booleanPrefOrNull(prefs, "gomuks_device_send_typing_notifications")
             deviceGlobalDisplayReadReceipts = booleanPrefOrNull(prefs, "gomuks_device_display_read_receipts")
+            deviceGlobalShowHiddenEvents = booleanPrefOrNull(prefs, "gomuks_device_show_hidden_events")
 
             val defaultIntervalMin = (SyncBatchProcessor.DEFAULT_BATCH_INTERVAL_MS / 60_000L).toInt()
             backgroundPurgeIntervalMinutes = prefs.getInt("background_purge_interval_minutes", defaultIntervalMin)

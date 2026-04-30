@@ -226,7 +226,8 @@ sealed class BubbleTimelineItem {
 /** PERFORMANCE: Helper function to process timeline events in background */
 suspend fun bubbleProcessTimelineEvents(
     timelineEvents: List<TimelineEvent>,
-    allowedEventTypes: Set<String>
+    allowedEventTypes: Set<String>,
+    showHiddenEvents: Boolean = false
 ): List<TimelineEvent> = withContext(Dispatchers.Default) {
     if (BuildConfig.DEBUG) Log.d(
         "Andromuks",
@@ -241,9 +242,10 @@ suspend fun bubbleProcessTimelineEvents(
     )
 
     val filteredEvents = timelineEvents.filter { event ->
-        // Filter out redaction events
+        // Redaction events are always hidden
         if (event.type == "m.room.redaction") return@filter false
-        // Filter out org.matrix.msc4075.* events (call notifications - should be hidden)
+        if (showHiddenEvents) return@filter true
+        // Filter out org.matrix.msc4075.* events (call notifications)
         if (event.type.startsWith("org.matrix.msc4075.") ||
             event.decryptedType?.startsWith("org.matrix.msc4075.") == true) {
             return@filter false
@@ -1555,16 +1557,18 @@ fun BubbleTimelineScreen(
 
     // PERFORMANCE: Use background processing for heavy filtering and sorting operations
     var sortedEvents by remember { mutableStateOf<List<TimelineEvent>>(emptyList()) }
-    
+    val showHiddenEvents = appViewModel.resolveShowHiddenEvents(roomId)
+
     // Process timeline events in background when dependencies change
-    LaunchedEffect(timelineEvents, appViewModel.timelineUpdateCounter) {
+    LaunchedEffect(timelineEvents, appViewModel.timelineUpdateCounter, showHiddenEvents) {
         if (BuildConfig.DEBUG) Log.d(
             "Andromuks",
             "BubbleTimelineScreen: Processing timelineEvents update - size=${timelineEvents.size}, updateCounter=${appViewModel.timelineUpdateCounter}, roomId=$roomId"
         )
         sortedEvents = bubbleProcessTimelineEvents(
             timelineEvents = timelineEvents,
-            allowedEventTypes = allowedEventTypes
+            allowedEventTypes = allowedEventTypes,
+            showHiddenEvents = showHiddenEvents
         )
     }
 
