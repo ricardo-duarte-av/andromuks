@@ -370,6 +370,16 @@ internal class SyncRoomsCoordinator(
                         }
                     }
         
+                    // fi.mau.gomuks.preferences — global client preferences
+                    if (accountDataJson.has("fi.mau.gomuks.preferences")) {
+                        val gomuksData = accountDataJson.optJSONObject("fi.mau.gomuks.preferences")
+                        val content = gomuksData?.optJSONObject("content")
+                        accountGlobalShowMediaPreviews = content?.let {
+                            if (it.has("show_media_previews")) it.optBoolean("show_media_previews") else null
+                        }
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processAccountData - fi.mau.gomuks.preferences show_media_previews=$accountGlobalShowMediaPreviews")
+                    }
+
                     // CRITICAL: Log completion of account data processing for debugging startup stalls
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d("Andromuks", "AppViewModel: Account data processed.")

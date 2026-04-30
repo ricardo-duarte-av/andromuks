@@ -7,6 +7,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ArrowBack
@@ -63,79 +66,40 @@ fun SettingsScreen(
                 }
             }
 
-            // Display Settings Section
+            // ── Client Preferences Section (top — gomuks cross-device prefs) ──
             Text(
-                text = "Display Settings",
+                text = "Client Preferences",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
 
-            // Load thumbnails setting
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            text = "Load thumbnails if available",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "Use image thumbnails in timelines when provided (saves bandwidth). Note: For animated images (GIF, animated PNG, animated WebP), the original is always used to ensure animation plays.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    
-                    Switch(
-                        checked = appViewModel.loadThumbnailsIfAvailable,
-                        onCheckedChange = { appViewModel.toggleLoadThumbnailsIfAvailable() }
+                    Text(
+                        text = "Gomuks preferences",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
                     )
-                }
-            }
-            
-            // Render thumbnails always setting
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            text = "Render thumbnails always",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "If disabled, images and videos show blurhash placeholder until tapped (prevents automatic NSFW rendering).",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    
-                    Switch(
-                        checked = appViewModel.renderThumbnailsAlways,
-                        onCheckedChange = { appViewModel.toggleRenderThumbnailsAlways() }
+                    Text(
+                        text = "Fine-grained preferences synced across devices (via account data) or kept local to this device.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Button(
+                        onClick = { navController.navigate("client_preferences") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Open Client Preferences")
+                    }
                 }
             }
 
@@ -1209,6 +1173,220 @@ fun BackgroundSyncSettings(appViewModel: AppViewModel) {
                     color = MaterialTheme.colorScheme.error
                 )
             }
+        }
+    }
+}
+
+// ── Client Preferences Screen ────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ClientPreferencesScreen(
+    appViewModel: AppViewModel,
+    navController: NavController
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Client Preferences") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(imageVector = Icons.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "Global (all devices)",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            GomuksPreferenceCard(
+                title = "Show image and video previews",
+                description = "Stored in account data — applies across all your Matrix clients. " +
+                    "When enabled, images and videos are rendered inline. When disabled, only a blurhash placeholder is shown until tapped.",
+                value = appViewModel.accountGlobalShowMediaPreviews,
+                onValueChange = { appViewModel.setGomuksGlobalPrefs(it) }
+            )
+
+            Text(
+                text = "Global (this device only)",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+
+            GomuksPreferenceCard(
+                title = "Show image and video previews",
+                description = "Stored locally on this device. Overrides the global (all-devices) setting. " +
+                    "Use \"Default\" to inherit from the global preference.",
+                value = appViewModel.deviceGlobalShowMediaPreviews,
+                onValueChange = { appViewModel.setDeviceGlobalShowMediaPreviews(it) }
+            )
+
+            Text(
+                text = "Resolution order",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            Text(
+                text = "Room (this device) > Room (all devices) > Global (this device) > Global (all devices). " +
+                    "The first explicitly set value wins; \"Default\" means inherit from the next level.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GomuksPreferenceCard(
+    title: String,
+    description: String,
+    value: Boolean?,
+    onValueChange: (Boolean?) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                SegmentedButton(
+                    selected = value == true,
+                    onClick = { onValueChange(true) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3)
+                ) { Text("On") }
+                SegmentedButton(
+                    selected = value == null,
+                    onClick = { onValueChange(null) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3)
+                ) { Text("Default") }
+                SegmentedButton(
+                    selected = value == false,
+                    onClick = { onValueChange(false) },
+                    shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3)
+                ) { Text("Off") }
+            }
+        }
+    }
+}
+
+// ── Room Preferences Screen ───────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RoomPreferencesScreen(
+    roomId: String,
+    appViewModel: AppViewModel,
+    navController: NavController
+) {
+    val roomPrefsVersion = appViewModel.gomuksRoomPrefsVersion
+    var roomAccountState by remember(roomId, roomPrefsVersion) {
+        mutableStateOf(appViewModel.getAccountRoomShowMediaPreviews(roomId))
+    }
+    var roomDeviceState by remember(roomId, roomPrefsVersion) {
+        mutableStateOf(appViewModel.getDeviceRoomShowMediaPreviews(roomId))
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Room Preferences") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(imageVector = Icons.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "Room (all devices)",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            GomuksPreferenceCard(
+                title = "Show image and video previews",
+                description = "Stored in room account data — applies to this room on all your Matrix clients. " +
+                    "Overrides the global preference for this room.",
+                value = roomAccountState,
+                onValueChange = {
+                    roomAccountState = it
+                    appViewModel.setGomuksRoomPrefs(roomId, it)
+                }
+            )
+
+            Text(
+                text = "Room (this device only)",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+
+            GomuksPreferenceCard(
+                title = "Show image and video previews",
+                description = "Stored locally on this device for this room. Overrides all other preferences for this room on this device. " +
+                    "Use \"Default\" to inherit from the room (all-devices) setting.",
+                value = roomDeviceState,
+                onValueChange = {
+                    roomDeviceState = it
+                    appViewModel.setDeviceRoomShowMediaPreviews(roomId, it)
+                }
+            )
+
+            Text(
+                text = "Resolution order",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            Text(
+                text = "Room (this device) > Room (all devices) > Global (this device) > Global (all devices). " +
+                    "The first explicitly set value wins; \"Default\" means inherit from the next level.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

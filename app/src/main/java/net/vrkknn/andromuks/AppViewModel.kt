@@ -431,6 +431,17 @@ class AppViewModel : ViewModel() {
     var elementCallBaseUrl by mutableStateOf("")
         internal set
 
+    // ── Gomuks preferences ────────────────────────────────────────────────────
+    // Global show_media_previews from fi.mau.gomuks.preferences account data (all devices)
+    var accountGlobalShowMediaPreviews: Boolean? by mutableStateOf(null)
+        internal set
+    // Global show_media_previews stored on this device only (SharedPrefs)
+    var deviceGlobalShowMediaPreviews: Boolean? by mutableStateOf(null)
+        internal set
+    // Version counter bumped whenever room-level gomuks prefs change, so composables recompose
+    var gomuksRoomPrefsVersion by mutableStateOf(0)
+        internal set
+
     // ── Background purge settings (exposed for SettingsScreen) ──────────────
     var backgroundPurgeIntervalMinutes by mutableStateOf(
         (SyncBatchProcessor.DEFAULT_BATCH_INTERVAL_MS / 60_000L).toInt()
@@ -10172,7 +10183,66 @@ class AppViewModel : ViewModel() {
 
     fun updateBackgroundPurgeThreshold(count: Int) = settingsCoordinator.updateBackgroundPurgeThreshold(count)
 
+    // ── Gomuks preferences ────────────────────────────────────────────────────
 
+    /**
+     * Resolves the effective "show media previews" setting for [roomId] by walking
+     * from most-specific to least-specific scope (room-device → room-account →
+     * global-device → global-account), returning the first non-null value.
+     * Falls back to the legacy [renderThumbnailsAlways] device toggle when nothing is set.
+     *
+     * Reads mutableStateOf fields ([accountGlobalShowMediaPreviews], [deviceGlobalShowMediaPreviews],
+     * [gomuksRoomPrefsVersion]) so Compose will recompose callers on any change.
+     */
+    fun resolveShowMediaPreviews(roomId: String?): Boolean {
+        // Establish Compose snapshot dependencies on all reactive fields
+        @Suppress("UNUSED_VARIABLE") val _v = gomuksRoomPrefsVersion
+
+        if (roomId != null) {
+            // 1. Room device-specific (SharedPrefs)
+            val roomDevice = settingsCoordinator.getDeviceRoomShowMediaPreviews(roomId)
+            if (roomDevice != null) return roomDevice
+
+            // 2. Room account data (RoomAccountDataCache)
+            val roomData = RoomAccountDataCache.getRoomAccountData(roomId, "fi.mau.gomuks.preferences")
+            val roomContent = roomData?.optJSONObject("content") ?: roomData
+            if (roomContent != null && roomContent.has("show_media_previews")) {
+                return roomContent.optBoolean("show_media_previews")
+            }
+        }
+
+        // 3. Global device-specific (reactive mutableStateOf)
+        val devGlobal = deviceGlobalShowMediaPreviews
+        if (devGlobal != null) return devGlobal
+
+        // 4. Global account data (reactive mutableStateOf)
+        val accGlobal = accountGlobalShowMediaPreviews
+        if (accGlobal != null) return accGlobal
+
+        // 5. Legacy device toggle as final fallback
+        return renderThumbnailsAlways
+    }
+
+    fun setGomuksGlobalPrefs(showMediaPreviews: Boolean?) =
+        accountDataCoordinator.setGomuksGlobalPrefs(showMediaPreviews)
+
+    fun setGomuksRoomPrefs(roomId: String, showMediaPreviews: Boolean?) =
+        accountDataCoordinator.setGomuksRoomPrefs(roomId, showMediaPreviews)
+
+    fun setDeviceGlobalShowMediaPreviews(value: Boolean?) =
+        settingsCoordinator.setDeviceGlobalShowMediaPreviews(value)
+
+    fun setDeviceRoomShowMediaPreviews(roomId: String, value: Boolean?) =
+        settingsCoordinator.setDeviceRoomShowMediaPreviews(roomId, value)
+
+    fun getDeviceRoomShowMediaPreviews(roomId: String): Boolean? =
+        settingsCoordinator.getDeviceRoomShowMediaPreviews(roomId)
+
+    fun getAccountRoomShowMediaPreviews(roomId: String): Boolean? {
+        val roomData = RoomAccountDataCache.getRoomAccountData(roomId, "fi.mau.gomuks.preferences")
+        val content = roomData?.optJSONObject("content") ?: roomData
+        return if (content != null && content.has("show_media_previews")) content.optBoolean("show_media_previews") else null
+    }
 
     fun loadSettings(context: Context? = null) = settingsCoordinator.loadSettings(context)
     /**

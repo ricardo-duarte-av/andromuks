@@ -464,6 +464,20 @@ fun RoomInfoScreen(
                     }
                 }
 
+                // Room Preferences button
+                Button(
+                    onClick = {
+                        navController.navigate(
+                            "room_preferences/${java.net.URLEncoder.encode(roomId, "UTF-8")}"
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                ) {
+                    Text("Room Preferences")
+                }
+
                 // Technical cache info (always last items)
                 run {
                     val cachedEventCountForRoom = RoomTimelineCache.getCachedEventCount(roomId)
@@ -1572,4 +1586,5 @@ fun parseRoomStateResponse(data: Any): RoomStateInfo? {
         return null
     }
 }
+
 

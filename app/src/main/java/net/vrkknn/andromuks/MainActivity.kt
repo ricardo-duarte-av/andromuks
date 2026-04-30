@@ -1574,6 +1574,23 @@ fun AppNavigation(
                 navController = navController
             )
         }
+        composable("client_preferences") {
+            ClientPreferencesScreen(
+                appViewModel = appViewModel,
+                navController = navController
+            )
+        }
+        composable(
+            route = "room_preferences/{roomId}",
+            arguments = listOf(androidx.navigation.navArgument("roomId") { type = androidx.navigation.NavType.StringType })
+        ) { backStackEntry ->
+            val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+            RoomPreferencesScreen(
+                roomId = roomId,
+                appViewModel = appViewModel,
+                navController = navController
+            )
+        }
         composable("push_notifications_debug") {
             PushNotificationsDebugScreen(
                 appViewModel = appViewModel,

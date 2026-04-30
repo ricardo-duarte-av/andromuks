@@ -57,7 +57,7 @@ OkHttp WebSocket (Matrix protocol) + SQLite (BootstrapLoader)
 - **`WebSocketService`** — Foreground service keeping the Matrix connection alive. Monitors health via 15s ping / 60s timeout. Handles reconnection with exponential backoff and is network-change-aware.
 - **`SyncRepository`** — Sits between the WebSocket and AppViewModel; coordinates event flow. The `_events` SharedFlow has `extraBufferCapacity = 1024` and `BufferOverflow.DROP_LATEST` — burst traffic sheds the newest arrivals. `sync_complete` messages bypass `_events` entirely and go to a separate `syncCompleteChannel` (UNLIMITED).
 - **Coordinator classes** (18+) — Each owns a specific feature domain (reactions, read receipts, typing, FCM, uploads, navigation, settings, etc.). They decompose AppViewModel complexity.
-- **Cache classes** (12+) — `RoomTimelineCache`, `RoomListCache`, `RoomMemberCache`, `ProfileCache`, `SpaceListCache`, etc. Singleton in-memory stores shared across Activities. `IntelligentMediaCache` is used by `ConversationsApi` (shortcut icons) and `PersonsApi`/`EnhancedNotificationDisplay` (notification avatars) — **not** for timeline media or UI avatar display, both of which delegate entirely to Coil's built-in disk/memory cache.
+- **Cache classes** (12+) — `RoomTimelineCache`, `RoomListCache`, `RoomMemberCache`, `ProfileCache`, `SpaceListCache`, `RoomAccountDataCache`, etc. Singleton in-memory stores shared across Activities. `IntelligentMediaCache` is used by `ConversationsApi` (shortcut icons) and `PersonsApi`/`EnhancedNotificationDisplay` (notification avatars) — **not** for timeline media or UI avatar display, both of which delegate entirely to Coil's built-in disk/memory cache. `RoomAccountDataCache` holds per-room account data (e.g. `fi.mau.gomuks.preferences`) populated from sync.
 
 ### Entry Points
 
@@ -131,3 +131,4 @@ When adding features, follow the existing Coordinator pattern: create a `*Coordi
 | HTML rendering (`HtmlMessageText`, tables) | [docs/HTML_RENDERING.md](docs/HTML_RENDERING.md) |
 | Offline connection indicator (CloudOff, placement per screen) | [docs/OFFLINE_INDICATOR.md](docs/OFFLINE_INDICATOR.md) |
 | Timeline media loading (Coil vs IntelligentMediaCache split, ImageRequest stability, BlurHash) | [docs/MEDIA_LOADING.md](docs/MEDIA_LOADING.md) |
+| Settings & preferences (4-scope gomuks prefs, resolution order, reactivity, UI screens) | [docs/SETTINGS_PREFS.md](docs/SETTINGS_PREFS.md) |

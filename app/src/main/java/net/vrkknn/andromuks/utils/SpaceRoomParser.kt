@@ -270,7 +270,7 @@ object SpaceRoomParser {
             // Extract tags from account_data.m.tag
             var isFavourite = false
             var isLowPriority = false
-            
+
             val accountData = roomObj.optJSONObject("account_data")
             if (accountData != null) {
                 val tagData = accountData.optJSONObject("m.tag")
@@ -288,8 +288,12 @@ object SpaceRoomParser {
                         }
                     }
                 }
+                val gomuksPrefData = accountData.optJSONObject("fi.mau.gomuks.preferences")
+                if (gomuksPrefData != null) {
+                    net.vrkknn.andromuks.RoomAccountDataCache.setRoomAccountData(roomId, "fi.mau.gomuks.preferences", gomuksPrefData)
+                }
             }
-            
+
             //android.util.Log.d("Andromuks", "SpaceRoomParser: Creating RoomItem for '$name' - messagePreview='$messagePreview', messageSender='$messageSender'")
             rooms.add(
                 RoomItem(
@@ -569,7 +573,7 @@ object SpaceRoomParser {
             // Extract tags from account_data.m.tag
             var isFavourite = false
             var isLowPriority = false
-            
+
             val accountData = roomObj.optJSONObject("account_data")
             if (accountData != null) {
                 val tagData = accountData.optJSONObject("m.tag")
@@ -578,22 +582,21 @@ object SpaceRoomParser {
                     if (content != null) {
                         val tags = content.optJSONObject("tags")
                         if (tags != null) {
-                            // Check for m.favourite tag
                             if (tags.has("m.favourite")) {
                                 isFavourite = true
-                                //Log.d("Andromuks", "SpaceRoomParser: Room $roomId marked as favourite")
                             }
-                            
-                            // Check for m.lowpriority tag
                             if (tags.has("m.lowpriority")) {
                                 isLowPriority = true
-                                //Log.d("Andromuks", "SpaceRoomParser: Room $roomId marked as low priority")
                             }
                         }
                     }
                 }
+                val gomuksPrefData = accountData.optJSONObject("fi.mau.gomuks.preferences")
+                if (gomuksPrefData != null) {
+                    net.vrkknn.andromuks.RoomAccountDataCache.setRoomAccountData(roomId, "fi.mau.gomuks.preferences", gomuksPrefData)
+                }
             }
-            
+
             return RoomItem(
                 id = roomId,
                 name = name,

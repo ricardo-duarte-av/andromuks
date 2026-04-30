@@ -362,7 +362,7 @@ fun MediaMessage(
     hasBeenEditedOverride: Boolean? = null
 ) {
     val useThumbnails = appViewModel?.loadThumbnailsIfAvailable ?: true
-    val renderThumbnailsAlways = appViewModel?.renderThumbnailsAlways ?: true
+    val renderThumbnailsAlways = appViewModel?.resolveShowMediaPreviews(event?.roomId) ?: true
     var showImageViewer by remember { mutableStateOf(false) }
     var imageViewerSourceBounds by remember { mutableStateOf<Rect?>(null) }
     var showVideoPlayer by remember { mutableStateOf(false) }
