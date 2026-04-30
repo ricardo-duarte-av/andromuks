@@ -18,6 +18,7 @@ import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.SpaceRoomParser
 import net.vrkknn.andromuks.utils.ReceiptFunctions
 import net.vrkknn.andromuks.utils.processReactionEvent
+import net.vrkknn.andromuks.utils.extractReactionEventFromTimeline
 import okhttp3.WebSocket
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -8789,21 +8790,36 @@ class AppViewModel : ViewModel() {
                 }
                 
                 if (redactsEventId != null) {
-                    
+
                     // Find and update the original message in the timeline
                     val currentEvents = timelineEvents.toMutableList()
                     val originalIndex = currentEvents.indexOfFirst { it.eventId == redactsEventId }
-                    
+
                     if (originalIndex >= 0) {
                         val originalEvent = currentEvents[originalIndex]
                         // Create a copy with redactedBy set
                         val redactedEvent = originalEvent.copy(redactedBy = event.eventId)
                         currentEvents[originalIndex] = redactedEvent
                         timelineEvents = currentEvents
-                        
+
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Marked event $redactsEventId as redacted by ${event.eventId} (type=${event.type}, decryptedType=${event.decryptedType})")
                     } else {
                         android.util.Log.w("Andromuks", "AppViewModel: [LIVE SYNC] Could not find event $redactsEventId to mark as redacted (might be in paginated history)")
+                    }
+
+                    // Reactions are never in timelineEvents, so the block above always misses them.
+                    // Look the redacted event up in the cache and, if it is a reaction, remove it
+                    // from messageReactions so it stops rendering on the target message.
+                    val cachedRedacted = RoomTimelineCache.findEventForReply(roomId, redactsEventId)
+                    if (cachedRedacted != null && cachedRedacted.type == "m.reaction") {
+                        val reactionEvent = extractReactionEventFromTimeline(cachedRedacted)
+                        if (reactionEvent != null) {
+                            removeReaction(reactionEvent)
+                            if (BuildConfig.DEBUG) android.util.Log.d(
+                                "Andromuks",
+                                "AppViewModel: [LIVE SYNC] Removed redacted reaction $redactsEventId (${reactionEvent.emoji} by ${reactionEvent.sender}) from messageReactions"
+                            )
+                        }
                     }
                 } else {
                     android.util.Log.w("Andromuks", "AppViewModel: [LIVE SYNC] Redaction event has no 'redacts' field (type=${event.type}, decryptedType=${event.decryptedType})")

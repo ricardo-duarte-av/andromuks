@@ -30,7 +30,7 @@ In `sync_complete`, many events arrive with `timeline_rowid: 0`. The room data i
 | `m.room.member` | Rendered as join/leave/invite narrator row | Cache-only (display name + avatar updated in `RoomMemberCache` and `ProfileCache`) |
 | `m.room.redaction` | Added to chain (needed for `findLatestRedactionEvent`) | — |
 | `m.room.pinned_events`, `m.room.name`, `m.room.topic`, `m.room.avatar` | Rendered as narrator row | — |
-| `m.reaction` | Not added to chain; processed by reaction coordinator | — |
+| `m.reaction` | Not added to chain; processed by reaction coordinator (see [docs/REACTIONS.md](REACTIONS.md)) | — |
 
 ## Sort Order
 
