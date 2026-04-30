@@ -3496,7 +3496,7 @@ fun TimelineEventItem(
     // OPTIMIZED: Use separate readReceiptsUpdateCounter to avoid unnecessary recomposition of timeline
     // CRITICAL FIX: Filter receipts to ensure they belong to this event's room
     // EventIds are globally unique, but we verify the receipt's eventId matches to prevent cross-room leakage
-    val readReceipts =
+    val rawReadReceipts =
         remember(event.eventId, event.roomId, appViewModel?.readReceiptsUpdateCounter) {
             if (appViewModel != null) {
                 val allReceipts = net.vrkknn.andromuks.utils.ReceiptFunctions.getReadReceipts(
@@ -3514,8 +3514,7 @@ fun TimelineEventItem(
                 emptyList()
             }
         }
-    @Suppress("NAME_SHADOWING")
-    val readReceipts = if (appViewModel?.resolveDisplayReadReceipts(event.roomId) != false) readReceipts else emptyList()
+    val readReceipts = if (appViewModel?.resolveDisplayReadReceipts(event.roomId) != false) rawReadReceipts else emptyList()
 
     // Early check for emote message (before rendering layout)
     val isEmoteMessage = when {
