@@ -4598,11 +4598,9 @@ class AppViewModel : ViewModel() {
     
     // Pagination state
     internal var smallestRowId: Long = -1L // Smallest rowId from initial paginate
-    // Track the oldest POSITIVE timelineRowId from each pagination response per room
-    // The oldest timeline event will have the lowest (smallest) POSITIVE timelineRowId
-    // CRITICAL: Only positive timelineRowid values are stored (negative values are for state events and cannot be used for pagination)
-    // This is used for the next pull-to-refresh to know where to start paginating from
-    // Matches Webmucks backend behavior: pagination uses positive timeline_rowid values only
+    // Tracks the minimum (oldest) timelineRowId seen in each pagination response, used as the
+    // max_timeline_id cursor for the next paginate call. Both positive and negative values are
+    // stored — the backend uses negative rowIds for historical events predating the live-sync window.
     internal val oldestRowIdPerRoom = mutableMapOf<String, Long>()
     var isPaginating by mutableStateOf(false)
         internal set
@@ -8757,8 +8755,8 @@ class AppViewModel : ViewModel() {
         }
         
         for (event in events) {          
-            if (event.type == "m.room.member" && event.timelineRowid <= 0L) {
-                // State member event or profile-hint (timeline_rowid=0 or -1); update cache only
+            if (event.type == "m.room.member" && (event.timelineRowid == 0L || event.timelineRowid == -1L)) {
+                // State member event or profile-hint (timeline_rowid=0 or -1 only); update cache only
                 val userId = event.stateKey ?: event.sender
                 val content = event.content
                 if (content != null) {
@@ -9349,34 +9347,29 @@ class AppViewModel : ViewModel() {
         isPaginating = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // CRITICAL FIX: Use ONLY positive timeline_rowid values for pagination
-                // According to Webmucks backend documentation and implementation:
-                // - Negative timeline_rowid values are for state events and cannot be used for pagination
-                // - Pagination requires positive timeline_rowid values only
-                // - Positive N means "return events with timeline.rowid < N" (older than N)
-                // - 0 means "no upper bound / fetch recent" (ONLY use when cache is empty)
+                // Both positive and negative timeline_rowid values are valid pagination cursors.
+                // The backend uses negative values for historical events that predate the live-sync
+                // window. Sending max_timeline_id=N (any sign) returns events with rowid < N.
+                // 0 is the special "no upper bound / fetch most recent" sentinel — only use it
+                // when the cache is truly empty.
                 val cacheEventCount = RoomTimelineCache.getCachedEventCount(roomId)
-                val oldestCachedRowId = RoomTimelineCache.getOldestValidCachedEventRowId(roomId) // CRITICAL: No 0L values!
-                val oldestTrackedRowId = oldestRowIdPerRoom[roomId] // This should already be positive (tracked from responses)
-                
-                // CRITICAL FIX: Prefer tracked value over cached value to avoid getting stuck on same max_timeline_id
-                // The tracked value is updated from the pagination response and represents the actual oldest
-                // positive timelineRowid we received, while the cache value might be stale if duplicates were filtered out
-                // Only use 0 when cache is actually empty (no events at all)
+                val oldestCachedRowId = RoomTimelineCache.getOldestValidCachedEventRowId(roomId) // excludes rowId=0
+                val oldestTrackedRowId = oldestRowIdPerRoom[roomId] // updated each paginate response
+
+                // Prefer the tracked cursor (updated from paginate responses) over the cache
+                // value, as the tracked value may be more negative (older) than the cache minimum
+                // when recent paginate responses contained only events already in the cache.
                 val oldestRowId = when {
-                    oldestTrackedRowId != null && oldestTrackedRowId != -1L && oldestTrackedRowId > 0 -> oldestTrackedRowId
-                    oldestCachedRowId != -1L && oldestCachedRowId > 0 -> oldestCachedRowId
+                    oldestTrackedRowId != null && oldestTrackedRowId != -1L && oldestTrackedRowId != 0L -> oldestTrackedRowId
+                    oldestCachedRowId != -1L && oldestCachedRowId != 0L -> oldestCachedRowId
                     cacheEventCount == 0 -> {
-                        // Cache is empty - use 0 to request most recent events
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d("Andromuks", "AppViewModel: Cache is empty for room $roomId. Using max_timeline_id=0 to request most recent events.")
                         }
                         0L
                     }
                     else -> {
-                        // Cache has events but we couldn't get oldest positive row ID - this shouldn't happen
-                        // Log warning and use 0 as fallback
-                        android.util.Log.w("Andromuks", "AppViewModel: ⚠️ Cache has $cacheEventCount events for room $roomId but couldn't get oldest positive timelineRowId (cached=$oldestCachedRowId, tracked=$oldestTrackedRowId). Using max_timeline_id=0 as fallback.")
+                        android.util.Log.w("Andromuks", "AppViewModel: ⚠️ Cache has $cacheEventCount events for room $roomId but couldn't get oldest timelineRowId (cached=$oldestCachedRowId, tracked=$oldestTrackedRowId). Using max_timeline_id=0 as fallback.")
                         0L
                     }
                 }

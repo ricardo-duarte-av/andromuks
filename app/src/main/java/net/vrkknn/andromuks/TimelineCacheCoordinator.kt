@@ -1207,7 +1207,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         }
 
                         // Process member events using helper function
-                        if (event.type == "m.room.member" && event.timelineRowid == -1L) {
+                        if (event.type == "m.room.member" && (event.timelineRowid == -1L || event.timelineRowid == 0L)) {
                             val mutableMemberMap = memberMap.toMutableMap()
                             processMemberEvent(event, mutableMemberMap)
                             // Update singleton cache with changes
@@ -1260,47 +1260,13 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                         "m.room.redaction", // Needed so redaction events reach cache (addEventsToCache stores them in cache.redactionEvents for sender lookup)
                                     )
 
-                                // Check if this is a kick (leave event where sender != state_key)
-                                // Kicks should appear in timeline even with negative timelineRowid
-                                // Note: Member events with timelineRowid == -1 are processed
-                                // separately above (line
-                                // 12562)
-                                val isKick =
-                                    event.type == "m.room.member" &&
-                                        event.timelineRowid < 0 &&
-                                        event.stateKey != null &&
-                                        event.sender != event.stateKey &&
-                                        event.content?.optString("membership") == "leave"
-
-                                // Filtering logic:
-                                // 1. Allow all allowed event types regardless of timelineRowid
-                                //    (timelineRowid can be negative for many valid timeline events,
-                                // including
-                                // messages)
-                                // 2. For member events with negative timelineRowid, only allow
-                                // kicks
-                                //    (member events with timelineRowid >= 0 are always allowed)
-                                // 3. Messages, encrypted messages, stickers, and system events are
-                                // always allowed
-                                //    regardless of timelineRowid (they can have timelineRowid == -1
-                                // in some cases)
+                                // Only rowId 0 and -1 are state-only sentinels for m.room.member.
+                                // Events with rowId == -1 are already handled above (profile hints).
+                                // Events with any other rowId (positive or negative < -1) are real
+                                // timeline entries (joins, leaves, avatar/displayname changes, kicks).
                                 val shouldAdd =
                                     when {
-                                        allowedEventTypes.contains(event.type) -> {
-                                            // For member events with negative timelineRowid, only
-                                            // allow kicks
-                                            // All other allowed event types (messages, system
-                                            // events, etc.) are allowed
-                                            // even with negative timelineRowid
-                                            if (
-                                                event.type == "m.room.member" &&
-                                                    event.timelineRowid < 0
-                                            ) {
-                                                isKick
-                                            } else {
-                                                true
-                                            }
-                                        }
+                                        allowedEventTypes.contains(event.type) -> true
                                         else -> false
                                     }
 
@@ -1353,16 +1319,18 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 processVersionedMessages(allEvents)
 
                 // Handle empty pagination responses
-                // Only mark as "no more messages" if backend actually returned 0 events OR fewer
-                // events
-                // than requested
-                // Don't mark as empty if events were filtered out (e.g., all reactions/state
-                // events)
                 val totalEventsReturned = eventsArray.length()
-                // CRITICAL FIX: When timelineList is empty, use has_more field to determine if more
-                // messages available
-                // Don't set hasMoreMessages = false unless backend explicitly says has_more = false
                 if (timelineList.isEmpty()) {
+                    // The response only contained reactions/state events (no displayable timeline
+                    // events). Still advance the pagination cursor so the next paginate call moves
+                    // past these events instead of re-requesting the same range.
+                    val maxTimelineIdUsed = paginateRequestMaxTimelineIds[requestId]
+                    val cursorFromAll = allEvents.filter { it.timelineRowid != 0L }.minOfOrNull { it.timelineRowid }
+                    if (cursorFromAll != null && (maxTimelineIdUsed == null || maxTimelineIdUsed == 0L || cursorFromAll < maxTimelineIdUsed)) {
+                        oldestRowIdPerRoom[roomId] = cursorFromAll
+                        if (BuildConfig.DEBUG)
+                            android.util.Log.d("Andromuks", "AppViewModel: Advanced cursor to $cursorFromAll from reaction-only paginate page (was max_timeline_id=$maxTimelineIdUsed)")
+                    }
                     android.util.Log.w(
                         "Andromuks",
                         "AppViewModel: ========================================",
@@ -2628,71 +2596,51 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 )
             }
 
-            // Track the oldest POSITIVE timelineRowId from this pagination response
-            // The oldest event will have the lowest (smallest) POSITIVE timelineRowId in the
-            // response
-            // CRITICAL: Only use positive timelineRowid values for pagination (negative values are
-            // for
-            // state events)
-            // This matches Webmucks backend behavior: pagination uses positive timeline_rowid
-            // values only
+            // Track the oldest timelineRowId from this pagination response as the cursor for
+            // the next paginate call. Both positive and negative rowIds are valid cursors —
+            // the backend uses negative values for historical events that predate the live-sync
+            // window. Webmuks sends the minimum rowId (regardless of sign) as max_timeline_id.
             if (timelineList.isNotEmpty()) {
-                // Filter to only positive timelineRowids (pagination events only, exclude state
-                // events)
-                val positiveEvents = timelineList.filter { it.timelineRowid > 0L }
-                val oldestInResponse = positiveEvents.minOfOrNull { it.timelineRowid }
+                // Exclude rowId=0 (invalid/unresolved) but accept negative values.
+                val validEvents = timelineList.filter { it.timelineRowid != 0L }
+                val oldestInResponse = validEvents.minOfOrNull { it.timelineRowid }
 
                 if (oldestInResponse != null) {
-                    // timelineRowId of 0 is a bug (should never happen)
-                    if (oldestInResponse == 0L) {
-                        android.util.Log.e(
+                    // Detect when we're making no progress: the oldest event in the response
+                    // is >= the max_timeline_id we sent, meaning we got the same or newer events.
+                    if (maxTimelineIdUsed != null && maxTimelineIdUsed != 0L && oldestInResponse >= maxTimelineIdUsed) {
+                        android.util.Log.w(
                             "Andromuks",
-                            "AppViewModel: ⚠️ BUG: Pagination response contains timelineRowId=0 for room $roomId. Every event should have a timelineRowId!",
+                            "AppViewModel: ⚠️ PAGINATION STUCK: Response's oldest event ($oldestInResponse) >= max_timeline_id used ($maxTimelineIdUsed). No progress made!",
                         )
-                    } else {
-                        // CRITICAL FIX: Detect when we're making no progress (response's oldest
-                        // event >=
-                        // max_timeline_id we used)
-                        // This means we got the same or newer events, not older ones - we're stuck!
-                        if (maxTimelineIdUsed != null && oldestInResponse >= maxTimelineIdUsed) {
+                        if (eventsAdded == 0) {
                             android.util.Log.w(
                                 "Andromuks",
-                                "AppViewModel: ⚠️ PAGINATION STUCK: Response's oldest event ($oldestInResponse) >= max_timeline_id used ($maxTimelineIdUsed). No progress made!",
+                                "AppViewModel: Setting hasMoreMessages=false to prevent infinite pagination loop (no progress + duplicates)",
                             )
-                            // If we got duplicates and made no progress, stop pagination to prevent
-                            // infinite loop
-                            if (eventsAdded == 0) {
-                                android.util.Log.w(
-                                    "Andromuks",
-                                    "AppViewModel: Setting hasMoreMessages=false to prevent infinite pagination loop (no progress + duplicates)",
-                                )
-                                hasMoreMessages = false
-                                appContext?.let { context ->
-                                    android.widget.Toast.makeText(
-                                            context,
-                                            "No more messages to load",
-                                            android.widget.Toast.LENGTH_SHORT,
-                                        )
-                                        .show()
-                                }
+                            hasMoreMessages = false
+                            appContext?.let { context ->
+                                android.widget.Toast.makeText(
+                                        context,
+                                        "No more messages to load",
+                                        android.widget.Toast.LENGTH_SHORT,
+                                    )
+                                    .show()
                             }
-                        } else {
-                            // Store it for next pull-to-refresh (only positive values)
-                            oldestRowIdPerRoom[roomId] = oldestInResponse
-                            if (BuildConfig.DEBUG)
-                                android.util.Log.d(
-                                    "Andromuks",
-                                    "AppViewModel: Tracked oldest positive timelineRowId=$oldestInResponse for room $roomId (from ${timelineList.size} events, ${positiveEvents.size} positive, max_timeline_id used was $maxTimelineIdUsed)",
-                                )
                         }
+                    } else {
+                        // Cursor advanced — store the minimum rowId for next pagination.
+                        oldestRowIdPerRoom[roomId] = oldestInResponse
+                        if (BuildConfig.DEBUG)
+                            android.util.Log.d(
+                                "Andromuks",
+                                "AppViewModel: Tracked oldest timelineRowId=$oldestInResponse for room $roomId (from ${timelineList.size} events, ${validEvents.size} valid, max_timeline_id used was $maxTimelineIdUsed)",
+                            )
                     }
-                } else if (positiveEvents.isEmpty()) {
-                    // No positive timelineRowids in response - this is unusual but not necessarily
-                    // an error
-                    // (could be all state events, though pagination should return timeline events)
+                } else {
                     android.util.Log.w(
                         "Andromuks",
-                        "AppViewModel: ⚠️ Pagination response for room $roomId contains no events with positive timelineRowid (all ${timelineList.size} events have non-positive rowIds)",
+                        "AppViewModel: ⚠️ Pagination response for room $roomId contains no events with a valid timelineRowid (all ${timelineList.size} events have rowId=0)",
                     )
                 }
             }

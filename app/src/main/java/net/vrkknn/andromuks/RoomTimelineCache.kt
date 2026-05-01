@@ -259,14 +259,11 @@ object RoomTimelineCache {
         for (event in filteredEvents) {
             if (event.eventId.isBlank()) continue
 
-            // Drop m.room.member events that are not real timeline entries.
-            // timelineRowid <= 0 means state-only or profile-hint (rowid=-1 or 0).
-            // Exception: kicks (sender != stateKey, membership=leave) may arrive via state.
-            if (event.type == "m.room.member" && event.timelineRowid <= 0L) {
-                val isKick = event.stateKey != null &&
-                    event.sender != event.stateKey &&
-                    event.content?.optString("membership") == "leave"
-                if (!isKick) continue
+            // Drop m.room.member events that are pure state entries (profile hints).
+            // Only rowId 0 (invalid) and -1 (state-only/profile-hint) are excluded.
+            // Negative values < -1 are legitimate paginated timeline events and must be kept.
+            if (event.type == "m.room.member" && (event.timelineRowid == 0L || event.timelineRowid == -1L)) {
+                continue
             }
 
             // Handle redaction events separately (both encrypted and non-encrypted for E2EE rooms)
