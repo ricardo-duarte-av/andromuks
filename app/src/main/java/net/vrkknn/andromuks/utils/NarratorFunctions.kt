@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
@@ -63,6 +64,8 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import net.vrkknn.andromuks.AppViewModel
+import net.vrkknn.andromuks.MediaInfo
+import net.vrkknn.andromuks.MediaMessage
 import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.PowerLevelsInfo
 import net.vrkknn.andromuks.ReadReceipt
@@ -1211,6 +1214,8 @@ private fun MemberEventNarrator(
                         event = event,
                         appViewModel = appViewModel,
                         roomId = roomId,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
                         onUserClick = onUserClick
                     )
                 }
@@ -1582,6 +1587,8 @@ private fun ProfileChangeNarrator(
     event: TimelineEvent,
     appViewModel: AppViewModel?,
     roomId: String,
+    homeserverUrl: String,
+    authToken: String,
     onUserClick: (String) -> Unit = {}
 ) {
     val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
@@ -1590,64 +1597,132 @@ private fun ProfileChangeNarrator(
     val userMentionColor = MaterialTheme.colorScheme.primary
     val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
     val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
-    
+
     if (senderProfile == null && appViewModel != null) {
         appViewModel.requestUserProfile(event.sender, roomId)
     }
-    val displayNameRemoved = !prevDisplayName.isNullOrEmpty() && currentDisplayName.isNullOrEmpty()
-    val displayNameChanged = !prevDisplayName.isNullOrEmpty() && 
-                             !currentDisplayName.isNullOrEmpty() && 
-                             prevDisplayName != currentDisplayName
-    val displayNameAdded = prevDisplayName.isNullOrEmpty() && !currentDisplayName.isNullOrEmpty()
-    
-    val avatarRemoved = !prevAvatar.isNullOrEmpty() && currentAvatar.isNullOrEmpty()
-    val avatarChanged = !prevAvatar.isNullOrEmpty() && 
-                        !currentAvatar.isNullOrEmpty() && 
-                        prevAvatar != currentAvatar
-    val avatarAdded = prevAvatar.isNullOrEmpty() && !currentAvatar.isNullOrEmpty()
-    
-    // Helper to build annotated text with clickable user
-    fun buildProfileChangeText(message: String): AnnotatedString {
-        return buildAnnotatedString {
-            appendClickableUser(event.sender, senderDisplayName, userMentionColor)
-            append(" $message")
-        }
+    val displayNameRemoved = prevDisplayName.isNotEmpty() && currentDisplayName.isEmpty()
+    val displayNameChanged = prevDisplayName.isNotEmpty() && currentDisplayName.isNotEmpty() && prevDisplayName != currentDisplayName
+    val displayNameAdded = prevDisplayName.isEmpty() && currentDisplayName.isNotEmpty()
+
+    val avatarRemoved = prevAvatar.isNotEmpty() && currentAvatar.isEmpty()
+    val avatarChanged = prevAvatar.isNotEmpty() && currentAvatar.isNotEmpty() && prevAvatar != currentAvatar
+    val avatarAdded = prevAvatar.isEmpty() && currentAvatar.isNotEmpty()
+
+    fun buildProfileChangeText(message: String): AnnotatedString = buildAnnotatedString {
+        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+        append(" $message")
     }
-    
-    val annotatedText = remember(
-        displayName,
-        event.sender,
-        senderDisplayName,
-        memberMap,
-        userMentionColor,
-        displayNameRemoved,
-        displayNameChanged,
-        displayNameAdded,
-        avatarRemoved,
-        avatarChanged,
-        avatarAdded
-    ) {
-        when {
-            displayNameRemoved && avatarRemoved -> buildProfileChangeText("removed their display name and avatar")
-            displayNameRemoved && avatarChanged -> buildProfileChangeText("removed their display name and changed their avatar")
-            displayNameRemoved && avatarAdded -> buildProfileChangeText("removed their display name and set their avatar")
-            displayNameRemoved -> buildProfileChangeText("removed their display name")
-            displayNameChanged && avatarRemoved -> buildProfileChangeText("changed their display name and removed their avatar")
-            displayNameChanged && avatarChanged -> buildProfileChangeText("changed their profile")
-            displayNameChanged && avatarAdded -> buildProfileChangeText("changed their display name and set their avatar")
-            displayNameChanged -> buildProfileChangeText("changed their display name")
-            displayNameAdded && avatarRemoved -> buildProfileChangeText("set their display name and removed their avatar")
-            displayNameAdded && avatarChanged -> buildProfileChangeText("set their display name and changed their avatar")
-            displayNameAdded && avatarAdded -> buildProfileChangeText("set their display name and avatar")
-            displayNameAdded -> buildProfileChangeText("set their display name")
-            avatarRemoved -> buildProfileChangeText("removed their avatar")
-            avatarChanged -> buildProfileChangeText("changed their avatar")
-            avatarAdded -> buildProfileChangeText("set their avatar")
-            else -> buildProfileChangeText("joined the room")
+
+    val hasAvatarChange = avatarChanged || avatarAdded || avatarRemoved
+
+    if (hasAvatarChange) {
+        // Text up to (and including) the word before the first inline avatar image.
+        // "from" is appended for changed/removed so the image follows naturally.
+        val actionText = when {
+            displayNameRemoved && avatarRemoved -> " removed their display name and avatar"
+            displayNameRemoved && avatarChanged -> " removed their display name and changed their avatar from"
+            displayNameRemoved && avatarAdded  -> " removed their display name and set their avatar"
+            displayNameChanged && avatarRemoved -> " changed their display name and removed their avatar"
+            displayNameChanged && avatarChanged -> " changed their display name and avatar from"
+            displayNameChanged && avatarAdded  -> " changed their display name and set their avatar"
+            displayNameAdded && avatarRemoved  -> " set their display name and removed their avatar"
+            displayNameAdded && avatarChanged  -> " set their display name and changed their avatar from"
+            displayNameAdded && avatarAdded   -> " set their display name and avatar"
+            avatarRemoved -> " removed their avatar"
+            avatarChanged -> " changed their avatar from"
+            avatarAdded   -> " set their avatar"
+            else -> " made a change"
         }
+
+        val prefixText = remember(event.sender, senderDisplayName, actionText, userMentionColor) {
+            buildAnnotatedString {
+                appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+                append(actionText)
+            }
+        }
+
+        // Which avatar the user tapped to view full-screen (null = viewer closed)
+        var viewerMxcUrl by remember { mutableStateOf<String?>(null) }
+
+        // FlowRow wraps to the next line when the avatars would overflow into the
+        // read-receipt / timestamp area on the right, rather than clipping them.
+        FlowRow(
+            verticalArrangement = Arrangement.Center,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            ClickableNarratorText(text = prefixText, onUserClick = onUserClick)
+
+            // Old avatar (shown for "changed from …" and "removed …")
+            if ((avatarChanged || avatarRemoved) && prevAvatar.isNotEmpty()) {
+                AvatarImage(
+                    mxcUrl = prevAvatar,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    fallbackText = displayName,
+                    size = 20.dp,
+                    userId = event.sender,
+                    displayName = displayName,
+                    modifier = Modifier.clickable { viewerMxcUrl = prevAvatar }
+                )
+            }
+
+            // "to" separator between old and new avatar
+            if (avatarChanged) {
+                Text(
+                    text = "to",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontStyle = FontStyle.Italic
+                )
+            }
+
+            // New avatar (shown for "… to [new]" and "set their avatar [new]")
+            if ((avatarChanged || avatarAdded) && currentAvatar.isNotEmpty()) {
+                AvatarImage(
+                    mxcUrl = currentAvatar,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    fallbackText = displayName,
+                    size = 20.dp,
+                    userId = event.sender,
+                    displayName = displayName,
+                    modifier = Modifier.clickable { viewerMxcUrl = currentAvatar }
+                )
+            }
+        }
+
+        // Full-screen viewer — reuses the same ImageViewerDialog used for timeline media
+        val viewingUrl = viewerMxcUrl
+        if (viewingUrl != null) {
+            ImageViewerDialog(
+                mediaMessage = MediaMessage(
+                    url = viewingUrl,
+                    filename = "avatar",
+                    caption = null,
+                    info = MediaInfo(width = 0, height = 0, size = 0, mimeType = "image/*", blurHash = null),
+                    msgType = "m.image"
+                ),
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                isEncrypted = false,
+                onDismiss = { viewerMxcUrl = null }
+            )
+        }
+    } else {
+        val annotatedText = remember(
+            event.sender, senderDisplayName, memberMap, userMentionColor,
+            displayNameRemoved, displayNameChanged, displayNameAdded
+        ) {
+            when {
+                displayNameRemoved -> buildProfileChangeText("removed their display name")
+                displayNameChanged -> buildProfileChangeText("changed their display name")
+                displayNameAdded   -> buildProfileChangeText("set their display name")
+                else               -> buildProfileChangeText("joined the room")
+            }
+        }
+        ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
     }
-    
-    ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
 }
 
 @Composable
