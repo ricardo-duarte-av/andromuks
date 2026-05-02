@@ -302,40 +302,42 @@ class AppViewModel : ViewModel() {
         requireInitComplete: Boolean = false,
         roomId: String? = null
     ): Boolean {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: START - roomId=$roomId, timeoutMs=$timeoutMs, requireInitComplete=$requireInitComplete, currentRoomId=$currentRoomId")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: START - roomId=$roomId, timeoutMs=$timeoutMs, requireInitComplete=$requireInitComplete, currentRoomId=$currentRoomId, isPendingNavigationFromNotification=$isPendingNavigationFromNotification")
         val startTime = System.currentTimeMillis()
         return withTimeoutOrNull(timeoutMs) {
             var pollCount = 0
             while (true) {
                 pollCount++
-                // REMOVED: profileReady check - profiles load in background, events render with fallback immediately
-                // Events can render instantly with username/avatar fallback, profiles update when they arrive
-                // REMOVED: spacesReady check - not needed, init_complete check suffices if websocket was not connected
-                // If websocket was already connected, we don't need to check for anything, just attach and proceed
                 val pendingReady = !isProcessingPendingItems
                 val syncReady = initialSyncComplete
                 val initReady = !requireInitComplete || initializationComplete
-                
+
+                // CRITICAL FIX: If opening from a notification, also wait for the notification-
+                // driven sync flush + cache processing to complete. The flag is cleared by
+                // processCachedEvents / handleInitialTimelineBuild after the data is available.
+                // We only block on this flag when it applies to the target room.
+                val notificationFlushReady = if (roomId != null) {
+                    !isPendingNavigationFromNotification || currentRoomId != roomId
+                } else {
+                    !isPendingNavigationFromNotification
+                }
+
                 // CRITICAL FIX: Also wait for timeline to finish loading if we're loading a specific room
                 // This prevents the timeline from showing a spinner indefinitely when opened during sync processing
                 val timelineReady = if (roomId != null && currentRoomId == roomId) {
-                    // If we're loading this specific room, wait for loading to complete
                     // Timeline is ready if:
                     // 1. We're not loading (!isTimelineLoading) - either loaded or not started
-                    // 2. OR we have events (timelineEvents.isNotEmpty()) - data is available even if still loading
-                    // This ensures we don't wait forever if loading fails or is slow
+                    // 2. OR we have events (timelineEvents.isNotEmpty()) - data is available
                     !isTimelineLoading || timelineEvents.isNotEmpty()
                 } else {
-                    // Not loading a specific room, or room doesn't match - don't wait for timeline
                     true
                 }
-                
-                if (pollCount % 10 == 0 || (!pendingReady || !syncReady || !initReady || !timelineReady)) {
-                    // Log every 10 polls or when not ready
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: Polling - roomId=$roomId, pollCount=$pollCount, pendingReady=$pendingReady, syncReady=$syncReady, initReady=$initReady, timelineReady=$timelineReady, isTimelineLoading=$isTimelineLoading, timelineEvents.size=${timelineEvents.size}, currentRoomId=$currentRoomId")
+
+                if (pollCount % 10 == 0 || (!pendingReady || !syncReady || !initReady || !notificationFlushReady || !timelineReady)) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: Polling[$pollCount] - pendingReady=$pendingReady, syncReady=$syncReady, initReady=$initReady, notificationFlushReady=$notificationFlushReady, timelineReady=$timelineReady | isTimelineLoading=$isTimelineLoading, events=${timelineEvents.size}, isPendingNavFromNotif=$isPendingNavigationFromNotification, currentRoomId=$currentRoomId")
                 }
-                
-                if (pendingReady && syncReady && initReady && timelineReady) {
+
+                if (pendingReady && syncReady && initReady && notificationFlushReady && timelineReady) {
                     val elapsed = System.currentTimeMillis() - startTime
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: READY - roomId=$roomId, elapsed=${elapsed}ms, pollCount=$pollCount")
                     break
@@ -345,7 +347,7 @@ class AppViewModel : ViewModel() {
             true
         } ?: run {
             val elapsed = System.currentTimeMillis() - startTime
-            android.util.Log.w("Andromuks", "🟣 awaitRoomDataReadiness: TIMEOUT - roomId=$roomId, elapsed=${elapsed}ms, timeoutMs=$timeoutMs, isProcessingPendingItems=$isProcessingPendingItems, initialSyncComplete=$initialSyncComplete, isTimelineLoading=$isTimelineLoading, timelineEvents.size=${timelineEvents.size}, currentRoomId=$currentRoomId")
+            android.util.Log.w("Andromuks", "🟣 awaitRoomDataReadiness: TIMEOUT - roomId=$roomId, elapsed=${elapsed}ms, timeoutMs=$timeoutMs, isProcessingPendingItems=$isProcessingPendingItems, isPendingNavFromNotif=$isPendingNavigationFromNotification, initialSyncComplete=$initialSyncComplete, isTimelineLoading=$isTimelineLoading, timelineEvents=${timelineEvents.size}, currentRoomId=$currentRoomId")
             false
         }
     }

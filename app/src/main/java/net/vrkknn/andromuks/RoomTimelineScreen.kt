@@ -927,6 +927,18 @@ fun RoomTimelineScreen(
                 // timeline events from being restored for the previous room.
                 appViewModel.navigateToRoomWithCache(targetRoomId, notificationTimestamp)
                 appViewModel.flushSyncBatchForRoom(targetRoomId)
+
+                // RACE CONDITION FIX: Wait for room data to be ready before navigating
+                // so the new RoomTimelineScreen composes with data already available.
+                val isReady = appViewModel.awaitRoomDataReadiness(
+                    timeoutMs = 5_000L,
+                    roomId = targetRoomId,
+                )
+                if (BuildConfig.DEBUG) Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Room $targetRoomId readiness=$isReady before navigating (hot-swap)"
+                )
+
                 appViewModel.openedViaDirectNotification = true
                 val poppedToRoomList = navController.popBackStack("room_list", inclusive = false)
                 if (poppedToRoomList) {
@@ -2778,22 +2790,33 @@ fun RoomTimelineScreen(
         // synchronously clears timelineEvents on room switch, timelineEvents will be empty but
         // the load coroutine is already running (isTimelineLoading=true). Without this guard the
         // LaunchedEffect would fire a second navigateToRoomWithCache for the same room.
+        // RACE CONDITION FIX: Also treat isPendingNavigationFromNotification==true as
+        // "already loading" — AuthCheck's navigation callback has already kicked off the load;
+        // firing a second call would race with the in-flight flush and may clobber the timeline.
         val isAlreadyLoaded = appViewModel.currentRoomId == roomId &&
-            (appViewModel.timelineEvents.isNotEmpty() || appViewModel.isTimelineLoading)
+            (appViewModel.timelineEvents.isNotEmpty() || appViewModel.isTimelineLoading
+                || appViewModel.isPendingNavigationFromNotification)
         if (!isAlreadyLoaded) {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room $roomId not yet loaded, calling navigateToRoomWithCache")
             appViewModel.navigateToRoomWithCache(roomId)
         } else {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room $roomId already loaded/loading (${appViewModel.timelineEvents.size} events, isTimelineLoading=${appViewModel.isTimelineLoading}), skipping navigateToRoomWithCache")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room $roomId already loaded/loading (${appViewModel.timelineEvents.size} events, isTimelineLoading=${appViewModel.isTimelineLoading}, isPendingNavFromNotif=${appViewModel.isPendingNavigationFromNotification}), skipping navigateToRoomWithCache")
         }
-        
+
         if (!isWarmTimelineReturn) {
-            val requireInitComplete = !appViewModel.isWebSocketConnected()
-            val readinessResult = appViewModel.awaitRoomDataReadiness(requireInitComplete = requireInitComplete, roomId = roomId)
-            readinessCheckComplete = true
-            if (!readinessResult && BuildConfig.DEBUG) {
-                Log.w("Andromuks", "RoomTimelineScreen: Readiness timeout while opening $roomId - continuing with partial data")
+            // RACE CONDITION FIX: If data is already present (AuthCheck waited for it), skip the
+            // readiness wait entirely — we don't want to add latency for an already-loaded room.
+            val dataAlreadyReady = appViewModel.timelineEvents.isNotEmpty() && !appViewModel.isTimelineLoading
+            if (!dataAlreadyReady) {
+                val requireInitComplete = !appViewModel.isWebSocketConnected()
+                val readinessResult = appViewModel.awaitRoomDataReadiness(requireInitComplete = requireInitComplete, roomId = roomId)
+                if (!readinessResult && BuildConfig.DEBUG) {
+                    Log.w("Andromuks", "RoomTimelineScreen: Readiness timeout while opening $roomId - continuing with partial data")
+                }
+            } else {
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Data already ready for $roomId (${appViewModel.timelineEvents.size} events), skipping readiness wait")
             }
+            readinessCheckComplete = true
         } else if (BuildConfig.DEBUG) {
             Log.d("Andromuks", "RoomTimelineScreen: Warm return for $roomId - skipping readiness wait")
         }

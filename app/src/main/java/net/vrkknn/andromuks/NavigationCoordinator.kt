@@ -136,6 +136,10 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                         "🔵 navigateToRoomWithCache: Opening from notification - flushing batched sync_complete messages first",
                     )
 
+                    // RACE CONDITION FIX: Mark notification navigation pending BEFORE suspending,
+                    // so awaitRoomDataReadiness (already polling) blocks until data is ready.
+                    isPendingNavigationFromNotification = true
+
                     setCurrentRoomIdForTimeline(roomId)
 
                     RoomTimelineCache.markRoomAsCached(roomId)
@@ -159,6 +163,10 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                             "Andromuks",
                             "🔵 navigateToRoomWithCache: Aborting after flush — superseded by currentRoomId=$currentRoomId",
                         )
+                        // Clear the flag so the readiness poll doesn't block permanently
+                        if (isPendingNavigationFromNotification) {
+                            isPendingNavigationFromNotification = false
+                        }
                         // If no room is actively loading (user navigated back to room list),
                         // reset isTimelineLoading so the spinner does not stick permanently.
                         if (currentRoomId.isEmpty()) {

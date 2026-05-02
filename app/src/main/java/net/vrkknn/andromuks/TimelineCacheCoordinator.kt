@@ -2792,6 +2792,16 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 buildTimelineFromChain()
                 val timelineSizeBefore = timelineEvents.size
                 isTimelineLoading = false
+                // RACE CONDITION FIX: Clear notification-pending flag so awaitRoomDataReadiness
+                // unblocks when the initial paginate arrives for rooms without a cache hit.
+                if (isPendingNavigationFromNotification) {
+                    isPendingNavigationFromNotification = false
+                    if (BuildConfig.DEBUG)
+                        android.util.Log.d(
+                            "Andromuks",
+                            "🟡 handleInitialTimelineBuild: Cleared isPendingNavigationFromNotification for $roomId",
+                        )
+                }
                 val timelineSizeAfter = timelineEvents.size
                 if (BuildConfig.DEBUG)
                     android.util.Log.d(

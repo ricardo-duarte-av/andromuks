@@ -15,6 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -25,6 +26,7 @@ import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.connectToWebsocket
 import net.vrkknn.andromuks.BuildConfig
 
+import androidx.lifecycle.viewModelScope
 import okhttp3.OkHttpClient
 import androidx.compose.ui.Modifier
 import androidx.compose.animation.AnimatedVisibilityScope
@@ -364,14 +366,23 @@ fun AuthCheckScreen(
                         appViewModel.navigateToRoomWithCache(directRoomId)
                     }
                     
-                    // Remove auth_check from the stack so Back returns to the previous app screen
-                    // (or finishes) instead of landing on a synthetic room_list.
-                    navController.navigate("room_timeline/$encodedRoomId") {
-                        popUpTo("auth_check") { inclusive = true }
+                    // WAIT for room data readiness BEFORE navigating.
+                    // The callback is a plain lambda so we launch on the ViewModel's scope,
+                    // which is always available and tied to the ViewModel's lifecycle.
+                    appViewModel.viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                        val isReady = appViewModel.awaitRoomDataReadiness(
+                            timeoutMs = 5000L,
+                            roomId = directRoomId,
+                        )
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Readiness check completed (isReady=$isReady) for $directRoomId")
+                        
+                        // Remove auth_check from the stack so Back returns to the previous app screen
+                        // (or finishes) instead of landing on a synthetic room_list.
+                        navController.navigate("room_timeline/$encodedRoomId") {
+                            popUpTo("auth_check") { inclusive = true }
+                        }
+                        appViewModel.openedViaDirectNotification = true
                     }
-                    // Mark that room_list is not in the back stack so MainActivity can redirect
-                    // to room_list the next time the app is foregrounded via the app icon.
-                    appViewModel.openedViaDirectNotification = true
                     return@setNavigationCallback
                 }
                 
