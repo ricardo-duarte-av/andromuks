@@ -1126,7 +1126,9 @@ private fun applyInlineColors(tag: HtmlNode.Tag, baseStyle: SpanStyle): SpanStyl
 }
 
 private fun extractStyleValue(styleAttr: String, key: String): String? {
-    val regex = Regex("""(?i)\b${Regex.escape(key)}\s*:\s*([^;]+)""")
+    // Use negative lookbehind (?<![a-zA-Z-]) to prevent matching property names that are
+    // suffixes of longer names (e.g. "color" should NOT match inside "background-color").
+    val regex = Regex("""(?i)(?<![a-zA-Z-])${Regex.escape(key)}\s*:\s*([^;]+)""")
     return regex.find(styleAttr)?.groupValues?.getOrNull(1)?.trim()
 }
 
