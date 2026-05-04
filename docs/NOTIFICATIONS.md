@@ -115,6 +115,47 @@ appViewModel.setDirectRoomNavigation(roomId, notificationTimestamp, targetEventI
 
 This sets `directRoomNavigation`, increments `directRoomNavigationTrigger`, and clears `pendingRoomToRestore`.
 
+### Critical invariant: `onNewIntent` must NOT call `navigateToRoomWithCache`
+
+`onNewIntent` (warm start) must **only** call `setDirectRoomNavigation`. It must never call `navigateToRoomWithCache` directly.
+
+**Why:** `navigateToRoomWithCache` synchronously calls `updateCurrentRoomIdInPrefs()` on the calling thread, which sets `currentRoomId = newRoom` and (when `previousRoomId != newRoom`) clears `timelineEvents = emptyList()` immediately — before any UI handler has reacted. The currently-visible `RoomTimelineScreen` observes `currentRoomId` changing away from its own `roomId` and `timelineEvents` suddenly empty; its `LaunchedEffect(roomId)` guard for `isAlreadyLoaded` fires `navigateToRoomWithCache(oldRoom)`, racing with the notification navigation. This produces either a navigation that stops mid-way or a room that opens with an empty, non-loading timeline despite a cache being available.
+
+`setDirectRoomNavigation` only increments `directRoomNavigationTrigger` and records the target room — it does not touch `currentRoomId` or `timelineEvents`. The authorised callers of `navigateToRoomWithCache` for notification-triggered flows are:
+- `RoomListScreen.LaunchedEffect(navigationTrigger)` — warm-start, different room
+- `RoomTimelineScreen.LaunchedEffect(navTrigger)` — different room handler
+- `AuthCheck.kt` navigation callback — cold-start path (called from a coroutine, not synchronously on the main thread at risk of racing UI)
+
+### Same-room notification guard in `RoomListScreen`
+
+`RoomListScreen.LaunchedEffect(navigationTrigger)` fires whenever `directRoomNavigationTrigger` increments — including when the user is already on `RoomTimelineScreen` for the target room (user had the room open, backgrounded, tapped its notification). When that happens, both `RoomListScreen.LaunchedEffect(navigationTrigger)` and `RoomTimelineScreen.LaunchedEffect(navTrigger)` fire simultaneously. `RoomTimelineScreen`'s same-room handler correctly clears `directRoomNavigation` and sets the scroll-to-event highlight without reloading the timeline.
+
+To prevent a race where `RoomListScreen` wins and incorrectly calls `navigateToRoomWithCache` (causing an unnecessary reload) and then `navigateToRoomTimelineForExternalEntry` (which would push a duplicate back-stack entry because `auth_check` is already gone from the stack and `popUpTo` is a no-op), `RoomListScreen.LaunchedEffect(navigationTrigger)` contains a same-room guard:
+
+```kotlin
+if (directRoomId == appViewModel.currentRoomId) {
+    // same room already open — RoomTimelineScreen's same-room handler will consume this
+    return@LaunchedEffect
+}
+```
+
+This guard is placed **before** `clearDirectRoomNavigation()` so the token is still available for `RoomTimelineScreen`.
+
+### `navigateToRoomTimelineForExternalEntry` uses `launchSingleTop`
+
+`navigateToRoomTimelineForExternalEntry` (defined in `RoomListScreen.kt`) uses `launchSingleTop = true` as defence-in-depth:
+
+```kotlin
+private fun NavController.navigateToRoomTimelineForExternalEntry(roomId: String) {
+    navigate("room_timeline/$roomId") {
+        popUpTo("auth_check") { inclusive = true }
+        launchSingleTop = true
+    }
+}
+```
+
+`popUpTo("auth_check")` clears the back-stack up to `auth_check` (the root). On warm start, `auth_check` is no longer in the back-stack so `popUpTo` is a no-op. `launchSingleTop = true` prevents a duplicate `room_timeline/<id>` entry from being pushed if the destination is already at the top of the back-stack (e.g. if the same-room guard above incorrectly fell through or another handler raced).
+
 ### `openedViaDirectNotification` invariant
 
 Every code path that navigates to `room_timeline/<id>` as a result of a notification or shortcut tap **must** set `appViewModel.openedViaDirectNotification = true` immediately before calling `navController.navigateToRoomTimelineForExternalEntry(roomId)`.

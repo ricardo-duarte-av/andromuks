@@ -901,15 +901,15 @@ class MainActivity : ComponentActivity() {
                 if (!shortcutUserId.isNullOrBlank()) {
                     appViewModel.reportPersonShortcutUsed(shortcutUserId)
                 }
-                // Navigate with notification timestamp if available
-                if (notificationTimestamp != null) {
-                    appViewModel.navigateToRoomWithCache(roomId, notificationTimestamp)
-                }
-                // Force navigation if app is already running
-                if (appViewModel.spacesLoaded) {
-                    // App is already initialized, trigger navigation directly
-                    // This will be handled by the UI layer
-                }
+                // NOTE: Do NOT call navigateToRoomWithCache() here.
+                // navigateToRoomWithCache() immediately calls updateCurrentRoomIdInPrefs() on the
+                // calling thread, which sets currentRoomId = newRoom and clears timelineEvents.
+                // This causes the currently-visible RoomTimelineScreen (for the old room) to see
+                // isWarmTimelineReturn=false and call navigateToRoomWithCache(oldRoom), racing with
+                // the notification navigation and producing an empty/stuck timeline.
+                // The UI handlers (RoomTimelineScreen.LaunchedEffect(navTrigger) or
+                // RoomListScreen.LaunchedEffect(navigationTrigger)) are the single authorised
+                // callers — they receive the signal via directRoomNavigationTrigger.
             }
         }
     }

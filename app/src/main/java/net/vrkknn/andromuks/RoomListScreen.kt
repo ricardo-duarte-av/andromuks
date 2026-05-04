@@ -193,6 +193,7 @@ private fun usernameFromMatrixId(userId: String): String =
 private fun NavController.navigateToRoomTimelineForExternalEntry(roomId: String) {
     navigate("room_timeline/$roomId") {
         popUpTo("auth_check") { inclusive = true }
+        launchSingleTop = true // Prevent duplicate back-stack entry if room is already at the top
     }
 }
 
@@ -843,9 +844,21 @@ fun RoomListScreen(
         
         val directRoomId = appViewModel.getDirectRoomNavigation() ?: return@LaunchedEffect
         val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
-        
+
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: onNewIntent reactive navigation - room=$directRoomId, trigger=$navigationTrigger")
-        
+
+        // SAME-ROOM GUARD: If the target room is already open (user was on roomA and tapped a
+        // notification for roomA), let RoomTimelineScreen's same-room LaunchedEffect handle it.
+        // That handler clears directRoomNavigation and sets the scroll-to-event highlight without
+        // reloading the timeline or duplicating the back stack entry.
+        // Both this effect and RoomTimelineScreen's navTrigger effect fire simultaneously; if we
+        // don't return here, we race to consume directRoomNavigation and may win, causing an
+        // unnecessary navigateToRoomWithCache reload plus a duplicate room_timeline back-stack entry.
+        if (directRoomId == appViewModel.currentRoomId) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Same room already open ($directRoomId), deferring to RoomTimelineScreen same-room handler")
+            return@LaunchedEffect
+        }
+
         appViewModel.clearDirectRoomNavigation()
         appViewModel.flushSyncBatchForRoom(directRoomId)
         if (notificationTimestamp != null) {

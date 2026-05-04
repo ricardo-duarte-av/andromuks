@@ -187,6 +187,24 @@ A composable-local `var navigationHandled by remember { mutableStateOf(false) }`
 
 **Critical invariant:** Every call to `navController.navigateToRoomTimelineForExternalEntry(roomId)` that is triggered by a notification or shortcut **must** be preceded by `appViewModel.openedViaDirectNotification = true`. Missing even one site re-introduces the redirect-back-to-room_list race.
 
+### 9. `onNewIntent` calling `navigateToRoomWithCache` directly causes navigation race / empty timeline
+
+**Symptom:** Tapping a warm-start FCM notification sometimes stops navigation before the room opens; sometimes the room opens but the timeline is empty (not loading) even though a cache is available.
+
+**Root cause:** `onNewIntent` called `navigateToRoomWithCache(roomId, notificationTimestamp)` directly after `setDirectRoomNavigation`. `navigateToRoomWithCache` immediately calls `updateCurrentRoomIdInPrefs()` on the calling thread, which sets `currentRoomId = roomId` and clears `timelineEvents = emptyList()`. The currently-visible `RoomTimelineScreen` (for the previously-open room) observed `currentRoomId` changing away from its own `roomId` and `timelineEvents` going empty; its `LaunchedEffect(roomId)` guard (`isAlreadyLoaded`) determined the room was not loaded and called `navigateToRoomWithCache(oldRoom)`, racing with the notification navigation. When the stale-guard check in `buildTimelineFromChain` then fired (`currentRoomId != expectedRoomId`), it set `isTimelineLoading = false` without populating `timelineEvents` — leaving an empty non-loading screen. A stuck `isPendingNavigationFromNotification = true` caused `awaitRoomDataReadiness` to time out, producing navigation that aborted before the room was fully opened.
+
+**Fix:** Removed the `navigateToRoomWithCache` call from `onNewIntent`. `onNewIntent` now only calls `setDirectRoomNavigation`, which signals UI handlers via `directRoomNavigationTrigger` without touching `currentRoomId` or `timelineEvents`. The authorised callers of `navigateToRoomWithCache` in the notification path are `RoomListScreen.LaunchedEffect(navigationTrigger)` (warm start, different room), `RoomTimelineScreen.LaunchedEffect(navTrigger)` (different room branch), and the `AuthCheck` navigation callback (cold start). See `docs/NOTIFICATIONS.md` — "Critical invariant: `onNewIntent` must NOT call `navigateToRoomWithCache`".
+
+### 10. Same-room FCM notification causes duplicate back-stack entry via `RoomListScreen` handler
+
+**Symptom:** Tapping a notification for the room already open pushes a duplicate `room_timeline/<id>` entry onto the back-stack, and may unnecessarily reload the timeline.
+
+**Root cause:** When the user has `room_timeline/roomA` open and taps a notification for `roomA`, both `RoomListScreen.LaunchedEffect(navigationTrigger)` and `RoomTimelineScreen.LaunchedEffect(navTrigger)` observe the `directRoomNavigationTrigger` increment simultaneously. If `RoomListScreen` won the race, it called `navigateToRoomWithCache(roomA)` (unnecessary reload) and then `navigateToRoomTimelineForExternalEntry(roomA)`. Because `auth_check` is no longer in the back-stack at this point, `popUpTo("auth_check")` was a no-op, and `navigate("room_timeline/roomA")` pushed a duplicate entry. `RoomTimelineScreen`'s same-room handler (which correctly handles this by just scrolling to the notification event without reloading) lost the race.
+
+**Fix (two-part):**
+1. Added a same-room guard at the top of `RoomListScreen.LaunchedEffect(navigationTrigger)`: if `directRoomId == appViewModel.currentRoomId`, return early so `RoomTimelineScreen`'s handler can consume the signal.
+2. Added `launchSingleTop = true` to `navigateToRoomTimelineForExternalEntry` as defence-in-depth against any future same-room fallthrough.
+
 ### 8. Navigation callback redirects `simple_room_list` to `room_list` during share flow
 
 **Symptom:** Opening a share intent causes `SimplerRoomListScreen` to appear briefly and then instantly redirect to `RoomListScreen`.
