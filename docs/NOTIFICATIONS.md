@@ -74,6 +74,20 @@ Note: there is **no** `PowerManager.isDeviceIdleMode` guard in the current imple
 
 Fallback avatars (generated lettermarks from room/sender name) are used whenever the real avatar is unavailable.
 
+### Notification body formatting
+
+FCM push payloads carry only the plain-text `body` field — the `sanitized_html` / `htmlBody` field is not present. `showEnhancedNotification` therefore cannot call `htmlToNotificationText`. Instead it calls `formatNotificationBody(text)`, a private single-pass parser defined in `EnhancedNotificationDisplay`, which returns a `SpannableStringBuilder` with Android text spans applied:
+
+| Markdown syntax | Span applied |
+|---|---|
+| `` `code` `` | `TypefaceSpan("monospace")` |
+| `**bold**` | `StyleSpan(BOLD)` |
+| `*italic*` | `StyleSpan(ITALIC)` |
+
+The parser walks the string left-to-right, checking in the order above (code → bold → italic) so that `**` is consumed before a single `*` is considered. Unmatched delimiters (no closing counterpart found) are emitted verbatim. Underscore-italic (`_..._`) is intentionally omitted to avoid false positives inside Matrix user IDs and URLs.
+
+The resulting `CharSequence` is passed directly as the `MessagingStyle.Message` text, which Android renders with the spans intact in the notification shade on API 24+.
+
 ### Image notifications — two-phase approach
 
 Image messages (notifications where the FCM payload contains an `image` field) use a deferred download pattern to avoid the same Doze/network restriction that affects avatar loading:

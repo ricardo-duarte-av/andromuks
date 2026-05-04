@@ -474,16 +474,17 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             }
             val imageUri: android.net.Uri? = null // Phase 1 always posts without image
             
-            // Process message body - use HTML if available, otherwise fall back to plain text
+            // Process message body - use HTML if available, otherwise parse markdown spans from
+            // plain body (FCM payloads only carry the plain `body`, not sanitized_html).
             val messageBody = if (!notificationData.htmlBody.isNullOrEmpty()) {
                 try {
                     htmlToNotificationText(notificationData.htmlBody)
                 } catch (e: Exception) {
                     Log.e(TAG, "Error converting HTML to notification text, falling back to plain text", e)
-                    notificationData.body
+                    formatNotificationBody(notificationData.body)
                 }
             } else {
-                notificationData.body
+                formatNotificationBody(notificationData.body)
             }
             
             // CRITICAL FIX FOR ANDROID AUTO: Update shortcut SYNCHRONOUSLY before posting notification.
@@ -1656,5 +1657,58 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     fun clearAllNotifications() {
         val notificationManager = NotificationManagerCompat.from(context)
         notificationManager.cancelAll()
+    }
+
+    /**
+     * Parse Matrix plain-text body markdown into a spannable for rich notification display.
+     * Supports: **bold**, *italic*, `monospace`.
+     * Underscore italic is intentionally omitted to avoid false positives in usernames/URLs.
+     */
+    private fun formatNotificationBody(text: String): CharSequence {
+        val sb = android.text.SpannableStringBuilder()
+        var i = 0
+        val n = text.length
+        while (i < n) {
+            when {
+                // Inline code: `...`
+                text[i] == '`' -> {
+                    val close = text.indexOf('`', i + 1)
+                    if (close != -1) {
+                        val start = sb.length
+                        sb.append(text, i + 1, close)
+                        sb.setSpan(android.text.style.TypefaceSpan("monospace"), start, sb.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        i = close + 1
+                    } else {
+                        sb.append(text[i++])
+                    }
+                }
+                // Bold: **...**  (must check before single-* italic)
+                i + 1 < n && text[i] == '*' && text[i + 1] == '*' -> {
+                    val close = text.indexOf("**", i + 2)
+                    if (close != -1) {
+                        val start = sb.length
+                        sb.append(text, i + 2, close)
+                        sb.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), start, sb.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        i = close + 2
+                    } else {
+                        sb.append(text[i++])
+                    }
+                }
+                // Italic: *...*
+                text[i] == '*' -> {
+                    val close = text.indexOf('*', i + 1)
+                    if (close != -1) {
+                        val start = sb.length
+                        sb.append(text, i + 1, close)
+                        sb.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.ITALIC), start, sb.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        i = close + 1
+                    } else {
+                        sb.append(text[i++])
+                    }
+                }
+                else -> sb.append(text[i++])
+            }
+        }
+        return sb
     }
 }
