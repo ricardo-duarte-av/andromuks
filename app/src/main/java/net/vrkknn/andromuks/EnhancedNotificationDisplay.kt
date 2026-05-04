@@ -1689,7 +1689,19 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     val close = text.indexOf('`', i + 1)
                     if (close != -1) {
                         val start = sb.length
-                        sb.append(text, i + 1, close)
+                        // Strip markdown links inside code spans so [text](url) → text
+                        val raw = text.substring(i + 1, close)
+                        var j = 0
+                        while (j < raw.length) {
+                            if (raw[j] == '[') {
+                                val cl = raw.indexOf(']', j + 1)
+                                if (cl != -1 && cl + 1 < raw.length && raw[cl + 1] == '(') {
+                                    val cu = raw.indexOf(')', cl + 2)
+                                    if (cu != -1) { sb.append(raw, j + 1, cl); j = cu + 1; continue }
+                                }
+                            }
+                            sb.append(raw[j++])
+                        }
                         sb.setSpan(android.text.style.TypefaceSpan("monospace"), start, sb.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                         i = close + 1
                     } else {
