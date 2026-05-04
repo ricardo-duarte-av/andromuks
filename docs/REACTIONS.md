@@ -35,6 +35,8 @@ if (cachedRedacted != null && cachedRedacted.type == "m.reaction") {
 
 Without this second lookup, a reaction that was added before its redaction arrived would persist in `messageReactions` indefinitely.
 
+**`findEventForReply` must search `reactionEvents`:** Reaction events are stored in `cache.reactionEvents`, a list separate from `cache.events` and `cache.replyContextEvents`. `findEventForReply` searches all three buckets. If it only searched `events`/`replyContextEvents`, the lookup above would always return `null` for reaction redactions and the removal would silently be skipped.
+
 ## Historical / Cache Restore Path
 
 When a room is opened or `restoreFromLruCache` is called, `ReactionCoordinator.restoreReactionsFromCache` iterates over cached `m.reaction` events and calls `processReactionFromTimeline` for each. That function skips events where `event.redactedBy != null`, so reactions that arrived already-redacted are never added.

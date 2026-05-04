@@ -1125,6 +1125,7 @@ object RoomTimelineCache {
             val cache = roomEventsCache[roomId] ?: return null
             return cache.events.find { it.eventId == eventId }
                 ?: cache.replyContextEvents.find { it.eventId == eventId }
+                ?: cache.reactionEvents.find { it.eventId == eventId }
         }
     }
 
