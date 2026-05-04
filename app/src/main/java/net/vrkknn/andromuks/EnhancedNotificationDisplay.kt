@@ -1661,7 +1661,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
 
     /**
      * Parse Matrix plain-text body markdown into a spannable for rich notification display.
-     * Supports: **bold**, *italic*, _italic_, `monospace`.
+     * Supports: **bold**, *italic*, _italic_, `monospace`, [text](url) → text.
      */
     private fun formatNotificationBody(text: String): CharSequence {
         val sb = android.text.SpannableStringBuilder()
@@ -1669,6 +1669,21 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         val n = text.length
         while (i < n) {
             when {
+                // Markdown link: [text](url) → emit only text
+                text[i] == '[' -> {
+                    val closeLabel = text.indexOf(']', i + 1)
+                    if (closeLabel != -1 && closeLabel + 1 < n && text[closeLabel + 1] == '(') {
+                        val closeUrl = text.indexOf(')', closeLabel + 2)
+                        if (closeUrl != -1) {
+                            sb.append(text, i + 1, closeLabel)
+                            i = closeUrl + 1
+                        } else {
+                            sb.append(text[i++])
+                        }
+                    } else {
+                        sb.append(text[i++])
+                    }
+                }
                 // Inline code: `...`
                 text[i] == '`' -> {
                     val close = text.indexOf('`', i + 1)
