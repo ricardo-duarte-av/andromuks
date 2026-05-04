@@ -62,7 +62,11 @@ class NotificationReplyReceiver : BroadcastReceiver() {
         
         // Mark this reply as processed (before forwarding to prevent race conditions)
         recentProcessedReplies[dedupKey] = now
-        
+
+        // Suppress the automatic dismiss FCM the backend sends when our reply marks the room read.
+        // Any dismiss arriving within 5 seconds of this inline reply is ours, not a remote dismissal.
+        FCMService.markRoomReplied(roomId)
+
         // Clean up old entries (keep only recent entries within dedup window)
         val cutoffTime = now - DEDUP_WINDOW_MS
         recentProcessedReplies.entries.removeAll { it.value < cutoffTime }

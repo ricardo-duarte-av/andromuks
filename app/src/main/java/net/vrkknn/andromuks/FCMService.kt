@@ -27,6 +27,7 @@ import net.vrkknn.andromuks.BuildConfig
 
 import org.json.JSONObject
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Get the push encryption key that was used for registration
@@ -70,6 +71,26 @@ class FCMService : FirebaseMessagingService() {
         private const val EXTRA_ROOM_ID = "extra_room_id"
         private const val EXTRA_EVENT_ID = "extra_event_id"
         private const val EXTRA_NOTIFICATION_ID = "extra_notification_id"
+
+        // Rooms where the user just replied via the inline notification action.
+        // Dismiss FCMs arriving within this window are ignored because they are
+        // the automatic mark-read triggered by our own reply, not a true remote dismissal.
+        private const val REPLY_DISMISS_PROTECTION_MS = 5_000L
+        private val replyProtectionWindows = ConcurrentHashMap<String, Long>()
+
+        fun markRoomReplied(roomId: String) {
+            replyProtectionWindows[roomId] = System.currentTimeMillis()
+        }
+
+        private fun isReplyProtected(roomId: String): Boolean {
+            val ts = replyProtectionWindows[roomId] ?: return false
+            return if (System.currentTimeMillis() - ts < REPLY_DISMISS_PROTECTION_MS) {
+                true
+            } else {
+                replyProtectionWindows.remove(roomId)
+                false
+            }
+        }
     }
     
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -611,35 +632,14 @@ class FCMService : FirebaseMessagingService() {
                     continue
                 }
                 
-                // IGNORE DISMISS IF LAST MESSAGE WAS SENT BY US: Check if the notification's last message
-                // was sent by the current user. If so, ignore the dismiss request because the backend
-                // is dismissing due to our own reply, which we don't want to hide.
-                try {
-                    val messagingStyle = MessagingStyle.extractMessagingStyleFromNotification(existingNotification.notification)
-                    if (messagingStyle != null) {
-                        val messages = messagingStyle.messages
-                        if (messages.isNotEmpty()) {
-                            val lastMessage = messages.last()
-                            val lastMessagePersonKey = lastMessage.person?.key
-                            
-                            // Get current user ID from SharedPreferences
-                            val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-                            val currentUserId = sharedPrefs.getString("current_user_id", "") ?: ""
-                            
-                            if (currentUserId.isNotEmpty() && lastMessagePersonKey == currentUserId) {
-                                if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId - NOT dismissing notification - last message was sent by current user (user: $currentUserId)")
-                                if (BuildConfig.DEBUG) Log.d(TAG, "This prevents notification dismissal when we send a reply and backend marks room as read")
-                                continue
-                            }
-                            
-                            if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId - Last message sender: $lastMessagePersonKey, current user: $currentUserId - will process dismiss")
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Error checking if last message was sent by current user, proceeding with dismiss", e)
-                    // Continue with dismiss logic if we can't check
+                // If the user just replied via the inline notification action, ignore the dismiss
+                // that the backend immediately pushes (it's the automatic mark-read from our own reply).
+                // Any dismiss that arrives after the 5-second window is a true remote dismissal.
+                if (isReplyProtected(roomId)) {
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId - NOT dismissing - within reply protection window (own reply triggered mark-read)")
+                    continue
                 }
-                
+
                 // Check if bubble is actually open using BubbleTracker (source of truth)
                 // NOTE: We only trust BubbleTracker, not bubble metadata, because:
                 // - Bubble metadata is set when notification is CREATED (indicates it CAN become a bubble)

@@ -110,8 +110,10 @@ The worker uses `ExistingWorkPolicy.REPLACE` keyed by `"notif_image_$roomId"` so
 ### Dismiss handling
 
 `handleDismissNotification` cancels active notifications for a room when the backend signals the conversation was read. It will **not** cancel if:
-- The last message in the notification was sent by the current user (prevents self-dismiss after replying).
+- The room is within a 5-second **reply protection window** — set by `FCMService.markRoomReplied(roomId)` when the user replies via the inline notification action (`NotificationReplyReceiver`). Replying marks the room read, which causes the backend to immediately push a dismiss FCM; this window prevents that auto-dismiss from collapsing the notification. Dismisses arriving after the window expire are treated as true remote dismissals and proceed normally.
 - A chat bubble for that room is actively open (`BubbleTracker.isBubbleOpen`).
+
+The protection window is **not** set for replies sent from other clients (Webmuks, another Andromuks instance, etc.). Those replies arrive via WebSocket sync and do not go through `NotificationReplyReceiver`, so the dismiss FCM they trigger is allowed through and correctly clears the Android notification.
 
 ## Bubble integration
 
