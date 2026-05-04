@@ -311,7 +311,8 @@ object RoomTimelineCache {
                 }
             } else if (event.type == "m.reaction") {
                 // Store reaction events separately (they're filtered from main events list but needed to restore reactions)
-                if (cache.reactionEvents.none { it.eventId == event.eventId }) {
+                val existingReactionIndex = cache.reactionEvents.indexOfFirst { it.eventId == event.eventId }
+                if (existingReactionIndex < 0) {
                     cache.reactionEvents.add(event)
                     addedCount++
                     if (BuildConfig.DEBUG) {
@@ -321,8 +322,11 @@ object RoomTimelineCache {
                         Log.d(TAG, "RoomTimelineCache: Cached reaction event: ${event.eventId} relatesTo=$relatesToEventId emoji=$emoji (room=$roomId, totalReactions=${cache.reactionEvents.size})")
                     }
                 } else {
+                    // Upsert: backend re-sends the same event_id with updated state (e.g. redacted_by added).
+                    // Always replace so loadReactionsForRoom sees the current server-side state.
+                    cache.reactionEvents[existingReactionIndex] = event
                     if (BuildConfig.DEBUG) {
-                        Log.d(TAG, "RoomTimelineCache: Reaction event ${event.eventId} already in cache, skipping duplicate")
+                        Log.d(TAG, "RoomTimelineCache: Updated reaction event ${event.eventId} in cache (redactedBy=${event.redactedBy})")
                     }
                 }
             } else {
