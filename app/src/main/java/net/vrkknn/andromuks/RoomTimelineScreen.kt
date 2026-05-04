@@ -2930,9 +2930,8 @@ fun RoomTimelineScreen(
         val foregroundRefreshReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (intent?.action == "net.vrkknn.andromuks.FOREGROUND_REFRESH") {
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Received FOREGROUND_REFRESH broadcast, refreshing timeline UI from cache for room: $roomId")
-                    // Lightweight timeline refresh from cached data (no network requests)
-                    appViewModel.refreshTimelineUI()
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Received FOREGROUND_REFRESH broadcast, restoring timeline from cache for room: $roomId")
+                    appViewModel.restoreFromLruCache(roomId)
                 }
             }
         }
