@@ -1661,8 +1661,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
 
     /**
      * Parse Matrix plain-text body markdown into a spannable for rich notification display.
-     * Supports: **bold**, *italic*, `monospace`.
-     * Underscore italic is intentionally omitted to avoid false positives in usernames/URLs.
+     * Supports: **bold**, *italic*, _italic_, `monospace`.
      */
     private fun formatNotificationBody(text: String): CharSequence {
         val sb = android.text.SpannableStringBuilder()
@@ -1697,6 +1696,18 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 // Italic: *...*
                 text[i] == '*' -> {
                     val close = text.indexOf('*', i + 1)
+                    if (close != -1) {
+                        val start = sb.length
+                        sb.append(text, i + 1, close)
+                        sb.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.ITALIC), start, sb.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        i = close + 1
+                    } else {
+                        sb.append(text[i++])
+                    }
+                }
+                // Italic: _..._
+                text[i] == '_' -> {
+                    val close = text.indexOf('_', i + 1)
                     if (close != -1) {
                         val start = sb.length
                         sb.append(text, i + 1, close)
