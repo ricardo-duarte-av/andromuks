@@ -942,12 +942,14 @@ internal class SyncRoomsCoordinator(
                         // may have already stored a preserved entry for this room (from pre-clear-state
                         // roomMap data), and the newRooms loop must not silently overwrite it with null.
                         val existingInRoomMap = roomMap[room.id]
-                        val roomWithPreservation = if (existingInRoomMap != null &&
-                            room.messagePreview.isNullOrBlank() && !existingInRoomMap.messagePreview.isNullOrBlank()
-                        ) {
+                        val roomWithPreservation = if (existingInRoomMap != null) {
                             room.copy(
-                                messagePreview = existingInRoomMap.messagePreview,
-                                messageSender = existingInRoomMap.messageSender
+                                messagePreview = if (room.messagePreview.isNullOrBlank() && !existingInRoomMap.messagePreview.isNullOrBlank()) existingInRoomMap.messagePreview else room.messagePreview,
+                                messageSender = if (room.messagePreview.isNullOrBlank() && !existingInRoomMap.messagePreview.isNullOrBlank()) existingInRoomMap.messageSender else room.messageSender,
+                                isFavourite = room.isFavourite || existingInRoomMap.isFavourite,
+                                isLowPriority = room.isLowPriority || existingInRoomMap.isLowPriority,
+                                isDirectMessage = room.isDirectMessage || existingInRoomMap.isDirectMessage,
+                                latestEventId = room.latestEventId ?: existingInRoomMap.latestEventId
                             )
                         } else {
                             room

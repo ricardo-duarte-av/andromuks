@@ -223,14 +223,37 @@ val processedInBatch = _processedInBatch.asStateFlow()
                         if (result != null) {
                             for (room in result.updatedRooms) {
                                 val existing = accumulator.updatedRooms[room.id]
-                                if (existing == null || shouldReplaceRoomItem(existing, room)) {
+                                if (existing == null) {
                                     accumulator.updatedRooms[room.id] = room
+                                } else if (shouldReplaceRoomItem(existing, room)) {
+                                    // Preserve sticky flags that only arrive in certain syncs
+                                    // (account_data.m.tag / m.favourite comes once; later syncs with
+                                    // higher timestamps must not overwrite it with false).
+                                    accumulator.updatedRooms[room.id] = room.copy(
+                                        isFavourite = room.isFavourite || existing.isFavourite,
+                                        isLowPriority = room.isLowPriority || existing.isLowPriority,
+                                        isDirectMessage = room.isDirectMessage || existing.isDirectMessage,
+                                        bridgeProtocolAvatarUrl = room.bridgeProtocolAvatarUrl ?: existing.bridgeProtocolAvatarUrl,
+                                        messagePreview = room.messagePreview ?: existing.messagePreview,
+                                        messageSender = if (room.messagePreview != null) room.messageSender else existing.messageSender,
+                                        latestEventId = room.latestEventId ?: existing.latestEventId
+                                    )
                                 }
                             }
                             for (room in result.newRooms) {
                                 val existing = accumulator.newRooms[room.id]
-                                if (existing == null || shouldReplaceRoomItem(existing, room)) {
+                                if (existing == null) {
                                     accumulator.newRooms[room.id] = room
+                                } else if (shouldReplaceRoomItem(existing, room)) {
+                                    accumulator.newRooms[room.id] = room.copy(
+                                        isFavourite = room.isFavourite || existing.isFavourite,
+                                        isLowPriority = room.isLowPriority || existing.isLowPriority,
+                                        isDirectMessage = room.isDirectMessage || existing.isDirectMessage,
+                                        bridgeProtocolAvatarUrl = room.bridgeProtocolAvatarUrl ?: existing.bridgeProtocolAvatarUrl,
+                                        messagePreview = room.messagePreview ?: existing.messagePreview,
+                                        messageSender = if (room.messagePreview != null) room.messageSender else existing.messageSender,
+                                        latestEventId = room.latestEventId ?: existing.latestEventId
+                                    )
                                 }
                             }
                             accumulator.removedRoomIds.addAll(result.removedRoomIds)

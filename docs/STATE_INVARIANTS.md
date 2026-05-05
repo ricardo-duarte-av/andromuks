@@ -35,3 +35,31 @@
 2. **`processCachedEvents`** (`TimelineCacheCoordinator.kt`) — passes `expectedRoomId = roomId` to `buildTimelineFromChain`, so the guard above fires when the room has changed. Also adds an identical guard at the top of its own `withContext(Dispatchers.Main)` post-processing block (profiles, reactions, room state) so those writes are also suppressed for stale rooms.
 
 Callers of `buildTimelineFromChain` from sync-event processing already have outer `if (roomId == currentRoomId)` guards and pass no `expectedRoomId` (null), so they are unaffected.
+
+## Sticky Room Flags: `isFavourite`, `isLowPriority`, `isDirectMessage`
+
+These three `RoomItem` fields are "sticky" — once set to `true`, they must never silently regress to `false` just because a later sync message didn't include the account data that set them.
+
+**Why they are sticky:**  
+`isFavourite` and `isLowPriority` come from the room's per-room `account_data.m.tag.content.tags` field in the initial sync (or when the user changes the tag). Subsequent sync messages for the same room (e.g. new messages, receipt updates) do **not** re-send `account_data` — the field is simply absent. `isDirectMessage` has a similar pattern (`m.direct` arrives once at startup). A naive replace would reset these flags to `false` on every update.
+
+**The invariant:**  
+Whenever a `RoomItem` is merged/replaced in any accumulator or map, the three flags must be OR-merged:
+
+```kotlin
+isFavourite   = candidate.isFavourite   || existing.isFavourite
+isLowPriority = candidate.isLowPriority || existing.isLowPriority
+isDirectMessage = candidate.isDirectMessage || existing.isDirectMessage
+```
+
+**Where this is enforced (all three must merge):**
+
+| Site | File | Description |
+|---|---|---|
+| `processParsedSyncResult` → `updatedRooms` loop | `SyncRoomsCoordinator.kt` | Live single-sync path |
+| `processParsedSyncResult` → `newRooms` loop | `SyncRoomsCoordinator.kt` | Post-clear-state / newly-joined rooms — merges from existing `roomMap` entry if present |
+| Batch accumulator → `updatedRooms` / `newRooms` loops | `SyncBatchProcessor.kt` | Multi-sync batch path; bugs here cause Favs to vanish after a burst of syncs |
+| Initial-sync batch accumulator | `AppViewModel.kt` `attachToExistingWebSocket` | Secondary VM attachment batch |
+
+**Common failure mode:**  
+A burst of sync messages is batched. Sync A sets `isFavourite=true` (has `account_data.m.tag`). Sync B has a newer `sortingTimestamp` and replaces sync A's entry without OR-merging → `isFavourite` silently becomes `false` → room disappears from the Favourites tab until the next reconnect (clear_state) that re-delivers `account_data`.
