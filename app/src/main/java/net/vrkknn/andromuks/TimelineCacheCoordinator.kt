@@ -113,6 +113,14 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 )
             }
 
+            // Snapshot existing event IDs BEFORE merging so trulyNewEvents correctly identifies
+            // events that weren't already in the cache. Reading after mergePaginatedEvents would
+            // include the newly-merged events, making trulyNewEvents always empty and preventing
+            // roomsNeedingRebuildDuringBatch from being populated.
+            val existingEventIds =
+                RoomTimelineCache.getCachedEvents(roomId)?.map { it.eventId }?.toSet()
+                    ?: emptySet()
+
             // Update RoomTimelineCache with new events from SyncIngestor
             // CRITICAL: This happens for ALL cached rooms, not just the current room
             // This ensures buffered sync_complete messages update caches for all cached rooms
@@ -149,14 +157,9 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 return false
             }
 
-            // Check if room has cached events (raw events are in RoomTimelineCache)
-            val cachedEvents = RoomTimelineCache.getCachedEvents(roomId) ?: return false
-
-            // Append new events and re-sort
-            // IMPORTANT: existingEventIds is derived from getCachedEvents(), which excludes
-            // m.room.member events with timelineRowid<=0 (they are dropped by addEventsToCache).
-            // Re-filter using the same guard so those events don't slip into eventChainMap below.
-            val existingEventIds = cachedEvents.map { it.eventId }.toSet()
+            // IMPORTANT: existingEventIds excludes m.room.member events with timelineRowid<=0
+            // (they are dropped by addEventsToCache). Re-filter using the same guard so those
+            // events don't slip into eventChainMap below.
             val trulyNewEvents = newEvents.filter { it.eventId !in existingEventIds }
                 .filter { event ->
                     if (event.type != "m.room.member" || event.timelineRowid != 0L) return@filter true
