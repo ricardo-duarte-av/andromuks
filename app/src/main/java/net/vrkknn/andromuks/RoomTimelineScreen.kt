@@ -2905,24 +2905,16 @@ fun RoomTimelineScreen(
     // Refresh timeline when app resumes (to show new events received while suspended)
     // Only refresh if initial load is complete (not during initial room opening)
     LaunchedEffect(appViewModel.timelineRefreshTrigger) {
-        if (appViewModel.timelineRefreshTrigger > 0 && 
-            appViewModel.currentRoomId == roomId && 
+        if (appViewModel.timelineRefreshTrigger > 0 &&
+            appViewModel.currentRoomId == roomId &&
             isInitialLoadComplete &&
             appViewModel.timelineRefreshTrigger != lastKnownRefreshTrigger) {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: App resumed, refreshing timeline for room: $roomId")
-            // Don't reset state flags - this is just a refresh, not a new room load
             appViewModel.requestRoomTimeline(roomId)
-            lastKnownRefreshTrigger = appViewModel.timelineRefreshTrigger
         }
-    }
-    
-    // NOTE: App resume scroll handling is now done in the app visibility LaunchedEffect above
-    // This LaunchedEffect is kept for refresh trigger tracking but no longer handles scroll restoration
-    LaunchedEffect(appViewModel.timelineRefreshTrigger) {
-        // Update last known refresh trigger
-        if (appViewModel.timelineRefreshTrigger != lastKnownRefreshTrigger) {
-            lastKnownRefreshTrigger = appViewModel.timelineRefreshTrigger
-        }
+        // Always sync the tracker so the next increment is detectable regardless of whether
+        // the refresh condition was met (prevents the second effect from racing to update it first).
+        lastKnownRefreshTrigger = appViewModel.timelineRefreshTrigger
     }
 
     // Listen for foreground refresh broadcast to refresh timeline when app comes to foreground

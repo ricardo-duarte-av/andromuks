@@ -105,6 +105,7 @@ The file is extremely large (~10 500 lines). This document provides a navigable 
 | `processingBatchSize` | `StateFlow<Int>` | Total number of sync messages in the current batch. |
 | `processedInBatch` | `StateFlow<Int>` | Count of sync messages already processed in the current batch. |
 | `roomsNeedingRebuildDuringBatch` | `MutableSet<String>` | Room IDs whose timelines are deferred until the batch completes. |
+| `timelineRefreshTrigger` | `Int` (mutableStateOf) | Incremented by `onAppBecameVisible()` to signal `RoomTimelineScreen` to refresh the current room's timeline after foreground resume. Incremented once immediately (to reflect whatever is already cached) and once more after the background batch flush completes (to pick up newly-processed events). `RoomTimelineScreen` watches this with a single `LaunchedEffect` that calls `requestRoomTimeline()` and then updates `lastKnownRefreshTrigger` unconditionally — the unconditional update is critical: it must happen in one effect to prevent a race where a second effect updates the tracker before the first can act on it. |
 
 ### Read Receipts
 
@@ -233,7 +234,7 @@ These are pre-computed at batch boundaries to keep O(1) reads from the UI.
 | `flushSyncBatchForRoom(roomId)` | Suspending. Flushes deferred sync events for a specific room to the timeline cache. |
 | `performBatchedUIUpdates()` | Coalesces multiple counter increments into a single recomposition tick. |
 | `executeTimelineRebuild(rebuildComplete)` | Suspending. Rebuilds the displayed timeline from `eventChainMap`. |
-| `triggerDeferredRebuild()` | Schedules a timeline rebuild for rooms whose updates were deferred during batch processing. |
+| `triggerDeferredRebuild()` | Rebuilds timelines for rooms in `roomsNeedingRebuildDuringBatch` after a batch flush. Called automatically when `shouldSkipTimelineRebuild` transitions `true → false`. Only the currently-open room is rebuilt in-place; other rooms are covered by their next `restoreFromLruCache` call. |
 | `resolveTimelineRowidsFromRoomData(roomData)` | Reads the `timeline` mapping from room state and returns an event-ID → rowid map. Only events with `rowid > 0` are rendered — see CLAUDE.md. |
 | `buildEditChainsFromEvents(timelineList, clearExisting)` | Traverses events and constructs `m.room.message` edit chains. |
 | `processNewEditRelationships(newEditEvents)` | Updates existing chains when new `m.replace` relation events arrive. |
