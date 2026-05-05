@@ -94,7 +94,7 @@ Image messages (notifications where the FCM payload contains an `image` field) u
 
 **Phase 1 — FCM callback (`showEnhancedNotification`):** The notification is posted immediately with the message text body (e.g. a caption or "📷 Photo"). No image download is attempted. The image URL and MXC cache key are parsed and passed to `NotificationImageWorker.enqueue()`.
 
-**Phase 2 — `NotificationImageWorker`:** A `CoroutineWorker` constrained to `NetworkType.CONNECTED`. WorkManager schedules it via `JobScheduler`, which grants a network-accessible execution window outside Doze. When it runs:
+**Phase 2 — `NotificationImageWorker`:** A `CoroutineWorker` marked as **expedited** (`setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)`) and constrained to `NetworkType.CONNECTED`. Expedited work is scheduled by `JobScheduler` at the next available slot rather than waiting for a Doze maintenance window — this is the critical difference from a plain constrained job, which can be deferred for minutes or hours on aggressive OEMs (Samsung One UI, MIUI, etc.). If the device has exhausted its expedited quota the job falls back to a normal-priority scheduled job. When it runs:
 
 1. Checks if the notification is still active (bail if dismissed).
 2. Checks `IntelligentMediaCache` disk cache; downloads via `IntelligentMediaCache.downloadAndCache` only on a miss.
@@ -103,9 +103,9 @@ Image messages (notifications where the FCM payload contains an `image` field) u
 5. Rebuilds the style — replaces the last message with a new `Message.setData(mimeType, imageUri)` version.
 6. Re-posts with the same notification ID and `setSilent(true)` (no sound/vibration on update).
 
-The worker uses `ExistingWorkPolicy.REPLACE` keyed by `"notif_image_$roomId"` so that rapid back-to-back image messages for the same room don't pile up. It retries up to twice on transient download failure.
+The worker uses `ExistingWorkPolicy.KEEP` keyed by `"notif_image_$roomId"`. If a download is already running for that room it is not cancelled; a second concurrent image for the same room is rare and cancelling an in-flight download is worse than missing the update for the second. Retries up to 3 times on transient failure, with exponential backoff starting at 15 s.
 
-**Auth token:** The image URL passed to the worker already contains `?image_auth=<token>` (appended in `FCMService.handleMessageNotification` from the push payload's top-level `image_auth` field). No separate credential lookup is needed at download time.
+**Auth token:** `doWork()` re-reads the auth token from SharedPreferences (`AndromuksAppPrefs / image_auth_token`, falling back to `gomuks_auth_token`) at run time rather than relying on the value captured at enqueue time. This ensures a delayed job — scheduled by Doze and run minutes later — uses a current credential. The token is used as a `Cookie: gomuks_auth=<token>` header by `IntelligentMediaCache.downloadAndCache`; however, the image URL passed to the worker already contains `?image_auth=<batchToken>` (appended in `FCMService.handleMessageNotification`) which is the primary credential. The cookie is a fallback for cases where the URL was built without a batch token.
 
 ### Dismiss handling
 

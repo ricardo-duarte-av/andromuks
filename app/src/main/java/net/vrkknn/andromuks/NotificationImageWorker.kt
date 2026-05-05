@@ -11,14 +11,17 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationCompat.MessagingStyle
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.FileProvider
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import java.util.concurrent.TimeUnit
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
@@ -53,8 +56,10 @@ class NotificationImageWorker(
 
         /**
          * Enqueue an image-download job for the given notification.
-         * Uses REPLACE policy so that rapid back-to-back image messages for the
-         * same room don't pile up — only the latest image matters.
+         * Uses KEEP policy so that an in-progress download for the same room is
+         * not cancelled. A second image message while one is already downloading
+         * is rare, and losing the first download is worse than missing the update
+         * for the second.
          */
         fun enqueue(
             context: Context,
@@ -81,11 +86,17 @@ class NotificationImageWorker(
             val request = OneTimeWorkRequestBuilder<NotificationImageWorker>()
                 .setConstraints(constraints)
                 .setInputData(data)
+                // Run as expedited so the job isn't deferred into a distant Doze window.
+                // KEEP falls through to a normal-priority job on devices with no expedited quota.
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.SECONDS)
                 .build()
 
             WorkManager.getInstance(context).enqueueUniqueWork(
                 "notif_image_$roomId",
-                ExistingWorkPolicy.REPLACE,
+                // KEEP: if a download is already running for this room let it finish.
+                // A second image in rapid succession is rare; losing the first is worse.
+                ExistingWorkPolicy.KEEP,
                 request
             )
 
@@ -99,7 +110,14 @@ class NotificationImageWorker(
         val imageUrl = inputData.getString(KEY_IMAGE_URL) ?: return Result.failure()
         val mxcUrl = inputData.getString(KEY_MXC_URL)
         val mimeType = inputData.getString(KEY_MIME_TYPE) ?: "image/jpeg"
-        val authToken = inputData.getString(KEY_AUTH_TOKEN) ?: return Result.failure()
+        // Re-read auth token at run time so a delayed job uses a fresh credential.
+        // Falls back to the token captured at enqueue time if SharedPreferences is empty.
+        val sharedPrefs = applicationContext.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+        val freshToken = sharedPrefs.getString("image_auth_token", "")
+            ?.takeIf { it.isNotBlank() }
+            ?: sharedPrefs.getString("gomuks_auth_token", "")
+            ?: ""
+        val authToken = freshToken.ifBlank { inputData.getString(KEY_AUTH_TOKEN) ?: "" }
 
         if (BuildConfig.DEBUG) Log.d(TAG, "Starting image download for room $roomId")
 
@@ -123,12 +141,12 @@ class NotificationImageWorker(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Image download failed for room $roomId", e)
-            return if (runAttemptCount < 2) Result.retry() else Result.failure()
+            return if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
 
         if (imageFile == null || !imageFile.exists()) {
             Log.w(TAG, "Image file missing after download attempt for room $roomId")
-            return if (runAttemptCount < 2) Result.retry() else Result.failure()
+            return if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
 
         // 3. Wrap in a content:// URI that the notification subsystem can read.
