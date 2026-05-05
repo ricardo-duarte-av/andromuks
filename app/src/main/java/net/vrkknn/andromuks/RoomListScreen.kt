@@ -663,12 +663,11 @@ fun RoomListScreen(
                         
                         if (directRoomId != null) {
                             val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
-                            appViewModel.clearDirectRoomNavigation()
-                            // CRITICAL FIX: Flush buffered sync_complete messages BEFORE navigating
-                            // Without this, navController.navigate() fires before the async flush
-                            // inside navigateToRoomWithCache completes, so the RoomTimelineScreen
-                            // renders from stale cache (missing the latest events).
+                            // Flush BEFORE clearing: directRoomNavigation != null during the flush
+                            // shields navigateToRoomListIfNeeded from force-navigating to room_list
+                            // (and wiping the backstack), which would cancel this coroutine.
                             appViewModel.flushSyncBatchForRoom(directRoomId)
+                            appViewModel.clearDirectRoomNavigation()
                             if (notificationTimestamp != null) {
                                 appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
                             } else {
@@ -700,8 +699,8 @@ fun RoomListScreen(
 
                             if (directRoomId != null) {
                                 val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
-                                appViewModel.clearDirectRoomNavigation()
                                 appViewModel.flushSyncBatchForRoom(directRoomId)
+                                appViewModel.clearDirectRoomNavigation()
                                 if (notificationTimestamp != null) {
                                     appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
                                 } else {
@@ -742,8 +741,8 @@ fun RoomListScreen(
                     
                     if (directRoomId != null) {
                         val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
-                        appViewModel.clearDirectRoomNavigation()
                         appViewModel.flushSyncBatchForRoom(directRoomId)
+                        appViewModel.clearDirectRoomNavigation()
                         if (notificationTimestamp != null) {
                             appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
                         } else {
@@ -774,8 +773,8 @@ fun RoomListScreen(
 
                         if (directRoomId != null) {
                             val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
-                            appViewModel.clearDirectRoomNavigation()
                             appViewModel.flushSyncBatchForRoom(directRoomId)
+                            appViewModel.clearDirectRoomNavigation()
                             if (notificationTimestamp != null) {
                                 appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
                             } else {
@@ -813,8 +812,8 @@ fun RoomListScreen(
             if (stillDirectRoomId != null) {
                 android.util.Log.w("Andromuks", "RoomListScreen: CRITICAL FIX #2 - Navigation timeout (10s) for $stillDirectRoomId - WebSocket may not be connected, navigating anyway")
                 val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
-                appViewModel.clearDirectRoomNavigation()
                 appViewModel.flushSyncBatchForRoom(stillDirectRoomId)
+                appViewModel.clearDirectRoomNavigation()
                 if (notificationTimestamp != null) {
                     appViewModel.navigateToRoomWithCache(stillDirectRoomId, notificationTimestamp)
                 } else {
@@ -859,8 +858,8 @@ fun RoomListScreen(
             return@LaunchedEffect
         }
 
-        appViewModel.clearDirectRoomNavigation()
         appViewModel.flushSyncBatchForRoom(directRoomId)
+        appViewModel.clearDirectRoomNavigation()
         if (notificationTimestamp != null) {
             appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
         } else {
