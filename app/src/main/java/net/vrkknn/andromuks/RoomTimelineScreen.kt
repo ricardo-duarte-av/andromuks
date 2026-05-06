@@ -912,8 +912,7 @@ fun RoomTimelineScreen(
                     pendingNotificationJumpEventId = eventId
                 }
                 appViewModel.timelineRefreshTrigger++
-                val flushJob = appViewModel.flushSyncBatchForRoom(roomId)
-                flushJob?.join()
+                appViewModel.flushSyncBatchForRoom(roomId)
                 appViewModel.timelineRefreshTrigger++
             } else {
                 // Different room — handle navigation here directly, regardless of back stack.
