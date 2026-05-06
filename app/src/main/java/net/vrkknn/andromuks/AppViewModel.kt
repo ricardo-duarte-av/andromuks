@@ -3853,14 +3853,6 @@ class AppViewModel : ViewModel() {
         syncBatchProcessor.notifyBubbleVisibilityChanged()
 
         if (visible) {
-            if (currentRoomId.isEmpty()) {
-                val roomToRestore = pendingRoomToRestore
-                if (!roomToRestore.isNullOrEmpty()) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restoring bubble room to $roomToRestore after becoming visible")
-                    updateCurrentRoomIdInPrefs(roomToRestore)
-                }
-            }
-            pendingRoomToRestore = null
             // Cancel any pending shutdown
             appInvisibleJob?.cancel()
             appInvisibleJob = null
@@ -4227,16 +4219,11 @@ class AppViewModel : ViewModel() {
     // Room timeline state
     var currentRoomId by mutableStateOf("")
         private set
-    internal var pendingRoomToRestore: String? = null
     /**
      * Helper function to set currentRoomId and save it to SharedPreferences.
      * This allows notification services to check if a room is currently open.
      */
     internal fun updateCurrentRoomIdInPrefs(roomId: String) {
-        if (roomId.isNotEmpty()) {
-            pendingRoomToRestore = null
-        }
-        
         // Update typing users for the new room when switching
         val previousRoomId = currentRoomId
         currentRoomId = roomId
@@ -4338,28 +4325,23 @@ class AppViewModel : ViewModel() {
      * PERFORMANCE FIX: Also clears in-memory timeline cache to free RAM.
      * Timeline will be rebuilt from cache or server when room is opened again.
      */
-    fun clearCurrentRoomId(shouldRestoreOnVisible: Boolean = false, saveToCacheForRoomTimeline: Boolean = true) {
+    fun clearCurrentRoomId(saveToCacheForRoomTimeline: Boolean = true) {
         val previousRoomId = currentRoomId
-        if (shouldRestoreOnVisible && currentRoomId.isNotEmpty()) {
-            pendingRoomToRestore = currentRoomId
-        } else if (!shouldRestoreOnVisible) {
-            pendingRoomToRestore = null
-            // LRU CACHE: Save current room to cache before clearing (for RoomTimelineScreen quick-switch)
-            // BubbleTimelineScreen passes saveToCacheForRoomTimeline=false since it manages its own cache
-            if (saveToCacheForRoomTimeline && currentRoomId.isNotEmpty()) {
-                timelineCacheCoordinator.saveToLruCache(currentRoomId)
-            }
-            if (previousRoomId.isNotEmpty()) {
-                timelineCacheCoordinator.clearTimelineCache()
-            }
-            // Remove from opened rooms (no longer exempt from cache clearing)
-            if (previousRoomId.isNotEmpty()) {
-                RoomTimelineCache.removeOpenedRoom(previousRoomId)
-            }
-            // CRITICAL: Clear currentRoomState to prevent stale avatar showing during shared element transitions
-            // Without this, opening room B after room A briefly shows room A's avatar in the header
-            currentRoomState = null
+        // LRU CACHE: Save current room to cache before clearing (for RoomTimelineScreen quick-switch)
+        // BubbleTimelineScreen passes saveToCacheForRoomTimeline=false since it manages its own cache
+        if (saveToCacheForRoomTimeline && currentRoomId.isNotEmpty()) {
+            timelineCacheCoordinator.saveToLruCache(currentRoomId)
         }
+        if (previousRoomId.isNotEmpty()) {
+            timelineCacheCoordinator.clearTimelineCache()
+        }
+        // Remove from opened rooms (no longer exempt from cache clearing)
+        if (previousRoomId.isNotEmpty()) {
+            RoomTimelineCache.removeOpenedRoom(previousRoomId)
+        }
+        // CRITICAL: Clear currentRoomState to prevent stale avatar showing during shared element transitions
+        // Without this, opening room B after room A briefly shows room A's avatar in the header
+        currentRoomState = null
         updateCurrentRoomIdInPrefs("")
     }
     

@@ -194,22 +194,21 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
             // Notify service of app visibility change
             WebSocketService.setAppVisibility(true)
 
-            // Only restore the previously-open room if there is no explicit navigation request
-            // pending (FCM notification / shortcut). Both setDirectRoomNavigation and
-            // setPendingRoomNavigation clear pendingRoomToRestore, but guard here as well in
-            // case of any ordering edge case (e.g. broadcast arrives before onResume).
-            if (currentRoomId.isEmpty() && directRoomNavigation == null && pendingRoomNavigation == null) {
-                val roomToRestore = pendingRoomToRestore
-                if (!roomToRestore.isNullOrEmpty()) {
-                    if (BuildConfig.DEBUG)
-                        android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Restoring current room to $roomToRestore after visibility change",
-                        )
-                    updateCurrentRoomIdInPrefs(roomToRestore)
+            // Restore current_open_room_id in SharedPreferences (cleared on background so FCM
+            // does not suppress notifications while the app is backgrounded). The in-memory
+            // currentRoomId was preserved, so no state restoration is needed — just re-persist.
+            // Skip when a new room navigation is pending — that path sets SharedPreferences itself.
+            if (currentRoomId.isNotEmpty() && directRoomNavigation == null && pendingRoomNavigation == null) {
+                if (BuildConfig.DEBUG)
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Restoring current_open_room_id=$currentRoomId to SharedPreferences on visibility change",
+                    )
+                appContext?.applicationContext?.let { ctx ->
+                    ctx.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+                        .edit().putString("current_open_room_id", currentRoomId).commit()
                 }
             }
-            pendingRoomToRestore = null
 
             // Cancel any pending shutdown
             appInvisibleJob?.cancel()
@@ -297,9 +296,16 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 if (BuildConfig.DEBUG)
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Clearing current room ($currentRoomId) while app invisible to allow notifications",
+                        "AppViewModel: App invisible — clearing SharedPreferences room entry to allow FCM notifications for $currentRoomId (in-memory currentRoomId preserved)",
                     )
-                clearCurrentRoomId(shouldRestoreOnVisible = true)
+                // Clear current_open_room_id in SharedPreferences so FCM doesn't suppress
+                // notifications for this room while backgrounded. The in-memory currentRoomId is
+                // kept so timelineRefreshTrigger works immediately on resume without a restore dance.
+                appContext?.applicationContext?.let { ctx ->
+                    ctx.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+                        .edit().remove("current_open_room_id").commit()
+                }
+                typingUsers = emptyList()
             }
 
             // Cancel any existing shutdown job (no shutdown needed - service maintains connection)

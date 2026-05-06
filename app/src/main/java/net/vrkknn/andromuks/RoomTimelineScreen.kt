@@ -2913,10 +2913,9 @@ fun RoomTimelineScreen(
     }
     
     // Refresh timeline when app resumes (to show new events received while suspended)
-    // Only refresh if initial load is complete (not during initial room opening)
+    // or after a batch flush. Only fires after initial load is complete.
     LaunchedEffect(appViewModel.timelineRefreshTrigger) {
         if (appViewModel.timelineRefreshTrigger > 0 &&
-            appViewModel.currentRoomId == roomId &&
             isInitialLoadComplete &&
             appViewModel.timelineRefreshTrigger != lastKnownRefreshTrigger) {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: App resumed, refreshing timeline for room: $roomId")
