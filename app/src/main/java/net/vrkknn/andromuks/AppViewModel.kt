@@ -3687,7 +3687,9 @@ class AppViewModel : ViewModel() {
     ) = navigationCoordinator.setDirectRoomNavigation(roomId, notificationTimestamp, targetEventId)
     
     fun getDirectRoomNavigation(): String? = navigationCoordinator.getDirectRoomNavigation()
-    
+
+    val roomNavigationRequests get() = navigationCoordinator.roomNavigationRequests
+
     fun clearDirectRoomNavigation() = navigationCoordinator.clearDirectRoomNavigation()
     
     fun getDirectRoomNavigationTimestamp(): Long? = navigationCoordinator.getDirectRoomNavigationTimestamp()

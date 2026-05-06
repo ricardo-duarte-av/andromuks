@@ -2,14 +2,28 @@ package net.vrkknn.andromuks
 
 import android.content.Context
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+
+data class RoomNavigationRequest(
+    val roomId: String,
+    val timestamp: Long?,
+    val source: Source,
+) {
+    enum class Source { NOTIFICATION, SHORTCUT, BUBBLE, RESTORE }
+}
 
 /**
  * Pending/direct room navigation, highlight map, and cache-first open for [AppViewModel].
  */
 internal class NavigationCoordinator(private val vm: AppViewModel) {
+
+    private val _roomNavigationRequests = Channel<RoomNavigationRequest>(Channel.CONFLATED)
+    val roomNavigationRequests: Flow<RoomNavigationRequest> = _roomNavigationRequests.receiveAsFlow()
 
     fun setPendingRoomNavigation(roomId: String, fromNotification: Boolean) {
         with(vm) {
@@ -20,6 +34,9 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                 )
             pendingRoomNavigation = roomId
             isPendingNavigationFromNotification = fromNotification
+            _roomNavigationRequests.trySend(
+                RoomNavigationRequest(roomId = roomId, timestamp = null, source = RoomNavigationRequest.Source.SHORTCUT)
+            )
         }
     }
 
@@ -43,6 +60,9 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
             if (!targetEventId.isNullOrBlank()) {
                 this@NavigationCoordinator.setPendingHighlightEvent(roomId, targetEventId)
             }
+            _roomNavigationRequests.trySend(
+                RoomNavigationRequest(roomId = roomId, timestamp = notificationTimestamp, source = RoomNavigationRequest.Source.NOTIFICATION)
+            )
         }
     }
 
