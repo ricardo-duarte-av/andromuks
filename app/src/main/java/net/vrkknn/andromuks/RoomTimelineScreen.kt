@@ -911,6 +911,10 @@ fun RoomTimelineScreen(
                     )
                     pendingNotificationJumpEventId = eventId
                 }
+                // Restore currentRoomId: onAppBecameInvisible clears it to enable notifications.
+                // LaunchedEffect(timelineRefreshTrigger) guards on currentRoomId==roomId, so
+                // without this restore the refresh is silently skipped.
+                appViewModel.setCurrentRoomIdForTimeline(roomId)
                 appViewModel.timelineRefreshTrigger++
                 appViewModel.flushSyncBatchForRoom(roomId)
                 appViewModel.timelineRefreshTrigger++

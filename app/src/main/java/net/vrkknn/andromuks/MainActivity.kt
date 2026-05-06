@@ -1097,9 +1097,16 @@ fun AppNavigation(
     // When the user foregrounds the app via the app icon after it was opened into a room
     // directly from a notification (no room_list in the back stack), navigate to room_list
     // so the app behaves as expected rather than re-showing the notification room.
+    // EXCEPTION: if the foreground was triggered by a new notification tap, onNewIntent already
+    // set directRoomNavigation — let RoomTimelineScreen's navTrigger handler respond to that
+    // notification directly, without an intermediate room_list detour.
     LaunchedEffect(appViewModel.returnToRoomListOnResume) {
         if (appViewModel.returnToRoomListOnResume) {
             appViewModel.returnToRoomListOnResume = false
+            if (appViewModel.getDirectRoomNavigation() != null) {
+                // Notification tap in flight — navTrigger / channel consumer will open the room.
+                return@LaunchedEffect
+            }
             appViewModel.openedViaDirectNotification = false
             navController.navigate("room_list") {
                 popUpTo(0) { inclusive = true }
