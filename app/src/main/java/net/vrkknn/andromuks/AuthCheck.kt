@@ -240,7 +240,11 @@ fun AuthCheckScreen(
             // Set homeserver URL and auth token in ViewModel for avatar loading
             appViewModel.updateHomeserverUrl(homeserverUrl)
             appViewModel.updateAuthToken(token)
-            fun navigateToRoomListIfNeeded(reason: String) {
+            // forceIfOnTimeline=true: navigate to room_list even when the back stack already has
+            // room_timeline (normal app-icon open after a previous session left a room open).
+            // forceIfOnTimeline=false: skip navigation when room_timeline/chat_bubble is active
+            // (shortcut cold-start — the channel consumer handles the actual room navigation).
+            fun navigateToRoomListIfNeeded(forceIfOnTimeline: Boolean = false) {
                 // Don't redirect while a share-to-room flow is active. The user is on
                 // simple_room_list picking a destination; force-navigating to room_list would
                 // discard their in-progress share.
@@ -252,71 +256,56 @@ fun AuthCheckScreen(
                     if (BuildConfig.DEBUG) {
                         Log.d(
                             "AuthCheckScreen",
-                            "navigateToRoomListIfNeeded skipped ($reason): direct room navigation will open room_timeline from WebSocket callback",
+                            "navigateToRoomListIfNeeded skipped: direct room navigation will open room_timeline from WebSocket callback",
                         )
                     }
                     return
                 }
                 val currentRoute = navController.currentBackStackEntry?.destination?.route
-                if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "navigateToRoomListIfNeeded called with reason: $reason, currentRoute: $currentRoute")
-                
-                // CRITICAL FIX: When opening via app shortcut (not pinned shortcut), we should always navigate to room_list
-                // even if we're currently on room_timeline/... from a previous session.
-                // The reason "websocket already connected" indicates we're opening the app normally, not via shortcut.
-                val shouldForceNavigation = reason == "websocket already connected" || reason == "default flow"
-                
+                if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "navigateToRoomListIfNeeded called (forceIfOnTimeline=$forceIfOnTimeline, currentRoute=$currentRoute)")
+
                 if (currentRoute != null) {
-                    // If we're already on "room_list", ensure isLoading is false and return
-                    // (don't navigate again to avoid navigation loops)
                     if (currentRoute == "room_list") {
                         if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Already on room_list, ensuring isLoading is false")
                         appViewModel.isLoading = false
                         return
                     }
-                    
-                    // If we're on room_timeline/... or chat_bubble/... and we should force navigation,
-                    // navigate to room_list anyway (user opened app via app shortcut, not pinned shortcut)
-                    if (shouldForceNavigation && (currentRoute.startsWith("room_timeline/") || currentRoute.startsWith("chat_bubble/"))) {
+
+                    if (forceIfOnTimeline && (currentRoute.startsWith("room_timeline/") || currentRoute.startsWith("chat_bubble/"))) {
                         // Do NOT force-navigate if the user arrived here via a direct notification tap.
-                        // RoomListScreen (or AuthCheck itself) already consumed directRoomNavigation and
-                        // navigated to room_timeline — navigating back to room_list would undo that work.
+                        // AuthCheck already consumed directRoomNavigation and navigated to room_timeline —
+                        // navigating back to room_list would undo that work.
                         if (appViewModel.openedViaDirectNotification) {
-                            if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Skipping force navigation to room_list ($reason) — user arrived via direct notification tap")
+                            if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Skipping force navigation — user arrived via direct notification tap")
                             appViewModel.isLoading = false
                             return
                         }
-                        if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Force navigating to room_list ($reason) - clearing previous navigation stack (currentRoute: $currentRoute)")
+                        if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Force navigating to room_list - clearing previous navigation stack (currentRoute=$currentRoute)")
                         appViewModel.isLoading = false
                         showStartupMorphOverlay = false
                         navController.navigate("room_list") {
-                            // Clear entire back stack and start fresh at room_list
                             popUpTo(0) { inclusive = true }
                         }
                         return
                     }
-                    
-                    // Skip navigation if we're on simple_room_list or other screens (unless forcing)
-                    if (!shouldForceNavigation && (currentRoute == "simple_room_list" ||
+
+                    if (!forceIfOnTimeline && (currentRoute == "simple_room_list" ||
                         currentRoute.startsWith("room_timeline/") ||
                         currentRoute.startsWith("chat_bubble/")
                     )) {
-                        if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Skipping navigation to room_list ($reason) because current route is $currentRoute")
+                        if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Skipping navigation to room_list because currentRoute=$currentRoute")
                         appViewModel.isLoading = false
                         return
                     }
                 }
-                
-                if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Navigating to room_list (reason: $reason, currentRoute: $currentRoute)")
+
+                if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Navigating to room_list (currentRoute=$currentRoute)")
                 appViewModel.isLoading = false
-                // Reset morph overlay so the shared element (base avatar) is visible (alpha=1)
-                // during the flight. Without this, if showStartupMorphOverlay==true the base
-                // avatar is at alpha=0 and the flight is invisible to the user.
-                // Add a small delay to ensure Compose recomposes with the new state before navigation.
                 showStartupMorphOverlay = false
-                // Remove auth_check from the back stack as part of the navigation so that
-                // RoomListScreen's subsequent popBackStack("auth_check", inclusive=true) is a
-                // safe no-op. The exitTransition (fadeOut 600ms) keeps auth_check in composition
-                // long enough for the shared-element flight to complete even after it is popped.
+                // Remove auth_check from the back stack so RoomListScreen's subsequent
+                // popBackStack("auth_check", inclusive=true) is a safe no-op. The exitTransition
+                // (fadeOut 600ms) keeps auth_check in composition long enough for the shared-element
+                // flight to complete even after it is popped.
                 navController.navigate("room_list") {
                     popUpTo("auth_check") { inclusive = true }
                 }
@@ -386,60 +375,38 @@ fun AuthCheckScreen(
                     return@setNavigationCallback
                 }
                 
-                // Check if we need to navigate to a specific room (from shortcut or bubble)
-                val pendingRoomId = appViewModel.getPendingRoomNavigation()
+                // Check for bubble navigation (from ChatBubbleActivity)
                 val pendingBubbleId = appViewModel.getPendingBubbleNavigation()
-                
                 if (pendingBubbleId != null) {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Navigating to pending bubble: $pendingBubbleId")
                     appViewModel.clearPendingBubbleNavigation()
-                    
-                    // Check if the room exists in our room list
-                    val roomExists = appViewModel.getRoomById(pendingBubbleId) != null
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Bubble room exists check - roomExists: $roomExists, roomId: $pendingBubbleId")
-                    if (roomExists) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Room exists, navigating to chat bubble")
-                        navController.navigate("chat_bubble/$pendingBubbleId")
-                    } else {
-                        android.util.Log.w("Andromuks", "AuthCheck: Bubble room $pendingBubbleId not found in room list, staying in bubble mode")
-                        // In bubble mode, don't navigate away - just show the bubble with empty state
-                        navController.navigate("chat_bubble/$pendingBubbleId")
-                    }
-                } else if (pendingRoomId != null) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Navigating to pending room: $pendingRoomId")
-                    // Don't clear yet - let RoomListScreen handle the pending navigation
-                    
-                    // Check if the room exists in our room list
-                    val roomExists = appViewModel.getRoomById(pendingRoomId) != null
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Room exists check - roomExists: $roomExists, roomId: $pendingRoomId")
-                    if (roomExists) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Room exists, navigating to room_list first (pending room will auto-navigate)")
-                        // Navigate to room_list first to establish proper back stack
-                        // RoomListScreen will detect pending navigation and auto-navigate to room
-                        navigateToRoomListIfNeeded("pendingRoomId exists")
-                    } else {
-                        android.util.Log.w("Andromuks", "AuthCheck: Room $pendingRoomId not found in room list, showing toast and going to room list")
-                        // Show toast and navigate to room list
-                        appViewModel.clearPendingRoomNavigation()
-                        android.widget.Toast.makeText(context, "Room $pendingRoomId not found. Please try again later.", android.widget.Toast.LENGTH_LONG).show()
-                        navigateToRoomListIfNeeded("pendingRoomId missing")
-                    }
-                } else {
-                    // Check for pending user info navigation (from matrix:u/ URIs)
-                    val pendingUserId = appViewModel.getPendingUserInfoNavigation()
-                    if (pendingUserId != null) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Navigating to user info for: $pendingUserId")
-                        appViewModel.clearPendingUserInfoNavigation()
-                        val encodedUserId = java.net.URLEncoder.encode(pendingUserId, "UTF-8")
-                        // Navigate directly to user info, don't go through room_list
-                        navController.navigate("user_info/$encodedUserId") {
-                            // Clear back stack and start fresh at user_info
-                            popUpTo(0) { inclusive = true }
-                        }
-                    } else {
-                        navigateToRoomListIfNeeded("default flow")
-                    }
+                    navController.navigate("chat_bubble/$pendingBubbleId")
+                    return@setNavigationCallback
                 }
+
+                // Shortcut navigation: navigate to room_list; the channel consumer in
+                // RoomListScreen handles the actual executeRoomNavigation once it's active.
+                // Toast if the room clearly doesn't exist (may be a stale shortcut).
+                val pendingRoomId = appViewModel.getPendingRoomNavigation()
+                if (pendingRoomId != null && appViewModel.getRoomById(pendingRoomId) == null) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Shortcut room $pendingRoomId not found in room list")
+                    appViewModel.clearPendingRoomNavigation()
+                    android.widget.Toast.makeText(context, "Room $pendingRoomId not found. Please try again later.", android.widget.Toast.LENGTH_LONG).show()
+                }
+
+                // Check for pending user info navigation (from matrix:u/ URIs)
+                val pendingUserId = appViewModel.getPendingUserInfoNavigation()
+                if (pendingUserId != null) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Navigating to user info for: $pendingUserId")
+                    appViewModel.clearPendingUserInfoNavigation()
+                    val encodedUserId = java.net.URLEncoder.encode(pendingUserId, "UTF-8")
+                    navController.navigate("user_info/$encodedUserId") {
+                        popUpTo(0) { inclusive = true }
+                    }
+                    return@setNavigationCallback
+                }
+
+                navigateToRoomListIfNeeded(forceIfOnTimeline = true)
             }
             if (BuildConfig.DEBUG) Log.d("Andromuks", "AuthCheckScreen: appViewModel instance: $appViewModel")
 
