@@ -197,6 +197,31 @@ private fun NavController.navigateToRoomTimelineForExternalEntry(roomId: String)
     }
 }
 
+/**
+ * Single entry point for all notification / shortcut / restore room navigation in RoomListScreen.
+ *
+ * Flush MUST happen before [clearNavigation] so that directRoomNavigation != null during the
+ * suspension — this shields navigateToRoomListIfNeeded from force-navigating to room_list
+ * (with popUpTo(0)) and cancelling this coroutine while the batch is still processing.
+ */
+private suspend fun executeRoomNavigation(
+    appViewModel: AppViewModel,
+    navController: NavController,
+    roomId: String,
+    notificationTimestamp: Long?,
+    clearNavigation: () -> Unit,
+) {
+    appViewModel.flushSyncBatchForRoom(roomId)
+    clearNavigation()
+    if (notificationTimestamp != null) {
+        appViewModel.navigateToRoomWithCache(roomId, notificationTimestamp)
+    } else {
+        appViewModel.navigateToRoomWithCache(roomId)
+    }
+    appViewModel.openedViaDirectNotification = true
+    navController.navigateToRoomTimelineForExternalEntry(roomId)
+}
+
 @Composable
 private fun ScrollToTopFab(visible: Boolean, onScrollToTop: () -> Unit, modifier: Modifier = Modifier) {
     AnimatedVisibility(
@@ -663,24 +688,9 @@ fun RoomListScreen(
                         
                         if (directRoomId != null) {
                             val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
-                            // Flush BEFORE clearing: directRoomNavigation != null during the flush
-                            // shields navigateToRoomListIfNeeded from force-navigating to room_list
-                            // (and wiping the backstack), which would cancel this coroutine.
-                            appViewModel.flushSyncBatchForRoom(directRoomId)
-                            appViewModel.clearDirectRoomNavigation()
-                            if (notificationTimestamp != null) {
-                                appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
-                            } else {
-                                appViewModel.navigateToRoomWithCache(directRoomId)
-                            }
-                            appViewModel.openedViaDirectNotification = true
-                            navController.navigateToRoomTimelineForExternalEntry(directRoomId)
+                            executeRoomNavigation(appViewModel, navController, directRoomId, notificationTimestamp) { appViewModel.clearDirectRoomNavigation() }
                         } else if (pendingRoomId != null) {
-                            appViewModel.clearPendingRoomNavigation()
-                            appViewModel.flushSyncBatchForRoom(pendingRoomId)
-                            appViewModel.navigateToRoomWithCache(pendingRoomId)
-                            appViewModel.openedViaDirectNotification = true
-                            navController.navigateToRoomTimelineForExternalEntry(pendingRoomId)
+                            executeRoomNavigation(appViewModel, navController, pendingRoomId, null) { appViewModel.clearPendingRoomNavigation() }
                         }
                     }
                 } else {
@@ -699,22 +709,10 @@ fun RoomListScreen(
 
                             if (directRoomId != null) {
                                 val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
-                                appViewModel.flushSyncBatchForRoom(directRoomId)
-                                appViewModel.clearDirectRoomNavigation()
-                                if (notificationTimestamp != null) {
-                                    appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
-                                } else {
-                                    appViewModel.navigateToRoomWithCache(directRoomId)
-                                }
-                                appViewModel.openedViaDirectNotification = true
-                                navController.navigateToRoomTimelineForExternalEntry(directRoomId)
+                                executeRoomNavigation(appViewModel, navController, directRoomId, notificationTimestamp) { appViewModel.clearDirectRoomNavigation() }
                             } else if (pendingRoomId != null) {
                                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: CRITICAL FIX #2 - WebSocket connected and spaces loaded, navigating to pending room: $pendingRoomId")
-                                appViewModel.clearPendingRoomNavigation()
-                                appViewModel.flushSyncBatchForRoom(pendingRoomId)
-                                appViewModel.navigateToRoomWithCache(pendingRoomId)
-                                appViewModel.openedViaDirectNotification = true
-                                navController.navigateToRoomTimelineForExternalEntry(pendingRoomId)
+                                executeRoomNavigation(appViewModel, navController, pendingRoomId, null) { appViewModel.clearPendingRoomNavigation() }
                             }
                         }
                     }
@@ -741,21 +739,9 @@ fun RoomListScreen(
                     
                     if (directRoomId != null) {
                         val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
-                        appViewModel.flushSyncBatchForRoom(directRoomId)
-                        appViewModel.clearDirectRoomNavigation()
-                        if (notificationTimestamp != null) {
-                            appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
-                        } else {
-                            appViewModel.navigateToRoomWithCache(directRoomId)
-                        }
-                        appViewModel.openedViaDirectNotification = true
-                        navController.navigateToRoomTimelineForExternalEntry(directRoomId)
+                        executeRoomNavigation(appViewModel, navController, directRoomId, notificationTimestamp) { appViewModel.clearDirectRoomNavigation() }
                     } else if (pendingRoomId != null) {
-                        appViewModel.clearPendingRoomNavigation()
-                        appViewModel.flushSyncBatchForRoom(pendingRoomId)
-                        appViewModel.navigateToRoomWithCache(pendingRoomId)
-                        appViewModel.openedViaDirectNotification = true
-                        navController.navigateToRoomTimelineForExternalEntry(pendingRoomId)
+                        executeRoomNavigation(appViewModel, navController, pendingRoomId, null) { appViewModel.clearPendingRoomNavigation() }
                     }
                 } else {
                     // Room not cached - wait for WebSocket connection
@@ -773,22 +759,10 @@ fun RoomListScreen(
 
                         if (directRoomId != null) {
                             val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
-                            appViewModel.flushSyncBatchForRoom(directRoomId)
-                            appViewModel.clearDirectRoomNavigation()
-                            if (notificationTimestamp != null) {
-                                appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
-                            } else {
-                                appViewModel.navigateToRoomWithCache(directRoomId)
-                            }
-                            appViewModel.openedViaDirectNotification = true
-                            navController.navigateToRoomTimelineForExternalEntry(directRoomId)
+                            executeRoomNavigation(appViewModel, navController, directRoomId, notificationTimestamp) { appViewModel.clearDirectRoomNavigation() }
                         } else if (pendingRoomId != null) {
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: CRITICAL FIX #2 - WebSocket connected and spaces loaded, navigating to pending room: $pendingRoomId")
-                            appViewModel.clearPendingRoomNavigation()
-                            appViewModel.flushSyncBatchForRoom(pendingRoomId)
-                            appViewModel.navigateToRoomWithCache(pendingRoomId)
-                            appViewModel.openedViaDirectNotification = true
-                            navController.navigateToRoomTimelineForExternalEntry(pendingRoomId)
+                            executeRoomNavigation(appViewModel, navController, pendingRoomId, null) { appViewModel.clearPendingRoomNavigation() }
                         }
                     }
                 }
@@ -812,22 +786,10 @@ fun RoomListScreen(
             if (stillDirectRoomId != null) {
                 android.util.Log.w("Andromuks", "RoomListScreen: CRITICAL FIX #2 - Navigation timeout (10s) for $stillDirectRoomId - WebSocket may not be connected, navigating anyway")
                 val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
-                appViewModel.flushSyncBatchForRoom(stillDirectRoomId)
-                appViewModel.clearDirectRoomNavigation()
-                if (notificationTimestamp != null) {
-                    appViewModel.navigateToRoomWithCache(stillDirectRoomId, notificationTimestamp)
-                } else {
-                    appViewModel.navigateToRoomWithCache(stillDirectRoomId)
-                }
-                appViewModel.openedViaDirectNotification = true
-                navController.navigateToRoomTimelineForExternalEntry(stillDirectRoomId)
+                executeRoomNavigation(appViewModel, navController, stillDirectRoomId, notificationTimestamp) { appViewModel.clearDirectRoomNavigation() }
             } else if (stillPendingRoomId != null) {
                 android.util.Log.w("Andromuks", "RoomListScreen: CRITICAL FIX #2 - Navigation timeout (10s) for pending room $stillPendingRoomId - WebSocket may not be connected, navigating anyway")
-                appViewModel.clearPendingRoomNavigation()
-                appViewModel.flushSyncBatchForRoom(stillPendingRoomId)
-                appViewModel.navigateToRoomWithCache(stillPendingRoomId)
-                appViewModel.openedViaDirectNotification = true
-                navController.navigateToRoomTimelineForExternalEntry(stillPendingRoomId)
+                executeRoomNavigation(appViewModel, navController, stillPendingRoomId, null) { appViewModel.clearPendingRoomNavigation() }
             }
         }
     }
@@ -858,15 +820,7 @@ fun RoomListScreen(
             return@LaunchedEffect
         }
 
-        appViewModel.flushSyncBatchForRoom(directRoomId)
-        appViewModel.clearDirectRoomNavigation()
-        if (notificationTimestamp != null) {
-            appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
-        } else {
-            appViewModel.navigateToRoomWithCache(directRoomId)
-        }
-        appViewModel.openedViaDirectNotification = true
-        navController.navigateToRoomTimelineForExternalEntry(directRoomId)
+        executeRoomNavigation(appViewModel, navController, directRoomId, notificationTimestamp) { appViewModel.clearDirectRoomNavigation() }
     }
 
     // Determine update interval based on the newest message in the current section
