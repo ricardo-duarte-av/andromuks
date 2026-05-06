@@ -287,14 +287,13 @@ suspend fun bubbleProcessTimelineEvents(
 
     if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: After edit filtering: ${eventsWithoutSuperseded.size} events")
 
-    // Sort by timeline_rowid (server order) when positive; fall back to timestamp when 0 or -1.
-    val sorted = eventsWithoutSuperseded.sortedWith(Comparator { a, b ->
-        if (a.timelineRowid > 0L && b.timelineRowid > 0L) {
-            val cmp = a.timelineRowid.compareTo(b.timelineRowid)
-            if (cmp != 0) return@Comparator cmp
-        }
-        compareValuesBy(a, b, { it.timestamp }, { it.eventId })
-    })
+    // Sort by timeline_rowid (server order); pending echoes (rowid <= 0) sort last via Long.MAX_VALUE.
+    // Using a total order avoids non-transitive comparator issues with Kotlin's TimSort.
+    val sorted = eventsWithoutSuperseded.sortedWith(compareBy(
+        { if (it.timelineRowid > 0L) it.timelineRowid else Long.MAX_VALUE },
+        { it.timestamp },
+        { it.eventId }
+    ))
     if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Final sorted events: ${sorted.size} events")
 
     sorted

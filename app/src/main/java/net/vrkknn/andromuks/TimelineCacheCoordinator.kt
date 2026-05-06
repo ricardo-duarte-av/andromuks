@@ -179,6 +179,25 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     val isEdit = isEditEvent(event)
                     if (isEdit) {
                         editEventsMap[event.eventId] = event
+                    } else if (event.type == "com.beeper.message_send_status") {
+                        // Bridge delivery confirmation — process status but never add to eventChainMap.
+                        val content = event.content
+                        if (content != null) {
+                            val relatesTo = content.optJSONObject("m.relates_to")
+                            val relType = relatesTo?.optString("rel_type")
+                            val relatedEventId = relatesTo?.optString("event_id")?.takeIf { it.isNotBlank() }
+                            val status = content.optString("status")
+                            if (relType == "m.reference" && relatedEventId != null && !status.isNullOrBlank()) {
+                                val deliveredToUsers = if (content.has("delivered_to_users")) {
+                                    content.optJSONArray("delivered_to_users")
+                                        ?.let { arr -> (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } } }
+                                } else null
+                                vm.processBridgeSendStatus(roomId, relatedEventId, event.sender, status, deliveredToUsers, event.timestamp)
+                                if (event.eventId.isNotBlank()) {
+                                    vm.bridgeStatusEventToMessageId[event.eventId] = relatedEventId
+                                }
+                            }
+                        }
                     } else {
                         val existingEntry = eventChainMap[event.eventId]
                         if (existingEntry == null) {
