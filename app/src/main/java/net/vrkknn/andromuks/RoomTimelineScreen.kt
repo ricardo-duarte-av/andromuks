@@ -2914,8 +2914,12 @@ fun RoomTimelineScreen(
     
     // Refresh timeline when app resumes (to show new events received while suspended)
     // or after a batch flush. Only fires after initial load is complete.
+    // Guard: currentRoomId == roomId prevents calling requestRoomTimeline for a non-current room.
+    // This matters because requestRoomTimeline can restore from LRU and overwrite currentRoomId,
+    // which would corrupt navigateToRoomWithCache's abort-guard check for a concurrent navigation.
     LaunchedEffect(appViewModel.timelineRefreshTrigger) {
         if (appViewModel.timelineRefreshTrigger > 0 &&
+            appViewModel.currentRoomId == roomId &&
             isInitialLoadComplete &&
             appViewModel.timelineRefreshTrigger != lastKnownRefreshTrigger) {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: App resumed, refreshing timeline for room: $roomId")
