@@ -898,7 +898,10 @@ fun RoomTimelineScreen(
         val targetRoomId = appViewModel.getDirectRoomNavigation()
         if (targetRoomId != null) {
             if (targetRoomId == roomId) {
-                // Same room — consume highlight event and clear the navigation request
+                // Same room — clear navigation, consume highlight event, then rebuild timeline
+                // to pick up any messages received while backgrounded.
+                // Mirrors the onAppBecameVisible double-increment: immediate refresh from cache,
+                // then wait for batch flush and refresh again.
                 appViewModel.clearDirectRoomNavigation()
                 val eventId = appViewModel.consumePendingHighlightEvent(roomId)
                 if (eventId != null) {
@@ -908,6 +911,10 @@ fun RoomTimelineScreen(
                     )
                     pendingNotificationJumpEventId = eventId
                 }
+                appViewModel.timelineRefreshTrigger++
+                val flushJob = appViewModel.flushSyncBatchForRoom(roomId)
+                flushJob?.join()
+                appViewModel.timelineRefreshTrigger++
             } else {
                 // Different room — handle navigation here directly, regardless of back stack.
                 // Previously this delegated to RoomListScreen.LaunchedEffect(navigationTrigger)

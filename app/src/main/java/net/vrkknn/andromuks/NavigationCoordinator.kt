@@ -34,6 +34,8 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                 )
             pendingRoomNavigation = roomId
             isPendingNavigationFromNotification = fromNotification
+            // Prevent onAppBecameVisible from restoring the previously-open room over this request.
+            pendingRoomToRestore = null
             _roomNavigationRequests.trySend(
                 RoomNavigationRequest(roomId = roomId, timestamp = null, source = RoomNavigationRequest.Source.SHORTCUT)
             )

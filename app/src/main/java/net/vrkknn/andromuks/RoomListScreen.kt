@@ -661,11 +661,15 @@ fun RoomListScreen(
     // poll or flush, which is correct behaviour (most-recent-wins).
     LaunchedEffect(Unit) {
         appViewModel.roomNavigationRequests.collectLatest { request ->
-            // When room_timeline is the active destination, RoomTimelineScreen's navTrigger
-            // LaunchedEffect owns the navigation (same-room scroll or hot-swap to a new room).
-            // Proceeding here would race with that handler and produce a duplicate back-stack entry.
-            if (navController.currentBackStackEntry?.destination?.route?.startsWith("room_timeline/") == true) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: room_timeline is active, deferring to RoomTimelineScreen handler for ${request.roomId}")
+            // NOTIFICATION requests also increment directRoomNavigationTrigger, so
+            // RoomTimelineScreen's navTrigger LaunchedEffect already owns that navigation
+            // (same-room scroll-to-event or hot-swap to a different room). Proceeding here
+            // would race and produce a duplicate back-stack entry.
+            // SHORTCUT/RESTORE requests do NOT increment the trigger, so RoomTimelineScreen
+            // cannot handle them — proceed even when room_timeline is the active route.
+            if (request.source == RoomNavigationRequest.Source.NOTIFICATION &&
+                navController.currentBackStackEntry?.destination?.route?.startsWith("room_timeline/") == true) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: NOTIFICATION to ${request.roomId} while room_timeline active — deferring to RoomTimelineScreen navTrigger handler")
                 return@collectLatest
             }
 
