@@ -157,6 +157,12 @@ class AppViewModel : ViewModel() {
     var openedViaDirectNotification: Boolean = false
     var returnToRoomListOnResume: Boolean by mutableStateOf(false)
 
+    // Rooms opened in this VM instance. Populated by updateCurrentRoomIdInPrefs whenever the
+    // current room changes to a non-empty value. Used by RoomListSingletonReplicated to refresh
+    // only the rooms that belong to THIS instance — eliminates the need for the BUBBLE guard that
+    // previously prevented iterating the process-wide RoomTimelineCache.getOpenedRooms() set.
+    internal val instanceOpenedRooms = mutableSetOf<String>()
+
     // Tracks which sender profiles have been processed per room to avoid duplicate fetches.
     // Used by RoomListScreen opportunistic profile loading.
     val processedSendersByRoom = mutableStateMapOf<String, MutableSet<String>>()
@@ -244,20 +250,12 @@ class AppViewModel : ViewModel() {
                             // 3. IMPORTANT: Reload timeline for all rooms open in this VM.
                             // The singleton timeline cache was updated by the primary instance;
                             // we must sync our local snapshot to see new messages.
-                            // BUBBLE ISOLATION: Bubble VMs must NOT use the global getOpenedRooms()
-                            // set here. That set is shared across all Activities; iterating it in a
-                            // bubble causes restoreFromLruCache() to overwrite timelineEvents with
-                            // whichever room the main app last opened — the last call wins and the
-                            // bubble renders the wrong room's messages. Bubble VMs only have one
-                            // room, so limiting to currentRoomId is both correct and sufficient.
-                            // Non-bubble VMs may also have rooms in getOpenedRooms() that are not
-                            // currentRoomId (e.g. ThreadViewer open alongside RoomTimeline), so
-                            // they still need the full set.
+                            // Use instanceOpenedRooms (per-instance) instead of the process-wide
+                            // RoomTimelineCache.getOpenedRooms() — bubble VMs naturally only have
+                            // their own room in instanceOpenedRooms, so no BUBBLE guard is needed.
                             val roomsToRefresh = buildSet {
                                 if (currentRoomId.isNotEmpty()) add(currentRoomId)
-                                if (instanceRole != InstanceRole.BUBBLE) {
-                                    addAll(RoomTimelineCache.getOpenedRooms())
-                                }
+                                addAll(instanceOpenedRooms)
                             }
                             for (roomId in roomsToRefresh) {
                                 if (restoreFromLruCache(roomId)) {
@@ -4227,6 +4225,7 @@ class AppViewModel : ViewModel() {
         // Update typing users for the new room when switching
         val previousRoomId = currentRoomId
         currentRoomId = roomId
+        if (roomId.isNotEmpty()) instanceOpenedRooms.add(roomId)
 
         // Clear stale room state when switching to a different room.
         // Without this, the header shows the previous room's name/avatar until the new room's

@@ -77,7 +77,7 @@ OkHttp WebSocket (Matrix protocol) + SQLite (BootstrapLoader)
 
 Android chat bubbles use `ChatBubbleActivity` → `BubbleTimelineScreen`.
 
-**Bubble VM timeline isolation invariant:** When `SyncEvent.RoomListSingletonReplicated` fires, secondary VM instances refresh their timeline by calling `restoreFromLruCache(roomId)` for every room in `RoomTimelineCache.getOpenedRooms()`. That set is a **singleton** shared across all Activities. A bubble VM must **not** iterate it — doing so causes `restoreFromLruCache` to overwrite `timelineEvents` with whatever room the main app last opened. Bubble VMs (`instanceRole == BUBBLE`) only refresh `currentRoomId`. See `AppViewModel.kt` `RoomListSingletonReplicated` handler.
+**Bubble VM timeline isolation:** When `SyncEvent.RoomListSingletonReplicated` fires, each VM instance refreshes its timeline using `instanceOpenedRooms` — a per-instance `MutableSet<String>` populated by `updateCurrentRoomIdInPrefs` whenever the current room changes. Bubble VMs naturally only have their own room in this set, so no special `instanceRole == BUBBLE` guard is needed in the restore loop. The process-wide `RoomTimelineCache.getOpenedRooms()` is still used for cache eviction and for the cross-VM cache update path (~line 8530), but the `RoomListSingletonReplicated` restore loop no longer touches it.
 
 ## Key Libraries
 
