@@ -949,17 +949,13 @@ fun RoomTimelineScreen(
                 )
 
                 appViewModel.openedViaDirectNotification = true
-                val poppedToRoomList = navController.popBackStack("room_list", inclusive = false)
-                if (poppedToRoomList) {
-                    // room_list was in the stack — navigate forward from there so Back works naturally
-                    navController.navigate("room_timeline/$targetRoomId") {
-                        popUpTo("auth_check") { inclusive = true }
-                    }
-                } else {
-                    // room_list not in back stack — replace current room_timeline entry
-                    navController.navigate("room_timeline/$targetRoomId") {
-                        popUpTo("room_timeline/$roomId") { inclusive = true }
-                    }
+                // Clear the entire back stack before navigating to the new room so that
+                // pressing Back exits the app rather than returning to room_list.
+                // auth_check is already gone (popped during AuthCheck's own startup navigation),
+                // and room_list may or may not be present — popUpTo(0) handles both cases.
+                navController.navigate("room_timeline/$targetRoomId") {
+                    popUpTo(0) { inclusive = true }
+                    launchSingleTop = true
                 }
             }
         }

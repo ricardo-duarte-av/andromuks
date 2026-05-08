@@ -187,13 +187,15 @@ private fun usernameFromMatrixId(userId: String): String =
 
 /**
  * Opens a room while [RoomListScreen] is already shown (shortcut, notification, pending room, etc.).
- * Pops [auth_check] and the list off the stack so Back leaves the task instead of returning to the list.
+ * Clears the entire back stack so Back leaves the task instead of returning to the list.
+ * auth_check is already gone by the time this fires (popped during AuthCheck's own navigation),
+ * so popUpTo(0) is used instead of popUpTo("auth_check") to reliably clear room_list too.
  * User-initiated opens from the list use plain [NavController.navigate] to keep room_list under the timeline.
  */
 private fun NavController.navigateToRoomTimelineForExternalEntry(roomId: String) {
     navigate("room_timeline/$roomId") {
-        popUpTo("auth_check") { inclusive = true }
-        launchSingleTop = true // Prevent duplicate back-stack entry if room is already at the top
+        popUpTo(0) { inclusive = true }
+        launchSingleTop = true
     }
 }
 
