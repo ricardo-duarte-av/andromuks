@@ -118,12 +118,10 @@ class ShortcutActivity : ComponentActivity() {
         super.onStart()
         if (hasBeenStopped) {
             hasBeenStopped = false
-            // The user foregrounded the app (app-icon or recents) after leaving via HOME from a
-            // pinned shortcut / conversation widget.  Finish this activity so MainActivity (which
-            // lives below in the same task) becomes the visible screen, preserving wherever the
-            // user left it.  If MainActivity is not in the task (pure-shortcut first launch),
-            // finishing here returns to the home screen; a subsequent app-icon tap starts
-            // MainActivity normally.
+            // The user foregrounded this shortcut task (via recents) after having left via HOME.
+            // Finish the activity so the shortcut task is removed and the home screen is shown.
+            // ShortcutActivity runs in its own task (taskAffinity=""), so finishing here does
+            // not affect MainActivity's task.
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: onStart after user-leave background — finishing to reveal MainActivity")
             finish()
         }
@@ -223,14 +221,17 @@ fun ShortcutNavigation(roomId: String) {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: WebSocket connected=$websocketConnected (pollCount=$pollCount), navigating to: $roomId")
                 appViewModel.setCurrentRoomIdForTimeline(roomId)
                 appViewModel.navigateToRoomWithCache(roomId)
-                navController.navigate("room_timeline/$roomId")
+                // Don't call navController.navigate — the NavHost startDestination is already
+                // room_timeline/$roomId. Navigating again would push a duplicate entry, making
+                // previousBackStackEntry non-null and isRootDestination=false in RoomTimelineScreen,
+                // so the back button would not call finish() on the first press.
                 hasNavigated = true
                 showLoading = false
             }
         }
     }
 
-    // Timeout fallback: navigate after 10 s even if WebSocket never connects.
+    // Timeout fallback: proceed after 10 s even if WebSocket never connects.
     LaunchedEffect(Unit) {
         if (hasNavigated) return@LaunchedEffect
         kotlinx.coroutines.delay(10000)
@@ -238,7 +239,7 @@ fun ShortcutNavigation(roomId: String) {
             android.util.Log.w("Andromuks", "ShortcutActivity: Navigation timeout (10 s) for $roomId — proceeding without WebSocket")
             appViewModel.setCurrentRoomIdForTimeline(roomId)
             appViewModel.navigateToRoomWithCache(roomId)
-            navController.navigate("room_timeline/$roomId")
+            // Same reasoning as slow path: don't navigate, just reveal the NavHost.
             hasNavigated = true
             showLoading = false
         }
