@@ -175,11 +175,56 @@ fun MessageMenuBar(
                 val density = LocalDensity.current
                 val buttonSpacing = 8.dp
                 val availableWidthPx = with(density) { maxWidth.toPx() }
+                // 5 buttons (React, Reply, Edit, Delete, More) + outer margins equal to buttonSpacing on each side
+                // Total spacing = 2 outer + 4 inner = 6 * buttonSpacing
                 val spacingPx = with(density) { (buttonSpacing * 6).toPx() }
-                val buttonWidthPx = (availableWidthPx - spacingPx) / 7
+                val buttonWidthPx = (availableWidthPx - spacingPx) / 5
                 val buttonWidth = with(density) { buttonWidthPx.toDp() }
                 var moreExpanded by remember { mutableStateOf(false) }
-            
+
+            fun launchOriginalDialog() {
+                if (menuConfig.canViewOriginal && menuConfig.appViewModel != null) {
+                    deletedDialogText = deletedContentSummary
+                    deletedReason = redactionReason
+                    deletedLoading = true
+                    loadedDeletedEvent = null
+                    loadedDeletedContext = emptyList()
+                    deletedError = null
+                    showDeletedDialog = true
+                    coroutineScope.launch {
+                        try {
+                            val cachedEvents = withContext(Dispatchers.IO) {
+                                RoomTimelineCache.getCachedEvents(event.roomId)
+                            }
+                            if (cachedEvents == null || cachedEvents.isEmpty()) {
+                                if (BuildConfig.DEBUG) android.util.Log.w("MessageMenuBar", "No cached events found for room ${event.roomId}")
+                                deletedError = "No cached events available"
+                                deletedLoading = false
+                                return@launch
+                            }
+                            val originalEvent = cachedEvents.find { it.eventId == event.eventId }
+                            if (originalEvent == null) {
+                                if (BuildConfig.DEBUG) android.util.Log.w("MessageMenuBar", "Original event ${event.eventId} not found in cache")
+                                deletedError = "Original event not found in cache"
+                                deletedLoading = false
+                                return@launch
+                            }
+                            val originalIndex = cachedEvents.indexOf(originalEvent)
+                            val contextStart = max(0, originalIndex - 2)
+                            val contextEnd = min(cachedEvents.size, originalIndex + 3)
+                            val contextEvents = cachedEvents.subList(contextStart, contextEnd).toList()
+                            loadedDeletedEvent = originalEvent.copy(redactedBy = null)
+                            loadedDeletedContext = contextEvents
+                            deletedLoading = false
+                        } catch (e: Exception) {
+                            android.util.Log.e("MessageMenuBar", "Error loading original event", e)
+                            deletedError = "Error loading original event: ${e.message}"
+                            deletedLoading = false
+                        }
+                    }
+                }
+            }
+
             val mainButtons = listOf(
                 Triple(Icons.Filled.TagFaces, "React") {
                     onDismiss()
@@ -200,69 +245,19 @@ fun MessageMenuBar(
                         onDismiss()
                         menuConfig.onDelete()
                     }
-                },
-                Triple(Icons.Filled.Visibility, "Original") {
-                    if (menuConfig.canViewOriginal && menuConfig.appViewModel != null) {
-                        deletedDialogText = deletedContentSummary
-                        deletedReason = redactionReason
-                        deletedLoading = true
-                        loadedDeletedEvent = null
-                        loadedDeletedContext = emptyList()
-                        deletedError = null
-                        showDeletedDialog = true
-                        coroutineScope.launch {
-                            try {
-                                val cachedEvents = withContext(Dispatchers.IO) {
-                                    RoomTimelineCache.getCachedEvents(event.roomId)
-                                }
-                                if (cachedEvents == null || cachedEvents.isEmpty()) {
-                                    if (BuildConfig.DEBUG) android.util.Log.w("MessageMenuBar", "No cached events found for room ${event.roomId}")
-                                    deletedError = "No cached events available"
-                                    deletedLoading = false
-                                    return@launch
-                                }
-                                val originalEvent = cachedEvents.find { it.eventId == event.eventId }
-                                if (originalEvent == null) {
-                                    if (BuildConfig.DEBUG) android.util.Log.w("MessageMenuBar", "Original event ${event.eventId} not found in cache")
-                                    deletedError = "Original event not found in cache"
-                                    deletedLoading = false
-                                    return@launch
-                                }
-                                val originalIndex = cachedEvents.indexOf(originalEvent)
-                                val contextStart = max(0, originalIndex - 2)
-                                val contextEnd = min(cachedEvents.size, originalIndex + 3)
-                                val contextEvents = cachedEvents.subList(contextStart, contextEnd).toList()
-                                loadedDeletedEvent = originalEvent.copy(redactedBy = null)
-                                loadedDeletedContext = contextEvents
-                                deletedLoading = false
-                            } catch (e: Exception) {
-                                android.util.Log.e("MessageMenuBar", "Error loading original event", e)
-                                deletedError = "Error loading original event: ${e.message}"
-                                deletedLoading = false
-                            }
-                        }
-                    }
-                },
-                Triple(Icons.Filled.History, "History") {
-                    if (menuConfig.canViewEditHistory && menuConfig.onShowEditHistory != null) {
-                        onDismiss()
-                        menuConfig.onShowEditHistory?.invoke()
-                    }
                 }
             )
-            
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp),
+                    .padding(horizontal = buttonSpacing, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(buttonSpacing)
             ) {
                 mainButtons.forEach { (icon, label, onClick) ->
                     val enabled = when (label) {
                         "Edit" -> menuConfig.canEdit
                         "Delete" -> menuConfig.canDelete
-                        "Original" -> menuConfig.canViewOriginal && menuConfig.appViewModel != null
-                        "History" -> menuConfig.canViewEditHistory && menuConfig.onShowEditHistory != null
                         else -> true
                     }
                     Column(
@@ -338,6 +333,31 @@ fun MessageMenuBar(
                                     Icon(Icons.Filled.PushPin, contentDescription = null)
                                 },
                                 enabled = if (menuConfig.isPinned) menuConfig.canUnpin else menuConfig.canPin
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Original") },
+                                onClick = {
+                                    moreExpanded = false
+                                    launchOriginalDialog()
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Visibility, contentDescription = null)
+                                },
+                                enabled = menuConfig.canViewOriginal && menuConfig.appViewModel != null
+                            )
+                            DropdownMenuItem(
+                                text = { Text("History") },
+                                onClick = {
+                                    moreExpanded = false
+                                    if (menuConfig.canViewEditHistory && menuConfig.onShowEditHistory != null) {
+                                        onDismiss()
+                                        menuConfig.onShowEditHistory.invoke()
+                                    }
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.History, contentDescription = null)
+                                },
+                                enabled = menuConfig.canViewEditHistory && menuConfig.onShowEditHistory != null
                             )
                             // Reactions option
                             val hasReactions = remember(event.eventId, menuConfig.appViewModel?.reactionUpdateCounter) {
