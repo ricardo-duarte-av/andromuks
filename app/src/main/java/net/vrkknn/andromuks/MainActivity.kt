@@ -1107,6 +1107,11 @@ fun AppNavigation(
                 // Notification tap in flight — navTrigger / channel consumer will open the room.
                 return@LaunchedEffect
             }
+            if (appViewModel.pendingShare != null) {
+                // Share-to-room flow is active — the user is picking a room or the room is already
+                // open with the media preview. Redirecting to room_list would destroy the share.
+                return@LaunchedEffect
+            }
             appViewModel.openedViaDirectNotification = false
             navController.navigate("room_list") {
                 popUpTo(0) { inclusive = true }
