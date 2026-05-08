@@ -111,6 +111,11 @@ fun SimplerRoomListScreen(
         val targetId = pendingShareTargetRoomId ?: return@LaunchedEffect
         if (!showRooms) return@LaunchedEffect
         if (rooms.none { it.id == targetId }) return@LaunchedEffect
+        // Guard: if navigateToRoomWithCache was already called (e.g. by a manual room click that
+        // set pendingShareTargetRoomId as a side-effect), currentRoomId is already the target.
+        // Re-navigating would push a duplicate room_timeline entry onto the back stack, causing
+        // RoomTimelineScreen to be recreated with showMediaPreview=false (share already consumed).
+        if (appViewModel.currentRoomId == targetId) return@LaunchedEffect
         appViewModel.selectPendingShareRoom(targetId)
         appViewModel.navigateToRoomWithCache(targetId)
         navController.navigate("room_timeline/$targetId") {
