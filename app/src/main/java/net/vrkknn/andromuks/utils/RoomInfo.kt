@@ -578,7 +578,7 @@ fun RoomInfoScreen(
                         // Try to pop back to room_list, if not in stack, navigate to it
                         if (!navController.popBackStack("room_list", inclusive = false)) {
                             navController.navigate("room_list") {
-                                popUpTo(0) { inclusive = true }
+                                popUpTo(navController.graph.id) { inclusive = true }
                             }
                         }
                     },

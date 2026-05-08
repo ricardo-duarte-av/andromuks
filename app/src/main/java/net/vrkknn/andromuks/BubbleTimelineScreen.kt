@@ -242,6 +242,8 @@ suspend fun bubbleProcessTimelineEvents(
     )
 
     val filteredEvents = timelineEvents.filter { event ->
+        // Special events with timeline_rowid = -1 are context events for replies, not to be rendered directly
+        if (event.timelineRowid == -1L) return@filter false
         // Redaction events are always hidden
         if (event.type == "m.room.redaction") return@filter false
         if (showHiddenEvents) return@filter true

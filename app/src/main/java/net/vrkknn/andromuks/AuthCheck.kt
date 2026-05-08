@@ -284,7 +284,7 @@ fun AuthCheckScreen(
                         appViewModel.isLoading = false
                         showStartupMorphOverlay = false
                         navController.navigate("room_list") {
-                            popUpTo(0) { inclusive = true }
+                            popUpTo(navController.graph.id) { inclusive = true }
                         }
                         return
                     }
@@ -401,7 +401,7 @@ fun AuthCheckScreen(
                     appViewModel.clearPendingUserInfoNavigation()
                     val encodedUserId = java.net.URLEncoder.encode(pendingUserId, "UTF-8")
                     navController.navigate("user_info/$encodedUserId") {
-                        popUpTo(0) { inclusive = true }
+                        popUpTo(navController.graph.id) { inclusive = true }
                     }
                     return@setNavigationCallback
                 }

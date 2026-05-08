@@ -1077,7 +1077,7 @@ fun AppNavigation(
             val encodedUrl = java.net.URLEncoder.encode(homeserverUrl, "UTF-8")
             val encodedUsername = java.net.URLEncoder.encode(username, "UTF-8")
             navController.navigate("login?url=$encodedUrl&username=$encodedUsername") {
-                popUpTo(0) { inclusive = true }
+                popUpTo(navController.graph.id) { inclusive = true }
             }
         }
         onDispose {
@@ -1114,7 +1114,7 @@ fun AppNavigation(
             }
             appViewModel.openedViaDirectNotification = false
             navController.navigate("room_list") {
-                popUpTo(0) { inclusive = true }
+                popUpTo(navController.graph.id) { inclusive = true }
             }
         }
     }

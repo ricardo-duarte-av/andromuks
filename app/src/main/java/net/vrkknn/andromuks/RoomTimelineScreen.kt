@@ -452,6 +452,8 @@ suspend fun processTimelineEvents(
     }
 
     val filteredEvents = timelineEvents.filter { event ->
+        // Special events with timeline_rowid = -1 are context events for replies, not to be rendered directly
+        if (event.timelineRowid == -1L) return@filter false
         // Redaction events are always hidden (they replace other events, not standalone content)
         if (event.type == "m.room.redaction") return@filter false
         // When show_hidden_events is on, pass everything else through
@@ -952,9 +954,9 @@ fun RoomTimelineScreen(
                 // Clear the entire back stack before navigating to the new room so that
                 // pressing Back exits the app rather than returning to room_list.
                 // auth_check is already gone (popped during AuthCheck's own startup navigation),
-                // and room_list may or may not be present — popUpTo(0) handles both cases.
+                // and room_list may or may not be present — popUpTo(navController.graph.id) handles both cases.
                 navController.navigate("room_timeline/$targetRoomId") {
-                    popUpTo(0) { inclusive = true }
+                    popUpTo(navController.graph.id) { inclusive = true }
                     launchSingleTop = true
                 }
             }
@@ -3070,7 +3072,8 @@ fun RoomTimelineScreen(
     // Root-destination check: in ShortcutActivity room_timeline is the startDestination with
     // nothing below it. Without this, the system would show a predictive back preview of the
     // home screen / previous app, which looks erratic. We handle it ourselves with finish().
-    val isRootDestination = remember { navController.previousBackStackEntry == null }
+    val isBackStackEmpty = remember { navController.previousBackStackEntry == null }
+    val isRootDestination = isBackStackEmpty || appViewModel.openedViaDirectNotification
     BackHandler(
         enabled = messageMenuConfig != null || showCameraOverlay || showVideoOverlay ||
                 showAttachmentMenu || jumpBackStack.isNotEmpty() || isRootDestination

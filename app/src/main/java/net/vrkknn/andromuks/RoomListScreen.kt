@@ -189,12 +189,12 @@ private fun usernameFromMatrixId(userId: String): String =
  * Opens a room while [RoomListScreen] is already shown (shortcut, notification, pending room, etc.).
  * Clears the entire back stack so Back leaves the task instead of returning to the list.
  * auth_check is already gone by the time this fires (popped during AuthCheck's own navigation),
- * so popUpTo(0) is used instead of popUpTo("auth_check") to reliably clear room_list too.
+ * so popUpTo(navController.graph.id) is used instead of popUpTo("auth_check") to reliably clear room_list too.
  * User-initiated opens from the list use plain [NavController.navigate] to keep room_list under the timeline.
  */
 private fun NavController.navigateToRoomTimelineForExternalEntry(roomId: String) {
     navigate("room_timeline/$roomId") {
-        popUpTo(0) { inclusive = true }
+        popUpTo(graph.id) { inclusive = true }
         launchSingleTop = true
     }
 }
@@ -204,7 +204,7 @@ private fun NavController.navigateToRoomTimelineForExternalEntry(roomId: String)
  *
  * Flush MUST happen before [clearNavigation] so that directRoomNavigation != null during the
  * suspension — this shields navigateToRoomListIfNeeded from force-navigating to room_list
- * (with popUpTo(0)) and cancelling this coroutine while the batch is still processing.
+ * (with popUpTo(navController.graph.id)) and cancelling this coroutine while the batch is still processing.
  */
 private suspend fun executeRoomNavigation(
     appViewModel: AppViewModel,
@@ -801,7 +801,7 @@ fun RoomListScreen(
         // Navigate to auth_check which will handle WebSocket reconnection and show StartupLoadingScreen
         navController.navigate("auth_check") {
             // Clear back stack so user doesn't go back to stale room_list
-            popUpTo(0) { inclusive = true }
+            popUpTo(navController.graph.id) { inclusive = true }
         }
         // Reset refreshing state immediately since navigation will show loading screen
         refreshing = false
