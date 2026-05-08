@@ -815,8 +815,10 @@ class SyncIngestor(private val context: Context) {
             relatesToEventId = inReplyTo?.optString("event_id")?.takeIf { it.isNotBlank() }
         } else if (relatesTo != null) {
             // For non-thread replies/edits/reactions:
-            // - relatesToEventId = m.relates_to.event_id (the message being replied to/edited/reacted to)
+            // - edits/reactions/annotations: relatesToEventId = m.relates_to.event_id
+            // - plain replies (no rel_type): event_id is nested at m.relates_to.m.in_reply_to.event_id
             relatesToEventId = relatesTo.optString("event_id")?.takeIf { it.isNotBlank() }
+                ?: relatesTo.optJSONObject("m.in_reply_to")?.optString("event_id")?.takeIf { it.isNotBlank() }
         }
         
         // For redactions, the redacted event ID is in content.redacts (or decrypted.redacts for encrypted redactions), not m.relates_to

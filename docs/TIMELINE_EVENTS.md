@@ -8,7 +8,13 @@ Only events with a **positive `timelineRowid`** (`> 0`) are treated as real time
 |-----------------------|---------|--------|
 | `> 0` | Real timeline event (persisted in DB) | Add to `eventChainMap`, render |
 | `0` | Not in timeline (profile hint, state event sent alongside a message) | Update caches only, do NOT render |
-| `-1` | State-only event (old sentinel) | Update caches only, do NOT render |
+| `-1` | Context-only event (reply target or state-only) — see note below | Store in cache for lookup; do NOT render |
+
+**`timeline_rowid: -1` — reply-target delivery.** The backend uses two mechanisms to deliver the target of a reply so the client can render the preview without paginating:
+1. The `related_events` array (older mechanism, typical for paginate responses)
+2. An entry in the main `events` array with an explicit `"timeline_rowid": -1` (used in `sync_complete`)
+
+Both indicate the event must be stored for lookup (reply preview, `findEventForReply`) but must **not** appear as a standalone timeline item. The `RoomTimelineCache.addEventsToCache` gate (described below) enforces this via the `<= 0` check; in practice `-1` context events are `m.room.encrypted` or `m.room.message` rather than `m.room.member`, so only the rowid gate protects them. If the user later paginates backwards far enough to reach the same event naturally, it arrives with a positive `timelineRowid` and the rowid-merge logic promotes it to a rendered entry.
 
 ### Resolution Step (`resolveTimelineRowidsFromRoomData`)
 
@@ -99,6 +105,26 @@ Kicks (`sender != stateKey` + `membership=leave`) with `timelineRowid <= 0` are 
 - Managed by `EditVersionCoordinator`
 - `addNewEventToChain(event)` deduplicates by `eventId` — safe to call multiple times for the same event
 - `buildTimelineFromChain()` / `executeTimelineRebuild()` rebuilds `timelineEvents` state on the Main dispatcher
+
+## Plain-Reply `m.relates_to` Shape
+
+Matrix reply relationships do **not** use a `rel_type`. The target event ID is nested one level deeper than for edits/reactions/threads:
+
+| Relationship | `rel_type` | Event ID location |
+|---|---|---|
+| Edit | `m.replace` | `m.relates_to.event_id` |
+| Reaction | `m.annotation` | `m.relates_to.event_id` |
+| Thread | `m.thread` | `m.relates_to.event_id` (root), `m.relates_to.m.in_reply_to.event_id` (previous) |
+| **Plain reply** | *(absent)* | `m.relates_to.m.in_reply_to.event_id` |
+
+`SyncIngestor.parseEventFromJson` resolves this in the `else if (relatesTo != null)` branch by checking `m.relates_to.event_id` first (edits/reactions) and falling back to `m.relates_to.m.in_reply_to.event_id` (plain replies):
+
+```kotlin
+relatesToEventId = relatesTo.optString("event_id")?.takeIf { it.isNotBlank() }
+    ?: relatesTo.optJSONObject("m.in_reply_to")?.optString("event_id")?.takeIf { it.isNotBlank() }
+```
+
+For e2ee events the `m.relates_to` block lives in `decrypted` (the server-decrypted payload). The unencrypted `content` envelope also carries `m.relates_to` per Matrix spec routing requirements, but the `decrypted` copy is preferred and is sufficient for this lookup.
 
 ## `related_events` — Reply-Context Events
 
