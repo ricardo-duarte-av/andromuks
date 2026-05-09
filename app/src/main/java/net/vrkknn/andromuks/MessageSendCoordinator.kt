@@ -534,6 +534,7 @@ internal class MessageSendCoordinator(
         val messageRequestId = vm.getAndIncrementRequestId()
 
         vm.messageRequests[messageRequestId] = roomId
+        vm.trackOutgoingRequest(messageRequestId, roomId)
         vm.pendingSendCount++
 
         val body = caption.ifBlank { filename }
@@ -759,6 +760,7 @@ internal class MessageSendCoordinator(
         val messageRequestId = vm.getAndIncrementRequestId()
 
         vm.messageRequests[messageRequestId] = roomId
+        vm.trackOutgoingRequest(messageRequestId, roomId)
         vm.pendingSendCount++
 
         val filename = videoMxcUrl.substringAfterLast("/").let { mediaId ->
@@ -883,6 +885,7 @@ internal class MessageSendCoordinator(
         val messageRequestId = vm.getAndIncrementRequestId()
 
         vm.messageRequests[messageRequestId] = roomId
+        vm.trackOutgoingRequest(messageRequestId, roomId)
         vm.pendingSendCount++
 
         val baseContent = mapOf(
@@ -955,6 +958,7 @@ internal class MessageSendCoordinator(
         val messageRequestId = vm.getAndIncrementRequestId()
 
         vm.messageRequests[messageRequestId] = roomId
+        vm.trackOutgoingRequest(messageRequestId, roomId)
         vm.pendingSendCount++
 
         val baseContent = mapOf(
