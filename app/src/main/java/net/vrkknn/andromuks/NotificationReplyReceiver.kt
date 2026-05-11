@@ -81,6 +81,13 @@ class NotificationReplyReceiver : BroadcastReceiver() {
             // Send message directly via ViewModel - this adds to FIFO buffer
             viewModel.sendMessageFromNotification(roomId, replyText) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Message sent successfully via ViewModel")
+                // Dismiss the inline-reply spinner by updating the notification.
+                // Android only stops the spinner when notify() is called again with the same ID.
+                val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+                val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                EnhancedNotificationDisplay(context, homeserverUrl, authToken)
+                    .updateNotificationWithReply(roomId, replyText)
             }
             return
         }
