@@ -97,6 +97,7 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
@@ -3349,6 +3350,9 @@ fun RoomTimelineScreen(
                             val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
                             navController.navigate("mentions?roomId=$encodedRoomId")
                         },
+                        onCallClick = {
+                            navController.navigate("element_call/$roomId")
+                        },
                         onRefreshClick = {
                             // Full refresh: drop all on-disk and in-RAM data, then fetch 100 events
                             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Full refresh button clicked for room $roomId")
@@ -6024,6 +6028,7 @@ fun RoomHeader(
     onHeaderClick: () -> Unit = {},
     onBackClick: () -> Unit = {},
     onNotificationsClick: () -> Unit = {},
+    onCallClick: () -> Unit = {},
     onRefreshClick: () -> Unit = {}
 ) {
     // Debug logging
@@ -6176,6 +6181,13 @@ fun RoomHeader(
                 Icon(
                     imageVector = Icons.Filled.Notifications,
                     contentDescription = "Room notifications",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(onClick = onCallClick) {
+                Icon(
+                    imageVector = Icons.Filled.VideoCall,
+                    contentDescription = "Start call",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
