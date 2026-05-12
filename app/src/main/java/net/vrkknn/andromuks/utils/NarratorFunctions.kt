@@ -36,6 +36,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.filled.VideoCall
 import net.vrkknn.andromuks.BuildConfig
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -460,22 +461,32 @@ fun SystemEventNarrator(
                     onUserClick = onUserClick
                 )
             }
+            "org.matrix.msc3401.call.member" -> {
+                CallMemberEventNarrator(
+                    event = event,
+                    displayName = displayName,
+                    content = content,
+                    appViewModel = appViewModel,
+                    roomId = roomId,
+                    onUserClick = onUserClick
+                )
+            }
             else -> {
                 val userMentionColor = MaterialTheme.colorScheme.primary
                 val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
                 val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
-                
+
                 if (senderProfile == null && appViewModel != null) {
                     appViewModel.requestUserProfile(event.sender, roomId)
                 }
-                
+
                 val annotatedText = remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
                     buildAnnotatedString {
                         appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                         append(" performed an action")
                     }
                 }
-                
+
                 ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
         }
@@ -1152,6 +1163,57 @@ private fun UnpinnedEventNarration(
 }
 
 // Extracted event handler functions to reduce SystemEventNarrator size
+
+@Composable
+private fun CallMemberEventNarrator(
+    event: TimelineEvent,
+    displayName: String,
+    content: JSONObject?,
+    appViewModel: AppViewModel?,
+    roomId: String,
+    onUserClick: (String) -> Unit = {}
+) {
+    val userMentionColor = MaterialTheme.colorScheme.primary
+    val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+    val rawSenderDisplayName = senderProfile?.displayName
+        ?: event.sender.substringAfter("@").substringBefore(":")
+    val senderDisplayName = if (appViewModel?.trimLongDisplayNames == true && rawSenderDisplayName.length > 40)
+        rawSenderDisplayName.take(40) + "..." else rawSenderDisplayName
+
+    if (senderProfile == null && appViewModel != null) {
+        appViewModel.requestUserProfile(event.sender, roomId)
+    }
+
+    val isJoining = content != null && content.length() > 0
+    val callIntent = content?.optString("m.call.intent", "video") ?: "video"
+    val isVoice = callIntent == "m.voice"
+
+    val actionText = if (isJoining) {
+        if (isVoice) " joined a voice call" else " joined a video call"
+    } else {
+        if (isVoice) " left the voice call" else " left the video call"
+    }
+
+    val annotatedText = remember(event.sender, senderDisplayName, isJoining, isVoice, userMentionColor) {
+        buildAnnotatedString {
+            appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+            append(actionText)
+        }
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Filled.VideoCall,
+            contentDescription = null,
+            tint = if (isJoining) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = androidx.compose.ui.Modifier.size(14.dp)
+        )
+        ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
+    }
+}
 
 @Composable
 private fun MemberEventNarrator(

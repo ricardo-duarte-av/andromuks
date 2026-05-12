@@ -464,11 +464,9 @@ suspend fun processTimelineEvents(
             event.decryptedType?.startsWith("org.matrix.msc4075.") == true) {
             return@filter false
         }
-        // Filter out Element Call reaction events and call membership state events
+        // Filter out Element Call reaction events
         if (event.type == "io.element.call.reaction" ||
-            event.decryptedType == "io.element.call.reaction" ||
-            event.type == "org.matrix.msc3401.call.member" ||
-            event.decryptedType == "org.matrix.msc3401.call.member") {
+            event.decryptedType == "io.element.call.reaction") {
             return@filter false
         }
         // Only allow events in the whitelist
@@ -1922,7 +1920,8 @@ fun RoomTimelineScreen(
             "m.room.pinned_events",
             "m.room.tombstone",
             "m.reaction",
-            "m.sticker"
+            "m.sticker",
+            "org.matrix.msc3401.call.member"
             // m.room.redaction is intentionally excluded - redaction events should not appear in
             // timeline
         )
@@ -3351,8 +3350,14 @@ fun RoomTimelineScreen(
                             navController.navigate("mentions?roomId=$encodedRoomId")
                         },
                         onCallClick = {
-                            navController.navigate("element_call/$roomId")
+                            if (appViewModel.callActiveInternal && appViewModel.callActiveRoomId == roomId) {
+                                appViewModel.setCallMiniPip(false, "")
+                            } else {
+                                appViewModel.startCall(roomId)
+                            }
                         },
+                        callInProgress = appViewModel.callActiveInternal && appViewModel.callActiveRoomId == roomId,
+                        callActiveInRoom = appViewModel.activeCallRooms.contains(roomId),
                         onRefreshClick = {
                             // Full refresh: drop all on-disk and in-RAM data, then fetch 100 events
                             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Full refresh button clicked for room $roomId")
@@ -6029,6 +6034,8 @@ fun RoomHeader(
     onBackClick: () -> Unit = {},
     onNotificationsClick: () -> Unit = {},
     onCallClick: () -> Unit = {},
+    callInProgress: Boolean = false,
+    callActiveInRoom: Boolean = false,
     onRefreshClick: () -> Unit = {}
 ) {
     // Debug logging
@@ -6184,11 +6191,29 @@ fun RoomHeader(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            val callIsLive = callInProgress || callActiveInRoom
+            val callPulse = rememberInfiniteTransition(label = "call_pulse")
+            val callPulseAlpha by callPulse.animateFloat(
+                initialValue = 1f,
+                targetValue = if (callIsLive) 0.35f else 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(700),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "call_pulse_alpha"
+            )
             IconButton(onClick = onCallClick) {
                 Icon(
                     imageVector = Icons.Filled.VideoCall,
-                    contentDescription = "Start call",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    contentDescription = when {
+                        callInProgress -> "Return to call"
+                        callActiveInRoom -> "Join call"
+                        else -> "Start call"
+                    },
+                    tint = when {
+                        callIsLive -> MaterialTheme.colorScheme.primary.copy(alpha = callPulseAlpha)
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
                 )
             }
 

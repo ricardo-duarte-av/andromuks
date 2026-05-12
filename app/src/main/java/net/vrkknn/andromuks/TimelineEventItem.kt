@@ -3391,7 +3391,8 @@ fun TimelineEventItem(
                 "m.room.server_acl",
                 "m.room.power_levels",
                 "m.room.tombstone",
-                "m.space.parent"
+                "m.space.parent",
+                "org.matrix.msc3401.call.member"
             )
 
     // Check if this message is being edited by another event (moved to function start)

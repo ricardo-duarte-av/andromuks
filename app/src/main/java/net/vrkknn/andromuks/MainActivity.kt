@@ -7,7 +7,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
 import android.os.Bundle
-import android.app.PictureInPictureParams
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
@@ -961,17 +960,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        // Mark that the user left via HOME / recents (not via launching a child activity).
         userLeftTask = true
-        if (::appViewModel.isInitialized && appViewModel.isCallActive() && appViewModel.isCallReadyForPip()) {
-            if (canEnterPip()) {
-                try {
-                    enterPictureInPictureMode(PictureInPictureParams.Builder().build())
-                } catch (e: IllegalStateException) {
-                    Log.w("Andromuks", "MainActivity: PiP not supported for this activity", e)
-                }
-            }
-        }
     }
 
     override fun onStart() {
@@ -987,11 +976,6 @@ class MainActivity : ComponentActivity() {
         hasBeenStopped = false
     }
 
-    private fun canEnterPip(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
-        return packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
-    }
-    
     /**
      * Extract room ID or alias from matrix: URI
      * Examples:
@@ -1141,12 +1125,15 @@ fun AppNavigation(
         }
     }
     
-    // Wrap NavHost in SharedTransitionLayout for shared element transitions
+    // Wrap NavHost in SharedTransitionLayout for shared element transitions.
+    // An outer Box layers the call overlay above the nav graph.
+    Box(modifier = modifier) {
     SharedTransitionLayout {
         NavHost(
         navController = navController,
         startDestination = "auth_check",
-        modifier = modifier
+        modifier = Modifier
+            .fillMaxSize()
             .background(androidx.compose.material3.MaterialTheme.colorScheme.background)
     ) {
         composable(
@@ -1794,4 +1781,11 @@ fun AppNavigation(
         }
     }
     } // End of SharedTransitionLayout
+
+    // Call overlay: full-screen when active, hidden behind NavHost when backgrounded.
+    // Always rendered here so the WebView never changes parent ViewGroup (avoids WebRTC crash).
+    CallOverlay(appViewModel = appViewModel)
+    // Incoming call banner (zIndex 20, above the call overlay's 10).
+    IncomingCallBanner(appViewModel = appViewModel)
+    } // End of outer Box
 }

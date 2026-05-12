@@ -388,6 +388,12 @@ class AppViewModel : ViewModel() {
     var deviceId by mutableStateOf("")
     internal var callActiveInternal by mutableStateOf(false)
     internal var callReadyForPipInternal by mutableStateOf(false)
+    internal var callMiniPipActive by mutableStateOf(false)
+    internal var callMiniPipRoomId: String = ""
+    internal var callActiveRoomId by mutableStateOf("")
+    @Volatile internal var callPersistentWebView: android.webkit.WebView? = null
+    internal var incomingCallInfo by mutableStateOf<IncomingCallInfo?>(null)
+    internal var activeCallRooms by mutableStateOf(setOf<String>())
     var imageAuthToken by mutableStateOf("")
         private set
     var currentUserProfile by mutableStateOf<UserProfile?>(null)
@@ -1890,6 +1896,18 @@ class AppViewModel : ViewModel() {
     fun setCallReadyForPip(ready: Boolean) = callsWidgetsCoordinator.setCallReadyForPip(ready)
 
     fun isCallReadyForPip(): Boolean = callsWidgetsCoordinator.isCallReadyForPip()
+
+    fun setCallMiniPip(active: Boolean, roomId: String = "") = callsWidgetsCoordinator.setCallMiniPip(active, roomId)
+
+    fun isCallMiniPip(): Boolean = callMiniPipActive
+
+    fun getCallMiniPipRoomId(): String = callMiniPipRoomId
+
+    fun startCall(roomId: String) = callsWidgetsCoordinator.startCall(roomId)
+
+    fun endCall() = callsWidgetsCoordinator.endCall()
+
+    fun dismissIncomingCall() = callsWidgetsCoordinator.dismissIncomingCall()
 
     internal var widgetToDeviceHandler: ((Any?) -> Unit)? = null
 
@@ -7492,6 +7510,24 @@ class AppViewModel : ViewModel() {
             }
         }
 
+        // Detect active call from full state snapshot (get_room_state responses).
+        // A room has an active call if any org.matrix.msc3401.call.member event has non-empty content.
+        var hasActiveCall = false
+        for (i in 0 until events.length()) {
+            val event = events.optJSONObject(i) ?: continue
+            if (event.optString("type") != "org.matrix.msc3401.call.member") continue
+            val content = event.optJSONObject("content")
+            if (content != null && content.length() > 0) {
+                hasActiveCall = true
+                break
+            }
+        }
+        if (hasActiveCall) {
+            activeCallRooms = activeCallRooms + roomId
+        } else {
+            activeCallRooms = activeCallRooms - roomId
+        }
+
         // Create room state object
         val roomState = RoomState(
             roomId = roomId,
@@ -8900,6 +8936,12 @@ class AppViewModel : ViewModel() {
                         arr.optString(it).takeIf { s -> s.isNotBlank() }
                     }.toSet()
                     functionalMembersCache[roomId] = members
+                }
+            } else if (event.type == "org.matrix.msc4075.rtc.notification" ||
+                (event.type == "m.room.encrypted" && event.decryptedType == "org.matrix.msc4075.rtc.notification")) {
+                val content = if (event.type == "m.room.encrypted") event.decrypted else event.content
+                if (content != null) {
+                    callsWidgetsCoordinator.handleRtcNotification(roomId, event.sender, content, event.timestamp)
                 }
             } else if (event.type == "com.beeper.message_send_status") {
                 // Bridge delivery confirmation — update status on the original message bubble

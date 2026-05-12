@@ -1280,6 +1280,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                         "m.room.tombstone",
                                         "m.sticker",
                                         "m.room.redaction", // Needed so redaction events reach cache (addEventsToCache stores them in cache.redactionEvents for sender lookup)
+                                        "org.matrix.msc3401.call.member",
                                     )
 
                                 // Only rowId 0 and -1 are state-only sentinels for m.room.member.

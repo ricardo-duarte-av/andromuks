@@ -11,6 +11,13 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 
+data class IncomingCallInfo(
+    val roomId: String,
+    val callerId: String,
+    val callIntent: String,
+    val expiresAt: Long
+)
+
 /**
  * Element Call `.well-known` resolution, call UI state, and widget WebSocket commands — [AppViewModel].
  */
@@ -97,6 +104,52 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
     }
 
     fun isCallReadyForPip(): Boolean = vm.callReadyForPipInternal
+
+    fun setCallMiniPip(active: Boolean, roomId: String = "") = with(vm) {
+        callMiniPipActive = active
+        callMiniPipRoomId = if (active) roomId else ""
+        if (!active) callPersistentWebView = null
+    }
+
+    fun startCall(roomId: String) = with(vm) {
+        callActiveRoomId = roomId
+        callActiveInternal = true
+        callMiniPipActive = false
+        callReadyForPipInternal = false
+        callPersistentWebView = null
+        incomingCallInfo = null
+    }
+
+    fun handleRtcNotification(roomId: String, senderId: String, content: JSONObject, eventTimestamp: Long) = with(vm) {
+        if (senderId == currentUserId) return@with
+        if (callActiveInternal) return@with  // Already in a call
+        val senderTs = content.optLong("sender_ts", eventTimestamp)
+        val lifetime = content.optLong("lifetime", 30_000L)
+        val expiresAt = senderTs + lifetime
+        if (System.currentTimeMillis() >= expiresAt) return@with  // Already expired
+        val callIntent = content.optString("m.call.intent", "video")
+        incomingCallInfo = IncomingCallInfo(
+            roomId = roomId,
+            callerId = senderId,
+            callIntent = callIntent,
+            expiresAt = expiresAt
+        )
+    }
+
+    fun dismissIncomingCall() = with(vm) {
+        incomingCallInfo = null
+    }
+
+    fun endCall() = with(vm) {
+        callActiveInternal = false
+        callReadyForPipInternal = false
+        callMiniPipActive = false
+        callMiniPipRoomId = ""
+        callActiveRoomId = ""
+        callPersistentWebView = null
+        incomingCallInfo = null
+        setWidgetToDeviceHandler(null)
+    }
 
     fun sendWidgetCommand(command: String, data: Any?, onResult: (Result<Any?>) -> Unit) = with(vm) {
         val requestId = requestIdCounter++

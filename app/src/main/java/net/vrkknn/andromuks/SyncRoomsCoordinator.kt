@@ -796,6 +796,52 @@ internal class SyncRoomsCoordinator(
                         }
                     }
         
+                    // Update active call tracking from org.matrix.msc3401.call.member state events.
+                    // The sync_complete "state" section maps event type → (state_key → rowid).
+                    // We build a rowid→event map from "events" and check whether any call.member
+                    // entry has non-empty content; this tells us whether the call is starting or
+                    // ending *in this incremental sync batch*.
+                    if (data != null) {
+                        val syncRooms = data.optJSONObject("rooms")
+                        if (syncRooms != null) {
+                            val syncRoomKeys = syncRooms.keys()
+                            while (syncRoomKeys.hasNext()) {
+                                val syncRoomId = syncRoomKeys.next()
+                                val syncRoomData = syncRooms.optJSONObject(syncRoomId) ?: continue
+                                val stateSection = syncRoomData.optJSONObject("state") ?: continue
+                                val callMemberMap = stateSection.optJSONObject("org.matrix.msc3401.call.member")
+                                    ?: continue
+                                if (callMemberMap.length() == 0) continue
+                                // Build rowid→event map from the events array
+                                val eventsArray = syncRoomData.optJSONArray("events") ?: continue
+                                val rowidToEvent = HashMap<Long, JSONObject>(eventsArray.length())
+                                for (ei in 0 until eventsArray.length()) {
+                                    val ev = eventsArray.optJSONObject(ei) ?: continue
+                                    val rowid = ev.optLong("rowid", -1L)
+                                    if (rowid >= 0) rowidToEvent[rowid] = ev
+                                }
+                                // Check if any call.member state key has a non-empty event
+                                var hasActiveCall = false
+                                val callKeys = callMemberMap.keys()
+                                while (callKeys.hasNext()) {
+                                    val stateKey = callKeys.next()
+                                    val rowid = callMemberMap.optLong(stateKey, -1L)
+                                    val ev = rowidToEvent[rowid] ?: continue
+                                    val content = ev.optJSONObject("content")
+                                    if (content != null && content.length() > 0) {
+                                        hasActiveCall = true
+                                        break
+                                    }
+                                }
+                                if (hasActiveCall) {
+                                    vm.activeCallRooms = vm.activeCallRooms + syncRoomId
+                                } else {
+                                    vm.activeCallRooms = vm.activeCallRooms - syncRoomId
+                                }
+                            }
+                        }
+                    }
+
                     // Populate member cache from sync data and check for changes
                     val memberStateChanged = populateMemberCacheFromSync(syncJson)
                     val hasRoomChanges = syncResult.updatedRooms.isNotEmpty() ||
