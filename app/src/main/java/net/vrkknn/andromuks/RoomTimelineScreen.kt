@@ -2419,7 +2419,45 @@ fun RoomTimelineScreen(
                 }
             }
     }
-    
+
+    // Auto-paginate: when fewer than 60 rendered events remain above the viewport and
+    // more history is available, silently fetch older events using the same anchor-capture
+    // and scroll-restoration path as pull-to-refresh. The snapshotFlow re-fires after each
+    // paginate settles, so if the batch yields few rendered events it will keep paginating
+    // until the threshold is met or has_more=false.
+    LaunchedEffect(listState, roomId) {
+        snapshotFlow {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.maxOfOrNull { it.index } ?: 0
+            info.totalItemsCount to lastVisible
+        }
+            .distinctUntilChanged()
+            .debounce(50L)
+            .collect { (total, lastVisible) ->
+                val itemsAbove = total - 1 - lastVisible
+                if (itemsAbove <= 60
+                    && total > 0
+                    && hasLoadedInitialBatch
+                    && hasInitialSnapCompleted
+                    && !pendingScrollRestoration
+                    && !appViewModel.isPaginating
+                    && appViewModel.hasMoreMessages
+                ) {
+                    val visibleIndices = listState.layoutInfo.visibleItemsInfo.map { it.index }
+                    val highestVisible = visibleIndices.maxOrNull() ?: lastVisible
+                    highestVisibleIndexBeforePagination = highestVisible
+                    anchorScrollOffsetForRestore = listState.firstVisibleItemScrollOffset
+                    pendingScrollRestoration = true
+                    expectedTimelineSizeBeforePagination = timelineItems.size
+                    if (BuildConfig.DEBUG) Log.d(
+                        "Andromuks",
+                        "RoomTimelineScreen: Auto-paginate triggered ($itemsAbove items above viewport, highestVisible=$highestVisible)"
+                    )
+                    appViewModel.requestPaginationWithSmallestRowId(roomId, limit = 100)
+                }
+            }
+    }
+
     // PERFORMANCE: Separate LaunchedEffect for auto-scroll when attached to bottom
     // This only triggers when timelineItems.size changes (new messages), not on every scroll
     // CRITICAL: Skip auto-scroll during keyboard transitions to prevent scroll position loss
@@ -4881,14 +4919,8 @@ fun RoomTimelineScreen(
                     FloatingActionButton(
                         onClick = {
                             coroutineScope.launch {
-                                // Animated scroll to bottom, then re-attach (FAB hides once settled)
-                                // With reverseLayout, index 0 is bottom
-                                animatedScrollTo(0)
+                                listState.scrollToItem(0)
                                 isAttachedToBottom = true
-                                if (BuildConfig.DEBUG) Log.d(
-                                    "Andromuks",
-                                    "RoomTimelineScreen: FAB clicked, animateScrollToItem to bottom and re-attaching - reverseLayout"
-                                )
                             }
                         },
                         modifier =

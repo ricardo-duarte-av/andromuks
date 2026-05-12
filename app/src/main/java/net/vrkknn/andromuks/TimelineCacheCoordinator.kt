@@ -2525,34 +2525,35 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 // timelineEvents) if
                 // this is the current room
                 if (roomId == currentRoomId) {
-                    // Clear and rebuild eventChainMap from all cached events
-                    // This ensures we have all events, not just the ones that were in eventChainMap
-                    // before
-                    eventChainMap.clear()
-                    editEventsMap.clear()
+                    // Clear and rebuild eventChainMap from all cached events.
+                    // Synchronized so buildTimelineFromChain() (also on Dispatchers.Default)
+                    // cannot snapshot a half-rebuilt map via its own synchronized(eventChainMap)
+                    // read. buildTimelineFromChain() is called outside the lock — it's async
+                    // (fires a new coroutine) and manages its own locking internally.
+                    synchronized(eventChainMap) {
+                        eventChainMap.clear()
+                        editEventsMap.clear()
 
-                    for (event in eventsForChain) {
-                        val isEdit = isEditEvent(event)
-                        if (isEdit) {
-                            editEventsMap[event.eventId] = event
-                        } else {
-                            eventChainMap[event.eventId] =
-                                AppViewModel.EventChainEntry(
-                                    eventId = event.eventId,
-                                    ourBubble = event,
-                                    replacedBy = null,
-                                    originalTimestamp = event.timestamp,
-                                )
+                        for (event in eventsForChain) {
+                            val isEdit = isEditEvent(event)
+                            if (isEdit) {
+                                editEventsMap[event.eventId] = event
+                            } else {
+                                eventChainMap[event.eventId] =
+                                    AppViewModel.EventChainEntry(
+                                        eventId = event.eventId,
+                                        ourBubble = event,
+                                        replacedBy = null,
+                                        originalTimestamp = event.timestamp,
+                                    )
+                            }
                         }
-                    }
 
-                    // Process versioned messages and edit relationships (main events only for
-                    // version
-                    // tracking)
-                    processVersionedMessages(
-                        RoomTimelineCache.getCachedEvents(roomId) ?: emptyList()
-                    )
-                    processEditRelationships()
+                        processVersionedMessages(
+                            RoomTimelineCache.getCachedEvents(roomId) ?: emptyList()
+                        )
+                        processEditRelationships()
+                    }
 
                     // Rebuild timeline from all cached events
                     buildTimelineFromChain()
@@ -2567,7 +2568,9 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 // Fallback: if we can't get all cached events, just merge the new ones
                 // Only if it's the current room. Otherwise skip.
                 if (roomId == currentRoomId) {
-                    mergePaginationEvents(timelineList)
+                    synchronized(eventChainMap) {
+                        mergePaginationEvents(timelineList)
+                    }
                 }
             }
 

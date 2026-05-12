@@ -187,9 +187,10 @@ class AppViewModel : ViewModel() {
         
         // Initial paginate limit when opening a room to fetch events from server
         // Used when cache is empty or to fetch newer events when cache has data
-        // Default: 50 events
+        // 100 events: gives enough rendered events above viewport that auto-pagination
+        // doesn't fire immediately on room open (many events are filtered out post-fetch).
         @JvmStatic
-        var INITIAL_ROOM_PAGINATE_LIMIT = 50
+        var INITIAL_ROOM_PAGINATE_LIMIT = 100
         
         // FCM registration debounce window to prevent duplicate registrations
         internal const val FCM_REGISTRATION_DEBOUNCE_MS = 5000L // 5 seconds debounce window
@@ -4478,7 +4479,7 @@ class AppViewModel : ViewModel() {
             }
         }
     }
-    internal val timelineRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    internal val timelineRequests = java.util.concurrent.ConcurrentHashMap<Int, String>() // requestId -> roomId
     // Track rooms with pending initial paginate requests to prevent duplicates
     internal val roomsWithPendingPaginate = Collections.synchronizedSet(mutableSetOf<String>())
     internal val profileRequestRooms = mutableMapOf<Int, String>() // requestId -> roomId (for profile requests initiated from a specific room)
@@ -4543,9 +4544,9 @@ class AppViewModel : ViewModel() {
     internal var lastFCMRegistrationTime: Long = 0 // Track last registration to prevent duplicates
     private val eventRequests = mutableMapOf<Int, Pair<String, (TimelineEvent?) -> Unit>>() // requestId -> (roomId, callback)
     private val eventContextRequests = mutableMapOf<Int, Pair<String, (List<TimelineEvent>?) -> Unit>>() // requestId -> (roomId, callback)
-    internal val paginateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for pagination)
-    internal val paginateRequestMaxTimelineIds = mutableMapOf<Int, Long>() // requestId -> max_timeline_id used in request (for progress detection)
-    internal val backgroundPrefetchRequests = mutableMapOf<Int, String>() // requestId -> roomId (for background prefetch)
+    internal val paginateRequests = java.util.concurrent.ConcurrentHashMap<Int, String>() // requestId -> roomId (for pagination)
+    internal val paginateRequestMaxTimelineIds = java.util.concurrent.ConcurrentHashMap<Int, Long>() // requestId -> max_timeline_id used in request (for progress detection)
+    internal val backgroundPrefetchRequests = java.util.concurrent.ConcurrentHashMap<Int, String>() // requestId -> roomId (for background prefetch)
     private val freshnessCheckRequests = mutableMapOf<Int, String>() // requestId -> roomId (for single-event freshness checks)
     private val roomStateWithMembersRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit>() // requestId -> callback
     // Gallery paginate: requestId -> callback(events, hasMore, minTimelineRowId)

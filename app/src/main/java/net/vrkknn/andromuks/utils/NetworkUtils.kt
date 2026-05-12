@@ -195,12 +195,11 @@ fun applyIncomingWebSocketMessageForViewModel(
         "response" -> {
             val requestId = jsonObject.optInt("request_id")
             val data = jsonObject.opt("data")
-            // CRITICAL: handleResponse writes Compose mutableStateOf fields (isPaginating,
-            // hasMoreMessages, isTimelineLoading, timelineUpdateCounter, etc.). Compose requires
-            // these writes to happen on the Main thread. The JSON is already parsed at this point
-            // (data is a JSONObject/JSONArray), so there is no heavy parsing work left that
-            // would justify a background dispatcher.
-            viewModel.viewModelScope.launch(Dispatchers.Main.immediate) {
+            // Compose mutableStateOf is thread-safe for writes from any thread — the snapshot
+            // system buffers them and applies on the next composition frame (always on Main).
+            // Using Dispatchers.Default keeps JSON parsing, eventChainMap rebuilds, and cache
+            // operations off the UI thread, eliminating frame drops during pagination responses.
+            viewModel.viewModelScope.launch(Dispatchers.Default) {
                 viewModel.handleResponse(requestId, data ?: Any())
             }
         }
