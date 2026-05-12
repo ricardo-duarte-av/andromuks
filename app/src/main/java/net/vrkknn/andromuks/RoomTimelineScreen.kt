@@ -1920,10 +1920,11 @@ fun RoomTimelineScreen(
             "m.room.pinned_events",
             "m.room.tombstone",
             "m.reaction",
-            "m.sticker",
-            "org.matrix.msc3401.call.member"
+            "m.sticker"
             // m.room.redaction is intentionally excluded - redaction events should not appear in
             // timeline
+            // org.matrix.msc3401.call.member is intentionally excluded — it only renders when
+            // show_hidden_events is on (falls through to showHiddenEvents check above the whitelist)
         )
 
     // PERFORMANCE: Use background processing for heavy filtering and sorting operations
