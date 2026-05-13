@@ -2994,7 +2994,14 @@ fun RoomTimelineScreen(
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (intent?.action == "net.vrkknn.andromuks.FOREGROUND_REFRESH") {
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Received FOREGROUND_REFRESH broadcast, restoring timeline from cache for room: $roomId")
-                    appViewModel.restoreFromLruCache(roomId)
+                    // Guard: only restore if this screen's room is still the current room.
+                    // Without this, a FOREGROUND_REFRESH racing with a pending FCM/shortcut
+                    // navigation to a different room would repopulate eventChainMap with the old
+                    // room's data, making isWarmTimelineReturn true on the new screen and
+                    // bypassing all loading for the target room.
+                    if (appViewModel.currentRoomId == roomId) {
+                        appViewModel.restoreFromLruCache(roomId)
+                    }
                 }
             }
         }

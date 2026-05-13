@@ -4263,6 +4263,11 @@ class AppViewModel : ViewModel() {
             // Skip for BUBBLE instances which manage their own timeline state.
             if (instanceRole != InstanceRole.BUBBLE) {
                 timelineEvents = emptyList()
+                // Clear stale event chains so sync_complete events arriving before the new room's
+                // timeline loads cannot be appended to the previous room's chain data and produce
+                // a mixed-room timeline. processCachedEvents/restoreFromLruCache repopulate these.
+                eventChainMap.clear()
+                editEventsMap.clear()
             }
         }
 
