@@ -2423,37 +2423,58 @@ fun RoomTimelineScreen(
 
     // Auto-paginate: when fewer than 60 rendered events remain above the viewport and
     // more history is available, silently fetch older events using the same anchor-capture
-    // and scroll-restoration path as pull-to-refresh. The snapshotFlow re-fires after each
-    // paginate settles, so if the batch yields few rendered events it will keep paginating
-    // until the threshold is met or has_more=false.
+    // and scroll-restoration path as pull-to-refresh.
+    //
+    // isPaginating is included in the snapshotFlow so the flow re-emits when a pagination
+    // batch finishes (isPaginating: true→false), even if totalItemsCount didn't change.
+    // Without this, rooms where an entire batch is filtered out (reactions, call.member state,
+    // etc.) would stall — the list size stays the same, distinctUntilChanged suppresses the
+    // re-emission, and chaining stops. Including isPaginating ensures we always re-check
+    // after a batch settles regardless of how many events were rendered.
+    //
+    // The total > 0 guard is intentionally absent: with hasLoadedInitialBatch and
+    // hasInitialSnapCompleted already gating the effect, total == 0 with hasMoreMessages == true
+    // is exactly the case we need to paginate through (room with no renderable initial events).
     LaunchedEffect(listState, roomId) {
         snapshotFlow {
             val info = listState.layoutInfo
             val lastVisible = info.visibleItemsInfo.maxOfOrNull { it.index } ?: 0
-            info.totalItemsCount to lastVisible
+            Triple(info.totalItemsCount, lastVisible, appViewModel.isPaginating)
         }
             .distinctUntilChanged()
             .debounce(50L)
-            .collect { (total, lastVisible) ->
+            .collect { (total, lastVisible, isPaginating) ->
                 val itemsAbove = total - 1 - lastVisible
                 if (itemsAbove <= 60
-                    && total > 0
                     && hasLoadedInitialBatch
                     && hasInitialSnapCompleted
                     && !pendingScrollRestoration
-                    && !appViewModel.isPaginating
+                    && !isPaginating
                     && appViewModel.hasMoreMessages
                 ) {
-                    val visibleIndices = listState.layoutInfo.visibleItemsInfo.map { it.index }
-                    val highestVisible = visibleIndices.maxOrNull() ?: lastVisible
-                    highestVisibleIndexBeforePagination = highestVisible
-                    anchorScrollOffsetForRestore = listState.firstVisibleItemScrollOffset
-                    pendingScrollRestoration = true
-                    expectedTimelineSizeBeforePagination = timelineItems.size
-                    if (BuildConfig.DEBUG) Log.d(
-                        "Andromuks",
-                        "RoomTimelineScreen: Auto-paginate triggered ($itemsAbove items above viewport, highestVisible=$highestVisible)"
-                    )
+                    // Only capture a scroll anchor when the user is scrolled up. When at the
+                    // bottom (index 0), older events are added above the viewport at higher
+                    // indices — the bottom position is unaffected and no restoration is needed.
+                    // Setting pendingScrollRestoration when at the bottom causes an animated
+                    // scroll back to the anchor (a visible upward nudge of ~one screenful).
+                    val atBottom = listState.firstVisibleItemIndex == 0
+                    if (!atBottom && total > 0) {
+                        val visibleIndices = listState.layoutInfo.visibleItemsInfo.map { it.index }
+                        val highestVisible = visibleIndices.maxOrNull() ?: lastVisible
+                        highestVisibleIndexBeforePagination = highestVisible
+                        anchorScrollOffsetForRestore = listState.firstVisibleItemScrollOffset
+                        pendingScrollRestoration = true
+                        expectedTimelineSizeBeforePagination = timelineItems.size
+                        if (BuildConfig.DEBUG) Log.d(
+                            "Andromuks",
+                            "RoomTimelineScreen: Auto-paginate triggered ($itemsAbove items above viewport, highestVisible=$highestVisible)"
+                        )
+                    } else {
+                        if (BuildConfig.DEBUG) Log.d(
+                            "Andromuks",
+                            "RoomTimelineScreen: Auto-paginate triggered at bottom or empty ($itemsAbove items above viewport, total=$total) — skipping scroll restoration"
+                        )
+                    }
                     appViewModel.requestPaginationWithSmallestRowId(roomId, limit = 100)
                 }
             }
