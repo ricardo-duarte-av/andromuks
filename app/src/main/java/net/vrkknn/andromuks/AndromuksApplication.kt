@@ -36,6 +36,9 @@ class AndromuksApplication : Application() {
         if (BuildConfig.DEBUG) {
             Log.d("Andromuks", "AndromuksApplication: onCreate()")
         }
+        // Pre-load the session token so Coil's interceptor has it before the first image request,
+        // even before AppViewModel.updateAuthToken is called.
+        ImageLoaderSingleton.initFromStorage(this)
         migrateLegacyImageCache()
     }
 

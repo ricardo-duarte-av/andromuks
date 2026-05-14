@@ -2845,15 +2845,10 @@ internal fun ImageViewerDialog(
                             modifier = Modifier.fillMaxSize()
                         )
 
-                        val fullImageRequest = remember(imageUrl, cachedFile, authToken, bypassCoilCache) {
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "ImageViewer: Building fullImageRequest — url=$imageUrl cachedFile=$cachedFile bypassCoilCache=$bypassCoilCache authTokenLen=${authToken.length}")
+                        val fullImageRequest = remember(imageUrl, cachedFile, bypassCoilCache) {
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "ImageViewer: Building fullImageRequest — url=$imageUrl cachedFile=$cachedFile bypassCoilCache=$bypassCoilCache")
                             ImageRequest.Builder(context)
                                 .data(imageUrl)
-                                .apply {
-                                    if (cachedFile == null && imageUrl.startsWith("http")) {
-                                        addHeader("Cookie", "gomuks_auth=$authToken")
-                                    }
-                                }
                                 .size(Size.ORIGINAL)
                                 .precision(Precision.EXACT)
                                 .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)

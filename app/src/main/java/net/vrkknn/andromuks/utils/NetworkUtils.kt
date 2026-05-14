@@ -292,7 +292,7 @@ private fun dispatchParsedWebSocketMessage(jsonObject: JSONObject) {
             emitIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
         }
         "image_auth_token" -> {
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: image_auth_token")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: image_auth_token token=${jsonObject.optString("data", "")}")
             emitIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
         }
         "error" -> {

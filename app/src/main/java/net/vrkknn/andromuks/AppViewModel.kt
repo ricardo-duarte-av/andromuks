@@ -61,6 +61,7 @@ import java.util.Collections
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.getUserAgent
 import net.vrkknn.andromuks.utils.applyIncomingWebSocketMessageForViewModel
+import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 data class MemberProfile(
     val displayName: String?,
     val avatarUrl: String?
@@ -1721,6 +1722,7 @@ class AppViewModel : ViewModel() {
     
     fun updateAuthToken(token: String) {
         authToken = token
+        ImageLoaderSingleton.authToken = token
     }
     
     /**
@@ -1886,6 +1888,7 @@ class AppViewModel : ViewModel() {
 
     fun updateImageAuthToken(token: String) {
         imageAuthToken = token
+        // Persist so FCMService and NotificationImageWorker can use it for notification images.
         appContext?.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             ?.edit()?.putString("image_auth_token", token)?.apply()
     }
