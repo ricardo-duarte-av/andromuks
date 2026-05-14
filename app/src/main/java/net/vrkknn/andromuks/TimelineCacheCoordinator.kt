@@ -2077,6 +2077,8 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                                 eventsJsonArray,
                                                 memberMap,
                                             )
+                                            // Notify composables that new reply context is available
+                                            timelineUpdateCounter++
                                             if (BuildConfig.DEBUG)
                                                 android.util.Log.d(
                                                     "Andromuks",

@@ -485,15 +485,15 @@ class SyncIngestor(private val context: Context) {
             // This avoids double-checking and ensures consistency
             if (isRoomCached) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Processing ${relatedEventsArray.length()} related_events from sync_complete for room $roomId (BEFORE main events)")
-                
+
                 // Parse related_events and collect them in a separate list first
                 for (i in 0 until relatedEventsArray.length()) {
                     val eventJson = relatedEventsArray.optJSONObject(i) ?: continue
                     val timelineRowid = eventJson.optLong("timeline_rowid", -1)
-                    
+
                     val sourceLabel = "related_events[$i]"
                     val eventId = eventJson.optString("event_id") ?: "<missing>"
-                    
+
                     val timelineEvent = try {
                         parseEventFromJson(
                             roomId = roomId,
@@ -506,7 +506,7 @@ class SyncIngestor(private val context: Context) {
                         logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_exception", e)
                         null
                     }
-                    
+
                     if (timelineEvent != null) {
                         // Track edit/redaction/reaction flags
                         if (timelineEvent.type == "m.room.redaction" || timelineEvent.type == "m.reaction") {
@@ -519,7 +519,7 @@ class SyncIngestor(private val context: Context) {
                         hasPersistedEvents = true
                     }
                 }
-                
+
                 // Store related_events as reply-context only — they must NOT appear as standalone
                 // timeline items, so they go into the dedicated replyContextEvents bucket instead
                 // of eventsForCacheUpdate.

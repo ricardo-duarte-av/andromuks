@@ -103,16 +103,16 @@ fun EventContextScreen(
         appViewModel.getEventContext(roomId, eventId, limitBefore = 5, limitAfter = 5) { events ->
             isLoading = false
             if (events != null) {
-                // Filter out hidden context events (timelineRowid = -1)
-                val filteredEvents = events.filter { it.timelineRowid != -1L }
-                // Sort by timeline_rowid (server order) with pending echoes (~ IDs) last
-                contextEvents = filteredEvents.sortedWith(compareBy(
+                // Sort by timeline_rowid (server order) with pending echoes (~ IDs) last.
+                // get_event_context returns events with timeline_rowid = -1 (context hints);
+                // treat rowid <= 0 as a fallback-to-timestamp case so they sort correctly.
+                contextEvents = events.sortedWith(compareBy(
                     { it.eventId.startsWith("~") },
-                    { it.timelineRowid },
+                    { if (it.timelineRowid > 0L) it.timelineRowid else Long.MAX_VALUE },
                     { it.timestamp },
                     { it.eventId }
                 ))
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "EventContextScreen: Received ${events.size} events in context (${filteredEvents.size} visible)")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "EventContextScreen: Received ${events.size} events in context")
             } else {
                 errorMessage = "Failed to load event context"
                 if (BuildConfig.DEBUG) Log.w("Andromuks", "EventContextScreen: Failed to load event context")
