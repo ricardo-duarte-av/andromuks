@@ -692,6 +692,9 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     )
                 updateCurrentRoomIdInPrefs(roomId)
                 isTimelineLoading = false
+                // Any in-flight pagination from a previous room visit is now stale — clear the
+                // indicator so the auto-paginate loop can restart cleanly for this room.
+                isPaginating = false
                 // Mark as actively cached so sync_complete updates keep this cache fresh.
                 RoomTimelineCache.markRoomAsCached(roomId)
                 RoomTimelineCache.markRoomAccessed(roomId)
