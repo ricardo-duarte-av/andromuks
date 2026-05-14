@@ -253,7 +253,6 @@ fun EventContextScreen(
                     if (!prefetchedTimelineMemoryKeys.add(httpUrl)) return
                     val request = ImageRequest.Builder(context)
                         .data(httpUrl)
-                        .addHeader("Cookie", "gomuks_auth=$authToken")
                         .size(256)
                         .memoryCachePolicy(CachePolicy.ENABLED)
                         .diskCachePolicy(CachePolicy.ENABLED)
@@ -270,7 +269,6 @@ fun EventContextScreen(
                     if (!prefetchedTimelineMemoryKeys.add(httpUrl)) return
                     val request = ImageRequest.Builder(context)
                         .data(httpUrl)
-                        .addHeader("Cookie", "gomuks_auth=$authToken")
                         .size(600, 600)
                         .memoryCachePolicy(CachePolicy.ENABLED)
                         .diskCachePolicy(CachePolicy.ENABLED)

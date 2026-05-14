@@ -816,7 +816,6 @@ private fun LinkPreviewBubble(
                 AsyncImage(
                     model = ImageRequest.Builder(context)
                         .data(imageHttpUrl)
-                        .addHeader("Cookie", "gomuks_auth=$authToken")
                         .apply { if (blurHashBitmap != null) placeholder(android.graphics.drawable.BitmapDrawable(context.resources, blurHashBitmap)) }
                         .memoryCachePolicy(CachePolicy.ENABLED)
                         .diskCachePolicy(CachePolicy.ENABLED)

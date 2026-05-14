@@ -123,9 +123,6 @@ object ProgressiveImageLoader {
         return ImageRequest.Builder(context)
             .data(imageUrl)
             .apply {
-                // Add authentication header if provided
-                authToken?.let { addHeader("Cookie", "gomuks_auth=$it") }
-                
                 // Set optimal size
                 size(displaySize.width, displaySize.height)
                 scale(displaySize.scale)

@@ -22,13 +22,29 @@ import java.util.concurrent.TimeUnit
 object ImageLoaderSingleton {
     @Volatile
     private var instance: ImageLoader? = null
-    
+
+    // Tokens used by the OkHttp interceptor for /_gomuks/media/* requests.
+    // imageAuthToken: rotating JWT sent by the WebSocket server (preferred).
+    // sessionAuthToken: fallback session cookie stored at login.
+    @Volatile var imageAuthToken: String = ""
+    @Volatile var sessionAuthToken: String = ""
+
+    fun effectiveToken(): String =
+        imageAuthToken.takeIf { it.isNotBlank() } ?: sessionAuthToken
+
+    /** Restore both tokens from SharedPreferences — call when credentials are first available. */
+    fun initFromStorage(context: Context) {
+        val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+        sessionAuthToken = prefs.getString("gomuks_auth_token", "") ?: ""
+        imageAuthToken   = prefs.getString("image_auth_token",  "") ?: ""
+    }
+
     // QUALITY IMPROVEMENT: Optimized cache settings for better quality
     // PERFORMANCE: Increased memory cache to keep more images loaded (supports 20 items above/below viewport)
     private const val MEMORY_CACHE_PERCENT = 0.35 // Increased to 35% to keep more avatars in memory
     private const val DISK_CACHE_SIZE_MB = 512L // Persistent storage — keep reasonable
     private const val MAX_DISK_CACHE_ENTRIES = 2000
-    
+
     fun get(context: Context): ImageLoader {
         return instance ?: synchronized(this) {
             instance ?: createImageLoader(context).also { instance = it }
@@ -67,6 +83,19 @@ object ImageLoaderSingleton {
                     .header("User-Agent", getUserAgent())
                     .build()
                 chain.proceed(requestWithUserAgent)
+            }
+            .addInterceptor { chain ->
+                val req = chain.request()
+                // Inject auth cookie only for our own media endpoint, never for external URLs
+                // (URL previews, PostHog, etc.). Token is read at request time so rotations
+                // from the WebSocket are picked up without recreating the ImageLoader.
+                val newReq = if (req.url.encodedPath.contains("/_gomuks/media/")) {
+                    val token = effectiveToken()
+                    if (token.isNotBlank())
+                        req.newBuilder().header("Cookie", "gomuks_auth=$token").build()
+                    else req
+                } else req
+                chain.proceed(newReq)
             }
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)

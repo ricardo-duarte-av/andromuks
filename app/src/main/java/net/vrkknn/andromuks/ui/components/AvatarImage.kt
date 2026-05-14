@@ -204,16 +204,11 @@ fun AvatarImage(
     // Stable ImageRequest — only rebuilt when URL, auth token, or pixel size changes.
     // Never add scroll state or visibility flags here: that cancels in-flight Coil requests
     // on every scroll-speed transition (the same bug we fixed in MediaFunctions.kt).
-    val imageRequest = remember(currentAvatarUrl, authToken, targetPixelSize) {
+    val imageRequest = remember(currentAvatarUrl, targetPixelSize) {
         currentAvatarUrl?.let { url ->
             ImageRequest.Builder(context)
                 .data(url)
-                .apply {
-                    size(targetPixelSize)
-                    if (url.startsWith("http")) {
-                        addHeader("Cookie", "gomuks_auth=$authToken")
-                    }
-                }
+                .apply { size(targetPixelSize) }
                 .memoryCachePolicy(CachePolicy.ENABLED)
                 .diskCachePolicy(CachePolicy.ENABLED)
                 .build()
@@ -289,7 +284,6 @@ fun AvatarImage(
                                             mxcUrl = mxcUrl,
                                             sourceImageUrl = currentAvatarUrl,
                                             imageLoader = imageLoader,
-                                            authToken = authToken
                                         )
                                     }
                                 }

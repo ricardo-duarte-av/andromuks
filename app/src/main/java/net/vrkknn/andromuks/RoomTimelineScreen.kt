@@ -732,7 +732,6 @@ fun RoomTimelineScreen(
         }
     val authToken =
         remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
-    val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     val myUserId = appViewModel.currentUserId
     val homeserverUrlFromPrefs = remember(sharedPreferences) { sharedPreferences.getString("homeserver_url", "") ?: "" }
     val homeserverUrl = appViewModel.homeserverUrl.ifEmpty { homeserverUrlFromPrefs }
@@ -2123,11 +2122,6 @@ fun RoomTimelineScreen(
         val request = ImageRequest.Builder(context)
             .data(httpUrl)
             .size(requestSize)
-            .apply {
-                if (httpUrl.startsWith("http")) {
-                    addHeader("Cookie", "gomuks_auth=$authToken")
-                }
-            }
             .memoryCacheKey(memoryKey)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)

@@ -546,7 +546,6 @@ fun BubbleTimelineScreen(
     val authToken = remember(sharedPreferences) {
         sharedPreferences.getString("gomuks_auth_token", "") ?: ""
     }
-    val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     val storedUserId = remember(sharedPreferences) {
         sharedPreferences.getString("current_user_id", "") ?: ""
     }
@@ -1715,11 +1714,6 @@ fun BubbleTimelineScreen(
         val request = ImageRequest.Builder(context)
             .data(httpUrl)
             .size(requestSize)
-            .apply {
-                if (httpUrl.startsWith("http")) {
-                    addHeader("Cookie", "gomuks_auth=$authToken")
-                }
-            }
             .memoryCacheKey(memoryKey)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)

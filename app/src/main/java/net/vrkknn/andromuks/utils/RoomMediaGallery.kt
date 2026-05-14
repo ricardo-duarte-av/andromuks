@@ -411,7 +411,6 @@ private fun GalleryThumbnail(
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(displayData)
-                .apply { if (cachedFile == null) addHeader("Cookie", "gomuks_auth=$authToken") }
                 .crossfade(300)
                 .build(),
             imageLoader = imageLoader,

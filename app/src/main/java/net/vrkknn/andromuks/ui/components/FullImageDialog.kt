@@ -51,11 +51,6 @@ fun FullImageDialog(
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(imageUrl)
-                    .apply {
-                        if (imageUrl.startsWith("http")) {
-                            addHeader("Cookie", "gomuks_auth=$authToken")
-                        }
-                    }
                     .build(),
                 imageLoader = imageLoader,
                 contentDescription = contentDescription,

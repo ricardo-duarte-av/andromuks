@@ -294,7 +294,6 @@ fun StickerImage(
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(httpUrl)
-                .addHeader("Cookie", "gomuks_auth=$authToken")
                 .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
                 .diskCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
                 .build(),

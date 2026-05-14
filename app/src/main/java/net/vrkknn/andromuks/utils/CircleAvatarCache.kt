@@ -164,14 +164,12 @@ object CircleAvatarCache {
      * @param mxcUrl MXC URL for the avatar
      * @param sourceImageUrl Source image URL (HTTP URL or file path)
      * @param imageLoader Coil ImageLoader instance
-     * @param authToken Auth token for HTTP requests
      */
     suspend fun cacheCircularAvatar(
         context: Context,
         mxcUrl: String,
         sourceImageUrl: String,
         imageLoader: ImageLoader,
-        authToken: String
     ) = withContext(Dispatchers.IO) {
         // Prevent duplicate caching operations
         if (inProgressCache.contains(mxcUrl)) {
@@ -195,11 +193,6 @@ object CircleAvatarCache {
             // This is critical for performance when saving to disk
             val request = ImageRequest.Builder(context)
                 .data(sourceImageUrl)
-                .apply {
-                    if (sourceImageUrl.startsWith("http")) {
-                        addHeader("Cookie", "gomuks_auth=$authToken")
-                    }
-                }
                 .size(TARGET_SIZE)
                 .allowHardware(false) // CRITICAL: Prevent Hardware bitmap to avoid slow copyPixelsToBuffer
                 .bitmapConfig(Bitmap.Config.ARGB_8888) // Ensure compatible config
