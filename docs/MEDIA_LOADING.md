@@ -57,6 +57,21 @@ The outer `videoBlurHashPainter` (decoded once for the pre-reveal placeholder) i
 
 ---
 
+## `/_gomuks/media/*` authentication
+
+The backend accepts two authentication methods for media endpoints (in addition to the `Cookie: gomuks_auth=<session_token>` used by the Coil interceptor):
+
+| Method | Form |
+|---|---|
+| Authorization header | `Authorization: Image <token>` |
+| Query parameter | `?image_auth=<token>` |
+
+`<token>` is the `image_auth_token` value delivered by the WebSocket on every connect and refreshed periodically. It is a short-lived JWT (`{"username":…,"expiry":…,"image_only":true}`) distinct from the session cookie.
+
+**Current Android implementation** uses `Cookie: gomuks_auth=<session_token>` (the long-lived session cookie from `/_gomuks/auth`), which the backend also accepts and which the web frontend uses for all media requests. The `image_auth_token` JWT is persisted to SharedPreferences only for FCMService / NotificationImageWorker notification image downloads, which use their own OkHttp clients.
+
+---
+
 ## `IntelligentMediaCache` — remaining scope
 
 The file is still the authoritative disk store for **avatar images** (used by the notification system). Key properties:
