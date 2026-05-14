@@ -36,6 +36,11 @@ class AndromuksApplication : Application() {
         if (BuildConfig.DEBUG) {
             Log.d("Andromuks", "AndromuksApplication: onCreate()")
         }
+        // Seed media auth tokens from SharedPreferences before any composable can render.
+        // Without this, release builds (AOT, no JIT warmup) fire image requests in the first
+        // frame before AuthCheck calls updateAuthToken, so the interceptor sees empty tokens
+        // and all media requests get 401s silently.
+        ImageLoaderSingleton.initFromStorage(this)
         migrateLegacyImageCache()
     }
 
