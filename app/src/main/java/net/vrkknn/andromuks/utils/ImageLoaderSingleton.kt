@@ -42,8 +42,8 @@ object ImageLoaderSingleton {
     // QUALITY IMPROVEMENT: Optimized cache settings for better quality
     // PERFORMANCE: Increased memory cache to keep more images loaded (supports 20 items above/below viewport)
     private const val MEMORY_CACHE_PERCENT = 0.35 // Increased to 35% to keep more avatars in memory
-    private const val DISK_CACHE_SIZE_MB = 512L // Persistent storage — keep reasonable
-    private const val MAX_DISK_CACHE_ENTRIES = 2000
+    private const val DISK_CACHE_SIZE_MB = 1024L // Persistent storage — keep reasonable
+    private const val MAX_DISK_CACHE_ENTRIES = 20000
 
     fun get(context: Context): ImageLoader {
         return instance ?: synchronized(this) {
