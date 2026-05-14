@@ -109,6 +109,17 @@ When adding features, follow the existing Coordinator pattern: create a `*Coordi
 
 ---
 
+## Upstream API References
+
+When investigating protocol behaviour, message shapes, or backend fields, consult these before guessing:
+
+| Reference | URL |
+|---|---|
+| Gomuks WebSocket RPC API (commands, events, data types) | https://docs.mau.fi/gomuks/api/rpc.html |
+| mautrix-go / hicli Go package docs (database types, Receipt, etc.) | https://pkg.go.dev/go.mau.fi/gomuks/pkg/hicli |
+
+---
+
 ## Feature Documentation
 
 | Topic | Doc |
