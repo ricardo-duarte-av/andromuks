@@ -17,7 +17,6 @@ import net.vrkknn.andromuks.SpaceItem
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.SpaceRoomParser
 import net.vrkknn.andromuks.utils.ReceiptFunctions
-import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import net.vrkknn.andromuks.utils.processReactionEvent
 import net.vrkknn.andromuks.utils.extractReactionEventFromTimeline
 import okhttp3.WebSocket
@@ -1722,10 +1721,6 @@ class AppViewModel : ViewModel() {
     
     fun updateAuthToken(token: String) {
         authToken = token
-        ImageLoaderSingleton.sessionAuthToken = token
-        // Restore the persisted image_auth_token into the holder so media requests
-        // use the JWT immediately, before the WebSocket delivers a fresh one.
-        appContext?.let { ImageLoaderSingleton.initFromStorage(it) }
     }
     
     /**
@@ -1891,7 +1886,6 @@ class AppViewModel : ViewModel() {
 
     fun updateImageAuthToken(token: String) {
         imageAuthToken = token
-        ImageLoaderSingleton.imageAuthToken = token
         appContext?.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             ?.edit()?.putString("image_auth_token", token)?.apply()
     }
