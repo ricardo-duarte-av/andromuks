@@ -921,7 +921,7 @@ fun MessageBubbleWithMenu(
     val highlightValue = highlightAnim.value
     
     // Check if message has been edited (O(1) lookup)
-    val hasBeenEdited = remember(event.eventId, appViewModel?.updateCounter) {
+    val hasBeenEdited = remember(event.eventId, appViewModel?.timelineUpdateCounter) {
         appViewModel?.isMessageEdited(event.eventId) ?: false
     }
     

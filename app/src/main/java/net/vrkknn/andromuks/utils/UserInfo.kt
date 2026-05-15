@@ -1953,8 +1953,7 @@ fun UserInfoScreen(
                     // Get DM room IDs for this user from m.direct
                     // Make reactive to account data and room list changes
                     val allRooms = appViewModel.allRooms
-                    val updateCounter = appViewModel.updateCounter
-                    val dmRoomIds = remember(userId, updateCounter) {
+                    val dmRoomIds = remember(userId, appViewModel.roomListUpdateCounter) {
                         appViewModel.getDirectRoomIdsForUser(userId)
                     }
                     
