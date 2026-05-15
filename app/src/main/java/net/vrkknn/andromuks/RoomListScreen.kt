@@ -2906,6 +2906,9 @@ fun RoomListContent(
                                 // NOTE: markRoomAsRead is handled by navigateToRoomWithCache, so we don't need to call it here
                                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: opening room $roomIdForNavigation with sharedKey = avatar-$roomIdForNavigation")
                                 appViewModel.navigateToRoomWithCache(roomIdForNavigation)
+                                // Room opened from room_list — room_list IS in the back stack,
+                                // so Back should pop back to it, not finish the Activity.
+                                appViewModel.openedViaDirectNotification = false
                                 navController.navigate("room_timeline/$roomIdForNavigation")
 
                                 launch(Dispatchers.IO) {

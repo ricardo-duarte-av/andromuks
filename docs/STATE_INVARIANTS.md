@@ -34,7 +34,38 @@
 
 2. **`processCachedEvents`** (`TimelineCacheCoordinator.kt`) — passes `expectedRoomId = roomId` to `buildTimelineFromChain`, so the guard above fires when the room has changed. Also adds an identical guard at the top of its own `withContext(Dispatchers.Main)` post-processing block (profiles, reactions, room state) so those writes are also suppressed for stale rooms.
 
-Callers of `buildTimelineFromChain` from sync-event processing already have outer `if (roomId == currentRoomId)` guards and pass no `expectedRoomId` (null), so they are unaffected.
+**Extended fix:** The outer `if (roomId == currentRoomId)` guard only protects the *launch site* of `buildTimelineFromChain`, not the deferred write. If the user navigates to a different room in the 200–500 ms between the guard check and the `withContext(Dispatchers.Main)` write, stale events overwrite the new room's empty timeline. All call sites now pass `expectedRoomId = roomId` so the guard fires at write-time:
+
+| Call site | File | `expectedRoomId` passed |
+|---|---|---|
+| `processCachedEvents` | `TimelineCacheCoordinator.kt` | `roomId` ✓ |
+| `appendEventsToCachedRoom` | `TimelineCacheCoordinator.kt` | `roomId` ✓ |
+| `mergePaginationEvents` | `TimelineCacheCoordinator.kt` | forwarded from caller ✓ |
+| `handlePaginationMerge` (full-reload branch) | `TimelineCacheCoordinator.kt` | `roomId` ✓ |
+| `handlePaginationMerge` (fallback branch) | `TimelineCacheCoordinator.kt` | `roomId` ✓ |
+| `handleInitialTimelineBuild` | `TimelineCacheCoordinator.kt` | `roomId` ✓ |
+| stale-cache rebuild (SyncRoomsCoordinator callback) | `AppViewModel.kt` | `roomId` ✓ |
+| `dismissPendingEcho` | `AppViewModel.kt` | captured `currentRoomId` ✓ |
+| `processSendCompleteEvent` (error/edit/new) | `AppViewModel.kt` | `event.roomId` ✓ |
+| pending echo insertion (`handleMessageResponse`) | `AppViewModel.kt` | `roomId` ✓ |
+| `processSyncEventsArray` | `AppViewModel.kt` | `roomId` ✓ |
+| batch-completion rebuild | `AppViewModel.kt` | captured `currentRoomId` ✓ |
+
+## `openedViaDirectNotification` Never-Reset
+
+`AppViewModel.openedViaDirectNotification` is set to `true` whenever a room is opened via FCM notification or shortcut (in `AuthCheck`, `RoomListScreen.executeRoomNavigation`, and `RoomTimelineScreen.LaunchedEffect(navTrigger)`). It is **never reset to `false`**.
+
+**Effect:** `isRootDestination` in `RoomTimelineScreen` is `isBackStackEmpty || appViewModel.openedViaDirectNotification`. Once the flag is `true`, every subsequent room in the same Activity session is treated as a root destination — BackHandler calls `finish()` instead of `popBackStack()`, even for rooms opened normally via room_list.
+
+**Why this matters:** The flag's intent is to make System Back exit the app (not go to room_list) for rooms opened directly from a notification where room_list was never on the back stack. Once the user navigates back to room_list and then into a room normally, the flag should no longer apply.
+
+**Where it is reset:** `RoomListScreen` normal room tap handler — `appViewModel.openedViaDirectNotification = false` is set immediately before `navController.navigate("room_timeline/...")`. At this point room_list is already in the back stack, so the flag is no longer needed. It must be reset before the `navigate` call so that `RoomTimelineScreen`'s `remember { navController.previousBackStackEntry == null }` / `isRootDestination` computation sees the correct value at initial composition.
+
+**Why not in `clearCurrentRoomId()` or `onBackClick`:** Those fire on *leaving* a room; the flag must be cleared on *entering* from room_list so the composing screen picks it up correctly.
+
+**Why not in `navigateToRoomListIfNeeded`:** That function guards on the flag to decide whether to force-navigate to room_list on WebSocket reconnect/refresh. Clearing it there would be self-defeating.
+
+**`executeRoomNavigation` (notification/shortcut from room_list) still sets `openedViaDirectNotification = true`** — that path navigates to room_timeline using `navigateToRoomTimelineForExternalEntry`, which clears the back stack above room_list, so room_list is NOT below room_timeline and Back should still exit.
 
 ## Sticky Room Flags: `isFavourite`, `isLowPriority`, `isDirectMessage`
 

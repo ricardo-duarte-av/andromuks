@@ -257,7 +257,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             "AppViewModel: Not batch processing - rebuilding timeline immediately for room $roomId",
                         )
                     }
-                    buildTimelineFromChain()
+                    buildTimelineFromChain(expectedRoomId = roomId)
                 }
             }
 
@@ -2230,7 +2230,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
         }
     }
 
-    fun mergePaginationEvents(newEvents: List<TimelineEvent>) {
+    fun mergePaginationEvents(newEvents: List<TimelineEvent>, expectedRoomId: String? = null) {
         with(vm) {
             if (newEvents.isEmpty()) {
                 return
@@ -2351,7 +2351,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             }
 
             processEditRelationships()
-            buildTimelineFromChain()
+            buildTimelineFromChain(expectedRoomId = expectedRoomId)
         }
     }
 
@@ -2561,7 +2561,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     }
 
                     // Rebuild timeline from all cached events
-                    buildTimelineFromChain()
+                    buildTimelineFromChain(expectedRoomId = roomId)
                 } else {
                     if (BuildConfig.DEBUG)
                         android.util.Log.d(
@@ -2574,7 +2574,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 // Only if it's the current room. Otherwise skip.
                 if (roomId == currentRoomId) {
                     synchronized(eventChainMap) {
-                        mergePaginationEvents(timelineList)
+                        mergePaginationEvents(timelineList, expectedRoomId = roomId)
                     }
                 }
             }
@@ -2820,7 +2820,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // This prevents race conditions where a background pagination for a previous room
             // clobbers the timeline of the current room or corrupts loading state.
             if (roomId == currentRoomId) {
-                buildTimelineFromChain()
+                buildTimelineFromChain(expectedRoomId = roomId)
                 val timelineSizeBefore = timelineEvents.size
                 isTimelineLoading = false
                 // RACE CONDITION FIX: Clear notification-pending flag so awaitRoomDataReadiness

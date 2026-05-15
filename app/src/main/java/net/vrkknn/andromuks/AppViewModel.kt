@@ -6896,7 +6896,7 @@ class AppViewModel : ViewModel() {
                                 if (eventsForChain.isNotEmpty()) {
                                     buildEditChainsFromEvents(eventsForChain, clearExisting = true)
                                     processEditRelationships()
-                                    buildTimelineFromChain()
+                                    buildTimelineFromChain(expectedRoomId = roomId)
                                 }
                             }
                             return false
@@ -7073,10 +7073,11 @@ class AppViewModel : ViewModel() {
     }
 
     fun dismissPendingEcho(eventId: String) {
+        val expectedRoom = currentRoomId
         eventChainMap.remove(eventId)
         val txId = pendingEchoMap.entries.firstOrNull { it.value == eventId }?.key
         if (txId != null) pendingEchoMap.remove(txId)
-        buildTimelineFromChain()
+        buildTimelineFromChain(expectedRoomId = expectedRoom.takeIf { it.isNotEmpty() })
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Dismissed pending echo $eventId")
     }
 
@@ -7107,7 +7108,7 @@ class AppViewModel : ViewModel() {
                         eventChainMap[pendingId] = existingEntry.copy(
                             ourBubble = existingBubble.copy(localContent = updatedLocalContent)
                         )
-                        buildTimelineFromChain()
+                        buildTimelineFromChain(expectedRoomId = event.roomId)
                     }
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Echo $pendingId marked failed: $sendErrorRaw")
                 }
@@ -7204,11 +7205,11 @@ class AppViewModel : ViewModel() {
                 if (isEditEvent) {
                     // Handle edit via chain system
                     handleEditEventInChain(event)
-                    buildTimelineFromChain() // Rebuild to show edit
+                    buildTimelineFromChain(expectedRoomId = event.roomId) // Rebuild to show edit
                 } else {
                     // Add regular event to chain (with deduplication)
                     addNewEventToChain(event)
-                    buildTimelineFromChain() // Rebuild timeline to include new event
+                    buildTimelineFromChain(expectedRoomId = event.roomId) // Rebuild timeline to include new event
                 }
             }
         } catch (e: Exception) {
@@ -7844,7 +7845,7 @@ class AppViewModel : ViewModel() {
                 ) {
                     addNewEventToChain(echoEvent)            // eventChainMap first
                     pendingEchoMap[echoTxId] = echoEvent.eventId  // then pendingEchoMap
-                    buildTimelineFromChain()
+                    buildTimelineFromChain(expectedRoomId = roomId)
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Pending echo inserted for txId=$echoTxId eventId=${echoEvent.eventId}")
                 }
             } catch (e: Exception) {
@@ -9014,7 +9015,7 @@ class AppViewModel : ViewModel() {
         if (roomId == currentRoomId) {
             // Build timeline from chain
             val timelineCountBefore = timelineEvents.size
-            buildTimelineFromChain()
+            buildTimelineFromChain(expectedRoomId = roomId)
             val timelineCountAfter = timelineEvents.size
             
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Rebuilt timeline after processing sync events for current room $roomId: before=$timelineCountBefore, after=$timelineCountAfter")
@@ -11148,7 +11149,7 @@ class AppViewModel : ViewModel() {
                 if (eventsForChain.isNotEmpty()) {
                     buildEditChainsFromEvents(eventsForChain, clearExisting = true)
                     processEditRelationships()
-                    buildTimelineFromChain()
+                    buildTimelineFromChain(expectedRoomId = currentRoom)
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d("Andromuks", "AppViewModel: Rebuilt timeline for current room $currentRoom after batch completion")
                     }
