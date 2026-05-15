@@ -3558,20 +3558,6 @@ fun RoomTimelineScreen(
                             // PERFORMANCE: Enable smooth scrolling optimizations
                             userScrollEnabled = true
                         ) {
-                            // Show loading indicator at the top when paginating
-                            if (appViewModel.isPaginating) {
-                                item(key = "loading_indicator") {
-                                    Box(
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        ExpressiveLoadingIndicator(
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                    }
-                                }
-                            }
-
                             // PERFORMANCE: Use stable keys and pre-computed consecutive flags
                             // CRITICAL: Reverse items list since reverseLayout flips rendering order but not data order
                             itemsIndexed(
