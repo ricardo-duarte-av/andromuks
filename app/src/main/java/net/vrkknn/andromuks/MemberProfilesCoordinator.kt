@@ -1,5 +1,8 @@
 package net.vrkknn.andromuks
 
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -283,8 +286,10 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                         "Andromuks",
                         "AppViewModel: Updated $updatedMembers members in full member list for room $roomId in ${duration}ms",
                     )
-                updateCounter++
-                memberUpdateCounter++
+                vm.viewModelScope.launch(Dispatchers.Main) {
+                    updateCounter++
+                    memberUpdateCounter++
+                }
             }
 
             parseRoomStateFromEvents(roomId, events)

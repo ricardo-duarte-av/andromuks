@@ -8505,10 +8505,12 @@ class AppViewModel : ViewModel() {
         if (updatedProfiles > 0) {
             val duration = System.currentTimeMillis() - startTime
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated $updatedProfiles profiles in room $roomId in ${duration}ms")
-            // Trigger UI update since member cache changed
-            updateCounter++
-            memberUpdateCounter++
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Triggered memberUpdateCounter++ for $updatedProfiles profile updates")
+            // mutableStateOf writes must happen on the main thread to avoid Compose snapshot conflicts
+            viewModelScope.launch(Dispatchers.Main) {
+                updateCounter++
+                memberUpdateCounter++
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Triggered memberUpdateCounter++ for $updatedProfiles profile updates")
+            }
         }
         
         // Clean up pending profile requests for processed users

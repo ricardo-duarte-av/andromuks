@@ -1936,7 +1936,7 @@ fun HtmlMessageText(
                             }
                         }
                     },
-                    style = if (isEmojiOnly) MaterialTheme.typography.bodyMedium.copy(color = color, fontSize = MaterialTheme.typography.bodyMedium.fontSize * 2)
+                    style = if (isEmojiOnly) MaterialTheme.typography.bodyMedium.copy(color = color, fontSize = MaterialTheme.typography.bodyMedium.fontSize * 3)
                             else MaterialTheme.typography.bodyMedium.copy(color = color),
                     inlineContent = inlineContentMap,
                     onTextLayout = { textLayoutResult = it }

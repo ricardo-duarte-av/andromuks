@@ -205,12 +205,6 @@ fun formatTimestamp(timestamp: Long): String {
 private val HtmlTagRegex = Regex("""<[^>]+>""")
 private val CustomEmojiMarkdownRegex = Regex("""^!\[:([^\]]+):\]\(mxc://[^)]+\)$""")
 private val CustomEmojiShortcodeRegex = Regex("""^:[\w+-]+:\s*$""")
-// This regex matches emoji characters including variations and modifiers
-private val EmojiRegex = try {
-    Regex("""^[\p{Emoji}\p{Emoji_Presentation}\p{Emoji_Modifier_Base}\p{Emoji_Modifier}\p{Emoji_Component}\s]*$""")
-} catch (e: Exception) {
-    null
-}
 private val WhitespaceRegex = Regex("""\s+""")
 private val AsciiLetterOrDigitRegex = Regex("""[a-zA-Z0-9]""")
 private val CustomEmojiImgRegex = Regex("""^\s*<img[^>]*>\s*$""", RegexOption.IGNORE_CASE)
@@ -249,34 +243,27 @@ fun isEmojiOnlyMessage(body: String): Boolean {
     
     // Check if the text contains only emoji characters
     // Wrap in try-catch for preview environments that don't support Unicode property classes
-    
+
     // Remove all whitespace and check if only emoji remains
     val withoutWhitespace = trimmed.replace(WhitespaceRegex, "")
     if (withoutWhitespace.isEmpty()) return false
-    
-    // Check if all remaining characters are emojis
-    // If emojiRegex is null (preview mode), skip the regex check and rely on other validations
-    if (EmojiRegex != null && !EmojiRegex.matches(withoutWhitespace)) return false
-    
-    // CRITICAL FIX: Only treat as emoji-only if it's a SINGLE emoji (not multiple emojis or regular text)
-    // The emoji regex correctly identifies emoji-only strings, but we need to:
-    // 1. Ensure it's a single emoji (reasonable code point count: 1-8 for single emoji with modifiers)
-    // 2. Exclude ASCII letters and digits to prevent regular text like "a" or "1" from being treated as emoji
-    
-    val codePointCount = withoutWhitespace.codePointCount(0, withoutWhitespace.length)
-    
-    // Single emojis are typically 1-2 code points, but with modifiers can be up to 4-5
-    // Complex emoji sequences (like family emojis) can be longer, but those are still "single emoji" visually
-    // We'll use a conservative limit of 8 code points to handle most single emoji cases
-    if (codePointCount < 1 || codePointCount > 8) return false
-    
+
     // CRITICAL: Exclude ASCII letters and digits to prevent regular text from being treated as emoji
-    // Regular characters like "a", "1", etc. should never be treated as emoji-only messages
     val containsAsciiLetterOrDigit = AsciiLetterOrDigitRegex.containsMatchIn(withoutWhitespace)
     if (containsAsciiLetterOrDigit) return false
-    
-    // If we passed all checks, it's a valid single emoji
-    return true
+
+    // Only match exactly ONE user-visible emoji (one grapheme cluster).
+    // Code-point count is unreliable: 👨‍👩‍👧‍👦 is 7 code points but still one emoji;
+    // conversely 😀😁 is 2 code points and should NOT be enlarged.
+    // BreakIterator.getCharacterInstance() walks grapheme cluster boundaries correctly.
+    val bi = java.text.BreakIterator.getCharacterInstance()
+    bi.setText(withoutWhitespace)
+    var clusterCount = 0
+    while (bi.next() != java.text.BreakIterator.DONE) {
+        clusterCount++
+        if (clusterCount > 1) return false
+    }
+    return clusterCount == 1
 }
 
 /**
@@ -407,10 +394,9 @@ fun AdaptiveMessageText(
         )
     } else {
         // Fallback to plain text for redacted messages or when HTML is not available
-        // Apply 2x font size for emoji-only messages
         val baseStyle = MaterialTheme.typography.bodyMedium
         val textStyle = if (isEmojiOnly) {
-            baseStyle.copy(fontSize = baseStyle.fontSize * 2)
+            baseStyle.copy(fontSize = baseStyle.fontSize * 3)
         } else {
             baseStyle
         }

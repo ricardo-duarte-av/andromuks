@@ -1,5 +1,8 @@
 package net.vrkknn.andromuks
 
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.extractReactionEventFromTimeline
 import org.json.JSONArray
@@ -57,12 +60,11 @@ internal class ReactionCoordinator(
             vm.currentRoomId,
             vm.messageReactions
         )
-        vm.messageReactions = updatedReactionsMap
         val updatedReactions = updatedReactionsMap[reactionEvent.relatesToEventId] ?: emptyList()
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: processReactionEvent - eventId: ${reactionEvent.eventId}, logicalKey: $reactionKey, previous=${previousReactions.size}, updated=${updatedReactions.size}, reactionUpdateCounter: ${vm.reactionUpdateCounter}"
+                "AppViewModel: processReactionEvent - eventId: ${reactionEvent.eventId}, logicalKey: $reactionKey, previous=${previousReactions.size}, updated=${updatedReactions.size}"
             )
         }
 
@@ -87,8 +89,12 @@ internal class ReactionCoordinator(
             }
         }
 
-        vm.reactionUpdateCounter++
-        vm.updateCounter++
+        // mutableStateOf writes must happen on Main to avoid Compose snapshot conflicts
+        vm.viewModelScope.launch(Dispatchers.Main) {
+            vm.messageReactions = updatedReactionsMap
+            vm.reactionUpdateCounter++
+            vm.updateCounter++
+        }
     }
 
     fun populateMessageReactionsFromCache() {
@@ -101,8 +107,10 @@ internal class ReactionCoordinator(
                         "AppViewModel: populateMessageReactionsFromCache - populated with ${cachedReactions.size} events from cache"
                     )
                 }
-                vm.messageReactions = cachedReactions
-                vm.reactionUpdateCounter++
+                vm.viewModelScope.launch(Dispatchers.Main) {
+                    vm.messageReactions = cachedReactions
+                    vm.reactionUpdateCounter++
+                }
             }
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to populate messageReactions from cache", e)
@@ -252,13 +260,15 @@ internal class ReactionCoordinator(
         }
 
         if (changed) {
-            vm.messageReactions = updated
-            vm.reactionUpdateCounter++
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Applied aggregated reactions from $source for ${aggregatedByEvent.size} events"
                 )
+            }
+            vm.viewModelScope.launch(Dispatchers.Main) {
+                vm.messageReactions = updated
+                vm.reactionUpdateCounter++
             }
         }
     }
@@ -296,9 +306,11 @@ internal class ReactionCoordinator(
         }
 
         currentReactions[reactionEvent.relatesToEventId] = eventReactions
-        vm.messageReactions = currentReactions
-        vm.reactionUpdateCounter++
-        vm.updateCounter++
+        vm.viewModelScope.launch(Dispatchers.Main) {
+            vm.messageReactions = currentReactions
+            vm.reactionUpdateCounter++
+            vm.updateCounter++
+        }
 
         if (BuildConfig.DEBUG) {
             android.util.Log.d(

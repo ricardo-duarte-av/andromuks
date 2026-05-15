@@ -175,13 +175,13 @@ fun applyIncomingWebSocketMessageForViewModel(
             val userId = data?.optString("user_id")
             val deviceId = data?.optString("device_id")
             val hs = data?.optString("homeserver_url")
-            viewModel.viewModelScope.launch(Dispatchers.IO) {
+            viewModel.viewModelScope.launch(Dispatchers.Main) {
                 viewModel.handleClientState(userId, deviceId, hs)
             }
         }
         "image_auth_token" -> {
             val token = jsonObject.optString("data", "")
-            viewModel.viewModelScope.launch(Dispatchers.IO) {
+            viewModel.viewModelScope.launch(Dispatchers.Main) {
                 viewModel.updateImageAuthToken(token)
             }
         }
@@ -195,10 +195,8 @@ fun applyIncomingWebSocketMessageForViewModel(
         "response" -> {
             val requestId = jsonObject.optInt("request_id")
             val data = jsonObject.opt("data")
-            // Compose mutableStateOf is thread-safe for writes from any thread — the snapshot
-            // system buffers them and applies on the next composition frame (always on Main).
-            // Using Dispatchers.Default keeps JSON parsing, eventChainMap rebuilds, and cache
-            // operations off the UI thread, eliminating frame drops during pagination responses.
+            // Dispatchers.Default for heavy JSON parsing and cache operations; any mutableStateOf
+            // writes inside the call chain must use withContext(Dispatchers.Main) themselves.
             viewModel.viewModelScope.launch(Dispatchers.Default) {
                 viewModel.handleResponse(requestId, data ?: Any())
             }
@@ -209,7 +207,7 @@ fun applyIncomingWebSocketMessageForViewModel(
             val error = data?.optString("error")
             Log.d("Andromuks", "NetworkUtils: send_complete received (reqId=${jsonObject.optInt("request_id")}) event=$event error=$error")
             if (event == null) Log.w("Andromuks", "NetworkUtils: send_complete missing event payload")
-            viewModel.viewModelScope.launch(Dispatchers.IO) {
+            viewModel.viewModelScope.launch(Dispatchers.Main) {
                 if (event != null) {
                     viewModel.handleSendComplete(event, error)
                     viewModel.processSendCompleteEvent(event, error)
@@ -228,7 +226,7 @@ fun applyIncomingWebSocketMessageForViewModel(
                     userIdsArray.optString(i)?.let { userIds.add(it) }
                 }
             }
-            viewModel.viewModelScope.launch(Dispatchers.IO) {
+            viewModel.viewModelScope.launch(Dispatchers.Main) {
                 viewModel.updateTypingUsers(roomId ?: "", userIds)
             }
         }

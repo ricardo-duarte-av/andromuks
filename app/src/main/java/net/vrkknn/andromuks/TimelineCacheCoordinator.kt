@@ -1372,7 +1372,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
                     // Use has_more field if available, otherwise keep current state
                     if (hasMoreFromResponse != null) {
-                        hasMoreMessages = hasMoreFromResponse
+                        viewModelScope.launch(Dispatchers.Main) { hasMoreMessages = hasMoreFromResponse }
                         android.util.Log.w(
                             "Andromuks",
                             "AppViewModel: Setting hasMoreMessages=${hasMoreFromResponse} based on has_more field from response",
@@ -1407,7 +1407,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     paginateRequests.remove(requestId)
                     paginateRequestMaxTimelineIds.remove(requestId)
                     backgroundPrefetchRequests.remove(requestId)
-                    isPaginating = false
+                    viewModelScope.launch(Dispatchers.Main) { isPaginating = false }
                     android.util.Log.w(
                         "Andromuks",
                         "🟡 processEventsArray: EMPTY response handled - roomId=$roomId, requestId=$requestId, returning early, isTimelineLoading=$isTimelineLoading",
@@ -1502,7 +1502,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         // CRITICAL FIX: Only stop paginating indicator if currently viewing this
                         // room
                         if (roomId == currentRoomId) {
-                            isPaginating = false
+                            viewModelScope.launch(Dispatchers.Main) { isPaginating = false }
                         }
                         if (BuildConfig.DEBUG)
                             android.util.Log.d(
@@ -1683,7 +1683,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             // composables that are
                             // looking for reply targets
                             // will re-check the cache and find the newly added events
-                            timelineUpdateCounter++
+                            viewModelScope.launch(Dispatchers.Main) { timelineUpdateCounter++ }
                         }
 
                         // NOW process main events array - related_events are already in cache
@@ -2081,7 +2081,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                                 memberMap,
                                             )
                                             // Notify composables that new reply context is available
-                                            timelineUpdateCounter++
+                                            withContext(Dispatchers.Main) { timelineUpdateCounter++ }
                                             if (BuildConfig.DEBUG)
                                                 android.util.Log.d(
                                                     "Andromuks",
@@ -2146,7 +2146,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                 "AppViewModel:    hasMoreMessages BEFORE: $hasMoreMessages",
                             )
 
-                        hasMoreMessages = hasMore
+                        viewModelScope.launch(Dispatchers.Main) { hasMoreMessages = hasMore }
 
                         if (BuildConfig.DEBUG)
                             android.util.Log.d(
@@ -2217,7 +2217,9 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         "Andromuks",
                         "AppViewModel: Triggering UI update for $totalReactionsProcessed reactions processed in background prefetch",
                     )
-                reactionUpdateCounter++ // Trigger UI recomposition for reactions
+                viewModelScope.launch(Dispatchers.Main) {
+                    reactionUpdateCounter++ // Trigger UI recomposition for reactions
+                }
             }
 
             val roomIdFromTimeline = timelineRequests.remove(requestId)
@@ -2649,7 +2651,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                 "Andromuks",
                                 "AppViewModel: Setting hasMoreMessages=false to prevent infinite pagination loop (no progress + duplicates)",
                             )
-                            hasMoreMessages = false
+                            viewModelScope.launch(Dispatchers.Main) { hasMoreMessages = false }
                             appContext?.let { context ->
                                 android.widget.Toast.makeText(
                                         context,
@@ -2822,7 +2824,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             if (roomId == currentRoomId) {
                 buildTimelineFromChain(expectedRoomId = roomId)
                 val timelineSizeBefore = timelineEvents.size
-                isTimelineLoading = false
+                viewModelScope.launch(Dispatchers.Main) { isTimelineLoading = false }
                 // RACE CONDITION FIX: Clear notification-pending flag so awaitRoomDataReadiness
                 // unblocks when the initial paginate arrives for rooms without a cache hit.
                 if (isPendingNavigationFromNotification) {
