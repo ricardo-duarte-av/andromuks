@@ -1940,7 +1940,7 @@ fun RoomTimelineScreen(
         if (shouldLog && BuildConfig.DEBUG) {
             Log.d(
                 "Andromuks",
-                "RoomTimelineScreen: Processing timelineEvents update - size=${timelineEvents.size}, updateCounter=${appViewModel.timelineUpdateCounter}, roomId=$roomId"
+                "RoomTimelineScreen: Processing timelineEvents update - size=${timelineEvents.size}, roomId=$roomId"
             )
         }
         sortedEvents = processTimelineEvents(
@@ -2645,21 +2645,16 @@ fun RoomTimelineScreen(
         }
     }
 
-    // Track last known timeline update counter to detect when timeline has been built.
-    // NOTE: This is read for heuristics inside effects but we avoid keying effects on it,
-    // so global timeline updates in other rooms don't force recomposition here.
-    var lastKnownTimelineUpdateCounter by remember { mutableStateOf(appViewModel.timelineUpdateCounter) }
-    
     // Auto-scroll to bottom only when attached (initial load or new messages while at bottom)
     LaunchedEffect(
-        timelineItems.size,
+        timelineItems,
         isLoading,
         appViewModel.isPaginating,
         pendingNotificationJumpEventId
     ) {
         if (BuildConfig.DEBUG) Log.d(
             "Andromuks",
-            "RoomTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isPaginating: ${appViewModel.isPaginating}, timelineUpdateCounter: ${appViewModel.timelineUpdateCounter}, hasInitialSnapCompleted: $hasInitialSnapCompleted"
+            "RoomTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isPaginating: ${appViewModel.isPaginating}, hasInitialSnapCompleted: $hasInitialSnapCompleted"
         )
 
         if (pendingNotificationJumpEventId != null) {
@@ -2674,44 +2669,10 @@ fun RoomTimelineScreen(
 
         if (!hasInitialSnapCompleted) {
             coroutineScope.launch {
-                // OPTIMIZATION: For initial load, scroll immediately when events are available
-                // Don't wait for stability - events from cache/DB are already stable
-                // Only wait a brief moment to ensure timeline has been built at least once
-                
-                // Quick check: wait for timeline to be built (update counter > 0) OR wait max 200ms
+                // Wait briefly if still loading (e.g. paginating) so the first visible state is stable.
                 var waitCount = 0
                 val maxWaitAttempts = 4 // Max 200ms (4 * 50ms)
-                
-                while (waitCount < maxWaitAttempts) {
-                    val currentUpdateCounter = appViewModel.timelineUpdateCounter
-                    val stillLoading = isLoading || appViewModel.isPaginating
-                    val hasEvents = timelineItems.isNotEmpty()
-                    
-                    // Check if timeline has been built at least once (update counter changed from initial)
-                    val timelineHasBeenBuilt = currentUpdateCounter != lastKnownTimelineUpdateCounter || currentUpdateCounter > 0
-                    
-                    // If we have events, timeline is built, and not loading - scroll immediately
-                    if (hasEvents && timelineHasBeenBuilt && !stillLoading) {
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Timeline ready for immediate scroll (${timelineItems.size} items, updateCounter: $currentUpdateCounter) after ${waitCount * 50}ms")
-                        lastKnownTimelineUpdateCounter = currentUpdateCounter
-                        break
-                    }
-                    
-                    // If still loading, wait a bit more
-                    if (stillLoading) {
-                        kotlinx.coroutines.delay(50)
-                        waitCount++
-                        continue
-                    }
-                    
-                    // If no events yet but timeline counter changed, wait one more check
-                    if (!hasEvents && timelineHasBeenBuilt) {
-                        kotlinx.coroutines.delay(50)
-                        waitCount++
-                        continue
-                    }
-                    
-                    // Otherwise, wait and check again
+                while (waitCount < maxWaitAttempts && (isLoading || appViewModel.isPaginating)) {
                     kotlinx.coroutines.delay(50)
                     waitCount++
                 }
@@ -2763,7 +2724,6 @@ fun RoomTimelineScreen(
                 hasLoadedInitialBatch = true
                 previousItemCount = timelineItems.size
                 lastKnownTimelineEventId = lastEventId
-                lastKnownTimelineUpdateCounter = appViewModel.timelineUpdateCounter
 
                 // Release suppression after a brief settle period so normal scroll tracking resumes.
                 if (pendingScrollRestoration) {
@@ -2771,7 +2731,7 @@ fun RoomTimelineScreen(
                     pendingScrollRestoration = false
                 }
 
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items, index=0, updateCounter: ${appViewModel.timelineUpdateCounter}) - reverseLayout")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items) - reverseLayout")
             }
             return@LaunchedEffect
         }
@@ -3171,30 +3131,18 @@ fun RoomTimelineScreen(
     
     LaunchedEffect(
         pendingNotificationJumpEventId,
-        timelineItems.size,
+        timelineItems,
         readinessCheckComplete,
-        appViewModel.timelineUpdateCounter,
         pendingScrollRestoration
     ) {
         val targetEventId = pendingNotificationJumpEventId ?: return@LaunchedEffect
         if (!readinessCheckComplete || timelineItems.isEmpty() || pendingScrollRestoration) {
             return@LaunchedEffect
         }
-        // CRITICAL FIX: When the notification jump handler fires, timelineItems may still
-        // contain the PREVIOUS room's events (or stale events).  This happens because:
-        //   1. navigateToRoomWithCache is async — it launches a coroutine that processes
-        //      the cache and calls buildTimelineFromChain (also async via Dispatchers.Main).
-        //   2. navController.navigate fires IMMEDIATELY after, creating the new
-        //      RoomTimelineScreen before the coroutine finishes.
-        //   3. readinessCheckComplete becomes true quickly (old timelineEvents is non-empty),
-        //      so this handler fires while timelineItems still holds old data.
-        //   4. The event from the notification isn't in the old items — search fails.
-        //   5. Later, when buildTimelineFromChain finishes, timelineItems is recomputed,
-        //      but if its SIZE is unchanged (same number of events), this LaunchedEffect
-        //      never re-fires and the event is never found.
-        //
-        // Fix: retry with delays to give the async pipeline time to complete:
-        //   timelineEvents → sortedEvents (Dispatchers.Default) → timelineItems (Dispatchers.Default)
+        // Retry loop handles the case where navigateToRoomWithCache is still async when this
+        // effect first fires — timelineItems may hold the previous room's events until
+        // buildTimelineFromChain completes. Keying on `timelineItems` (reference) means this
+        // re-fires on each rebuild, so retries naturally shorten as events arrive.
         val maxRetries = 8  // Up to ~2 seconds total (8 × 250ms)
         var foundIndex = -1
         for (attempt in 0..maxRetries) {

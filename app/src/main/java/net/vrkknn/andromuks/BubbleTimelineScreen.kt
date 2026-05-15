@@ -1561,10 +1561,10 @@ fun BubbleTimelineScreen(
     val showHiddenEvents = appViewModel.resolveShowHiddenEvents(roomId)
 
     // Process timeline events in background when dependencies change
-    LaunchedEffect(timelineEvents, appViewModel.timelineUpdateCounter, showHiddenEvents) {
+    LaunchedEffect(timelineEvents, showHiddenEvents) {
         if (BuildConfig.DEBUG) Log.d(
             "Andromuks",
-            "BubbleTimelineScreen: Processing timelineEvents update - size=${timelineEvents.size}, updateCounter=${appViewModel.timelineUpdateCounter}, roomId=$roomId"
+            "BubbleTimelineScreen: Processing timelineEvents update - size=${timelineEvents.size}, roomId=$roomId"
         )
         sortedEvents = bubbleProcessTimelineEvents(
             timelineEvents = timelineEvents,
@@ -1589,7 +1589,7 @@ fun BubbleTimelineScreen(
 
     // PERFORMANCE: Create timeline items with date dividers and pre-compute consecutive flags.
     // Use produceState to offload this heavy computation (iterating thousands of events) to a background thread.
-    val timelineItems by produceState<List<BubbleTimelineItem>>(initialValue = emptyList(), sortedEvents, appViewModel.timelineUpdateCounter) {
+    val timelineItems by produceState<List<BubbleTimelineItem>>(initialValue = emptyList(), sortedEvents) {
         value = withContext(Dispatchers.Default) {
             val items = mutableListOf<BubbleTimelineItem>()
             var lastDate: String? = null
@@ -1914,9 +1914,8 @@ fun BubbleTimelineScreen(
 
     LaunchedEffect(
         pendingNotificationJumpEventId,
-        timelineItems.size,
-        readinessCheckComplete,
-        appViewModel.timelineUpdateCounter
+        timelineItems,
+        readinessCheckComplete
     ) {
         val targetEventId = pendingNotificationJumpEventId ?: return@LaunchedEffect
         if (!readinessCheckComplete || timelineItems.isEmpty()) {
@@ -2181,20 +2180,16 @@ fun BubbleTimelineScreen(
         }
     }
 
-    // Track last known timeline update counter to detect when timeline has been built
-    var lastKnownTimelineUpdateCounter by remember { mutableStateOf(appViewModel.timelineUpdateCounter) }
-    
     // Auto-scroll to bottom only when attached (initial load or new messages while at bottom)
     LaunchedEffect(
-        timelineItems.size,
+        timelineItems,
         isLoading,
         appViewModel.isPaginating,
-        appViewModel.timelineUpdateCounter,
         pendingNotificationJumpEventId
     ) {
         if (BuildConfig.DEBUG) Log.d(
             "Andromuks",
-            "BubbleTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isPaginating: ${appViewModel.isPaginating}, timelineUpdateCounter: ${appViewModel.timelineUpdateCounter}, hasInitialSnapCompleted: $hasInitialSnapCompleted"
+            "BubbleTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isPaginating: ${appViewModel.isPaginating}, hasInitialSnapCompleted: $hasInitialSnapCompleted"
         )
 
         if (pendingNotificationJumpEventId != null) {
@@ -2209,56 +2204,20 @@ fun BubbleTimelineScreen(
 
         if (!hasInitialSnapCompleted) {
             coroutineScope.launch {
-                // OPTIMIZATION: For initial load, scroll immediately when events are available
-                // Don't wait for stability - events from cache/DB are already stable
-                // Only wait a brief moment to ensure timeline has been built at least once
-                
-                // Quick check: wait for timeline to be built (update counter > 0) OR wait max 200ms
+                // Wait briefly if still loading (e.g. paginating) so the first visible state is stable.
                 var waitCount = 0
                 val maxWaitAttempts = 4 // Max 200ms (4 * 50ms)
-                
-                while (waitCount < maxWaitAttempts) {
-                    val currentUpdateCounter = appViewModel.timelineUpdateCounter
-                    val stillLoading = isLoading || appViewModel.isPaginating
-                    val hasEvents = timelineItems.isNotEmpty()
-                    
-                    // Check if timeline has been built at least once (update counter changed from initial)
-                    val timelineHasBeenBuilt = currentUpdateCounter != lastKnownTimelineUpdateCounter || currentUpdateCounter > 0
-                    
-                    // If we have events, timeline is built, and not loading - scroll immediately
-                    if (hasEvents && timelineHasBeenBuilt && !stillLoading) {
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Timeline ready for immediate scroll (${timelineItems.size} items, updateCounter: $currentUpdateCounter) after ${waitCount * 50}ms")
-                        lastKnownTimelineUpdateCounter = currentUpdateCounter
-                        break
-                    }
-                    
-                    // If still loading, wait a bit more
-                    if (stillLoading) {
-                        kotlinx.coroutines.delay(50)
-                        waitCount++
-                        continue
-                    }
-                    
-                    // If no events yet but timeline counter changed, wait one more check
-                    if (!hasEvents && timelineHasBeenBuilt) {
-                        kotlinx.coroutines.delay(50)
-                        waitCount++
-                        continue
-                    }
-                    
-                    // Otherwise, wait and check again
+                while (waitCount < maxWaitAttempts && (isLoading || appViewModel.isPaginating)) {
                     kotlinx.coroutines.delay(50)
                     waitCount++
                 }
-                
+
                 // Final check before scrolling
-                if (timelineItems.isEmpty() || (isLoading && waitCount >= maxWaitAttempts)) {
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Timeline not ready for scroll (empty: ${timelineItems.isEmpty()}, loading: $isLoading, paginating: ${appViewModel.isPaginating})")
-                    // Still mark as completed to avoid infinite loop
+                if (timelineItems.isEmpty()) {
                     hasInitialSnapCompleted = true
                     return@launch
                 }
-                
+
                 // With reverseLayout, index 0 is bottom (newest message)
                 listState.scrollToItem(0)
                 isAttachedToBottom = true
@@ -2266,11 +2225,8 @@ fun BubbleTimelineScreen(
                 hasLoadedInitialBatch = true
                 previousItemCount = timelineItems.size
                 lastKnownTimelineEventId = lastEventId
-                lastKnownTimelineUpdateCounter = appViewModel.timelineUpdateCounter
-                
-                // CRITICAL: Enable animations AFTER initial load and scroll complete
-                // Animations should only occur for NEW messages when room is already open
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items, index=0, updateCounter: ${appViewModel.timelineUpdateCounter}) - reverseLayout")
+
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items) - reverseLayout")
             }
             return@LaunchedEffect
         }

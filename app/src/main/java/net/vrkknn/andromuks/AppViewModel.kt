@@ -911,10 +911,12 @@ class AppViewModel : ViewModel() {
     // Granular update counters to reduce unnecessary recompositions
     var roomListUpdateCounter by mutableStateOf(0)
         internal set
-    
+
+    // Incremented by executeTimelineRebuild and reply-fetch paths so TimelineEventItem
+    // remember() blocks that read MessageVersionsCache / RoomTimelineCache know to recompute.
     var timelineUpdateCounter by mutableStateOf(0)
         internal set
-    
+
     var reactionUpdateCounter by mutableStateOf(0)
         internal set
     
@@ -940,12 +942,10 @@ class AppViewModel : ViewModel() {
     
     // SYNC OPTIMIZATION: Diff-based update tracking
     internal var lastRoomStateHash: String = ""
-    private var lastTimelineStateHash: String = ""
     internal var lastMemberStateHash: String = ""
-    
+
     // SYNC OPTIMIZATION: Selective update flags
     internal var needsRoomListUpdate = false
-    private var needsTimelineUpdate = false
     internal var needsMemberUpdate = false
     private var needsReactionUpdate = false
     
@@ -2697,10 +2697,6 @@ class AppViewModel : ViewModel() {
     /**
      * Generate a hash for timeline state to detect actual changes
      */
-    private fun generateTimelineStateHash(events: List<TimelineEvent>): String {
-        return events.takeLast(50).joinToString("|") { "${it.eventId}:${it.timestamp}:${it.redactedBy}" }
-    }
-    
     /**
      * Generate a hash for member state to detect actual changes
      */
@@ -2768,12 +2764,6 @@ class AppViewModel : ViewModel() {
             roomListUpdateCounter++
             needsRoomListUpdate = false
             
-        }
-        
-        if (needsTimelineUpdate) {
-            timelineUpdateCounter++
-            needsTimelineUpdate = false
-
         }
         
         if (needsMemberUpdate) {
@@ -8530,45 +8520,13 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    /**
-     * SYNC OPTIMIZATION: Check if current room needs timeline update with diff-based detection
-     */
     internal fun checkAndUpdateCurrentRoomTimelineOptimized(syncJson: JSONObject) {
         val data = syncJson.optJSONObject("data")
         if (data != null) {
             val rooms = data.optJSONObject("rooms")
             if (rooms != null) {
                 if (currentRoomId.isNotEmpty() && rooms.has(currentRoomId)) {
-                    // CRITICAL FIX: Check if sync_complete has timeline events BEFORE updating
-                    // This ensures we process events even if buildTimelineFromChain is async
-                    val roomData = rooms.optJSONObject(currentRoomId)
-                    val hasTimelineEvents = roomData?.optJSONArray("events")?.let { it.length() > 0 } ?: false
-
-                    // Update timeline data first
                     updateTimelineFromSync(syncJson, currentRoomId)
-
-                    // CRITICAL FIX: Always schedule UI update if sync_complete had timeline events
-                    // buildTimelineFromChain is async, so hash check might happen before timeline updates
-                    // Always update UI if we processed timeline events to ensure they appear
-                    if (hasTimelineEvents) {
-                        needsTimelineUpdate = true
-                        scheduleUIUpdate("timeline")
-                        // Update hash after a delay to allow async buildTimelineFromChain to complete
-                        viewModelScope.launch {
-                            kotlinx.coroutines.delay(100) // Wait for buildTimelineFromChain to complete
-                            lastTimelineStateHash = generateTimelineStateHash(timelineEvents)
-                        }
-                    } else {
-                        // No timeline events - use hash-based detection
-                        val newTimelineStateHash = generateTimelineStateHash(timelineEvents)
-                        val timelineStateChanged = newTimelineStateHash != lastTimelineStateHash
-
-                        if (timelineStateChanged) {
-                            needsTimelineUpdate = true
-                            scheduleUIUpdate("timeline")
-                            lastTimelineStateHash = newTimelineStateHash
-                        }
-                    }
                 }
 
                 // Also keep RoomTimelineCache fresh for rooms open in bubble VMs (secondary instances).
