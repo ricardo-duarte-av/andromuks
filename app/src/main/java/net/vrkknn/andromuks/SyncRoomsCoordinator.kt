@@ -42,8 +42,7 @@ internal class SyncRoomsCoordinator(
                     // SYNC OPTIMIZATION: Allow skipping immediate counter updates for batched updates
                     if (!skipCounterUpdate) {
                         roomListUpdateCounter++
-                        updateCounter++ // Keep for backward compatibility temporarily     
-                    } 
+                    }
         }
     }
 
@@ -51,7 +50,6 @@ internal class SyncRoomsCoordinator(
         with(vm) {
                     currentSpaceId = spaceId
                     roomListUpdateCounter++
-                    updateCounter++ // Keep for backward compatibility temporarily
         }
     }
 
@@ -59,7 +57,6 @@ internal class SyncRoomsCoordinator(
         with(vm) {
                     currentSpaceId = null
                     roomListUpdateCounter++
-                    updateCounter++ // Keep for backward compatibility temporarily
         }
     }
 

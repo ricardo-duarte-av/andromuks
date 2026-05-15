@@ -93,7 +93,6 @@ internal class ReactionCoordinator(
         vm.viewModelScope.launch(Dispatchers.Main) {
             vm.messageReactions = updatedReactionsMap
             vm.reactionUpdateCounter++
-            vm.updateCounter++
         }
     }
 
@@ -309,7 +308,6 @@ internal class ReactionCoordinator(
         vm.viewModelScope.launch(Dispatchers.Main) {
             vm.messageReactions = currentReactions
             vm.reactionUpdateCounter++
-            vm.updateCounter++
         }
 
         if (BuildConfig.DEBUG) {

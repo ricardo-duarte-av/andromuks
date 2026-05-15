@@ -904,10 +904,6 @@ class AppViewModel : ViewModel() {
         return directMessageRoomIds.contains(roomId)
     }
 
-    // Force recomposition counter - DEPRECATED: Use specific counters below instead
-    var updateCounter by mutableStateOf(0)
-        internal set
-    
     // Granular update counters to reduce unnecessary recompositions
     var roomListUpdateCounter by mutableStateOf(0)
         internal set
@@ -1377,7 +1373,6 @@ class AppViewModel : ViewModel() {
         // CRITICAL: Also update singleton cache so spaces persist across ViewModel instances
         SpaceListCache.updateSpaces(spaces)
         roomListUpdateCounter++
-        updateCounter++ // Keep for backward compatibility temporarily
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: allSpaces set to ${spaces.size} spaces (was $previousSize), cache updated")
     }
     
@@ -1400,9 +1395,8 @@ class AppViewModel : ViewModel() {
         // The roomListUpdateCounter bump is sufficient to trigger the UI update.
         
         roomListUpdateCounter++
-        updateCounter++ // Keep for backward compatibility temporarily
     }
-    
+
     fun enterSpace(spaceId: String) = syncRoomsCoordinator.enterSpace(spaceId)
     
     fun exitSpace() = syncRoomsCoordinator.exitSpace()
@@ -1410,17 +1404,11 @@ class AppViewModel : ViewModel() {
     fun enterBridge(bridgeId: String) {
         currentBridgeId = bridgeId
         roomListUpdateCounter++
-        updateCounter++ // Keep for backward compatibility temporarily
     }
     
     fun exitBridge() {
         currentBridgeId = null
         roomListUpdateCounter++
-        updateCounter++ // Keep for backward compatibility temporarily
-    }
-    
-    fun incrementUpdateCounter() {
-        updateCounter++
     }
     
     fun triggerTimestampUpdate() {
@@ -2777,9 +2765,6 @@ class AppViewModel : ViewModel() {
             needsReactionUpdate = false
  
         }
-        
-        // Keep for backward compatibility temporarily
-        updateCounter++
         
 
     }
@@ -7646,7 +7631,6 @@ class AppViewModel : ViewModel() {
         if (roomId == currentRoomId) {
             currentRoomState = roomState
             roomStateUpdateCounter++
-            updateCounter++ // Keep for backward compatibility temporarily
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✓ Updated current room state - Name: $name, Alias: $canonicalAlias, Topic: $topic, Avatar: $avatarUrl, Encrypted: $isEncrypted")
         }
     }
@@ -8497,7 +8481,6 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated $updatedProfiles profiles in room $roomId in ${duration}ms")
             // mutableStateOf writes must happen on the main thread to avoid Compose snapshot conflicts
             viewModelScope.launch(Dispatchers.Main) {
-                updateCounter++
                 memberUpdateCounter++
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Triggered memberUpdateCounter++ for $updatedProfiles profile updates")
             }
@@ -9288,7 +9271,6 @@ class AppViewModel : ViewModel() {
                 }
                 this@AppViewModel.timelineEvents = sortedTimelineEvents
                 timelineUpdateCounter++
-                updateCounter++
                 isTimelineLoading = false
                 currentRoomId?.let { persistRenderableEvents(it, sortedTimelineEvents) }
                 rebuildComplete?.complete(Unit)

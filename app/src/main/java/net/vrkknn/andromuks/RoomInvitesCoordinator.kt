@@ -34,7 +34,6 @@ internal class RoomInvitesCoordinator(private val vm: AppViewModel) {
                 android.util.Log.d("Andromuks", "AppViewModel: Removed invite from memory: $roomId")
 
             roomListUpdateCounter++
-            updateCounter++
         }
     }
 
@@ -52,7 +51,6 @@ internal class RoomInvitesCoordinator(private val vm: AppViewModel) {
                 android.util.Log.d("Andromuks", "AppViewModel: Removed invite from memory: $roomId")
 
             roomListUpdateCounter++
-            updateCounter++
         }
     }
 

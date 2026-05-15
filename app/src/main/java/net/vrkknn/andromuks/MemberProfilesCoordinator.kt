@@ -287,7 +287,6 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                         "AppViewModel: Updated $updatedMembers members in full member list for room $roomId in ${duration}ms",
                     )
                 vm.viewModelScope.launch(Dispatchers.Main) {
-                    updateCounter++
                     memberUpdateCounter++
                 }
             }
