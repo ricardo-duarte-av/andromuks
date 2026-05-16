@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -49,11 +50,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.AccountDataCache
@@ -360,13 +365,29 @@ private fun AddEditProfileDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    AvatarImage(
-                        mxcUrl = avatarUrl.takeIf { it.isNotBlank() },
-                        homeserverUrl = appViewModel.homeserverUrl,
-                        authToken = appViewModel.authToken,
-                        fallbackText = displayname.ifBlank { shortcode },
-                        size = 44.dp
-                    )
+                    val previewHttpUrl = remember(avatarUrl) {
+                        AvatarUtils.getFullImageUrl(context, avatarUrl, appViewModel.homeserverUrl)
+                    }
+                    if (previewHttpUrl != null) {
+                        val imageLoader = remember { ImageLoaderSingleton.get(context) }
+                        AsyncImage(
+                            model = ImageRequest.Builder(context).data(previewHttpUrl).build(),
+                            imageLoader = imageLoader,
+                            contentDescription = "Avatar preview",
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        AvatarImage(
+                            mxcUrl = null,
+                            homeserverUrl = appViewModel.homeserverUrl,
+                            authToken = appViewModel.authToken,
+                            fallbackText = displayname.ifBlank { shortcode },
+                            size = 44.dp
+                        )
+                    }
                     Column(modifier = Modifier.weight(1f)) {
                         if (avatarUploadInProgress) {
                             Row(
