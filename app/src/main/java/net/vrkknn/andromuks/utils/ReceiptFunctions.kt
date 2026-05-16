@@ -465,15 +465,15 @@ fun InlineReadReceiptAvatars(
                 val offsetX = (originalIndex * overlap.value).dp
                 
                 if (receipt != null) {
-                    // Get profile from AppViewModel directly to ensure we get the latest data
-                    val userProfile = appViewModel?.getUserProfile(receipt.userId, roomId) ?: userProfileCache[receipt.userId]
+                    val userProfile = remember(receipt.userId, memberUpdateCounter, roomId) {
+                        appViewModel?.getUserProfile(receipt.userId, roomId) ?: userProfileCache[receipt.userId]
+                    }
                     val avatarUrl = userProfile?.avatarUrl
                     val displayName = userProfile?.displayName
-                    
+
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Rendering avatar for user: ${receipt.userId}")
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Profile source - AppViewModel: ${appViewModel?.getUserProfile(receipt.userId, roomId) != null}, Cache: ${userProfileCache[receipt.userId] != null}")
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Final profile - displayName: $displayName, avatarUrl: $avatarUrl")
-                    
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Profile - displayName: $displayName, avatarUrl: $avatarUrl")
+
                     Box(
                         modifier = Modifier
                             .size(circleSize)
@@ -653,11 +653,12 @@ fun AnimatedInlineReadReceiptAvatars(
                 val offsetX = (originalIndex * overlap.value).dp
                 
                 if (receipt != null) {
-                    // Get profile from AppViewModel directly to ensure we get the latest data
-                    val userProfile = appViewModel?.getUserProfile(receipt.userId, roomId) ?: userProfileCache[receipt.userId]
+                    val userProfile = remember(receipt.userId, memberUpdateCounter, roomId) {
+                        appViewModel?.getUserProfile(receipt.userId, roomId) ?: userProfileCache[receipt.userId]
+                    }
                     val avatarUrl = userProfile?.avatarUrl
                     val displayName = userProfile?.displayName
-                    
+
                     // Check if this receipt is animating in from another message
                     val isAnimatingIn = receiptMovementsToNewEvent.containsKey(receipt.userId)
                     
@@ -769,8 +770,12 @@ fun ReadReceiptDetailsDialog(
     appViewModel: AppViewModel? = null,
     roomId: String? = null
 ) {
+    @Suppress("UNUSED_VARIABLE")
+    val memberUpdateCounter = appViewModel?.memberUpdateCounter
+    val receiptUserIds = remember(receipts) { receipts.map { it.userId }.toSet() }
+
     // OPPORTUNISTIC PROFILE LOADING: Request profiles for read receipt users when dialog opens
-    LaunchedEffect(receipts.map { it.userId }, roomId, appViewModel?.memberUpdateCounter) {
+    LaunchedEffect(receiptUserIds, roomId) {
         if (appViewModel != null && roomId != null && receipts.isNotEmpty()) {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "ReadReceiptDetailsDialog: LaunchedEffect triggered - receipts: ${receipts.size}, roomId: $roomId, memberUpdateCounter: ${appViewModel.memberUpdateCounter}")
             if (BuildConfig.DEBUG) Log.d("Andromuks", "ReadReceiptDetailsDialog: Requesting profiles for ${receipts.size} read receipt users")
@@ -871,8 +876,9 @@ fun ReadReceiptDetailsDialog(
                             items = receipts,
                             key = { receipt -> receipt.userId } // Use userId as stable key
                         ) { receipt ->
-                            // Prioritize AppViewModel profile over cache
-                            val userProfile = appViewModel?.getUserProfile(receipt.userId, roomId) ?: userProfileCache[receipt.userId]
+                            val userProfile = remember(receipt.userId, memberUpdateCounter, roomId) {
+                                appViewModel?.getUserProfile(receipt.userId, roomId) ?: userProfileCache[receipt.userId]
+                            }
                             ReadReceiptItem(
                                 receipt = receipt,
                                 userProfile = userProfile,
