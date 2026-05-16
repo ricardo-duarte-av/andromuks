@@ -3508,7 +3508,7 @@ fun TimelineEventItem(
             if (appViewModel != null) {
                 val allReceipts = net.vrkknn.andromuks.utils.ReceiptFunctions.getReadReceipts(
                     event.eventId,
-                    appViewModel.getReadReceiptsMap()
+                    appViewModel.getReadReceiptsMap(event.roomId)
                 )
                 // CRITICAL FIX: Filter receipts by both eventId AND roomId
                 // This ensures receipts from other rooms (with same eventId) don't show up

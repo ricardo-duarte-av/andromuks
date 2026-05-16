@@ -110,11 +110,8 @@ object RoomTimelineCache {
                 // 2. Room member cache
                 RoomMemberCache.clearRoom(roomId)
                 
-                // 3. Read receipts (by roomId and by eventIds for thorough cleanup)
+                // 3. Read receipts — clearRoom already removes all events for this room
                 ReadReceiptCache.clearRoom(roomId)
-                if (eventIds.isNotEmpty()) {
-                    ReadReceiptCache.clearForEventIds(eventIds)
-                }
                 
                 // 4. Message reactions (by eventIds)
                 if (eventIds.isNotEmpty()) {
@@ -544,7 +541,7 @@ object RoomTimelineCache {
         
         // Clean up related caches for removed events
         if (removedEventIds.isNotEmpty()) {
-            ReadReceiptCache.clearForEventIds(removedEventIds)
+            ReadReceiptCache.clearForEventIds(roomId, removedEventIds)
             MessageReactionsCache.clearForEventIds(removedEventIds)
             MessageVersionsCache.clearForEventIds(removedEventIds)
         }
@@ -1155,11 +1152,8 @@ object RoomTimelineCache {
             // 2. Room member cache
             RoomMemberCache.clearRoom(roomId)
             
-            // 3. Read receipts (by roomId and by eventIds for thorough cleanup)
+            // 3. Read receipts — clearRoom already removes all events for this room
             ReadReceiptCache.clearRoom(roomId)
-            if (eventIds.isNotEmpty()) {
-                ReadReceiptCache.clearForEventIds(eventIds)
-            }
             
             // 4. Message reactions (by eventIds)
             if (eventIds.isNotEmpty()) {
@@ -1252,9 +1246,9 @@ object RoomTimelineCache {
                     // receiving sync_complete event appends until the user explicitly opens them.
                     activelyCachedRooms.retainAll(openedRooms)
 
-                    // Clear event-specific caches for all cleared rooms' events
+                    // Clear event-specific caches for all cleared rooms' events.
+                    // ReadReceiptCache is already cleared per-room above via clearRoom.
                     if (eventIdsToClear.isNotEmpty()) {
-                        ReadReceiptCache.clearForEventIds(eventIdsToClear)
                         MessageReactionsCache.clearForEventIds(eventIdsToClear)
                         MessageVersionsCache.clearForEventIds(eventIdsToClear)
                     }
@@ -1412,12 +1406,12 @@ object RoomTimelineCache {
                     }
                     
                     // Clear event-specific caches for all cleared rooms' events
+                    // ReadReceiptCache is already cleared per-room above via clearRoom.
                     if (eventIdsToClear.isNotEmpty()) {
-                        ReadReceiptCache.clearForEventIds(eventIdsToClear)
                         MessageReactionsCache.clearForEventIds(eventIdsToClear)
                         MessageVersionsCache.clearForEventIds(eventIdsToClear)
                     }
-                    
+
                     if (BuildConfig.DEBUG) {
                         Log.d(TAG, "clearInMemoryCache: Cleared ${roomsToClear.size} non-opened rooms, preserved ${openedRooms.size} opened rooms")
                     }

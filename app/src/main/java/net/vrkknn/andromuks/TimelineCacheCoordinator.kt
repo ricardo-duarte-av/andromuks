@@ -531,12 +531,10 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // we have the mapping, upgrade any receipts already in readReceipts for this room.
             if (vm.bridgeStatusEventToMessageId.isNotEmpty()) {
                 synchronized(vm.readReceiptsLock) {
-                    vm.readReceipts.forEach { (eventId, receipts) ->
-                        if (receipts.any { it.roomId == roomId }) {
-                            val targetMessageId = vm.bridgeStatusEventToMessageId[eventId] ?: eventId
-                            if (vm.messageBridgeSendStatus.containsKey(targetMessageId)) {
-                                vm.updateBridgeStatus(targetMessageId, "delivered")
-                            }
+                    vm.readReceipts[roomId]?.forEach { (eventId, _) ->
+                        val targetMessageId = vm.bridgeStatusEventToMessageId[eventId] ?: eventId
+                        if (vm.messageBridgeSendStatus.containsKey(targetMessageId)) {
+                            vm.updateBridgeStatus(targetMessageId, "delivered")
                         }
                     }
                 }
@@ -1838,92 +1836,60 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                             var hasChanges = false
 
                                             synchronized(readReceiptsLock) {
-                                                // Apply all changes atomically on main thread
-                                                authoritativeReceipts.forEach { (eventId, receipts)
-                                                    ->
-                                                    val existingReceipts = readReceipts[eventId]
-                                                    // CRITICAL FIX: Include roomId in comparison to
-                                                    // properly detect changes
-                                                    // Old receipts might have empty roomId, new
-                                                    // ones have roomId set
+                                                val roomReceiptsMap = readReceipts.getOrPut(roomId) { mutableMapOf() }
+                                                val roomUserIndex = readReceiptsIndex.getOrPut(roomId) { mutableMapOf() }
+
+                                                authoritativeReceipts.forEach { (eventId, receipts) ->
+                                                    val existingReceipts = roomReceiptsMap[eventId]
                                                     val receiptsChanged =
                                                         existingReceipts == null ||
-                                                            existingReceipts.size !=
-                                                                receipts.size ||
+                                                            existingReceipts.size != receipts.size ||
                                                             existingReceipts.any { existing ->
                                                                 !receipts.any { auth ->
-                                                                    auth.userId ==
-                                                                        existing.userId &&
-                                                                        auth.timestamp ==
-                                                                            existing.timestamp &&
-                                                                        auth.eventId ==
-                                                                            existing.eventId &&
-                                                                        auth.roomId ==
-                                                                            existing
-                                                                                .roomId // Compare
-                                                                    // roomId
+                                                                    auth.userId == existing.userId &&
+                                                                        auth.timestamp == existing.timestamp &&
+                                                                        auth.eventId == existing.eventId
                                                                 }
                                                             } ||
                                                             receipts.any { auth ->
                                                                 !existingReceipts.any { existing ->
-                                                                    existing.userId ==
-                                                                        auth.userId &&
-                                                                        existing.timestamp ==
-                                                                            auth.timestamp &&
-                                                                        existing.eventId ==
-                                                                            auth.eventId &&
-                                                                        existing.roomId ==
-                                                                            auth.roomId // Compare
-                                                                    // roomId
+                                                                    existing.userId == auth.userId &&
+                                                                        existing.timestamp == auth.timestamp &&
+                                                                        existing.eventId == auth.eventId
                                                                 }
                                                             }
 
                                                     if (receiptsChanged) {
                                                         if (receipts.isEmpty()) {
-                                                            readReceipts.remove(eventId)
+                                                            val removed = roomReceiptsMap.remove(eventId)
+                                                            removed?.forEach { r ->
+                                                                if (roomUserIndex[r.userId] == eventId) roomUserIndex.remove(r.userId)
+                                                            }
                                                             if (BuildConfig.DEBUG)
-                                                                android.util.Log.d(
-                                                                    "Andromuks",
-                                                                    "ReceiptFunctions: Removed all receipts for eventId=$eventId, roomId=$roomId (server says none)",
-                                                                )
+                                                                android.util.Log.d("Andromuks", "ReceiptFunctions: Removed all receipts for eventId=$eventId, roomId=$roomId")
                                                         } else {
-                                                            readReceipts[eventId] = receipts
+                                                            roomReceiptsMap[eventId] = receipts
+                                                            // Rebuild inverted index entries for this event
+                                                            receipts.forEach { r -> roomUserIndex[r.userId] = eventId }
 
-                                                            // (3) IMPLICIT DELIVERY: Receipt in paginate implies delivery
                                                             if (messageBridgeSendStatus.containsKey(eventId)) {
                                                                 updateBridgeStatus(eventId, "delivered")
                                                             }
-
                                                             if (BuildConfig.DEBUG)
-                                                                android.util.Log.d(
-                                                                    "Andromuks",
-                                                                    "ReceiptFunctions: Replaced receipts for eventId=$eventId, roomId=$roomId with ${receipts.size} receipts from paginate",
-                                                                )
+                                                                android.util.Log.d("Andromuks", "ReceiptFunctions: Replaced receipts for eventId=$eventId, roomId=$roomId with ${receipts.size} receipts from paginate")
                                                         }
                                                         hasChanges = true
                                                     }
                                                 }
 
-                                                // Update singleton cache after processing receipts
-                                                // (only if there were
-                                                // changes)
                                                 if (hasChanges) {
-                                                    val receiptsForCache =
-                                                        readReceipts.mapValues { it.value.toList() }
+                                                    ReadReceiptCache.setForRoom(
+                                                        roomId,
+                                                        roomReceiptsMap.mapValues { it.value.toList() },
+                                                        roomUserIndex
+                                                    )
                                                     if (BuildConfig.DEBUG)
-                                                        android.util.Log.d(
-                                                            "Andromuks",
-                                                            "AppViewModel: Updating ReadReceiptCache with ${receiptsForCache.size} events (${receiptsForCache.values.sumOf { it.size }} total receipts) from paginate for room: $roomId",
-                                                        )
-                                                    ReadReceiptCache.setAll(receiptsForCache)
-                                                    if (BuildConfig.DEBUG) {
-                                                        val cacheAfter =
-                                                            ReadReceiptCache.getAllReceipts()
-                                                        android.util.Log.d(
-                                                            "Andromuks",
-                                                            "AppViewModel: ReadReceiptCache after update: ${cacheAfter.size} events (${cacheAfter.values.sumOf { it.size }} total receipts)",
-                                                        )
-                                                    }
+                                                        android.util.Log.d("Andromuks", "AppViewModel: Updated ReadReceiptCache for $roomId from paginate")
                                                 }
                                             }
 

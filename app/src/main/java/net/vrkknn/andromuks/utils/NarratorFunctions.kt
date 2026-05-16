@@ -165,7 +165,7 @@ fun SystemEventNarrator(
         if (appViewModel != null) {
             val allReceipts = ReceiptFunctions.getReadReceipts(
                 event.eventId,
-                appViewModel.getReadReceiptsMap()
+                appViewModel.getReadReceiptsMap(event.roomId)
             )
             // Filter receipts to ensure they're for this specific event (eventId must match)
             allReceipts.filter { receipt ->

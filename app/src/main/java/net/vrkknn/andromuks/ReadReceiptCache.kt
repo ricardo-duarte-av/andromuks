@@ -5,119 +5,113 @@ import net.vrkknn.andromuks.BuildConfig
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * ReadReceiptCache - Singleton cache for read receipts
- * 
- * This singleton stores read receipts received via sync_complete messages.
- * It allows any AppViewModel instance to access the complete read receipt data,
- * even when opening from notifications (which creates new AppViewModel instances).
- * 
- * Benefits:
- * - Persistent across AppViewModel instances (crucial for notification navigation)
- * - Single source of truth for read receipt data
- * - Updated when receipts are processed from sync_complete
- * - Accessible by any AppViewModel to populate its readReceipts map
- * 
- * Structure: eventId -> List<ReadReceipt>
+ * ReadReceiptCache - Singleton cache for read receipts, partitioned by room.
+ *
+ * Structure:
+ *   Forward index : roomId → eventId → List<ReadReceipt>
+ *   Inverted index: roomId → userId  → eventId   (O(1) "where is this user's receipt?" lookup)
+ *
+ * The inverted index eliminates the O(events × users) scan that previously occurred every time
+ * a receipt moved to a new event during sync processing.
  */
 object ReadReceiptCache {
     private const val TAG = "ReadReceiptCache"
-    
-    // Thread-safe map storing read receipts: eventId -> List<ReadReceipt>
-    private val receiptCache = ConcurrentHashMap<String, MutableList<ReadReceipt>>()
+
+    // roomId → eventId → receipts
+    private val receiptCache = ConcurrentHashMap<String, HashMap<String, MutableList<ReadReceipt>>>()
+    // roomId → userId → eventId  (inverted index)
+    private val userEventIndex = ConcurrentHashMap<String, HashMap<String, String>>()
     private val cacheLock = Any()
-    
+
     /**
-     * Replace the entire cache with new data
-     * Used when updating cache after processing receipts from sync_complete
-     * The receiptsMap should already be processed by ReceiptFunctions.processReadReceipts
+     * Replace a single room's receipts and rebuild its inverted index from [userIndex].
+     * Other rooms are untouched.
      */
-    fun setAll(receiptsMap: Map<String, List<ReadReceipt>>) {
+    fun setForRoom(
+        roomId: String,
+        receiptsMap: Map<String, List<ReadReceipt>>,
+        userIndex: Map<String, String>
+    ) {
         synchronized(cacheLock) {
-            receiptCache.clear()
+            val roomCache = HashMap<String, MutableList<ReadReceipt>>(receiptsMap.size)
             receiptsMap.forEach { (eventId, receipts) ->
-                if (receipts.isNotEmpty()) {
-                    receiptCache[eventId] = receipts.toMutableList()
+                if (receipts.isNotEmpty()) roomCache[eventId] = receipts.toMutableList()
+            }
+            receiptCache[roomId] = roomCache
+            userEventIndex[roomId] = HashMap(userIndex)
+            if (BuildConfig.DEBUG) Log.d(TAG, "setForRoom $roomId: ${roomCache.size} events, ${userIndex.size} indexed users")
+        }
+    }
+
+    /**
+     * Get all receipts for a single room (eventId → immutable list).
+     */
+    fun getForRoom(roomId: String): Map<String, List<ReadReceipt>> {
+        return synchronized(cacheLock) {
+            receiptCache[roomId]?.mapValues { it.value.toList() } ?: emptyMap()
+        }
+    }
+
+    /**
+     * O(1) lookup: which eventId does [userId] have a receipt on in [roomId]?
+     */
+    fun getUserEventId(roomId: String, userId: String): String? {
+        return synchronized(cacheLock) {
+            userEventIndex[roomId]?.get(userId)
+        }
+    }
+
+    /**
+     * IDs of all rooms that have cached receipts.
+     */
+    fun getRoomIds(): Set<String> {
+        return synchronized(cacheLock) { receiptCache.keys.toSet() }
+    }
+
+    /**
+     * Clear all receipts for [roomId] — O(1).
+     */
+    fun clearRoom(roomId: String) {
+        synchronized(cacheLock) {
+            receiptCache.remove(roomId)
+            userEventIndex.remove(roomId)
+            if (BuildConfig.DEBUG) Log.d(TAG, "clearRoom $roomId")
+        }
+    }
+
+    /**
+     * Remove specific events from a room's cache. Also removes their users from the inverted index.
+     */
+    fun clearForEventIds(roomId: String, eventIds: Set<String>) {
+        if (eventIds.isEmpty()) return
+        synchronized(cacheLock) {
+            val roomCache = receiptCache[roomId] ?: return@synchronized
+            val roomIndex = userEventIndex[roomId]
+            var removed = 0
+            eventIds.forEach { eventId ->
+                val receipts = roomCache.remove(eventId)
+                if (receipts != null) {
+                    removed++
+                    // Remove from inverted index only if the index still points to this event
+                    if (roomIndex != null) {
+                        receipts.forEach { r ->
+                            if (roomIndex[r.userId] == eventId) roomIndex.remove(r.userId)
+                        }
+                    }
                 }
             }
-            if (BuildConfig.DEBUG) Log.d(TAG, "ReadReceiptCache: setAll - updated cache with ${receiptsMap.size} events")
+            if (BuildConfig.DEBUG) Log.d(TAG, "clearForEventIds $roomId: removed $removed/${eventIds.size} events")
         }
     }
-    
+
     /**
-     * Get all receipts from the cache
-     */
-    fun getAllReceipts(): Map<String, List<ReadReceipt>> {
-        return synchronized(cacheLock) {
-            receiptCache.mapValues { it.value.toList() }.toMap()
-        }
-    }
-    
-    /**
-     * Get receipts for a specific event
-     */
-    fun getReceiptsForEvent(eventId: String): List<ReadReceipt> {
-        return synchronized(cacheLock) {
-            receiptCache[eventId]?.toList() ?: emptyList()
-        }
-    }
-    
-    /**
-     * Get the number of events with receipts
-     */
-    fun getEventCount(): Int {
-        return synchronized(cacheLock) {
-            receiptCache.size
-        }
-    }
-    
-    /**
-     * Clear all receipts from the cache
+     * Clear the entire cache (all rooms).
      */
     fun clear() {
         synchronized(cacheLock) {
             receiptCache.clear()
-            if (BuildConfig.DEBUG) Log.d(TAG, "ReadReceiptCache: Cleared all receipts")
-        }
-    }
-    
-    /**
-     * Clear receipts for a specific room (filters by ReadReceipt.roomId)
-     */
-    fun clearRoom(roomId: String) {
-        synchronized(cacheLock) {
-            var removedCount = 0
-            val iterator = receiptCache.entries.iterator()
-            while (iterator.hasNext()) {
-                val (eventId, receipts) = iterator.next()
-                // Filter out receipts that belong to this room
-                val filteredReceipts = receipts.filter { it.roomId != roomId }
-                if (filteredReceipts.isEmpty()) {
-                    // All receipts for this event were for this room - remove the event entry
-                    iterator.remove()
-                    removedCount++
-                } else if (filteredReceipts.size < receipts.size) {
-                    // Some receipts were for this room - update the list
-                    receiptCache[eventId] = filteredReceipts.toMutableList()
-                    removedCount++
-                }
-            }
-            if (BuildConfig.DEBUG) Log.d(TAG, "ReadReceiptCache: Cleared receipts for room $roomId (removed ${removedCount} event entries)")
-        }
-    }
-    
-    /**
-     * Clear receipts for specific event IDs (used when evicting a room)
-     */
-    fun clearForEventIds(eventIds: Set<String>) {
-        synchronized(cacheLock) {
-            var removedCount = 0
-            eventIds.forEach { eventId ->
-                if (receiptCache.remove(eventId) != null) {
-                    removedCount++
-                }
-            }
-            if (BuildConfig.DEBUG) Log.d(TAG, "ReadReceiptCache: Cleared receipts for ${removedCount} events (out of ${eventIds.size} requested)")
+            userEventIndex.clear()
+            if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all receipts")
         }
     }
 }
-

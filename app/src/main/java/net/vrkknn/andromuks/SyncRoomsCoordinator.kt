@@ -597,6 +597,7 @@ internal class SyncRoomsCoordinator(
         
                     synchronized(readReceiptsLock) {
                         readReceipts.clear()
+                        readReceiptsIndex.clear()
                     }
                     roomsWithLoadedReceipts.clear()
                     roomsWithLoadedReactions.clear()
@@ -719,46 +720,41 @@ internal class SyncRoomsCoordinator(
                                 if (receipts != null && receipts.length() > 0) {
                                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processParsedSyncResult - Processing read receipts from sync_complete for room: $roomId (${receipts.length()} event receipts)")
                                     synchronized(readReceiptsLock) {
-                                        // Use processReadReceiptsFromSyncComplete - sync_complete moves receipts
-                                        // CRITICAL FIX: Pass roomId to prevent cross-room receipt corruption
+                                        val roomReceiptsMap = readReceipts.getOrPut(roomId) { mutableMapOf() }
+                                        val roomUserIndex = readReceiptsIndex.getOrPut(roomId) { mutableMapOf() }
+
                                         ReceiptFunctions.processReadReceiptsFromSyncComplete(
                                             receipts,
-                                            readReceipts,
+                                            roomReceiptsMap,
+                                            roomUserIndex,
                                             { readReceiptsUpdateCounter++ },
                                             { userId: String, previousEventId: String?, newEventId: String ->
-                                                // Track receipt movement for animation (thread-safe)
                                                 synchronized(readReceiptsLock) {
                                                     receiptMovements[userId] = Triple(previousEventId, newEventId, System.currentTimeMillis())
                                                 }
                                                 receiptAnimationTrigger = System.currentTimeMillis()
                                                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Receipt movement detected: $userId from $previousEventId to $newEventId")
                                             },
-                                            roomId = roomId // Pass room ID to prevent cross-room corruption
+                                            roomId = roomId
                                         )
 
                                         // Remap any receipts that landed on bridge status event IDs.
-                                        // Bridge bots (e.g. mautrix) send m.read for their own
-                                        // com.beeper.message_send_status events; those events are
-                                        // never in the timeline so the receipt would be invisible.
-                                        // Move them to the original message event ID instead (and mark as delivered).
                                         if (bridgeStatusEventToMessageId.isNotEmpty()) {
                                             var remapped = false
                                             bridgeStatusEventToMessageId.forEach { (statusEventId, originalMessageId) ->
-                                                val displaced = readReceipts.remove(statusEventId)
+                                                val displaced = roomReceiptsMap.remove(statusEventId)
                                                 if (!displaced.isNullOrEmpty()) {
-                                                    val target = readReceipts.getOrPut(originalMessageId) { mutableListOf() }
+                                                    val target = roomReceiptsMap.getOrPut(originalMessageId) { mutableListOf() }
                                                     displaced.forEach { r ->
                                                         if (target.none { it.userId == r.userId }) {
                                                             target.add(r.copy(eventId = originalMessageId))
+                                                            roomUserIndex[r.userId] = originalMessageId
                                                         }
                                                     }
                                                     remapped = true
-                                                    
-                                                    // (3) IMPLICIT DELIVERY: Receipt on status event implies delivery of original
                                                     updateBridgeStatus(originalMessageId, "delivered")
-                                                    
                                                     if (BuildConfig.DEBUG)
-                                                        android.util.Log.d("Andromuks", "BridgeReceipt: remapped ${displaced.size} receipt(s) from status event $statusEventId → $originalMessageId (sync_complete, marked delivered)")
+                                                        android.util.Log.d("Andromuks", "BridgeReceipt: remapped ${displaced.size} receipt(s) from $statusEventId → $originalMessageId (sync_complete, marked delivered)")
                                                 }
                                             }
                                             if (remapped) readReceiptsUpdateCounter++
@@ -778,15 +774,15 @@ internal class SyncRoomsCoordinator(
                                 }
                             }
 
-                            // PERF: Update singleton cache ONCE after all rooms — avoids N full cache rebuilds per sync.
+                            // PERF: Update singleton cache once after all rooms.
                             if (anyReceiptsProcessed) {
                                 synchronized(readReceiptsLock) {
-                                    val receiptsForCache = readReceipts.mapValues { it.value.toList() }
-                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updating ReadReceiptCache with ${receiptsForCache.size} events (${receiptsForCache.values.sumOf { it.size }} total receipts) from sync_complete")
-                                    ReadReceiptCache.setAll(receiptsForCache)
-                                    if (BuildConfig.DEBUG) {
-                                        val cacheAfter = ReadReceiptCache.getAllReceipts()
-                                        android.util.Log.d("Andromuks", "AppViewModel: ReadReceiptCache after update: ${cacheAfter.size} events (${cacheAfter.values.sumOf { it.size }} total receipts)")
+                                    readReceipts.forEach { (rId, eventsMap) ->
+                                        ReadReceiptCache.setForRoom(
+                                            rId,
+                                            eventsMap.mapValues { it.value.toList() },
+                                            readReceiptsIndex[rId] ?: emptyMap()
+                                        )
                                     }
                                 }
                             }
@@ -1256,23 +1252,30 @@ internal class SyncRoomsCoordinator(
                             synchronized(readReceiptsLock) {
                                 var didRemap = false
                                 bridgeStatusEventToMessageId.forEach { (statusEventId, originalMessageId) ->
-                                    val displaced = readReceipts.remove(statusEventId)
-                                    if (!displaced.isNullOrEmpty()) {
-                                        val target = readReceipts.getOrPut(originalMessageId) { mutableListOf() }
-                                        displaced.forEach { r ->
-                                            if (target.none { it.userId == r.userId }) {
-                                                target.add(r.copy(eventId = originalMessageId))
+                                    // Find which room holds this status event and remap within that room.
+                                    readReceipts.forEach { (rId, eventsMap) ->
+                                        val displaced = eventsMap.remove(statusEventId)
+                                        if (!displaced.isNullOrEmpty()) {
+                                            val roomIndex = readReceiptsIndex.getOrPut(rId) { mutableMapOf() }
+                                            val target = eventsMap.getOrPut(originalMessageId) { mutableListOf() }
+                                            displaced.forEach { r ->
+                                                if (target.none { it.userId == r.userId }) {
+                                                    target.add(r.copy(eventId = originalMessageId))
+                                                    roomIndex[r.userId] = originalMessageId
+                                                }
                                             }
+                                            updateBridgeStatus(originalMessageId, "delivered")
+                                            didRemap = true
+                                            if (BuildConfig.DEBUG)
+                                                android.util.Log.d("Andromuks", "BridgeReceipt: post-sync remap ${displaced.size} receipt(s) from $statusEventId → $originalMessageId in $rId (marked delivered)")
                                         }
-                                        updateBridgeStatus(originalMessageId, "delivered")
-                                        didRemap = true
-                                        if (BuildConfig.DEBUG)
-                                            android.util.Log.d("Andromuks", "BridgeReceipt: post-sync remap ${displaced.size} receipt(s) from $statusEventId → $originalMessageId (marked delivered)")
                                     }
                                 }
                                 if (didRemap) {
                                     readReceiptsUpdateCounter++
-                                    ReadReceiptCache.setAll(readReceipts.mapValues { it.value.toList() })
+                                    readReceipts.forEach { (rId, eventsMap) ->
+                                        ReadReceiptCache.setForRoom(rId, eventsMap.mapValues { it.value.toList() }, readReceiptsIndex[rId] ?: emptyMap())
+                                    }
                                 }
                             }
                         }

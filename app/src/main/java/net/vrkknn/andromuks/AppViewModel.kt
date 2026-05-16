@@ -1492,6 +1492,7 @@ class AppViewModel : ViewModel() {
         personsApi?.clear()
         synchronized(readReceiptsLock) {
             readReceipts.clear()
+            readReceiptsIndex.clear()
         }
         roomsWithLoadedReceipts.clear()
         roomsWithLoadedReactions.clear()
@@ -1602,9 +1603,9 @@ class AppViewModel : ViewModel() {
      * 
      * @return Map where keys are event IDs and values are lists of read receipts for that event
      */
-    fun getReadReceiptsMap(): Map<String, List<ReadReceipt>> {
+    fun getReadReceiptsMap(roomId: String): Map<String, List<ReadReceipt>> {
         return synchronized(readReceiptsLock) {
-            readReceipts.mapValues { it.value.toList() }
+            readReceipts[roomId]?.mapValues { it.value.toList() } ?: emptyMap()
         }
     }
     
@@ -4474,8 +4475,11 @@ class AppViewModel : ViewModel() {
     // Track last sent mark_read command per room to prevent duplicates
     // Key: roomId, Value: eventId that was last sent
     internal val lastMarkReadSent = mutableMapOf<String, String>() // roomId -> eventId
-    internal val readReceipts = mutableMapOf<String, MutableList<ReadReceipt>>() // eventId -> list of read receipts
-    internal val readReceiptsLock = Any() // Synchronization lock for readReceipts access
+    // roomId → eventId → list of read receipts (per-room partitioning)
+    internal val readReceipts = mutableMapOf<String, MutableMap<String, MutableList<ReadReceipt>>>()
+    // Inverted index: roomId → userId → eventId (O(1) "where is this user's receipt?" lookup)
+    internal val readReceiptsIndex = mutableMapOf<String, MutableMap<String, String>>()
+    internal val readReceiptsLock = Any() // Synchronization lock for readReceipts / readReceiptsIndex access
     internal val roomsWithLoadedReceipts = mutableSetOf<String>() // Track rooms with receipts loaded from cache
     internal val roomsWithLoadedReactions = mutableSetOf<String>() // Track rooms with reactions loaded from cache
     // Track receipt movements for animation - userId -> (previousEventId, currentEventId, timestamp)
