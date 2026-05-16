@@ -93,7 +93,7 @@ fun RichMessageText(
                         
                         // Request profile if not found
                         if (profile == null && appViewModel != null) {
-                            appViewModel.requestUserProfile(decodedMatrixId)
+                            appViewModel.requestUserProfile(decodedMatrixId, roomId)
                         }
                         
                         // Create mention pill with the display name from the HTML
@@ -190,7 +190,7 @@ fun MessageTextWithMentions(
                 
                 // Request profile if not found
                 if (profile == null && appViewModel != null) {
-                    appViewModel.requestUserProfile(userId)
+                    appViewModel.requestUserProfile(userId, roomId)
                 }
                 
                 // Create mention pill with Material3 styling

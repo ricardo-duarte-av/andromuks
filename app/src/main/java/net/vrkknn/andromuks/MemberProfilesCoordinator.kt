@@ -296,40 +296,28 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
     }
 
     fun requestUserProfile(userId: String, roomId: String?) {
+        if (roomId != null) {
+            // Prefer room-specific member state over the global get_profile.
+            // requestUserProfileOnDemand batches these into a single get_specific_room_state
+            // per room, which is both cheaper and returns the room-local displayname/avatar.
+            vm.requestUserProfileOnDemand(userId, roomId)
+            return
+        }
+        // roomId == null: no room context available, fall back to global profile.
+        // This path should be rare; callers should always pass a roomId.
+        if (BuildConfig.DEBUG)
+            android.util.Log.w("Andromuks", "MemberProfilesCoordinator: requestUserProfile called without roomId for $userId — falling back to get_profile")
         with(vm) {
-            val globalRequestKey = userId
+            if (pendingProfileRequests.contains(userId)) return
 
-            if (pendingProfileRequests.contains(globalRequestKey)) {
-                if (BuildConfig.DEBUG)
-                    android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Global profile request already pending for $userId, skipping duplicate",
-                    )
-                return
-            }
+            val profile = getUserProfile(userId, null)
+            if (profile != null && !profile.displayName.isNullOrBlank()) return
 
-            val profile = getUserProfile(userId, roomId)
-            if (profile != null && !profile.displayName.isNullOrBlank()) {
-                return
-            }
-
-            if (!canSendCommandsToBackend) {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Profile request for $userId deferred - WebSocket not ready (will be queued)",
-                    )
-                }
-            }
+            if (!isWebSocketConnected()) return
 
             val reqId = requestIdCounter++
-
             pendingProfileRequests.add(userId)
             profileRequests[reqId] = userId
-            if (roomId != null) {
-                profileRequestRooms[reqId] = roomId
-            }
-
             sendWebSocketCommand("get_profile", reqId, mapOf("user_id" to userId))
         }
     }

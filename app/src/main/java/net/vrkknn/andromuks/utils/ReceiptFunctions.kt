@@ -972,17 +972,20 @@ private fun ReadReceiptItem(
             .clickable { onUserClick(receipt.userId) },
         verticalAlignment = Alignment.CenterVertically
     ) {
+        val displayName = userProfile?.displayName?.takeIf { it.isNotBlank() }
+            ?: receipt.userId.substringAfter("@").substringBefore(":")
+
         // Avatar with automatic fallback
         AvatarImage(
             mxcUrl = userProfile?.avatarUrl,
             homeserverUrl = homeserverUrl,
             authToken = authToken,
-            fallbackText = (userProfile?.displayName ?: receipt.userId).take(1),
+            fallbackText = displayName.take(1),
             size = 40.dp,
             userId = receipt.userId,
             displayName = userProfile?.displayName
         )
-        
+
         // User info and timestamp
         Column(
             modifier = Modifier
@@ -990,7 +993,7 @@ private fun ReadReceiptItem(
                 .weight(1f)
         ) {
             Text(
-                text = userProfile?.displayName ?: receipt.userId,
+                text = displayName,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
