@@ -456,7 +456,8 @@ private fun MediaMessageItem(
     onShowEditHistory: (() -> Unit)? = null,
     onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
     onShowReactions: (() -> Unit)? = null,
-    precomputedHasBeenEdited: Boolean? = null
+    precomputedHasBeenEdited: Boolean? = null,
+    readReceipts: List<ReadReceipt> = emptyList()
 ) {
     // Check if this is a thread message
     val isThreadMessage = event.isThreadMessage()
@@ -474,11 +475,49 @@ private fun MediaMessageItem(
         )
     }
     
+    val hasReceipts = readReceipts.isNotEmpty()
+    val moveReceiptsToEdge = appViewModel?.moveReadReceiptsToEdge == true
+
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
-        verticalAlignment = Alignment.CenterVertically
+        horizontalArrangement = when {
+            moveReceiptsToEdge && hasReceipts -> Arrangement.SpaceBetween
+            isMine -> Arrangement.End
+            else -> Arrangement.Start
+        },
+        verticalAlignment = Alignment.Top
     ) {
+        // For my messages: receipts sit to the LEFT of the media bubble
+        if (isMine && hasReceipts && !moveReceiptsToEdge) {
+            AnimatedInlineReadReceiptAvatars(
+                receipts = readReceipts,
+                userProfileCache = userProfileCache,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                appViewModel = appViewModel,
+                messageSender = event.sender,
+                eventId = event.eventId,
+                roomId = event.roomId,
+                onUserClick = onUserClick,
+                isMine = true
+            )
+            Spacer(modifier = Modifier.width(ReadReceiptGap))
+        }
+        if (isMine && hasReceipts && moveReceiptsToEdge) {
+            AnimatedInlineReadReceiptAvatars(
+                receipts = readReceipts,
+                userProfileCache = userProfileCache,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                appViewModel = appViewModel,
+                messageSender = event.sender,
+                eventId = event.eventId,
+                roomId = event.roomId,
+                onUserClick = onUserClick,
+                isMine = true
+            )
+        }
+
         // Show nested reply preview (also for thread messages so replies render consistently)
         if (replyInfo != null) {
             Column {
@@ -558,6 +597,23 @@ private fun MediaMessageItem(
                 onShowReactions = onShowReactions,
                 bubbleColorOverride = mediaBubbleColor,
                 hasBeenEditedOverride = mediaHasBeenEdited
+            )
+        }
+
+        // For others' messages: receipts sit to the RIGHT of the media bubble
+        if (!isMine && hasReceipts) {
+            if (!moveReceiptsToEdge) Spacer(modifier = Modifier.width(ReadReceiptGap))
+            AnimatedInlineReadReceiptAvatars(
+                receipts = readReceipts,
+                userProfileCache = userProfileCache,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                appViewModel = appViewModel,
+                messageSender = event.sender,
+                eventId = event.eventId,
+                roomId = event.roomId,
+                onUserClick = onUserClick,
+                isMine = false
             )
         }
     }
@@ -2539,7 +2595,8 @@ private fun EncryptedMessageContent(
                     onShowEditHistory = onShowEditHistory,
                     onShowMenu = onShowMenu,
                     onShowReactions = onShowReactions,
-                    precomputedHasBeenEdited = encryptedMediaHasBeenEdited
+                    precomputedHasBeenEdited = encryptedMediaHasBeenEdited,
+                    readReceipts = readReceipts
                 )
 
                 // Add reaction badges for encrypted media messages
@@ -2571,6 +2628,7 @@ private fun EncryptedMessageContent(
                         }
                     }
                 }
+
             } else {
                 // Fallback to text message if encrypted media parsing fails
                 val bubbleShape =
