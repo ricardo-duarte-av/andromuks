@@ -18,8 +18,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -36,13 +34,9 @@ import coil.decode.SvgDecoder
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.AvatarUtils
-import net.vrkknn.andromuks.utils.BlurHashUtils
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import net.vrkknn.andromuks.utils.CircleAvatarCache
-import androidx.compose.foundation.Image
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -57,7 +51,6 @@ fun AvatarImage(
     size: Dp = 48.dp,
     userId: String? = null,
     displayName: String? = null,
-    blurHash: String? = null, // AVATAR LOADING OPTIMIZATION: BlurHash for placeholder
     isVisible: Boolean = true, // AVATAR LOADING OPTIMIZATION: Lazy loading control
     useCircleCache: Boolean = false, // CIRCLE AVATAR CACHE: Use CircleAvatarCache for RoomListScreen
     isScrollingFast: Boolean = false // PERFORMANCE: Suspend avatar loading during fast scrolling
@@ -140,25 +133,6 @@ fun AvatarImage(
     }
     
     
-    // AVATAR LOADING OPTIMIZATION: Decode BlurHash asynchronously to prevent UI thread blocking
-    var placeholderBitmap by remember(blurHash, size) {
-        mutableStateOf<ImageBitmap?>(null)
-    }
-    
-    LaunchedEffect(blurHash, size) {
-        if (blurHash != null && blurHash.isNotBlank()) {
-            withContext(Dispatchers.Default) {
-                val pixelSize = size.value.toInt()
-                val bitmap = BlurHashUtils.decodeBlurHash(blurHash, pixelSize, pixelSize)
-                if (bitmap != null) {
-                    placeholderBitmap = bitmap.asImageBitmap()
-                }
-            }
-        } else {
-            placeholderBitmap = null
-        }
-    }
-    
     val targetPixelSize = remember(size, density, useCircleCache) {
         val rawPx = with(density) { size.toPx() }.roundToInt()
         // PERFORMANCE FIX: For RoomListScreen, request smaller images to reduce decoding overhead
@@ -229,20 +203,7 @@ fun AvatarImage(
             ),
         contentAlignment = Alignment.Center
     ) {
-        // AVATAR LOADING OPTIMIZATION: Show placeholder, fallback, or image based on state
-        val placeholder = placeholderBitmap
         when {
-            // Show placeholder image if available and we haven't loaded the real image yet
-            placeholder != null && !shouldLoadImage -> {
-                Image(
-                    bitmap = placeholder,
-                    contentDescription = "Avatar placeholder",
-                    modifier = Modifier
-                        .size(size)
-                        .clip(CircleShape),
-                    contentScale = ContentScale.Crop
-                )
-            }
             // Show text fallback if SVG itself failed, or image not yet loaded during fast scroll
             imageLoadFailed || !shouldLoadImage -> {
                 Box(
