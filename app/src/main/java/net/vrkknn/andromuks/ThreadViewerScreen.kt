@@ -583,7 +583,10 @@ fun ThreadViewerScreen(
     var showCommandSuggestionList by remember { mutableStateOf(false) }
     var commandQuery by remember { mutableStateOf("") }
     var commandStartIndex by remember { mutableStateOf(-1) }
-    
+
+    // Per-message profile picker state
+    var showPmpProfilePicker by remember { mutableStateOf(false) }
+
     var showEmojiPickerForText by remember { mutableStateOf(false) }
     var showStickerPickerForText by remember { mutableStateOf(false) }
     
@@ -1832,12 +1835,18 @@ fun ThreadViewerScreen(
                                                 replacedValue.text,
                                                 replacedValue.selection.start
                                             )
+                                            val trimmedForPmp = replacedValue.text.trimEnd()
+                                            showPmpProfilePicker = trimmedForPmp.equals("/pmp", ignoreCase = true) ||
+                                                trimmedForPmp.equals("/profile", ignoreCase = true) ||
+                                                (trimmedForPmp.startsWith("/pmp ", ignoreCase = true) && trimmedForPmp.drop(5).isBlank()) ||
+                                                (trimmedForPmp.startsWith("/profile ", ignoreCase = true) && trimmedForPmp.drop(9).isBlank())
+
                                             if (commandResult != null) {
                                                 val (query, startIndex) = commandResult
                                                 commandQuery = query
                                                 commandStartIndex = startIndex
                                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "ThreadViewerScreen: / detected, query='$query'")
-                                                showCommandSuggestionList = true
+                                                showCommandSuggestionList = !showPmpProfilePicker
                                                 // Hide other suggestion lists when command is active
                                                 showMentionList = false
                                                 showEmojiSuggestionList = false
@@ -2415,6 +2424,30 @@ fun ThreadViewerScreen(
                     }
                 }
                 
+                // Floating per-message profile picker
+                if (showPmpProfilePicker) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(start = 72.dp, bottom = 80.dp)
+                            .navigationBarsPadding()
+                            .imePadding()
+                            .zIndex(9f),
+                        contentAlignment = Alignment.BottomStart
+                    ) {
+                        net.vrkknn.andromuks.utils.PerMessageProfilePicker(
+                            appViewModel = appViewModel,
+                            onProfileSelected = { profile ->
+                                val newText = "/pmp ${profile.shortcode} "
+                                draft = newText
+                                textFieldValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
+                                showPmpProfilePicker = false
+                            },
+                            modifier = Modifier.zIndex(10f)
+                        )
+                    }
+                }
+
                 // Floating room suggestion list for room mentions
                 // Floating command suggestion list
                 if (showCommandSuggestionList) {

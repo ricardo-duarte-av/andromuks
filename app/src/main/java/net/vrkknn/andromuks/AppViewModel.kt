@@ -9535,6 +9535,11 @@ class AppViewModel : ViewModel() {
     fun executeCommand(roomId: String, text: String, context: android.content.Context, navController: androidx.navigation.NavController? = null): Boolean =
         slashCommandsCoordinator.executeCommand(roomId, text, context, navController)
 
+    fun setAccountDataContent(type: String, content: Map<String, Any>) {
+        val requestId = requestIdCounter++
+        sendWebSocketCommand("set_account_data", requestId, mapOf("type" to type, "content" to content))
+    }
+
     /**
      * Set room member avatar (myroomavatar command)
      * Called after image is uploaded

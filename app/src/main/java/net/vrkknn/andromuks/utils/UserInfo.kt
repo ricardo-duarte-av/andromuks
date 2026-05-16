@@ -1946,140 +1946,153 @@ fun UserInfoScreen(
                     }
                 }
                 
-                Row(
+                // Get DM room IDs for this user from m.direct
+                // Make reactive to account data and room list changes
+                val allRooms = appViewModel.allRooms
+                val dmRoomIds = remember(userId, appViewModel.roomListUpdateCounter) {
+                    appViewModel.getDirectRoomIdsForUser(userId)
+                }
+
+                // Check if we're joined to any of these rooms
+                // Make reactive to room list changes
+                val joinedDmRoomId = remember(dmRoomIds, allRooms) {
+                    dmRoomIds.firstOrNull { roomId ->
+                        appViewModel.getRoomById(roomId) != null
+                    }
+                }
+
+                val isDmAvailable = joinedDmRoomId != null
+
+                // Device List availability check
+                val encInfo = userProfileInfo!!.encryptionInfo
+                val deviceCount = encInfo?.devices?.size ?: 0
+                val isDeviceListAvailable = encInfo != null && encInfo.devicesTracked && deviceCount > 0
+
+                // Shared Rooms availability check
+                val sharedRoomsCount = userProfileInfo!!.mutualRooms.size
+                val isSharedRoomsAvailable = sharedRoomsCount > 0
+
+                var isCreatingDm by remember { mutableStateOf(false) }
+
+                // 2x2 grid: row 1 always shown, row 2 only for own profile
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Get DM room IDs for this user from m.direct
-                    // Make reactive to account data and room list changes
-                    val allRooms = appViewModel.allRooms
-                    val dmRoomIds = remember(userId, appViewModel.roomListUpdateCounter) {
-                        appViewModel.getDirectRoomIdsForUser(userId)
-                    }
-                    
-                    // Check if we're joined to any of these rooms
-                    // Make reactive to room list changes
-                    val joinedDmRoomId = remember(dmRoomIds, allRooms) {
-                        dmRoomIds.firstOrNull { roomId ->
-                            appViewModel.getRoomById(roomId) != null
-                        }
-                    }
-                    
-                    val isDmAvailable = joinedDmRoomId != null
-                    
-                    // Device List availability check
-                    val encInfo = userProfileInfo!!.encryptionInfo
-                    val deviceCount = encInfo?.devices?.size ?: 0
-                    val isDeviceListAvailable = encInfo != null && encInfo.devicesTracked && deviceCount > 0
-                    
-                    // Shared Rooms availability check
-                    val sharedRoomsCount = userProfileInfo!!.mutualRooms.size
-                    val isSharedRoomsAvailable = sharedRoomsCount > 0
-                    
-                    var isCreatingDm by remember { mutableStateOf(false) }
-                    
-                    Button(
-                        onClick = {
-                            if (isDmAvailable && joinedDmRoomId != null) {
-                                val encodedRoomId = java.net.URLEncoder.encode(joinedDmRoomId, "UTF-8")
-                                navController.navigate("room_timeline/$encodedRoomId")
-                            } else {
-                                isCreatingDm = true
-                                appViewModel.createRoom(
-                                    name = null,
-                                    topic = null,
-                                    roomAliasName = null,
-                                    preset = "trusted_private_chat",
-                                    isDirect = true,
-                                    invite = listOf(userId),
-                                    initialState = listOf(
-                                        mapOf(
-                                            "type" to "m.room.encryption",
-                                            "content" to mapOf("algorithm" to "m.megolm.v1.aes-sha2")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                if (isDmAvailable && joinedDmRoomId != null) {
+                                    val encodedRoomId = java.net.URLEncoder.encode(joinedDmRoomId, "UTF-8")
+                                    navController.navigate("room_timeline/$encodedRoomId")
+                                } else {
+                                    isCreatingDm = true
+                                    appViewModel.createRoom(
+                                        name = null,
+                                        topic = null,
+                                        roomAliasName = null,
+                                        preset = "trusted_private_chat",
+                                        isDirect = true,
+                                        invite = listOf(userId),
+                                        initialState = listOf(
+                                            mapOf(
+                                                "type" to "m.room.encryption",
+                                                "content" to mapOf("algorithm" to "m.megolm.v1.aes-sha2")
+                                            )
                                         )
-                                    )
-                                ) { newRoomId, error ->
-                                    coroutineScope.launch(Dispatchers.Main) {
-                                        isCreatingDm = false
-                                        if (newRoomId != null) {
-                                            val encodedRoomId = java.net.URLEncoder.encode(newRoomId, "UTF-8")
-                                            navController.navigate("room_timeline/$encodedRoomId")
-                                        } else {
-                                            Toast.makeText(context, "Failed to create DM: $error", Toast.LENGTH_SHORT).show()
+                                    ) { newRoomId, error ->
+                                        coroutineScope.launch(Dispatchers.Main) {
+                                            isCreatingDm = false
+                                            if (newRoomId != null) {
+                                                val encodedRoomId = java.net.URLEncoder.encode(newRoomId, "UTF-8")
+                                                navController.navigate("room_timeline/$encodedRoomId")
+                                            } else {
+                                                Toast.makeText(context, "Failed to create DM: $error", Toast.LENGTH_SHORT).show()
+                                            }
                                         }
                                     }
                                 }
+                            },
+                            enabled = !isCreatingDm,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                        ) {
+                            if (isCreatingDm) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Text(
+                                    text = if (isDmAvailable) "Go to\nDM" else "Create\nDM",
+                                    textAlign = TextAlign.Center
+                                )
                             }
-                        },
-                        enabled = !isCreatingDm,
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 48.dp)
-                    ) {
-                        if (isCreatingDm) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Text(
-                                text = if (isDmAvailable) "Go to\nDM" else "Create\nDM",
-                                textAlign = TextAlign.Center
-                            )
+                        }
+
+                        Button(
+                            onClick = {
+                                if (encInfo != null && !encInfo.devicesTracked) {
+                                    isLoading = true
+                                    appViewModel.trackUserDevices(userId) { updatedEncInfo, error ->
+                                        isLoading = false
+                                        if (error == null && updatedEncInfo != null) {
+                                            userProfileInfo =
+                                                userProfileInfo!!.copy(encryptionInfo = updatedEncInfo)
+                                            showDeviceListDialog = true
+                                        }
+                                    }
+                                } else {
+                                    showDeviceListDialog = true
+                                }
+                            },
+                            enabled = isDeviceListAvailable || (encInfo != null && !encInfo.devicesTracked),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                        ) {
+                            val buttonText = when {
+                                encInfo == null -> "Device List"
+                                !encInfo.devicesTracked -> "Track\nDevices"
+                                else -> "Device List"
+                            }
+                            Text(text = buttonText, textAlign = TextAlign.Center)
                         }
                     }
 
-                    Button(
-                        onClick = {
-                            if (encInfo != null && !encInfo.devicesTracked) {
-                                // Track devices first
-                                isLoading = true
-                                appViewModel.trackUserDevices(userId) { updatedEncInfo, error ->
-                                    isLoading = false
-                                    if (error == null && updatedEncInfo != null) {
-                                        userProfileInfo =
-                                            userProfileInfo!!.copy(encryptionInfo = updatedEncInfo)
-                                        showDeviceListDialog = true
-                                    }
-                                }
-                            } else {
-                                showDeviceListDialog = true
-                            }
-                        },
-                        enabled = isDeviceListAvailable || (encInfo != null && !encInfo.devicesTracked),
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 48.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        val buttonText = when {
-                            encInfo == null -> "Device List"
-                            !encInfo.devicesTracked -> "Track\nDevices"
-                            else -> "Device List"
+                        Button(
+                            onClick = { showSharedRoomsDialog = true },
+                            enabled = isSharedRoomsAvailable,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                        ) {
+                            Text(text = "Shared\nRooms", textAlign = TextAlign.Center)
                         }
-                        Text(
-                            text = buttonText,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                    
-                    // Shared Rooms Button
-                    Button(
-                        onClick = { showSharedRoomsDialog = true },
-                        enabled = isSharedRoomsAvailable,
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 48.dp)
-                    ) {
-                        Text(
-                            text = "Shared Rooms",
-                            textAlign = TextAlign.Center
-                        )
+
+                        Button(
+                            onClick = { navController.navigate("per_message_profile_editor") },
+                            enabled = myUserId == userId,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                        ) {
+                            Text(text = "Per-Message\nProfiles", textAlign = TextAlign.Center)
+                        }
                     }
                 }
-                
+
                 // Add to Contacts Button removed - functionality moved to save button in TopAppBar
-                
+
                 // Moderation buttons (only shown if we have a room context and not viewing own profile)
                 if (effectiveRoomId != null && myUserId != userId) {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -2167,7 +2180,9 @@ fun UserInfoScreen(
                     "io.fsky.nyx.pronouns",
                     "chat.commet.profile_banner",
                     "chat.commet.profile_bio",
-                    "moe.sable.app.bio"
+                    "moe.sable.app.bio",
+                    "m.per_message_profiles",
+                    "fi.mau.msc4461.per_message_profiles"
                 )
                 val arbitraryFields = userProfileInfo!!.arbitraryFields
                     .filterKeys { it !in hiddenKnownProfileKeys }

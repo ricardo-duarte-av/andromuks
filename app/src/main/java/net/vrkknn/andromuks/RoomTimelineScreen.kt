@@ -1119,7 +1119,10 @@ fun RoomTimelineScreen(
     var showCommandSuggestionList by remember { mutableStateOf(false) }
     var commandQuery by remember { mutableStateOf("") }
     var commandStartIndex by remember { mutableStateOf(-1) }
-    
+
+    // Per-message profile picker state
+    var showPmpProfilePicker by remember { mutableStateOf(false) }
+
     // Avatar command state (for commands that need image picker)
     var pendingAvatarCommand by remember { mutableStateOf<String?>(null) } // "myroomavatar", "globalavatar", or "roomavatar"
     
@@ -4015,12 +4018,19 @@ fun RoomTimelineScreen(
                                             replacedValue.text,
                                             replacedValue.selection.start
                                         )
+                                        // Detect /pmp picker: draft is exactly "/pmp" or "/pmp " with nothing after
+                                        val trimmedForPmp = replacedValue.text.trimEnd()
+                                        showPmpProfilePicker = trimmedForPmp.equals("/pmp", ignoreCase = true) ||
+                                            trimmedForPmp.equals("/profile", ignoreCase = true) ||
+                                            (trimmedForPmp.startsWith("/pmp ", ignoreCase = true) && trimmedForPmp.drop(5).isBlank()) ||
+                                            (trimmedForPmp.startsWith("/profile ", ignoreCase = true) && trimmedForPmp.drop(9).isBlank())
+
                                         if (commandResult != null) {
                                             val (query, startIndex) = commandResult
                                             commandQuery = query
                                             commandStartIndex = startIndex
                                             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: / detected, query='$query'")
-                                            showCommandSuggestionList = true
+                                            showCommandSuggestionList = !showPmpProfilePicker
                                             // Hide other suggestion lists when command is active
                                             showMentionList = false
                                             showEmojiSuggestionList = false
@@ -5285,6 +5295,29 @@ fun RoomTimelineScreen(
                     }
                 }
                 
+                // Floating per-message profile picker
+                if (showPmpProfilePicker) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(start = 72.dp, bottom = 60.dp)
+                            .navigationBarsPadding()
+                            .imePadding()
+                            .zIndex(9f)
+                    ) {
+                        net.vrkknn.andromuks.utils.PerMessageProfilePicker(
+                            appViewModel = appViewModel,
+                            onProfileSelected = { profile ->
+                                val newText = "/pmp ${profile.shortcode} "
+                                draft = newText
+                                textFieldValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
+                                showPmpProfilePicker = false
+                            },
+                            modifier = Modifier.zIndex(10f)
+                        )
+                    }
+                }
+
                 // Floating command suggestion list
                 if (showCommandSuggestionList) {
                     Box(

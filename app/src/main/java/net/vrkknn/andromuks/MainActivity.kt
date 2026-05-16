@@ -1779,6 +1779,12 @@ fun AppNavigation(
             
 
         }
+        composable(route = "per_message_profile_editor") {
+            net.vrkknn.andromuks.utils.PerMessageProfileEditorScreen(
+                navController = navController,
+                appViewModel = appViewModel
+            )
+        }
     }
     } // End of SharedTransitionLayout
 

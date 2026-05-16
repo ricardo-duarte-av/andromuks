@@ -299,6 +299,25 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                 }
                 true
             }
+            command == "/pmp" || command == "/profile" -> {
+                // No args or only shortcode with no message text: let the UI profile picker handle it
+                if (args.isEmpty()) return false
+                val shortcode = args[0]
+                val messageBody = args.drop(1).joinToString(" ")
+                if (messageBody.isBlank()) return false
+                // Validate that the shortcode exists in account data
+                val profiles = net.vrkknn.andromuks.utils.readPerMessageProfiles()
+                if (!profiles.containsKey(shortcode)) {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Failed to send message: Error: unknown per-message profile: $shortcode",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    return true
+                }
+                // Valid: let the text fall through to normal sendMessage (gomuks handles /pmp natively)
+                false
+            }
             else -> false
         }
     }

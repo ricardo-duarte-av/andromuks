@@ -132,6 +132,12 @@ object Commands {
         CommandDefinition(
             command = "/converttoroom",
             description = "Remove the current room from DMs (m.direct)"
+        ),
+        CommandDefinition(
+            command = "/pmp",
+            aliases = listOf("/profile"),
+            description = "Send message as a per-message profile",
+            parameters = listOf("shortcode", "message")
         )
     )
     
