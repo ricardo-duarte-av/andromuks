@@ -943,7 +943,6 @@ class AppViewModel : ViewModel() {
     // SYNC OPTIMIZATION: Selective update flags
     internal var needsRoomListUpdate = false
     internal var needsMemberUpdate = false
-    private var needsReactionUpdate = false
     
     // NAVIGATION PERFORMANCE: Prefetch and caching system
     private val prefetchedRooms = mutableSetOf<String>() // Track which rooms have been prefetched
@@ -2760,12 +2759,7 @@ class AppViewModel : ViewModel() {
 
         }
         
-        if (needsReactionUpdate) {
-            reactionUpdateCounter++
-            needsReactionUpdate = false
- 
-        }
-        
+
 
     }
 
