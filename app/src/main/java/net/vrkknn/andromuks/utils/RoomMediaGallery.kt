@@ -52,6 +52,8 @@ data class GalleryMediaItem(
      */
     val fallbackHttpUrl: String? = null,
     val isVideo: Boolean,
+    /** True when the source event was m.room.encrypted — URLs carry ?encrypted=true */
+    val isEncrypted: Boolean = false,
     val timelineRowid: Long,
     val eventId: String,
     /** BlurHash string from info.xyz.amorgan.blurhash (or info.blurhash), if present */
@@ -65,20 +67,20 @@ private fun extractMediaItems(
     return events.mapNotNull { event ->
         if (event.timelineRowid == 0L) return@mapNotNull null
 
-        val (content, isVideo) = when {
+        val (content, isVideo, isEncrypted) = when {
             event.type == "m.room.message" -> {
                 val msgtype = event.content?.optString("msgtype") ?: return@mapNotNull null
                 when (msgtype) {
-                    "m.image" -> Pair(event.content, false)
-                    "m.video" -> Pair(event.content, true)
+                    "m.image" -> Triple(event.content, false, false)
+                    "m.video" -> Triple(event.content, true, false)
                     else -> return@mapNotNull null
                 }
             }
             event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> {
                 val msgtype = event.decrypted?.optString("msgtype") ?: return@mapNotNull null
                 when (msgtype) {
-                    "m.image" -> Pair(event.decrypted, false)
-                    "m.video" -> Pair(event.decrypted, true)
+                    "m.image" -> Triple(event.decrypted, false, true)
+                    "m.video" -> Triple(event.decrypted, true, true)
                     else -> return@mapNotNull null
                 }
             }
@@ -101,22 +103,30 @@ private fun extractMediaItems(
         //    the backend produces a resized copy. Keep the full URL as a fallback for when that
         //    request fails (some media types the backend can't thumbnail).
         // 3. For m.video without one: keep the existing ?thumbnail=NxN server-side resize.
+        val encryptedSuffix = if (isEncrypted) "encrypted=true" else null
         val fullHttpUrl = MediaUtils.mxcToHttpUrl(fullMxc, homeserverUrl) ?: return@mapNotNull null
+        val fullHttpUrlWithEnc = if (encryptedSuffix != null) "$fullHttpUrl?$encryptedSuffix" else fullHttpUrl
         val thumbnailHttpUrl: String
         val fallbackHttpUrl: String?
         when {
             thumbnailMxc != null -> {
-                thumbnailHttpUrl = MediaUtils.mxcToHttpUrl(thumbnailMxc, homeserverUrl)
+                val base = MediaUtils.mxcToHttpUrl(thumbnailMxc, homeserverUrl)
                     ?: return@mapNotNull null
+                thumbnailHttpUrl = if (encryptedSuffix != null) "$base?$encryptedSuffix" else base
                 fallbackHttpUrl = null
             }
             !isVideo -> {
-                thumbnailHttpUrl = "$fullHttpUrl?thumbnail=avatar"
-                fallbackHttpUrl = fullHttpUrl
+                thumbnailHttpUrl = if (encryptedSuffix != null) {
+                    "$fullHttpUrl?thumbnail=avatar&$encryptedSuffix"
+                } else {
+                    "$fullHttpUrl?thumbnail=avatar"
+                }
+                fallbackHttpUrl = fullHttpUrlWithEnc
             }
             else -> {
-                thumbnailHttpUrl = MediaUtils.mxcToThumbnailUrl(fullMxc, homeserverUrl, width = 300, height = 300)
+                val base = MediaUtils.mxcToThumbnailUrl(fullMxc, homeserverUrl, width = 300, height = 300)
                     ?: return@mapNotNull null
+                thumbnailHttpUrl = if (encryptedSuffix != null) "$base&$encryptedSuffix" else base
                 fallbackHttpUrl = null
             }
         }
@@ -127,6 +137,7 @@ private fun extractMediaItems(
             thumbnailHttpUrl = thumbnailHttpUrl,
             fallbackHttpUrl = fallbackHttpUrl,
             isVideo = isVideo,
+            isEncrypted = isEncrypted,
             timelineRowid = event.timelineRowid,
             eventId = event.eventId,
             blurHash = blurHash
@@ -325,7 +336,7 @@ fun RoomMediaGalleryScreen(
                 mediaMessage = item.toVideoMediaMessage(),
                 homeserverUrl = homeserverUrl,
                 authToken = authToken,
-                isEncrypted = false,
+                isEncrypted = item.isEncrypted,
                 shouldAutoPlay = true,
                 onDismiss = { selectedItem = null }
             )
@@ -334,7 +345,7 @@ fun RoomMediaGalleryScreen(
                 mediaMessage = item.toImageMediaMessage(),
                 homeserverUrl = homeserverUrl,
                 authToken = authToken,
-                isEncrypted = false,
+                isEncrypted = item.isEncrypted,
                 sourceBounds = null,
                 onDismiss = { selectedItem = null }
             )
