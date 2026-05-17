@@ -72,6 +72,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     // Per-room locks to prevent concurrent notification updates for the same room
     private val roomNotificationLocks = ConcurrentHashMap<String, Any>()
     
+    // In-memory message cache: roomId → last N messages, used to build MessagingStyle without
+    // racing against activeNotifications propagation delay. Capped at MAX_CACHED_MESSAGES_PER_ROOM
+    // (Android renders at most 5). Entries are cleared when the user marks a room read or dismisses.
+    // Access is serialised per-room by roomNotificationLocks; removals are atomic on ConcurrentHashMap.
+    private val roomMessageCache = ConcurrentHashMap<String, ArrayDeque<MessagingStyle.Message>>()
+    private val MAX_CACHED_MESSAGES_PER_ROOM = 5
+
     // In-memory cache for avatar icons to avoid reloading on every notification update
     // Key: avatar URL (MXC or HTTP), Value: IconCompat
     // Using LRU cache with max size of 100 to limit memory usage
@@ -554,28 +561,14 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     systemNotificationManager.activeNotifications?.lastOrNull { it.id == notifID }
                 } catch (e: Exception) { null }
 
-                // Extract existing MessagingStyle if available (with proper error handling)
-                val existingStyle = try {
-                    existingNotification?.let { MessagingStyle.extractMessagingStyleFromNotification(it.notification) }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Could not extract messaging style", e)
-                    null
-                }
-                
-                // Create or update MessagingStyle
-                // For DMs, use sender name as conversation title; for groups, use room name
+                // Conversation title: group rooms use room name, DMs use sender display name
                 val conversationTitle = if (isGroupRoom) {
                     notificationData.roomName
                 } else {
-                    // For DMs, use sender display name as the conversation title
                     senderDisplayNameForDisplay
                 }
-                
-                val messagingStyle = (existingStyle ?: NotificationCompat.MessagingStyle(me))
-                    .setConversationTitle(conversationTitle)
-                    .setGroupConversation(isGroupRoom)
-                
-                // Add message to style
+
+                // Build the incoming message first so it can be added to the cache
                 val message = if (hasImage && imageUri != null) {
                     // Image message with downloaded image
                     // CRITICAL FIX: Use specific MIME type instead of "image/*" for better image display
@@ -607,8 +600,19 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     )
                 }
                 
-                messagingStyle.addMessage(message)
-                
+                // Update in-memory cache (capped at MAX_CACHED_MESSAGES_PER_ROOM — Android's display limit).
+                // This is the source of truth for MessagingStyle, avoiding activeNotifications propagation
+                // delay races when two messages arrive back-to-back for the same room.
+                val cachedMessages = roomMessageCache.getOrPut(notificationData.roomId) { ArrayDeque() }
+                cachedMessages.addLast(message)
+                while (cachedMessages.size > MAX_CACHED_MESSAGES_PER_ROOM) cachedMessages.removeFirst()
+
+                // Build MessagingStyle entirely from the in-memory cache
+                val messagingStyle = NotificationCompat.MessagingStyle(me)
+                    .setConversationTitle(conversationTitle)
+                    .setGroupConversation(isGroupRoom)
+                cachedMessages.forEach { messagingStyle.addMessage(it) }
+
                 // Create conversation channel for this room (only if needed - avoids dismissing notifications)
                 createConversationChannel(notificationData.roomId, notificationData.roomName ?: notificationData.roomId, isGroupRoom)
                 
@@ -1417,13 +1421,6 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 return
             }
             
-            // Extract the existing MessagingStyle
-            val existingStyle = MessagingStyle.extractMessagingStyleFromNotification(existingNotification.notification)
-            if (existingStyle == null) {
-                Log.w(TAG, "Could not extract MessagingStyle from notification for room: $roomId")
-                return
-            }
-            
             // Extract the event_id from the notification extras
             val eventId = existingNotification.notification.extras?.getString("event_id")
             if (BuildConfig.DEBUG) Log.d(TAG, "Extracted event_id from notification: $eventId")
@@ -1473,28 +1470,23 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 }
                 .build()
             
-            // Avoid duplicate reply entries - system may already add the reply automatically
-            val replyAlreadyPresent = existingStyle.messages.any { message ->
-                val messageText = message.text?.toString()
-                val messagePersonKey = message.person?.key
-                val matchesText = messageText == replyText
-                val matchesPerson = messagePersonKey == currentUserId
-                matchesText && matchesPerson
+            // Update the in-memory cache with the reply (same cap as showEnhancedNotification).
+            // Duplicate guard: the system may have already injected the reply text optimistically.
+            val cachedMessages = roomMessageCache.getOrPut(roomId) { ArrayDeque() }
+            val replyAlreadyPresent = cachedMessages.any {
+                it.text?.toString() == replyText && it.person?.key == currentUserId
+            }
+            if (!replyAlreadyPresent) {
+                cachedMessages.addLast(MessagingStyle.Message(replyText, System.currentTimeMillis(), mePerson))
+                while (cachedMessages.size > MAX_CACHED_MESSAGES_PER_ROOM) cachedMessages.removeFirst()
+            } else {
+                if (BuildConfig.DEBUG) Log.d(TAG, "Reply already present in cache, skipping duplicate entry")
             }
 
-            if (!replyAlreadyPresent) {
-                // Add the reply message to the style
-                existingStyle.addMessage(
-                    MessagingStyle.Message(
-                        replyText,
-                        System.currentTimeMillis(),
-                        mePerson
-                    )
-                )
-            } else {
-                if (BuildConfig.DEBUG) Log.d(TAG, "Reply already present in notification, skipping duplicate entry")
-            }
-            
+            // Build MessagingStyle from cache
+            val updatedStyle = NotificationCompat.MessagingStyle(mePerson)
+            cachedMessages.forEach { updatedStyle.addMessage(it) }
+
             // Get the channel ID from the notification (must use sanitized ID to match channel creation)
             val sanitizedRoomId = net.vrkknn.andromuks.utils.AvatarUtils.sanitizeIdForAndroid(roomId, maxLength = 50)
             val channelId = "${CONVERSATION_CHANNEL_ID}_$sanitizedRoomId"
@@ -1505,7 +1497,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Rebuild the notification with the updated style
             val updatedNotification = NotificationCompat.Builder(context, channelId)
                 .setSmallIcon(R.drawable.matrix)
-                .setStyle(existingStyle)
+                .setStyle(updatedStyle)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setContentIntent(existingNotification.notification.contentIntent)
                 .setAutoCancel(true)
@@ -1623,10 +1615,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 return
             }
             
+            // Clear message cache — next notification for this room starts fresh
+            roomMessageCache.remove(roomId)
+
             // Dismiss the notification now that it's been marked as read (only if no bubble)
             val notificationManagerCompat = NotificationManagerCompat.from(context)
             notificationManagerCompat.cancel(notifID)
-            
+
             if (BuildConfig.DEBUG) Log.d(TAG, "Dismissed notification and cleared unread count for room: $roomId")
             
         } catch (e: Exception) {
@@ -1647,6 +1642,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             return
         }
         
+        // Clear message cache — next notification for this room starts fresh
+        roomMessageCache.remove(roomId)
+
         val notificationManager = NotificationManagerCompat.from(context)
         notificationManager.cancel(roomId.hashCode().let { kotlin.math.abs(it) })
     }
