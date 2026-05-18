@@ -45,26 +45,54 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     
     companion object {
         private const val TAG = "EnhancedNotificationDisplay"
-    private const val DM_CHANNEL_ID = "matrix_direct_messages"
-    private const val GROUP_CHANNEL_ID = "matrix_group_messages"
-    private const val CONVERSATION_CHANNEL_ID = "conversation_channel"
-    private const val DM_CHANNEL_NAME = "Direct Messages"
-    private const val GROUP_CHANNEL_NAME = "Group Messages"
+        private const val DM_CHANNEL_ID = "matrix_direct_messages"
+        private const val GROUP_CHANNEL_ID = "matrix_group_messages"
+        private const val CONVERSATION_CHANNEL_ID = "conversation_channel"
+        private const val DM_CHANNEL_NAME = "Direct Messages"
+        private const val GROUP_CHANNEL_NAME = "Group Messages"
         private const val CHANNEL_DESCRIPTION = "Notifications for Matrix messages and events"
-        
+
         // Notification action constants
         private const val ACTION_REPLY = "action_reply"
         private const val ACTION_MARK_READ = "action_mark_read"
         private const val ACTION_VIEW_ROOM = "action_view_room"
-        
+
         // Remote input key
         private const val KEY_REPLY_TEXT = "key_reply_text"
-        
+
         // Reply processing window to prevent race conditions when updating notifications
         private const val REPLY_PROCESSING_WINDOW_MS = 500L // 500ms window to let Android finish processing
-        
+
         private val autoExpandedBubbleRooms =
             Collections.synchronizedSet(mutableSetOf<String>())
+
+        // Process-wide message cache shared with NotificationImageWorker so Phase 2 can
+        // upgrade the cached text placeholder to a real image message. Access is serialised
+        // per-room by roomNotificationLocks inside showEnhancedNotification; the worker
+        // calls upgradeMessageToImage() which is independently thread-safe via synchronized.
+        internal val roomMessageCache = ConcurrentHashMap<String, ArrayDeque<MessagingStyle.Message>>()
+        internal const val MAX_CACHED_MESSAGES_PER_ROOM = 5
+
+        /**
+         * Called by NotificationImageWorker after a successful Phase 2 image update.
+         * Replaces the text-only placeholder in the cache with an image-bearing message
+         * so that any subsequent showEnhancedNotification call rebuilds from the correct state.
+         */
+        internal fun upgradeMessageToImage(
+            roomId: String,
+            timestamp: Long,
+            mimeType: String,
+            imageUri: android.net.Uri
+        ) {
+            val messages = roomMessageCache[roomId] ?: return
+            synchronized(messages) {
+                val idx = messages.indexOfLast { it.timestamp == timestamp }
+                if (idx < 0) return
+                val old = messages[idx]
+                messages[idx] = MessagingStyle.Message(old.text, old.timestamp, old.person)
+                    .setData(mimeType, imageUri)
+            }
+        }
     }
     
     private val conversationsApi = ConversationsApi(context, homeserverUrl, authToken, "")
@@ -72,13 +100,6 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     // Per-room locks to prevent concurrent notification updates for the same room
     private val roomNotificationLocks = ConcurrentHashMap<String, Any>()
     
-    // In-memory message cache: roomId → last N messages, used to build MessagingStyle without
-    // racing against activeNotifications propagation delay. Capped at MAX_CACHED_MESSAGES_PER_ROOM
-    // (Android renders at most 5). Entries are cleared when the user marks a room read or dismisses.
-    // Access is serialised per-room by roomNotificationLocks; removals are atomic on ConcurrentHashMap.
-    private val roomMessageCache = ConcurrentHashMap<String, ArrayDeque<MessagingStyle.Message>>()
-    private val MAX_CACHED_MESSAGES_PER_ROOM = 5
-
     // In-memory cache for avatar icons to avoid reloading on every notification update
     // Key: avatar URL (MXC or HTTP), Value: IconCompat
     // Using LRU cache with max size of 100 to limit memory usage
@@ -479,8 +500,6 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             } else {
                 Pair(null, null)
             }
-            val imageUri: android.net.Uri? = null // Phase 1 always posts without image
-            
             // Process message body - use HTML if available, otherwise parse markdown spans from
             // plain body (FCM payloads only carry the plain `body`, not sanitized_html).
             val messageBody = if (!notificationData.htmlBody.isNullOrEmpty()) {
@@ -568,37 +587,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     senderDisplayNameForDisplay
                 }
 
-                // Build the incoming message first so it can be added to the cache
-                val message = if (hasImage && imageUri != null) {
-                    // Image message with downloaded image
-                    // CRITICAL FIX: Use specific MIME type instead of "image/*" for better image display
-                    // Also provide a better message text that indicates an image was sent
-                    val imageMessageText = notificationData.body.takeIf { it.isNotBlank() } ?: "📷 Photo"
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Adding image message to notification with URI: $imageUri, text: $imageMessageText")
-                    
-                    // Detect MIME type from file extension or use a common default
-                    val mimeType = when {
-                        notificationData.image.contains(".jpg", ignoreCase = true) || 
-                        notificationData.image.contains(".jpeg", ignoreCase = true) -> "image/jpeg"
-                        notificationData.image.contains(".png", ignoreCase = true) -> "image/png"
-                        notificationData.image.contains(".gif", ignoreCase = true) -> "image/gif"
-                        notificationData.image.contains(".webp", ignoreCase = true) -> "image/webp"
-                        else -> "image/jpeg" // Default to JPEG for better compatibility
-                    }
-                    
-                    MessagingStyle.Message(
-                        imageMessageText,
-                        notificationData.timestamp ?: System.currentTimeMillis(),
-                        messagePerson // Always use messagePerson, even for DMs
-                    ).setData(mimeType, imageUri)
-                } else {
-                    // Text message
-                    MessagingStyle.Message(
-                        messageBody,
-                        notificationData.timestamp ?: System.currentTimeMillis(),
-                        messagePerson // Always use messagePerson, even for DMs
-                    )
-                }
+                // Phase 1: always post a text-only message. The worker upgrades it to
+                // an image message (setData) in Phase 2 once the download completes.
+                val message = MessagingStyle.Message(
+                    messageBody,
+                    notificationData.timestamp ?: System.currentTimeMillis(),
+                    messagePerson
+                )
                 
                 // Update in-memory cache (capped at MAX_CACHED_MESSAGES_PER_ROOM — Android's display limit).
                 // This is the source of truth for MessagingStyle, avoiding activeNotifications propagation
@@ -833,7 +828,12 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     imageUrl = deferredHttpUrl,
                     mxcUrl = deferredMxcUrl,
                     mimeType = mimeType,
-                    authToken = authToken
+                    authToken = authToken,
+                    // Pass the exact timestamp used in the MessagingStyle.Message so the worker
+                    // can match by timestamp instead of blindly upgrading the last message.
+                    // Without this, a newer text message arriving between Phase 1 and Phase 2
+                    // would be incorrectly overwritten with image data.
+                    messageTimestamp = notificationData.timestamp ?: System.currentTimeMillis()
                 )
             }
             

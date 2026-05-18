@@ -53,6 +53,7 @@ class NotificationImageWorker(
         private const val KEY_MXC_URL = "mxc_url"
         private const val KEY_MIME_TYPE = "mime_type"
         private const val KEY_AUTH_TOKEN = "auth_token"
+        private const val KEY_MESSAGE_TIMESTAMP = "message_timestamp"
 
         /**
          * Enqueue an image-download job for the given notification.
@@ -68,7 +69,8 @@ class NotificationImageWorker(
             imageUrl: String,
             mxcUrl: String?,
             mimeType: String,
-            authToken: String
+            authToken: String,
+            messageTimestamp: Long = 0L
         ) {
             val data = Data.Builder()
                 .putString(KEY_ROOM_ID, roomId)
@@ -77,6 +79,7 @@ class NotificationImageWorker(
                 .putString(KEY_MXC_URL, mxcUrl)
                 .putString(KEY_MIME_TYPE, mimeType)
                 .putString(KEY_AUTH_TOKEN, authToken)
+                .putLong(KEY_MESSAGE_TIMESTAMP, messageTimestamp)
                 .build()
 
             val constraints = Constraints.Builder()
@@ -92,10 +95,12 @@ class NotificationImageWorker(
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.SECONDS)
                 .build()
 
+            // Use per-event work name so rapid back-to-back image messages in the same
+            // room each get their own worker. KEEP still prevents double-download if FCM
+            // delivers the same event twice (same eventId → same work name).
+            val workName = if (eventId != null) "notif_image_${roomId}_$eventId" else "notif_image_$roomId"
             WorkManager.getInstance(context).enqueueUniqueWork(
-                "notif_image_$roomId",
-                // KEEP: if a download is already running for this room let it finish.
-                // A second image in rapid succession is rare; losing the first is worse.
+                workName,
                 ExistingWorkPolicy.KEEP,
                 request
             )
@@ -110,6 +115,7 @@ class NotificationImageWorker(
         val imageUrl = inputData.getString(KEY_IMAGE_URL) ?: return Result.failure()
         val mxcUrl = inputData.getString(KEY_MXC_URL)
         val mimeType = inputData.getString(KEY_MIME_TYPE) ?: "image/jpeg"
+        val messageTimestamp = inputData.getLong(KEY_MESSAGE_TIMESTAMP, 0L)
         // Re-read auth token at run time so a delayed job uses a fresh credential.
         // Falls back to the token captured at enqueue time if SharedPreferences is empty.
         val sharedPrefs = applicationContext.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
@@ -181,19 +187,34 @@ class NotificationImageWorker(
         val messages = existingStyle.messages.toList()
         if (messages.isEmpty()) return Result.failure()
 
-        // 5. Rebuild MessagingStyle: keep all messages, replace the last one with an image version.
-        //    The last message is always the one we need to upgrade because the notification was
-        //    just posted in Phase 1 with that message as text-only.
+        // 5. Rebuild MessagingStyle: find and upgrade the target message to an image version.
+        //    We match by timestamp so that a newer text message that arrived between Phase 1
+        //    and this worker running is not accidentally overwritten with image data.
+        //    Falls back to the last message if no timestamp match is found (e.g. timestamp=0).
+        val targetIndex = if (messageTimestamp > 0L) {
+            // Prefer the last message whose timestamp equals ours (handles duplicate timestamps
+            // by always picking the most recent insertion with that value).
+            messages.indexOfLast { it.timestamp == messageTimestamp }
+                .takeIf { it >= 0 }
+                ?: messages.indices.last  // fallback: last message
+        } else {
+            messages.indices.last
+        }
+
         val newStyle = NotificationCompat.MessagingStyle(existingStyle.user)
             .setConversationTitle(existingStyle.conversationTitle)
             .setGroupConversation(existingStyle.isGroupConversation)
 
-        messages.dropLast(1).forEach { msg -> newStyle.addMessage(msg) }
-
-        val last = messages.last()
-        val imageMessage = MessagingStyle.Message(last.text, last.timestamp, last.person)
-            .setData(mimeType, imageUri)
-        newStyle.addMessage(imageMessage)
+        messages.forEachIndexed { idx, msg ->
+            if (idx == targetIndex) {
+                newStyle.addMessage(
+                    MessagingStyle.Message(msg.text, msg.timestamp, msg.person)
+                        .setData(mimeType, imageUri)
+                )
+            } else {
+                newStyle.addMessage(msg)
+            }
+        }
 
         // 6. Resolve channel ID from the active notification (API 26+) so we stay on the
         //    same channel and avoid triggering a sound/vibration on the update.
@@ -248,6 +269,15 @@ class NotificationImageWorker(
             .build()
 
         NotificationManagerCompat.from(applicationContext).notify(notifId, updatedNotification)
+
+        // Keep the in-memory cache consistent with what the notification now shows.
+        // Without this, the next showEnhancedNotification call for the same room would
+        // rebuild MessagingStyle from the stale text-only placeholder in the cache,
+        // reverting the image upgrade.
+        if (messageTimestamp > 0L) {
+            EnhancedNotificationDisplay.upgradeMessageToImage(roomId, messageTimestamp, mimeType, imageUri)
+            if (BuildConfig.DEBUG) Log.d(TAG, "Cache updated with image for room $roomId at ts=$messageTimestamp")
+        }
 
         if (BuildConfig.DEBUG) Log.d(TAG, "Notification updated with image for room $roomId")
         return Result.success()
