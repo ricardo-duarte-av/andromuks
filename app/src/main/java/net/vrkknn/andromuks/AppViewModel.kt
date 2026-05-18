@@ -7751,6 +7751,9 @@ class AppViewModel : ViewModel() {
         if (pendingSendCount > 0) {
             pendingSendCount--
         }
+        // Dismiss the notification reply spinner now that the server has acknowledged the send.
+        // Without this, the spinner only clears on timeout (10–30 s) or error.
+        notificationActionCompletionCallbacks.remove(requestId)?.invoke()
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling message response for room: $roomId, pendingSendCount=$pendingSendCount, data: $data")
         
         // PHASE 5.2: Acknowledgment is now handled in handleResponse() for all commands
