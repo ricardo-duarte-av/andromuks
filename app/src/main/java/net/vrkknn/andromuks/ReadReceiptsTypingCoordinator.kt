@@ -163,10 +163,15 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
 
     fun markRoomAsReadFromNotification(roomId: String, eventId: String, onComplete: (() -> Unit)? = null) {
         with(vm) {
+            // If the caller didn't supply an event_id (e.g. old notification or reply update),
+            // fall back to the latest known event for this room so the receipt is meaningful.
+            val resolvedEventId = eventId.ifBlank {
+                RoomListCache.getLatestEventId(roomId) ?: eventId
+            }
             if (BuildConfig.DEBUG)
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: markRoomAsReadFromNotification called for room $roomId"
+                    "AppViewModel: markRoomAsReadFromNotification called for room $roomId, eventId=$resolvedEventId (raw=$eventId)"
                 )
 
             if (!isWebSocketConnected() || !spacesLoaded) {
@@ -180,7 +185,7 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
                     AppViewModel.PendingNotificationAction(
                         type = "mark_read",
                         roomId = roomId,
-                        eventId = eventId,
+                        eventId = resolvedEventId,
                         onComplete = onComplete
                     )
                 )
@@ -239,7 +244,7 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
             val commandData =
                 mapOf(
                     "room_id" to roomId,
-                    "event_id" to eventId,
+                    "event_id" to resolvedEventId,
                     "receipt_type" to "m.read"
                 )
 
