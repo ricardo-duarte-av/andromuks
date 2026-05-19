@@ -50,7 +50,7 @@ func ValidateCookie(raw string, cfg *Config) (*Claims, bool, error) {
 	}
 
 	mac := hmac.New(sha256.New, []byte(cfg.TokenKey))
-	mac.Write([]byte(claimsB64))
+	mac.Write(claimsBytes)
 	wantSig := mac.Sum(nil)
 	if !hmac.Equal(gotSig, wantSig) {
 		return nil, false, ErrSignatureBad
@@ -77,9 +77,9 @@ func MintCookie(cfg *Config) (string, time.Time) {
 	expiry := time.Now().Add(cfg.TokenTTL)
 	claims := Claims{Username: cfg.Username, Expiry: expiry.Unix()}
 	body, _ := json.Marshal(claims)
-	claimsB64 := base64.RawURLEncoding.EncodeToString(body)
 	mac := hmac.New(sha256.New, []byte(cfg.TokenKey))
-	mac.Write([]byte(claimsB64))
+	mac.Write(body)
+	claimsB64 := base64.RawURLEncoding.EncodeToString(body)
 	sigB64 := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 	return claimsB64 + "." + sigB64, expiry
 }
