@@ -1,0 +1,14 @@
+# Minimal sidecar config. If you also pass -gomuks-config /path/to/gomuks.yaml,
+# token_key, username, and gomuks_url are inherited from the gomuks web.*
+# section and the three commented-out lines below can stay omitted.
+
+listen_address: 127.0.0.1:29326
+token_ttl: 168h
+refresh_window: 24h
+cookie_domain: ""
+cookie_secure: true
+
+# Uncomment to override or use without -gomuks-config:
+# gomuks_url: ws://127.0.0.1:29325/_gomuks/websocket
+# token_key: REPLACE_WITH_GOMUKS_TOKEN_KEY
+# username: daedric
