@@ -1,7 +1,6 @@
 package net.vrkknn.andromuks
 
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -214,6 +213,7 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
             // Cancel any pending shutdown (sidecar-mode linger timer or otherwise)
             appInvisibleJob?.cancel()
             appInvisibleJob = null
+            WebSocketService.cancelSidecarLinger()
 
             // Sidecar mode: if the service was suspended while backgrounded,
             // clear the flag and restart it so the UI has a live WebSocket.
@@ -334,20 +334,15 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 // Sidecar mode: linger 60s after going invisible, then stop the
                 // foreground service entirely. All notification actions are
                 // routed through the HTTP sidecar while the service is down.
-                appInvisibleJob = viewModelScope.launch {
-                    delay(SIDECAR_BACKGROUND_LINGER_MS)
-                    appContext?.applicationContext?.let { ctx ->
-                        if (BuildConfig.DEBUG) android.util.Log.i(
-                            "Andromuks",
-                            "AppViewModel: Sidecar linger expired — stopping WebSocketService",
-                        )
-                        WebSocketService.setSidecarUserDisconnected(ctx, true)
-                        ctx.stopService(android.content.Intent(ctx, WebSocketService::class.java))
-                    }
-                }
+                //
+                // The timer MUST live on the service's own scope, not viewModelScope:
+                // the user swiping the task away destroys MainActivity and clears
+                // the ViewModel, which would cancel a viewModelScope.launch before
+                // the 60s delay fired.
+                WebSocketService.scheduleSidecarLinger()
                 if (BuildConfig.DEBUG) android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Sidecar mode active — service will stop in ${SIDECAR_BACKGROUND_LINGER_MS}ms",
+                    "AppViewModel: Sidecar mode active — service will stop after linger",
                 )
             } else {
                 // Persistent-WebSocket mode: service stays alive in background.
@@ -358,10 +353,6 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                     )
             }
         }
-    }
-
-    private companion object {
-        private const val SIDECAR_BACKGROUND_LINGER_MS = 60_000L
     }
 
     fun suspendApp() {

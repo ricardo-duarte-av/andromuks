@@ -561,6 +561,49 @@ class WebSocketService : Service() {
                 "sidecar_user_disconnected set to: $value"
             )
         }
+
+        /**
+         * Schedule the sidecar-mode background-linger timer. After [lingerMs] the
+         * service flips the user-disconnected flag and stops itself.
+         *
+         * Runs on [serviceScope] (not the caller's ViewModelScope) so the timer
+         * survives an Activity destruction + ViewModel clear caused by the user
+         * swiping the app away. The previous implementation tied the delay() to
+         * viewModelScope, so a swipe-to-close within ~1s cancelled the linger and
+         * the service stayed up forever.
+         */
+        fun scheduleSidecarLinger(lingerMs: Long = SIDECAR_LINGER_MS_DEFAULT) {
+            val svc = instance ?: return
+            svc.sidecarLingerJob?.cancel()
+            svc.sidecarLingerJob = svc.serviceScope.launch {
+                kotlinx.coroutines.delay(lingerMs)
+                val ctx = svc.applicationContext
+                if (BuildConfig.DEBUG) android.util.Log.i(
+                    "WebSocketService",
+                    "Sidecar linger expired — stopping service",
+                )
+                setSidecarUserDisconnected(ctx, true)
+                svc.stopService()
+            }
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "WebSocketService",
+                "Sidecar linger scheduled (${lingerMs}ms)",
+            )
+        }
+
+        fun cancelSidecarLinger() {
+            val svc = instance ?: return
+            if (svc.sidecarLingerJob != null) {
+                svc.sidecarLingerJob?.cancel()
+                svc.sidecarLingerJob = null
+                if (BuildConfig.DEBUG) android.util.Log.d(
+                    "WebSocketService",
+                    "Sidecar linger cancelled",
+                )
+            }
+        }
+
+        private const val SIDECAR_LINGER_MS_DEFAULT = 60_000L
         
         
         /**
@@ -2189,6 +2232,8 @@ class WebSocketService : Service() {
     private var pingInFlight: Boolean = false // Guard to prevent concurrent pings
     private var isAppVisible = false
     private var isScreenOn = true
+    // Sidecar mode linger timer — see scheduleSidecarLinger / cancelSidecarLinger.
+    private var sidecarLingerJob: kotlinx.coroutines.Job? = null
     
     // Receiver for screen state changes
     private val screenStateReceiver = object : android.content.BroadcastReceiver() {
