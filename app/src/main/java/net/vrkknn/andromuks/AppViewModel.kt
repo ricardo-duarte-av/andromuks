@@ -5699,16 +5699,29 @@ class AppViewModel : ViewModel() {
     fun triggerPreemptivePagination(roomId: String) {
         viewModelScope.launch {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: triggerPreemptivePagination called for room: $roomId")
-            
+
+            // If the WebSocket is not connected, paginate would fail anyway. Bail out
+            // BEFORE marking the room as actively cached — otherwise the cache flag is
+            // set without any data behind it, and the next room open thinks the cache
+            // is warm when it isn't. This covers sidecar mode (WS deliberately closed
+            // in background) and any other transient disconnect.
+            if (!WebSocketService.isWebSocketConnected()) {
+                if (BuildConfig.DEBUG) android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: WebSocket not connected, skipping preemptive pagination for $roomId (will fetch when user opens room)"
+                )
+                return@launch
+            }
+
             // Check if room is already in cache
             val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
             val isActivelyCached = RoomTimelineCache.isRoomActivelyCached(roomId)
-            
+
             if (cachedEventCount >= 50 && isActivelyCached) {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room $roomId already in cache ($cachedEventCount events >= 50, actively cached), skipping preemptive pagination")
                 return@launch
             }
-            
+
             // CRITICAL FIX: Mark room as actively cached IMMEDIATELY when preemptive pagination is triggered
             // This ensures that any sync_complete messages that arrive after the notification will have
             // their events cached, even before the paginate request completes
