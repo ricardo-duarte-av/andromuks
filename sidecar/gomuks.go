@@ -15,6 +15,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// pingInterval matches the gomuks recommendation. The server kills connections
+// silent for >60s, so 15s leaves us 3 missed pings of headroom.
+const pingInterval = 15 * time.Second
+
 // envelope is the gomuks RPC frame: { command, request_id, data }.
 type envelope struct {
 	Command   string          `json:"command"`
@@ -29,10 +33,15 @@ type envelope struct {
 type GomuksClient struct {
 	cfg *Config
 
-	mu        sync.Mutex
-	conn      *websocket.Conn
-	nextReqID int64
-	pending   map[int64]chan envelope
+	// mu guards conn, pending, and lastReceivedID.
+	mu sync.Mutex
+	// writeMu serializes WriteMessage calls. Gorilla websocket requires only one
+	// concurrent writer; the ping goroutine and Call() can both fire writes.
+	writeMu        sync.Mutex
+	conn           *websocket.Conn
+	nextReqID      int64
+	pending        map[int64]chan envelope
+	lastReceivedID int64
 
 	connected atomic.Bool
 	stopCh    chan struct{}
@@ -75,10 +84,10 @@ func (g *GomuksClient) connectAndServe() error {
 	header := http.Header{}
 	header.Set("Cookie", cookieName+"="+cookie)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	dialCtx, dialCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer dialCancel()
 	dialer := *websocket.DefaultDialer
-	conn, resp, err := dialer.DialContext(ctx, g.cfg.GomuksURL, header)
+	conn, resp, err := dialer.DialContext(dialCtx, g.cfg.GomuksURL, header)
 	if err != nil {
 		if resp != nil {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
@@ -89,9 +98,17 @@ func (g *GomuksClient) connectAndServe() error {
 	}
 	g.mu.Lock()
 	g.conn = conn
+	g.lastReceivedID = 0
 	g.mu.Unlock()
 	g.connected.Store(true)
+
+	// Ping goroutine lives only for the duration of this connection. We signal
+	// it to stop via pingDone when the read loop exits.
+	pingDone := make(chan struct{})
+	go g.pingLoop(conn, pingDone)
+
 	defer func() {
+		close(pingDone)
 		g.connected.Store(false)
 		_ = conn.Close()
 		g.mu.Lock()
@@ -101,7 +118,8 @@ func (g *GomuksClient) connectAndServe() error {
 
 	log.Printf("gomuks: connected to %s", g.cfg.GomuksURL)
 
-	// Read loop: parse only the envelope; route responses; drop everything else.
+	// Read loop: parse only the envelope; route responses; drop everything else
+	// after tracking its request_id as the high-water mark for ping acks.
 	for {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
@@ -110,6 +128,17 @@ func (g *GomuksClient) connectAndServe() error {
 		var env envelope
 		if err := json.Unmarshal(msg, &env); err != nil {
 			continue
+		}
+		// Track the highest server-pushed request_id we've seen so pings can
+		// acknowledge it. Server pushes (sync_complete etc.) use negative IDs
+		// in gomuks; we don't care about the sign, only the magnitude relative
+		// to what we've already seen.
+		if env.RequestID != 0 {
+			g.mu.Lock()
+			if env.RequestID > g.lastReceivedID {
+				g.lastReceivedID = env.RequestID
+			}
+			g.mu.Unlock()
 		}
 		if env.Command != "response" && env.Command != "error" {
 			continue
@@ -124,6 +153,44 @@ func (g *GomuksClient) connectAndServe() error {
 			ch <- env
 		}
 	}
+}
+
+// pingLoop sends a ping every pingInterval until the connection dies. The
+// server kills idle connections after 60s. The pong reply (command="pong")
+// arrives on the read loop and is dropped — we don't await it; a failed write
+// here is the signal that the connection is dead.
+func (g *GomuksClient) pingLoop(conn *websocket.Conn, done <-chan struct{}) {
+	ticker := time.NewTicker(pingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			if err := g.sendPing(conn); err != nil {
+				// The read loop will surface the underlying error and trigger
+				// reconnect; we just stop ticking.
+				return
+			}
+		}
+	}
+}
+
+func (g *GomuksClient) sendPing(conn *websocket.Conn) error {
+	reqID := atomic.AddInt64(&g.nextReqID, 1)
+	g.mu.Lock()
+	lastReceived := g.lastReceivedID
+	g.mu.Unlock()
+	frame := envelope{
+		Command:   "ping",
+		RequestID: reqID,
+		Data:      json.RawMessage(fmt.Sprintf(`{"last_received_id":%d}`, lastReceived)),
+	}
+	frameBytes, _ := json.Marshal(frame)
+	g.writeMu.Lock()
+	defer g.writeMu.Unlock()
+	_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	return conn.WriteMessage(websocket.TextMessage, frameBytes)
 }
 
 func (g *GomuksClient) failPending(err error) {
@@ -161,7 +228,11 @@ func (g *GomuksClient) Call(ctx context.Context, command string, data any) (json
 
 	frame := envelope{Command: command, RequestID: reqID, Data: body}
 	frameBytes, _ := json.Marshal(frame)
-	if err := conn.WriteMessage(websocket.TextMessage, frameBytes); err != nil {
+	g.writeMu.Lock()
+	_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	err = conn.WriteMessage(websocket.TextMessage, frameBytes)
+	g.writeMu.Unlock()
+	if err != nil {
 		g.mu.Lock()
 		delete(g.pending, reqID)
 		g.mu.Unlock()
