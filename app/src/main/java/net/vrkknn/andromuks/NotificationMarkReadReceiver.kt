@@ -7,10 +7,16 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
+import kotlin.concurrent.thread
+import net.vrkknn.andromuks.utils.SidecarApi
 
 /**
  * Global broadcast receiver for handling notification mark read actions
- * Sends websocket command to mark room as read and dismisses the notification
+ * Sends websocket command to mark room as read and dismisses the notification.
+ *
+ * In sidecar mode (use_sidecar_mode pref enabled), routes the mark_read through
+ * the HTTP sidecar instead of the WebSocket so it works while the persistent
+ * connection is closed.
  */
 class NotificationMarkReadReceiver : BroadcastReceiver() {
 
@@ -28,26 +34,40 @@ class NotificationMarkReadReceiver : BroadcastReceiver() {
 
         if (roomId == null) return
 
-        // Try to send the mark_read directly via a registered ViewModel (works even when
-        // MainActivity is not in the foreground). This mirrors the reply path in
-        // NotificationReplyReceiver and avoids the broadcast being silently dropped when
-        // MainActivity's dynamically-registered receiver isn't alive.
-        val viewModel = WebSocketService.getRegisteredViewModels().firstOrNull()
-        if (viewModel != null) {
-            if (BuildConfig.DEBUG) Log.d(TAG, "Found registered ViewModel, sending mark_read directly")
-            viewModel.markRoomAsReadFromNotification(roomId, eventId ?: "") {
-                if (BuildConfig.DEBUG) Log.d(TAG, "mark_read completed via ViewModel")
+        val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+        val useSidecar = prefs.getBoolean("use_sidecar_mode", false)
+
+        if (useSidecar) {
+            // Sidecar mode: bypass the ViewModel/WebSocket entirely and POST to the sidecar.
+            // BroadcastReceiver onReceive runs on the main thread; SidecarApi is blocking,
+            // so it must run on a worker thread. goAsync() extends the receiver lifetime.
+            val pendingResult = goAsync()
+            thread(name = "sidecar-markread") {
+                try {
+                    val creds = SidecarApi.readCredentials(context)
+                    val ok = SidecarApi.markRead(creds, roomId, eventId ?: "")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Sidecar mark_read result: $ok")
+                } finally {
+                    pendingResult.finish()
+                }
             }
         } else {
-            // Fallback: MainActivity isn't running and no ViewModel is registered.
-            // Send the broadcast and hope MainActivity wakes up, or start it explicitly.
-            if (BuildConfig.DEBUG) Log.d(TAG, "No ViewModel available, falling back to broadcast")
-            val broadcastIntent = Intent("net.vrkknn.andromuks.MARK_READ").apply {
-                setPackage(context.packageName)
-                putExtra("room_id", roomId)
-                putExtra("event_id", eventId ?: "")
+            // Persistent-WebSocket mode: hand off to a registered ViewModel.
+            val viewModel = WebSocketService.getRegisteredViewModels().firstOrNull()
+            if (viewModel != null) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "Found registered ViewModel, sending mark_read directly")
+                viewModel.markRoomAsReadFromNotification(roomId, eventId ?: "") {
+                    if (BuildConfig.DEBUG) Log.d(TAG, "mark_read completed via ViewModel")
+                }
+            } else {
+                if (BuildConfig.DEBUG) Log.d(TAG, "No ViewModel available, falling back to broadcast")
+                val broadcastIntent = Intent("net.vrkknn.andromuks.MARK_READ").apply {
+                    setPackage(context.packageName)
+                    putExtra("room_id", roomId)
+                    putExtra("event_id", eventId ?: "")
+                }
+                context.sendBroadcast(broadcastIntent)
             }
-            context.sendBroadcast(broadcastIntent)
         }
 
         // Only dismiss notification if no bubble is open (cancelling destroys the bubble)
@@ -65,4 +85,3 @@ class NotificationMarkReadReceiver : BroadcastReceiver() {
         }
     }
 }
-

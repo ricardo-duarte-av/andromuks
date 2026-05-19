@@ -8,6 +8,8 @@ import android.content.Intent
 import android.util.Log
 import androidx.core.app.RemoteInput
 import android.os.Bundle
+import kotlin.concurrent.thread
+import net.vrkknn.andromuks.utils.SidecarApi
 
 /**
  * Global broadcast receiver for handling notification reply actions
@@ -71,11 +73,38 @@ class NotificationReplyReceiver : BroadcastReceiver() {
         val cutoffTime = now - DEDUP_WINDOW_MS
         recentProcessedReplies.entries.removeAll { it.value < cutoffTime }
         
+        val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+        val useSidecar = prefs.getBoolean("use_sidecar_mode", false)
+
+        if (useSidecar) {
+            // Sidecar mode: POST to the HTTP sidecar. Works while the WebSocket is closed.
+            val pendingResult = goAsync()
+            val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
+            val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
+            thread(name = "sidecar-reply") {
+                try {
+                    val ok = SidecarApi.sendMessage(
+                        SidecarApi.Credentials(homeserverUrl, authToken),
+                        roomId,
+                        replyText
+                    )
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Sidecar sendMessage result: $ok")
+                    if (ok) {
+                        EnhancedNotificationDisplay(context, homeserverUrl, authToken)
+                            .updateNotificationWithReply(roomId, replyText)
+                    }
+                } finally {
+                    pendingResult.finish()
+                }
+            }
+            return
+        }
+
         // CRITICAL FIX: Try to send message directly via WebSocketService if available
         // This works even when MainActivity is not running
         val registeredViewModels = WebSocketService.getRegisteredViewModels()
         val viewModel = registeredViewModels.firstOrNull()
-        
+
         if (viewModel != null) {
             if (BuildConfig.DEBUG) Log.d(TAG, "Found registered ViewModel, sending message directly (MainActivity may not be running)")
             // Send message directly via ViewModel - this adds to FIFO buffer

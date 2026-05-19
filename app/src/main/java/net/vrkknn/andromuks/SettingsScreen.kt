@@ -221,6 +221,45 @@ fun SettingsScreen(
                 }
             }
 
+            // ── Connection Mode ──────────────────────────────────────────────
+            Text(
+                text = "Connection Mode",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Use HTTP sidecar (battery saver)",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Closes the persistent WebSocket while the app is backgrounded. Notification reply and mark-as-read are sent through a small HTTP sidecar at <homeserver>/_gomuks/sidecar instead. Saves significant battery on cellular but requires the sidecar to be deployed alongside the gomuks backend.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = appViewModel.useSidecarMode,
+                        onCheckedChange = { appViewModel.toggleUseSidecarMode() }
+                    )
+                }
+            }
+
             // ── Background Sync Section ──────────────────────────────────────
             Text(
                 text = "Background Sync",
@@ -230,7 +269,24 @@ fun SettingsScreen(
                 modifier = Modifier.padding(top = 16.dp)
             )
 
-            BackgroundSyncSettings(appViewModel = appViewModel)
+            if (appViewModel.useSidecarMode) {
+                // Sidecar mode closes the WebSocket while backgrounded, so the batched
+                // sync_complete plumbing this section configures never runs. Replace
+                // with a notice instead of hiding outright so the user understands why.
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Text(
+                        text = "Disabled while \"Use HTTP sidecar\" is enabled. In sidecar mode the WebSocket is closed in the background, so there is no sync_complete stream to buffer.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+            } else {
+                BackgroundSyncSettings(appViewModel = appViewModel)
+            }
 
             // Compression Setting
             Card(

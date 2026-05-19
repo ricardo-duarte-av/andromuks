@@ -430,6 +430,10 @@ class AppViewModel : ViewModel() {
         internal set
     var elementCallBaseUrl by mutableStateOf("")
         internal set
+    // Connection mode: false = persistent always-on WebSocket (default), true = use HTTP sidecar
+    // for reply/mark_read from notifications and close the WebSocket while backgrounded.
+    var useSidecarMode by mutableStateOf(false)
+        internal set
 
     // ── Gomuks preferences ────────────────────────────────────────────────────
     var accountGlobalShowMediaPreviews: Boolean? by mutableStateOf(null)
@@ -10184,6 +10188,8 @@ class AppViewModel : ViewModel() {
     fun toggleSendLinkPreviews() = settingsCoordinator.toggleSendLinkPreviews()
 
     fun updateElementCallBaseUrl(url: String) = settingsCoordinator.updateElementCallBaseUrl(url)
+
+    fun toggleUseSidecarMode() = settingsCoordinator.toggleUseSidecarMode()
 
     fun updateBackgroundPurgeInterval(minutes: Int) = settingsCoordinator.updateBackgroundPurgeInterval(minutes)
 

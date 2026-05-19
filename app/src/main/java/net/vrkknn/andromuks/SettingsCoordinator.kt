@@ -87,6 +87,21 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         }
     }
 
+    fun toggleUseSidecarMode() = with(vm) {
+        useSidecarMode = !useSidecarMode
+        appContext?.let { context ->
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("use_sidecar_mode", useSidecarMode).apply()
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Saved useSidecarMode setting: $useSidecarMode"
+            )
+        }
+        // The lifecycle change (close-on-background / cold-start-on-FCM-open) is handled
+        // in WebSocketService observers; flipping this flag at runtime takes effect on
+        // the next background/foreground transition. No immediate restart needed.
+    }
+
     fun toggleShowAllRoomListTabs() = with(vm) {
         showAllRoomListTabs = !showAllRoomListTabs
 
@@ -419,6 +434,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             showLinkPreviews = prefs.getBoolean("show_link_previews", true)
             sendLinkPreviews = prefs.getBoolean("send_link_previews", true)
             elementCallBaseUrl = prefs.getString("element_call_base_url", "") ?: ""
+            useSidecarMode = prefs.getBoolean("use_sidecar_mode", false)
             deviceGlobalShowMediaPreviews = booleanPrefOrNull(prefs, "gomuks_device_show_media_previews")
             deviceGlobalRenderUrlPreviews = booleanPrefOrNull(prefs, "gomuks_device_render_url_previews")
             deviceGlobalSendBundledUrlPreviews = booleanPrefOrNull(prefs, "gomuks_device_send_bundled_url_previews")
