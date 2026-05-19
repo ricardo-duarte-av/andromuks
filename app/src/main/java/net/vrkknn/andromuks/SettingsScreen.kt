@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
+import net.vrkknn.andromuks.utils.SidecarApi
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -230,33 +231,81 @@ fun SettingsScreen(
                 modifier = Modifier.padding(top = 16.dp)
             )
 
+            val sidecarProbeContext = LocalContext.current
+            val sidecarProbeScope = rememberCoroutineScope()
+            var sidecarProbing by remember { mutableStateOf(false) }
+            var sidecarProbeError by remember { mutableStateOf<String?>(null) }
+
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Use HTTP sidecar (battery saver)",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "Closes the persistent WebSocket while the app is backgrounded. Notification reply and mark-as-read are sent through a small HTTP sidecar at <homeserver>/_gomuks/sidecar instead. Saves significant battery on cellular but requires the sidecar to be deployed alongside the gomuks backend.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (sidecarProbing) {
+                            ExpressiveLoadingIndicator(modifier = Modifier.size(28.dp))
+                        } else {
+                            Switch(
+                                checked = appViewModel.useSidecarMode,
+                                onCheckedChange = { wantOn ->
+                                    if (!wantOn) {
+                                        // Turning OFF — always allowed, no probe.
+                                        sidecarProbeError = null
+                                        appViewModel.toggleUseSidecarMode()
+                                        return@Switch
+                                    }
+                                    // Turning ON — probe healthz first.
+                                    sidecarProbing = true
+                                    sidecarProbeError = null
+                                    sidecarProbeScope.launch {
+                                        val result = withContext(Dispatchers.IO) {
+                                            SidecarApi.probeHealth(SidecarApi.readCredentials(sidecarProbeContext))
+                                        }
+                                        sidecarProbing = false
+                                        when (result) {
+                                            is SidecarApi.HealthResult.Ok -> {
+                                                appViewModel.toggleUseSidecarMode()
+                                            }
+                                            is SidecarApi.HealthResult.SidecarUnhealthy ->
+                                                sidecarProbeError = "Sidecar reachable but reports it cannot talk to gomuks (HTTP 503). Check the sidecar logs."
+                                            is SidecarApi.HealthResult.HttpError ->
+                                                sidecarProbeError = "Sidecar responded with HTTP ${result.code} ${result.message}. Is /_gomuks/sidecar routed to the sidecar in your reverse proxy?"
+                                            is SidecarApi.HealthResult.NetworkError ->
+                                                sidecarProbeError = "Could not reach sidecar: ${result.message}. Check that the sidecar binary is running and your reverse proxy routes /_gomuks/sidecar/* to it."
+                                            SidecarApi.HealthResult.NotConfigured ->
+                                                sidecarProbeError = "Log in first — no homeserver URL stored yet."
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                    }
+                    sidecarProbeError?.let { msg ->
                         Text(
-                            text = "Use HTTP sidecar (battery saver)",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "Closes the persistent WebSocket while the app is backgrounded. Notification reply and mark-as-read are sent through a small HTTP sidecar at <homeserver>/_gomuks/sidecar instead. Saves significant battery on cellular but requires the sidecar to be deployed alongside the gomuks backend.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = msg,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
                         )
                     }
-                    Switch(
-                        checked = appViewModel.useSidecarMode,
-                        onCheckedChange = { appViewModel.toggleUseSidecarMode() }
-                    )
                 }
             }
 

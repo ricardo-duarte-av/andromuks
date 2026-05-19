@@ -23,6 +23,7 @@ object SidecarApi {
     private const val TAG = "SidecarApi"
     private const val PATH_SEND_MSG = "/_gomuks/sidecar/send_msg"
     private const val PATH_MARK_READ = "/_gomuks/sidecar/mark_read"
+    private const val PATH_HEALTH = "/_gomuks/sidecar/healthz"
     private val JSON = "application/json; charset=utf-8".toMediaType()
 
     private val client: OkHttpClient by lazy {
@@ -44,6 +45,45 @@ object SidecarApi {
             homeserverUrl = prefs.getString("homeserver_url", "") ?: "",
             authToken = prefs.getString("gomuks_auth_token", "") ?: ""
         )
+    }
+
+    sealed class HealthResult {
+        object Ok : HealthResult()
+        /** Sidecar reachable but reported it can't talk to gomuks. */
+        object SidecarUnhealthy : HealthResult()
+        /** HTTP-level error (404 if path not routed, 401 if auth wrong, etc.). */
+        data class HttpError(val code: Int, val message: String) : HealthResult()
+        /** Network/IO error — sidecar not deployed, DNS, TLS, timeout, etc. */
+        data class NetworkError(val message: String) : HealthResult()
+        /** No homeserver_url stored; user hasn't logged in yet. */
+        object NotConfigured : HealthResult()
+    }
+
+    /**
+     * Probe the sidecar's healthz endpoint. Blocking — call off the main thread.
+     * Uses a short timeout so the settings-screen UX feels responsive.
+     */
+    fun probeHealth(creds: Credentials): HealthResult {
+        if (creds.homeserverUrl.isBlank()) return HealthResult.NotConfigured
+        val url = creds.homeserverUrl.trimEnd('/') + PATH_HEALTH
+        val builder = Request.Builder().url(url).get()
+        if (creds.authToken.isNotBlank()) {
+            builder.header("Cookie", "gomuks_auth=${creds.authToken}")
+        }
+        val shortClient = client.newBuilder()
+            .callTimeout(5, TimeUnit.SECONDS)
+            .build()
+        return try {
+            shortClient.newCall(builder.build()).execute().use { resp ->
+                when {
+                    resp.isSuccessful -> HealthResult.Ok
+                    resp.code == 503 -> HealthResult.SidecarUnhealthy
+                    else -> HealthResult.HttpError(resp.code, resp.message)
+                }
+            }
+        } catch (e: IOException) {
+            HealthResult.NetworkError(e.message ?: e.javaClass.simpleName)
+        }
     }
 
     /** Blocking — must be called off the main thread. Returns true on 2xx. */
