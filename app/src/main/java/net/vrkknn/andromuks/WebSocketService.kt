@@ -536,6 +536,31 @@ class WebSocketService : Service() {
             instance?.isAppVisible = visible
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "App visibility changed to: $visible")
         }
+
+        // ── Sidecar mode: user-requested suspend ─────────────────────────────────
+        // When the app is backgrounded in sidecar mode for longer than the linger
+        // window, the lifecycle coordinator stops this service AND sets the
+        // sidecar_user_disconnected pref. All auto-restart paths (AutoRestartReceiver,
+        // BootStartReceiver, AutoRestartWorker, WebSocketHealthCheckWorker) funnel
+        // through ServiceStartWorker, which checks this flag and skips the start.
+        // The flag is cleared when the app comes back to the foreground (via
+        // ViewModelLifecycleCoordinator.onAppBecameVisible). On a true cold start
+        // (process death + tap on FCM notification), MainActivity clears it on
+        // onCreate so the service can run again immediately.
+        private const val PREF_SIDECAR_USER_DISCONNECTED = "sidecar_user_disconnected"
+
+        fun isSidecarUserDisconnected(context: Context): Boolean =
+            context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                .getBoolean(PREF_SIDECAR_USER_DISCONNECTED, false)
+
+        fun setSidecarUserDisconnected(context: Context, value: Boolean) {
+            context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                .edit().putBoolean(PREF_SIDECAR_USER_DISCONNECTED, value).apply()
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "WebSocketService",
+                "sidecar_user_disconnected set to: $value"
+            )
+        }
         
         
         /**

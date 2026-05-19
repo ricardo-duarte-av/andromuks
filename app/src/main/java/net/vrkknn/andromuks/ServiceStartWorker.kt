@@ -76,7 +76,16 @@ class ServiceStartWorker(
                 if (BuildConfig.DEBUG) Log.d(TAG, "No credentials found - user not logged in, skipping service start")
                 return@withContext Result.success()
             }
-            
+
+            // Sidecar mode: the user intentionally suspended the service while
+            // backgrounded. Skip every auto-restart path until the foreground UI
+            // clears the flag in ViewModelLifecycleCoordinator.onAppBecameVisible
+            // or MainActivity.onCreate.
+            if (WebSocketService.isSidecarUserDisconnected(applicationContext)) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "sidecar mode: user-disconnected, skipping service start (reason=$reason)")
+                return@withContext Result.success()
+            }
+
             // Check if service is already running
             if (WebSocketService.isServiceRunning()) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "WebSocketService already running - skipping start")
