@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"sync"
@@ -77,8 +78,13 @@ func (g *GomuksClient) connectAndServe() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	dialer := *websocket.DefaultDialer
-	conn, _, err := dialer.DialContext(ctx, g.cfg.GomuksURL, header)
+	conn, resp, err := dialer.DialContext(ctx, g.cfg.GomuksURL, header)
 	if err != nil {
+		if resp != nil {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			_ = resp.Body.Close()
+			return fmt.Errorf("dial: %w (status=%s body=%q)", err, resp.Status, string(body))
+		}
 		return fmt.Errorf("dial: %w", err)
 	}
 	g.mu.Lock()
