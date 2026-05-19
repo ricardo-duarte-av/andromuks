@@ -85,11 +85,12 @@ class AndromuksApplication : Application() {
             Log.d("Andromuks", "AndromuksApplication: onTrimMemory($levelName)")
         }
         
-        // Clear caches on memory pressure to prevent corruption
-        // We clear on UI_HIDDEN and above to be proactive
+        // Only clear caches on ACTUAL memory pressure. TRIM_MEMORY_UI_HIDDEN is a normal
+        // lifecycle hint fired every time the UI goes to background — not pressure —
+        // and clearing on it caused expensive re-decoding of avatars/media on every
+        // foreground resume. TRIM_MEMORY_BACKGROUND / MODERATE are also lifecycle hints
+        // (the OS telling us where we are in the LRU), not real pressure signals.
         when (level) {
-            ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN,
-            ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE,
             ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW,
             ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL,
             ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {

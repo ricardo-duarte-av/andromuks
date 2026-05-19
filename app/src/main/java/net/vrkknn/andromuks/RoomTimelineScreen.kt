@@ -6094,7 +6094,7 @@ fun RoomHeader(
             ) {
                 if (sharedTransitionScope != null && animatedVisibilityScope != null && roomId != null) {
                     val sharedKey = "avatar-${roomId}"
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomHeader: opening room $roomId with sharedKey = $sharedKey")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomHeader: composing avatar for $roomId with sharedKey = $sharedKey")
                     with(sharedTransitionScope) {
                         AvatarImage(
                             mxcUrl = roomState?.avatarUrl ?: fallbackAvatarUrl,
