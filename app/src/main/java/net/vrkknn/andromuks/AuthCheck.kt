@@ -360,7 +360,7 @@ fun AuthCheckScreen(
                     // which is always available and tied to the ViewModel's lifecycle.
                     appViewModel.viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
                         val isReady = appViewModel.awaitRoomDataReadiness(
-                            timeoutMs = 5000L,
+                            timeoutMs = 15_000L,
                             roomId = directRoomId,
                         )
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Readiness check completed (isReady=$isReady) for $directRoomId")

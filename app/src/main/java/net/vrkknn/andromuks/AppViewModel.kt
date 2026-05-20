@@ -324,11 +324,22 @@ class AppViewModel : ViewModel() {
                     true
                 }
 
-                if (pollCount % 10 == 0 || (!pendingReady || !syncReady || !initReady || !notificationFlushReady || !timelineReady)) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: Polling[$pollCount] - pendingReady=$pendingReady, syncReady=$syncReady, initReady=$initReady, notificationFlushReady=$notificationFlushReady, timelineReady=$timelineReady | isTimelineLoading=$isTimelineLoading, events=${timelineEvents.size}, isPendingNavFromNotif=$isPendingNavigationFromNotification, currentRoomId=$currentRoomId")
+                // Wait until the target room appears in the room map AND the
+                // per-room state (name, avatar, members) has been loaded. Without
+                // this, cold-start navigation lands on RoomTimelineScreen before
+                // loadAllRoomStatesAfterInitComplete() has populated currentRoomState,
+                // and the header renders empty.
+                val roomStateReady = if (roomId != null) {
+                    getRoomById(roomId) != null && allRoomStatesLoaded
+                } else {
+                    true
                 }
 
-                if (pendingReady && syncReady && initReady && notificationFlushReady && timelineReady) {
+                if (pollCount % 10 == 0 || (!pendingReady || !syncReady || !initReady || !notificationFlushReady || !timelineReady || !roomStateReady)) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: Polling[$pollCount] - pendingReady=$pendingReady, syncReady=$syncReady, initReady=$initReady, notificationFlushReady=$notificationFlushReady, timelineReady=$timelineReady, roomStateReady=$roomStateReady | isTimelineLoading=$isTimelineLoading, events=${timelineEvents.size}, allRoomStatesLoaded=$allRoomStatesLoaded, isPendingNavFromNotif=$isPendingNavigationFromNotification, currentRoomId=$currentRoomId")
+                }
+
+                if (pendingReady && syncReady && initReady && notificationFlushReady && timelineReady && roomStateReady) {
                     val elapsed = System.currentTimeMillis() - startTime
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: READY - roomId=$roomId, elapsed=${elapsed}ms, pollCount=$pollCount")
                     break

@@ -184,6 +184,14 @@ fun ShortcutNavigation(roomId: String) {
         val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
         val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
 
+        // Sidecar mode: the service may have been suspended in the background.
+        // Clear the flag so ServiceStartWorker / startWebSocketService aren't blocked
+        // by the auto-restart guard. Without this, the cold-start path below would
+        // wait forever for a WebSocket that never connects.
+        if (WebSocketService.isSidecarUserDisconnected(context)) {
+            WebSocketService.setSidecarUserDisconnected(context, false)
+        }
+
         appViewModel.initializeFCM(context, homeserverUrl, authToken)
         appViewModel.loadCachedProfiles(context)
         appViewModel.loadSettings(context)
@@ -201,6 +209,15 @@ fun ShortcutNavigation(roomId: String) {
             appViewModel.navigateToRoomWithCache(roomId)
             hasNavigated = true
             showLoading = false
+        } else if (!alreadyConnected) {
+            // Cold-start path: nothing here was previously kicking off the WebSocket
+            // when the service was dead (sidecar mode suspended, or process death after
+            // a long background). The slow-path LaunchedEffect below polls
+            // isWebSocketConnected forever in that case. Trigger a connection now.
+            if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: WebSocket not connected — initializing cold-start connection")
+                appViewModel.initializeWebSocketConnection(homeserverUrl, authToken)
+            }
         }
     }
 
@@ -218,9 +235,13 @@ fun ShortcutNavigation(roomId: String) {
             }
 
             if (websocketConnected || pollCount >= 100) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: WebSocket connected=$websocketConnected (pollCount=$pollCount), navigating to: $roomId")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: WebSocket connected=$websocketConnected (pollCount=$pollCount), waiting for room data readiness for: $roomId")
                 appViewModel.setCurrentRoomIdForTimeline(roomId)
                 appViewModel.navigateToRoomWithCache(roomId)
+                // Wait until the target room actually has state loaded before revealing
+                // the timeline. Without this, cold-start renders an empty header until
+                // the per-room get_room_state response arrives.
+                appViewModel.awaitRoomDataReadiness(timeoutMs = 15_000L, roomId = roomId)
                 // Don't call navController.navigate — the NavHost startDestination is already
                 // room_timeline/$roomId. Navigating again would push a duplicate entry, making
                 // previousBackStackEntry non-null and isRootDestination=false in RoomTimelineScreen,
