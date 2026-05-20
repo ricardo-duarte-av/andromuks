@@ -1987,54 +1987,23 @@ fun RoomListItem(
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             // PHASE 1: Animated badge count changes
+                            // PERFORMANCE: replaced AnimatedContent (allocates a Transition per slot
+                            // and runs slide/fade specs on every count change) with a plain Text.
+                            // In practice the badge tick is invisible 9 times out of 10 because
+                            // a new message also reorders the room to the top, which the
+                            // `animateItem()` reorder animation already covers visually.
                             if (room.highlightCount != null && room.highlightCount > 0) {
-                                AnimatedContent(
-                                    targetState = room.highlightCount,
-                                    transitionSpec = {
-                                        if (targetState > initialState) {
-                                            // Count increased - slide up and fade in
-                                            slideInVertically { height -> height } + fadeIn() togetherWith
-                                            slideOutVertically { height -> -height } + fadeOut()
-                                        } else {
-                                            // Count decreased - slide down and fade out
-                                            slideInVertically { height -> -height } + fadeIn() togetherWith
-                                            slideOutVertically { height -> height } + fadeOut()
-                                        }.using(
-                                            SizeTransform(clip = false)
-                                        )
-                                    },
-                                    label = "badge_count_highlight"
-                                ) { count ->
-                                    Text(
-                                        text = count.toString(),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onError
-                                    )
-                                }
+                                Text(
+                                    text = room.highlightCount.toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onError
+                                )
                             } else if (room.unreadCount != null && room.unreadCount > 0) {
-                                AnimatedContent(
-                                    targetState = room.unreadCount,
-                                    transitionSpec = {
-                                        if (targetState > initialState) {
-                                            // Count increased - slide up and fade in
-                                            slideInVertically { height -> height } + fadeIn() togetherWith
-                                            slideOutVertically { height -> -height } + fadeOut()
-                                        } else {
-                                            // Count decreased - slide down and fade out
-                                            slideInVertically { height -> -height } + fadeIn() togetherWith
-                                            slideOutVertically { height -> height } + fadeOut()
-                                        }.using(
-                                            SizeTransform(clip = false)
-                                        )
-                                    },
-                                    label = "badge_count_unread"
-                                ) { count ->
-                                    Text(
-                                        text = count.toString(),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onPrimary
-                                    )
-                                }
+                                Text(
+                                    text = room.unreadCount.toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
                             } else {
                                 // Invisible placeholder to maintain consistent height
                                 Text(
