@@ -324,13 +324,17 @@ class AppViewModel : ViewModel() {
                     true
                 }
 
-                // Wait until the target room appears in the room map AND the
-                // per-room state (name, avatar, members) has been loaded. Without
-                // this, cold-start navigation lands on RoomTimelineScreen before
-                // loadAllRoomStatesAfterInitComplete() has populated currentRoomState,
-                // and the header renders empty.
+                // Wait until the target room appears in the room map. Its name,
+                // avatar, sortingTimestamp and last-message preview all come from
+                // sync_complete and are present on the RoomItem in roomMap as
+                // soon as that message has been processed — that's enough for the
+                // header to render. We deliberately do NOT block on the global
+                // allRoomStatesLoaded flag: that requires up to 500 individual
+                // get_room_state round-trips (12.5s send + 15s deadline) to
+                // complete, and it's only used to populate bridge badges, which
+                // can lazy-load in the background without blocking navigation.
                 val roomStateReady = if (roomId != null) {
-                    getRoomById(roomId) != null && allRoomStatesLoaded
+                    getRoomById(roomId) != null
                 } else {
                     true
                 }
@@ -9792,9 +9796,27 @@ class AppViewModel : ViewModel() {
             // CRITICAL OPTIMIZATION: Check SharedPreferences cache to skip rooms we already know about
             // Only request get_room_state for rooms not in cache (new rooms)
             val context = appContext ?: return@launch
-            val uncachedRoomIds = allRoomIds.filter { roomId ->
-                !net.vrkknn.andromuks.utils.BridgeInfoCache.isCached(context, roomId)
+            // Build a sortingTimestamp lookup snapshot once (read under lock) so we can
+            // order requests recent-first without re-querying roomMap inside the loop.
+            val roomRecency: Map<String, Long> = synchronized(roomMap) {
+                buildMap(roomMap.size) {
+                    for ((id, item) in roomMap) put(id, item.sortingTimestamp ?: 0L)
+                }
             }
+            // Priority order for get_room_state:
+            //   1. The currently-open room (if any) — its bridge badge / member list
+            //      is what the user is staring at right now.
+            //   2. Then all other uncached rooms ordered by most-recent activity.
+            // This means the rooms the user is most likely to interact with get their
+            // state first, even though the global allRoomStatesLoaded flag may not
+            // flip until much later. Old/silent rooms (the long tail of 500) still
+            // get processed, just last.
+            val openRoomId = currentRoomId.takeIf { it.isNotBlank() }
+            val uncachedRoomIds = allRoomIds
+                .asSequence()
+                .filter { !net.vrkknn.andromuks.utils.BridgeInfoCache.isCached(context, it) }
+                .sortedWith(compareByDescending<String> { id -> if (id == openRoomId) Long.MAX_VALUE else (roomRecency[id] ?: 0L) })
+                .toList()
 
             // Load cached bridge info into roomMap for rooms that are cached — batch all updates
             // then re-sort once instead of once per room.

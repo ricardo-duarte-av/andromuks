@@ -603,7 +603,7 @@ class WebSocketService : Service() {
             }
         }
 
-        private const val SIDECAR_LINGER_MS_DEFAULT = 60_000L
+        private const val SIDECAR_LINGER_MS_DEFAULT = 15_000L
         
         
         /**
