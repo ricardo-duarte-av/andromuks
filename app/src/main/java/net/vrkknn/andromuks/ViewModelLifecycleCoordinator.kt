@@ -226,9 +226,22 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 if (useSidecarMode && !WebSocketService.isServiceRunning()) {
                     if (BuildConfig.DEBUG) android.util.Log.i(
                         "Andromuks",
-                        "AppViewModel: Resuming from sidecar suspend — restarting WebSocketService",
+                        "AppViewModel: Resuming from sidecar suspend — restarting WebSocketService + dialing WS",
                     )
-                    startWebSocketService()
+                    // startWebSocketService() alone creates the foreground service shell but
+                    // does not dial the WebSocket. Without an explicit initialize call the
+                    // service sits in Disconnected until the 30s unified-monitoring health
+                    // check detects "stuck disconnected" and triggers reconnection. That
+                    // delay races every notification-navigation path: requestRoomTimeline
+                    // sees isWebSocketConnected=false and exits before any data arrives.
+                    val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+                    val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
+                    val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
+                    if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+                        initializeWebSocketConnection(homeserverUrl, authToken)
+                    } else {
+                        startWebSocketService()
+                    }
                 }
             }
 

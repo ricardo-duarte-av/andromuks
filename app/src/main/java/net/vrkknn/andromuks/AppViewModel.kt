@@ -335,11 +335,19 @@ class AppViewModel : ViewModel() {
                     true
                 }
 
-                if (pollCount % 10 == 0 || (!pendingReady || !syncReady || !initReady || !notificationFlushReady || !timelineReady || !roomStateReady)) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: Polling[$pollCount] - pendingReady=$pendingReady, syncReady=$syncReady, initReady=$initReady, notificationFlushReady=$notificationFlushReady, timelineReady=$timelineReady, roomStateReady=$roomStateReady | isTimelineLoading=$isTimelineLoading, events=${timelineEvents.size}, allRoomStatesLoaded=$allRoomStatesLoaded, isPendingNavFromNotif=$isPendingNavigationFromNotification, currentRoomId=$currentRoomId")
+                // The WS must actually be connected before we can declare readiness.
+                // Other flags (initialSyncComplete, allRoomStatesLoaded) survive a
+                // service restart with stale "true" values from the previous session,
+                // so they alone can't tell us "the current cold start has completed".
+                // Without this gate, sidecar-resume navigation fires while the WS is
+                // still dialing → requestRoomTimeline sees disconnected → no data.
+                val websocketReady = WebSocketService.isWebSocketConnected()
+
+                if (pollCount % 10 == 0 || (!pendingReady || !syncReady || !initReady || !notificationFlushReady || !timelineReady || !roomStateReady || !websocketReady)) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: Polling[$pollCount] - pendingReady=$pendingReady, syncReady=$syncReady, initReady=$initReady, notificationFlushReady=$notificationFlushReady, timelineReady=$timelineReady, roomStateReady=$roomStateReady, websocketReady=$websocketReady | isTimelineLoading=$isTimelineLoading, events=${timelineEvents.size}, allRoomStatesLoaded=$allRoomStatesLoaded, isPendingNavFromNotif=$isPendingNavigationFromNotification, currentRoomId=$currentRoomId")
                 }
 
-                if (pendingReady && syncReady && initReady && notificationFlushReady && timelineReady && roomStateReady) {
+                if (pendingReady && syncReady && initReady && notificationFlushReady && timelineReady && roomStateReady && websocketReady) {
                     val elapsed = System.currentTimeMillis() - startTime
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: READY - roomId=$roomId, elapsed=${elapsed}ms, pollCount=$pollCount")
                     break

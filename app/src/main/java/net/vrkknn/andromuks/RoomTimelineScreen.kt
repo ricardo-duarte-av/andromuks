@@ -940,8 +940,10 @@ fun RoomTimelineScreen(
 
                 // RACE CONDITION FIX: Wait for room data to be ready before navigating
                 // so the new RoomTimelineScreen composes with data already available.
+                // 15s timeout because sidecar-resume cold-starts the WebSocket; the
+                // dial + initial sync + per-room state load can legitimately exceed 5s.
                 val isReady = appViewModel.awaitRoomDataReadiness(
-                    timeoutMs = 5_000L,
+                    timeoutMs = 15_000L,
                     roomId = targetRoomId,
                 )
                 if (BuildConfig.DEBUG) Log.d(
