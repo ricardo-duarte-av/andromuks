@@ -112,6 +112,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import kotlin.math.roundToInt
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -505,55 +507,58 @@ fun RoomListScreen(
     // subsets (DMs, Unread, Favourites) inherit that order — no re-sort needed.
     val displayedSection = stableSection
 
-    // PERFORMANCE: Preemptively load the first 100 room avatars into memory cache
-    // This makes scrolling faster since avatars are already loaded when they come into view
+    // PERFORMANCE: Preemptively load the first 100 room avatars into memory cache.
+    // CRITICAL: Must use the EXACT same URL + size that AvatarImage will request,
+    // otherwise Coil's memory-cache key (URL + size + transformations) misses and
+    // the preload writes into a slot no one ever reads. Two real bugs the previous
+    // implementation had:
+    //   1. Size mismatch: preload used .size(256) but AvatarImage computes
+    //      targetPx = max(48dp*density, 64).coerceAtMost(256) which is ~144 on a
+    //      typical xxhdpi phone.
+    //   2. URL mismatch: preload used mxcToHttpUrl (always https://) but AvatarImage
+    //      uses getAvatarUrlForRoomList which prefers a file://...circle_avatar_cache
+    //      path when one exists. https vs file:// are different cache keys.
+    // Result: avatars visibly pop in despite the preload firing.
+    val density = LocalDensity.current
+    val avatarPreloadPx = remember(density) {
+        val raw = with(density) { 48.dp.toPx() }.roundToInt()
+        kotlin.math.max(raw, 64).coerceAtMost(256)
+    }
     var avatarsPreloaded by remember { mutableStateOf(false) }
     LaunchedEffect(initialLoadComplete, displayedSection.rooms.size, displayedSection.type) {
-        // Only preload once per section when room list is ready and has rooms
         if (!initialLoadComplete || avatarsPreloaded || displayedSection.rooms.isEmpty()) return@LaunchedEffect
-        
-        // Preload avatars in background to avoid blocking UI
+
         withContext(Dispatchers.IO) {
             val imageLoader = ImageLoaderSingleton.get(context)
             val roomsToPreload = displayedSection.rooms.take(100)
-            
+
             if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "RoomListScreen: Preloading ${roomsToPreload.size} avatars for faster scrolling")
+                android.util.Log.d("Andromuks", "RoomListScreen: Preloading ${roomsToPreload.size} avatars (size=${avatarPreloadPx}px)")
             }
-            
-            // Preload avatars for the first 100 rooms
+
             roomsToPreload.forEach { room ->
-                if (room.avatarUrl != null) {
-                    try {
-                        // Get avatar URL (same logic as AvatarImage component)
-                        val avatarHttpUrl = AvatarUtils.mxcToHttpUrl(
-                            room.avatarUrl,
-                            appViewModel.homeserverUrl
-                        )
-                        
-                        if (avatarHttpUrl != null) {
-                            // Create ImageRequest and enqueue it to preload into memory cache
-                            val request = ImageRequest.Builder(context)
-                                .data(avatarHttpUrl)
-                                .size(256) // Same size as used in AvatarImage for room list
-                                .addHeader("Cookie", "gomuks_auth=$authToken")
-                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                .diskCachePolicy(CachePolicy.ENABLED)
-                                .build()
-                            
-                            // Enqueue the request to preload into memory cache
-                            // This doesn't block and loads images into Coil's memory cache
-                            imageLoader.enqueue(request)
-                        }
-                    } catch (e: Exception) {
-                        // Silently ignore errors - preloading is best-effort
-                        if (BuildConfig.DEBUG) {
-                            android.util.Log.d("Andromuks", "RoomListScreen: Failed to preload avatar for room ${room.id}: ${e.message}")
-                        }
+                val mxc = room.avatarUrl ?: return@forEach
+                try {
+                    // Use the SAME resolution AvatarImage uses, so the resulting URL
+                    // (file:// when CircleAvatarCache hits, else https://) matches
+                    // exactly. Same URL + same size = same memory-cache slot.
+                    val url = AvatarUtils.getAvatarUrlForRoomList(
+                        context, mxc, appViewModel.homeserverUrl, room.id, room.name
+                    ) ?: return@forEach
+                    val request = ImageRequest.Builder(context)
+                        .data(url)
+                        .size(avatarPreloadPx)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .build()
+                    imageLoader.enqueue(request)
+                } catch (e: Exception) {
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d("Andromuks", "RoomListScreen: Failed to preload avatar for room ${room.id}: ${e.message}")
                     }
                 }
             }
-            
+
             avatarsPreloaded = true
             if (BuildConfig.DEBUG) {
                 android.util.Log.d("Andromuks", "RoomListScreen: Finished preloading ${roomsToPreload.size} avatars")

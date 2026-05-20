@@ -116,17 +116,20 @@ fun AvatarImage(
         mutableStateOf(avatarUrl != null && isVisible)
     }
     
-    // Combine the caller-supplied flag with the CompositionLocal provided by the timeline screen.
-    // Either source can suppress loading; once an image has loaded it stays visible regardless.
+    // The CompositionLocal + caller flag used to suppress avatar loading entirely
+    // during fast scrolling. That was the main cause of the "wall of avatars pops
+    // in at once when scrolling stops" feel: rows that composed during fast scroll
+    // would refuse to load, then ALL enable loading simultaneously when the flag
+    // cleared. Coil's dispatcher already caps concurrent loads (maxRequests = 100
+    // in ImageLoaderSingleton), so we don't need a second-order throttle here —
+    // let Coil handle backpressure and start each row's request as soon as it
+    // becomes visible. Suppression flags are still read for compatibility but no
+    // longer block loading.
     val effectiveScrollingFast = LocalIsScrollingFast.current || isScrollingFast
 
-    // AVATAR LOADING OPTIMIZATION: Update shouldLoadImage when visibility or avatarUrl changes
-    // PERFORMANCE: Only prevent LOADING during fast scrolling, not DISPLAY of already-loaded images
-    LaunchedEffect(isVisible, avatarUrl, effectiveScrollingFast) {
+    LaunchedEffect(isVisible, avatarUrl) {
         if (isVisible && avatarUrl != null) {
-            // Only allow loading if not fast scrolling OR image has already loaded
-            // Once loaded, image stays visible even during fast scrolling
-            shouldLoadImage = !effectiveScrollingFast || imageHasLoaded
+            shouldLoadImage = true
         }
         // Don't reset shouldLoadImage when item becomes invisible - keep it true
         // This ensures cached images show instantly when scrolling back into view
@@ -178,11 +181,15 @@ fun AvatarImage(
     // Stable ImageRequest — only rebuilt when URL, auth token, or pixel size changes.
     // Never add scroll state or visibility flags here: that cancels in-flight Coil requests
     // on every scroll-speed transition (the same bug we fixed in MediaFunctions.kt).
+    // crossfade(200) softens the swap from fallback-letter → bitmap; the swap itself is
+    // unavoidable (Coil dispatches the request when AsyncImage composes), but a 200ms
+    // fade makes it read as an intentional transition rather than a pop.
     val imageRequest = remember(currentAvatarUrl, targetPixelSize) {
         currentAvatarUrl?.let { url ->
             ImageRequest.Builder(context)
                 .data(url)
                 .apply { size(targetPixelSize) }
+                .crossfade(200)
                 .memoryCachePolicy(CachePolicy.ENABLED)
                 .diskCachePolicy(CachePolicy.ENABLED)
                 .build()
