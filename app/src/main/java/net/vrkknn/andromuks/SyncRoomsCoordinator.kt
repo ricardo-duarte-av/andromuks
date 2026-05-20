@@ -2,7 +2,6 @@ package net.vrkknn.andromuks
 
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -469,40 +468,40 @@ internal class SyncRoomsCoordinator(
             val visible = vm.isAppVisible
             val runIdForIngest = vm.currentRunId
 
-            // JSONObject is not thread-safe: clone once and create isolated copies per dispatcher.
-            val raw = try {
-                syncJson.toString()
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Failed to stringify sync_complete JSON: ${e.message}", e)
-                null
-            } ?: run {
-                onComplete?.invoke()
-                return null 
-            }
-
-            // Line 453 — declare result holder before coroutineScope
+            // Line 453 — declare result holder before withContext block
             var syncResultForCaller: SyncUpdateResult? = null
 
+            // Previously this block ran ingestSyncComplete and parseSyncUpdate as two
+            // async coroutines on IO and Default dispatchers, each with its own
+            // JSONObject(syncJson.toString()) copy. The motivation was thread safety
+            // around org.json.JSONObject. The cost was one full toString + two full
+            // reparses per sync_complete — at ~100KB and 10 messages on cold start,
+            // ~3x the JSON cost we actually need. Since both consumers read the JSON
+            // (neither mutates it), and IO/Default share CPU for parsing anyway,
+            // run them sequentially on Default against the original syncJson. This
+            // halves the CPU spent on JSON during initial sync without changing
+            // wall-clock significantly (the two traversals weren't truly parallel
+            // when both were CPU-bound).
+            val (ingestResult, syncResult) = withContext(Dispatchers.Default) {
+                val ir = ingestor.ingestSyncComplete(syncJson, requestId, runIdForIngest, visible)
+                // roomMap is a ConcurrentHashMap (see AppViewModel.kt:2035), so its
+                // get(roomId) is wait-free and safe under concurrent writes. The parser
+                // only does .get() lookups for "new vs updated" detection — no iteration.
+                // Previously this snapshotted via `synchronized(vm.roomMap) { HashMap(...) }`,
+                // which copied all 500 entries per message (≈5000 RoomItem references
+                // copied per cold-start init) AND used the wrong lock (a plain JVM
+                // monitor doesn't coordinate with ConcurrentHashMap's internal state).
+                val sr = SpaceRoomParser.parseSyncUpdate(
+                    syncJson,
+                    RoomMemberCache.getAllMembers(),
+                    vm,
+                    existingRooms = vm.roomMap,
+                    isClearState = isClearState
+                )
+                ir to sr
+            }
+
             kotlinx.coroutines.coroutineScope {
-                val ingestDeferred = async<SyncIngestor.IngestResult>(Dispatchers.IO) {
-                    val jsonForIngest = JSONObject(raw)
-                    ingestor.ingestSyncComplete(jsonForIngest, requestId, runIdForIngest, visible)
-                }
-
-                val parseDeferred = async<SyncUpdateResult>(Dispatchers.Default) {
-                    val jsonForParse = JSONObject(raw)
-                    val existingRoomsSnapshot = synchronized(vm.roomMap) { HashMap(vm.roomMap) }
-                    SpaceRoomParser.parseSyncUpdate(
-                        jsonForParse,
-                        RoomMemberCache.getAllMembers(),
-                        vm,
-                        existingRooms = existingRoomsSnapshot,
-                        isClearState = isClearState
-                    )
-                }
-
-                val ingestResult = ingestDeferred.await()
-                val syncResult = parseDeferred.await()
 
                 // Apply UI state changes on main thread (Compose safety)
                 withContext(Dispatchers.Main) {
