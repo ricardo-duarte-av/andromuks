@@ -455,6 +455,13 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                 }
             }
 
+            // Per-row invalidation for the room list: refresh cached senderDisplayName
+            // on any RoomItem whose messageSender == userId. This replaces the broad
+            // memberUpdateCounter signal for the room-list specifically — instead of
+            // invalidating every visible row, we touch only the (typically few) rooms
+            // whose last-message sender just got a new profile.
+            vm.refreshSenderDisplayNameForRooms(userId, display)
+
             if (userId == currentUserId) {
                 currentUserProfile = UserProfile(userId = userId, displayName = display, avatarUrl = avatar)
                 persistCurrentUserAvatarMxcIfChanged(avatar)

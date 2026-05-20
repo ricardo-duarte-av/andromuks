@@ -27,7 +27,17 @@ data class RoomItem(
     val isLowPriority: Boolean = false,
     val bridgeProtocolAvatarUrl: String? = null,
     val canonicalAlias: String? = null,
-    val latestEventId: String? = null
+    val latestEventId: String? = null,
+    /**
+     * Display name of [messageSender], resolved at sync-parse time from RoomMemberCache.
+     * Cached here so RoomListItem doesn't have to do a per-row RoomMemberCache lookup —
+     * the previous pattern read appViewModel.memberUpdateCounter inside `remember`, which
+     * invalidated all 500+ rows on any user profile update. Refreshed per-room (only the
+     * rooms whose messageSender matches a changed user are updated) by
+     * AppViewModel.refreshSenderDisplayNameForRooms.
+     * Null means "not yet resolved" — RoomListItem falls back to usernameFromMatrixId.
+     */
+    val senderDisplayName: String? = null
 )
 
 @Immutable

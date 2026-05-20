@@ -597,6 +597,30 @@ object SpaceRoomParser {
                 }
             }
 
+            // Resolve sender's display name. gomuks delivers per-room summary events
+            // inline in roomObj.events: one m.room.member for the sender + one preview
+            // message (both with timeline_rowid=-1). The m.room.member.content.displayname
+            // is the authoritative value at sync time, so look there first. Fall back to
+            // the cache (ProfileCache → RoomMemberCache → globals) only if no inline
+            // member event is present (older rooms, missing sender, etc.).
+            val senderDisplayName: String? = messageSender?.let { sender ->
+                if (events != null) {
+                    for (i in 0 until events.length()) {
+                        val ev = events.optJSONObject(i) ?: continue
+                        if (ev.optString("type") == "m.room.member" &&
+                            ev.optString("state_key") == sender
+                        ) {
+                            val name = ev.optJSONObject("content")
+                                ?.optString("displayname")
+                                ?.takeIf { it.isNotBlank() }
+                            if (name != null) return@let name
+                        }
+                    }
+                }
+                // Fallback for rooms whose member event wasn't included this sync
+                appViewModel?.getUserProfile(sender, roomId)?.displayName?.takeIf { it.isNotBlank() }
+            }
+
             return RoomItem(
                 id = roomId,
                 name = name,
@@ -610,7 +634,8 @@ object SpaceRoomParser {
                 isFavourite = isFavourite,
                 isLowPriority = isLowPriority,
                 canonicalAlias = canonicalAlias,
-                latestEventId = latestEventId
+                latestEventId = latestEventId,
+                senderDisplayName = senderDisplayName
             )
         } catch (e: Exception) {
             Log.e("Andromuks", "SpaceRoomParser: Error parsing room $roomId", e)

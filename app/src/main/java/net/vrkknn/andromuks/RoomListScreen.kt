@@ -1754,25 +1754,17 @@ fun RoomListItem(
         formatTimeAgo(room.sortingTimestamp)
     }
     
-    // PERFORMANCE: Cache sender profile lookup to avoid expensive operations on every recomposition
-    val senderDisplayName = remember(room.messageSender, room.id, appViewModel.memberUpdateCounter) {
-        if (room.messageSender != null) {
-            val senderProfile = appViewModel.getUserProfile(room.messageSender, room.id)
-            senderProfile?.displayName?.takeIf { it.isNotBlank() } ?: usernameFromMatrixId(room.messageSender)
-        } else {
-            null
-        }
-    }
-    // Always try to resolve sender to display name: request profile on demand so we can show
-    // display name instead of username fallback. requestUserProfileOnDemand skips if already cached.
-    val requestedProfile = remember(room.id, room.messageSender) { mutableStateOf(false) }
-    LaunchedEffect(room.id, room.messageSender) {
-        val senderId = room.messageSender
-        if (senderId != null && !requestedProfile.value) {
-            requestedProfile.value = true
-            appViewModel.requestUserProfileOnDemand(senderId, room.id)
-        }
-    }
+    // PERFORMANCE: Read the sender display name straight off the RoomItem (cached by
+    // SpaceRoomParser at sync-parse time, refreshed per-row by
+    // AppViewModel.refreshSenderDisplayNameForRooms on profile updates). This removes:
+    //   - the per-row RoomMemberCache lookup, and
+    //   - the read of appViewModel.memberUpdateCounter inside `remember`, which used
+    //     to invalidate every visible row whenever ANY user profile updated anywhere
+    //     in the app.
+    // Fallback to the matrix-id-derived username when the display name is not yet
+    // resolved (e.g., the sender's member event hasn't been processed yet).
+    val senderDisplayName: String? = room.senderDisplayName
+        ?: room.messageSender?.let { usernameFromMatrixId(it) }
 
     // Timeline cache indicator for this room (matches AppViewModel's union logic).
     val isTimelineCached = RoomTimelineCache.isRoomOpened(room.id) || RoomTimelineCache.isRoomActivelyCached(room.id)

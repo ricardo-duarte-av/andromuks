@@ -27,6 +27,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -629,6 +631,30 @@ class AppViewModel : ViewModel() {
      * Cheap O(1) — just bumps a counter.
      */
     internal fun invalidateRoomSectionCache() = roomListUiCoordinator.invalidateRoomSectionCache()
+
+    /**
+     * Update the cached senderDisplayName on any RoomItem whose messageSender matches
+     * [userId] and whose cached name differs from [newDisplayName]. Touches only the
+     * affected rooms (typically a handful), so the LazyColumn recomposes only those
+     * rows instead of every visible row (which was the case with the global
+     * memberUpdateCounter pattern). Called by MemberProfilesCoordinator after a
+     * profile response or member event lands.
+     */
+    internal fun refreshSenderDisplayNameForRooms(userId: String, newDisplayName: String?) {
+        val resolved = newDisplayName?.takeIf { it.isNotBlank() }
+        var anyChanged = false
+        for ((id, item) in roomMap) {
+            if (item.messageSender != userId) continue
+            if (item.senderDisplayName == resolved) continue
+            roomMap[id] = item.copy(senderDisplayName = resolved)
+            anyChanged = true
+        }
+        if (anyChanged) {
+            allRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
+            invalidateRoomSectionCache()
+            roomListUpdateCounter++
+        }
+    }
     
     /**
      * Returns the set of known space room IDs.
@@ -3139,127 +3165,133 @@ class AppViewModel : ViewModel() {
                                     android.util.Log.d("Andromuks", "AppViewModel: Processing ${queuedMessages.size} queued initial sync_complete messages")
                                 }
                                 
-                                // PERFORMANCE FIX: Process queued messages in chunks with yields to prevent ANR
-                                // This is critical for reconnect scenarios where hundreds of sync batches may queue up
-                                val chunkSize = 10 // Process 10 sync batches before yielding
-                                
-                                // CRITICAL FIX: Optimize unblocking based on sync_complete message pattern for large accounts:
-                                // Message 1: clear_state=true, ~100 rooms, space_edges, top_level_spaces (CRITICAL - has spaces info)
-                                // Messages 2-7: ~100 rooms each
-                                // Message 8: account_data
-                                // Strategy: Unblock after message 1 (has spaces) OR after 2 messages (~200 rooms), whichever comes first
-                                // This ensures UI shows immediately with spaces info while remaining rooms load in background
+                                // Optimize unblocking based on the sync_complete pattern observed for large
+                                // accounts (from init-messages.txt):
+                                //   Message 1: clear_state=true + ~67 rooms + 45 top_level_spaces + 67 space_edges
+                                //              + ~61 top-level account_data keys. Has all the state that downstream
+                                //              processing depends on (spaces, derived caches).
+                                //   Messages 2..N-1: ~99 rooms each, no clear_state, no top-level account_data.
+                                //              Each room carries ~2 events (sender m.room.member + last message)
+                                //              with timeline_rowid=-1 for the room-list summary preview.
+                                //   Last 1-2 messages: tail (small account_data, small room counts).
+                                //
+                                // Messages 2..N are independent additive batches against the post-msg-1 state.
+                                // Process msg 1 sequentially (it sets up clear_state + spaces + account_data),
+                                // then fan messages 2..N out in parallel on Dispatchers.Default, accumulate
+                                // their SyncUpdateResults, and apply the merged result on Main in one shot.
+                                //
+                                // Safety:
+                                //   - roomMap is ConcurrentHashMap
+                                //   - RoomMemberCache uses synchronized + ConcurrentHashMap
+                                //   - ingestor.ingestSyncComplete is documented thread-safe and already does
+                                //     within-message room-level fan-out
+                                //   - parseSyncUpdate is pure on its inputs (reads RoomMemberCache snapshot + roomMap)
+                                //   - applyBatchedRoomListResult is the same pre-existing path used by
+                                //     SyncBatchProcessor for background batches.
                                 var hasUnblockedUI = false
-                                
-                                for ((index, syncJson) in queuedMessages.withIndex()) {
-                                    val requestId = syncJson.optInt("request_id", 0)
-                                    if (BuildConfig.DEBUG && (index % 50 == 0 || index == queuedMessages.size - 1)) {
-                                        android.util.Log.d("Andromuks", "AppViewModel: Processing queued initial sync_complete message ${index + 1}/${queuedMessages.size} (request_id=$requestId) - FIFO sequential processing")
-                                    }
-                                    
-                                    // Check if this is the first message with clear_state=true (has spaces info)
+
+                                suspend fun processInitMessage(
+                                    syncJson: org.json.JSONObject,
+                                    indexForLog: Int,
+                                    applyRoomListNow: Boolean,
+                                    onProgress: () -> Unit
+                                ): SyncUpdateResult? {
                                     val data = syncJson.optJSONObject("data")
-                                    val isClearState = data?.optBoolean("clear_state") == true
-                                    val isFirstMessage = index == 0
-                                    val hasSpacesInfo = isFirstMessage && isClearState
-                                    
-                                    // Add progress message for processing sync_complete
-                                    if (isClearState) {
-                                        addStartupProgressMessage("Processing spaces and initial rooms...")
-                                    } else {
-                                        val roomsJson = data?.optJSONObject("rooms")
-                                        val roomCount = roomsJson?.length() ?: 0
-                                        if (roomCount > 0) {
-                                            addStartupProgressMessage("Processing $roomCount rooms...")
-                                        } else if (data?.optJSONObject("account_data") != null) {
-                                            addStartupProgressMessage("Processing account data...")
-                                        }
-                                    }
-                                    
-                                    // CRITICAL FIX: Process messages SEQUENTIALLY to prevent race conditions
-                                    // Each message must complete before the next one starts to ensure proper ordering
-                                    // This prevents out-of-order processing (e.g., request_id=-894263 completing before request_id=0)
-                                    val currentIndex = index // Capture index for lambda
-                                    try {
-                                        if (BuildConfig.DEBUG) {
-                                            android.util.Log.d("Andromuks", "🟣 onInitComplete: About to process message ${currentIndex + 1}/${queuedMessages.size} (sequential processing)")
-                                        }
-                                        val msgRunId = data?.optString("run_id", "") ?: ""
-                                        kotlinx.coroutines.withTimeoutOrNull(30000L) { // 30 second timeout per message
+                                    val requestId = syncJson.optInt("request_id", 0)
+                                    val msgRunId = data?.optString("run_id", "") ?: ""
+                                    return try {
+                                        kotlinx.coroutines.withTimeoutOrNull(30_000L) {
                                             syncRoomsCoordinator.processSyncCompleteAtomic(
                                                 syncJson = syncJson,
                                                 requestId = requestId,
                                                 runId = msgRunId,
-                                                onComplete = {
-                                                    processedSyncCompleteCount = currentIndex + 1
-                                                    // CRITICAL FIX: Update WebSocketService state with progress
-                                                    // This ensures notification shows correct progress (e.g., "Initializing (3/9)")
-                                                    net.vrkknn.andromuks.WebSocketService.updateInitializingProgress(
-                                                        pendingCount = queuedMessages.size,
-                                                        processedCount = currentIndex + 1
-                                                    )
-                                                    if (BuildConfig.DEBUG) {
-                                                        android.util.Log.d("Andromuks", "🟣 onInitComplete: Message ${currentIndex + 1} processing complete callback invoked - Updated state: Initializing (${currentIndex + 1}/${queuedMessages.size})")
-                                                    }
-                                                }
+                                                applyRoomListNow = applyRoomListNow,
+                                                onComplete = { onProgress() }
                                             )
-                                        } ?: run {
-                                            android.util.Log.w("Andromuks", "🟣 onInitComplete: Message ${currentIndex + 1} timed out after 30 seconds - continuing to next message")
+                                        }.also {
+                                            if (it == null) {
+                                                android.util.Log.w("Andromuks", "🟣 onInitComplete: Message $indexForLog timed out after 30s")
+                                            }
                                         }
                                     } catch (e: Exception) {
-                                        android.util.Log.e("Andromuks", "🟣 onInitComplete: CRASH while processing message ${currentIndex + 1}/${queuedMessages.size} - ${e.message}", e)
-                                        // Continue processing remaining messages even if one fails
-                                    }
-                                    
-                                    // CRITICAL FIX: Unblock UI strategically based on message content
-                                    // 1. If first message has clear_state=true (has spaces info), unblock immediately after processing it
-                                    // 2. Otherwise, unblock after processing 2 messages (~200 rooms)
-                                    // This ensures UI shows with spaces info ASAP while remaining rooms load in background
-                                    if (!hasUnblockedUI) {
-                                        val shouldUnblock = when {
-                                            hasSpacesInfo -> {
-                                                // First message with clear_state=true - has spaces info, unblock immediately
-                                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 onInitComplete: First message has clear_state=true with spaces info - will unblock after processing")
-                                                true
-                                            }
-                                            (currentIndex + 1) >= 2 -> {
-                                                // Processed 2 messages (~200 rooms) - enough to show UI
-                                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 onInitComplete: Processed 2 messages (~200 rooms) - will unblock UI")
-                                                true
-                                            }
-                                            else -> false
-                                        }
-                                        
-                                        if (shouldUnblock) {
-                                            hasUnblockedUI = true
-                                            // CRITICAL: Don't set initialSyncProcessingComplete=true here - wait for ALL messages to be processed
-                                            // This allows UI to show early with partial data, but checkStartupComplete() will wait for all processing
-                                            // CRITICAL: Ensure profile is loaded before early unblock
-                                            ensureCurrentUserProfileLoaded()
-                                            withContext(Dispatchers.Main) {
-                                                val roomCount = roomMap.size
-                                                val reason = if (hasSpacesInfo) "first message with clear_state=true (spaces info)" else "processed 2 messages (~200 rooms)"
-                                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 onInitComplete: EARLY UNBLOCK - $reason, have $roomCount rooms - Setting initialSyncComplete=true to unblock UI (processing continues in background)")
-                                                initialSyncComplete = true
-                                                spacesLoaded = true
-                                                // CRITICAL FIX: Allow commands immediately on early unblock
-                                                // Don't wait for all room states - bridge badges can load in background
-                                                canSendCommandsToBackend = true
-                                                flushPendingCommandsQueue()
-                                                // Don't call checkStartupComplete() here - it will wait for initialSyncProcessingComplete
-                                                // This ensures UI shows early but room list waits for all processing
-                                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 onInitComplete: EARLY UNBLOCK - UI can show early, but room list will wait for all ${queuedMessages.size} messages to process")
-                                            }
-                                        }
-                                    }
-                                    
-                                    // PERFORMANCE FIX: Yield every chunkSize messages to prevent ANR
-                                    // This allows the UI thread to remain responsive during heavy reconnect processing
-                                    if ((index + 1) % chunkSize == 0) {
-                                        kotlinx.coroutines.yield()
+                                        android.util.Log.e("Andromuks", "🟣 onInitComplete: CRASH processing message $indexForLog: ${e.message}", e)
+                                        null
                                     }
                                 }
-                                
+
+                                val processedCounter = java.util.concurrent.atomic.AtomicInteger(0)
+                                fun bumpProgress() {
+                                    val now = processedCounter.incrementAndGet()
+                                    processedSyncCompleteCount = now
+                                    net.vrkknn.andromuks.WebSocketService.updateInitializingProgress(
+                                        pendingCount = queuedMessages.size,
+                                        processedCount = now
+                                    )
+                                }
+
+                                // Phase 1 — msg 1 sequential with apply (clear_state + spaces + account_data)
+                                val firstMessage = queuedMessages[0]
+                                val firstData = firstMessage.optJSONObject("data")
+                                val firstIsClearState = firstData?.optBoolean("clear_state") == true
+                                if (firstIsClearState) {
+                                    addStartupProgressMessage("Processing spaces and initial rooms...")
+                                } else {
+                                    addStartupProgressMessage("Processing initial sync...")
+                                }
+                                processInitMessage(firstMessage, indexForLog = 1, applyRoomListNow = true, ::bumpProgress)
+
+                                // Early-unblock right after msg 1 lands (it has spaces info)
+                                if (firstIsClearState && !hasUnblockedUI) {
+                                    hasUnblockedUI = true
+                                    ensureCurrentUserProfileLoaded()
+                                    withContext(Dispatchers.Main) {
+                                        if (BuildConfig.DEBUG) android.util.Log.d(
+                                            "Andromuks",
+                                            "🟣 onInitComplete: EARLY UNBLOCK — msg 1 has clear_state+spaces, have ${roomMap.size} rooms"
+                                        )
+                                        initialSyncComplete = true
+                                        spacesLoaded = true
+                                        canSendCommandsToBackend = true
+                                        flushPendingCommandsQueue()
+                                    }
+                                }
+
+                                // Phase 2 — msgs 2..N in parallel with applyRoomListNow=false, then merge + apply once
+                                if (queuedMessages.size > 1) {
+                                    val restMessages = queuedMessages.drop(1)
+                                    addStartupProgressMessage("Processing remaining ${restMessages.size} sync messages in parallel...")
+                                    val partialResults = restMessages.mapIndexed { i, msg ->
+                                        async(Dispatchers.Default) {
+                                            processInitMessage(msg, indexForLog = i + 2, applyRoomListNow = false, ::bumpProgress)
+                                        }
+                                    }.awaitAll()
+
+                                    // Merge results in arrival order. Last-write-wins per roomId is correct
+                                    // here: parallel msgs are independent additive batches, so any given
+                                    // roomId only appears in one of them (sync_complete partitions rooms
+                                    // across messages, not duplicates).
+                                    val updatedRooms = mutableMapOf<String, RoomItem>()
+                                    val newRooms = mutableMapOf<String, RoomItem>()
+                                    val removedRoomIds = mutableSetOf<String>()
+                                    for (result in partialResults.filterNotNull()) {
+                                        for (room in result.updatedRooms) updatedRooms[room.id] = room
+                                        for (room in result.newRooms) newRooms[room.id] = room
+                                        removedRoomIds.addAll(result.removedRoomIds)
+                                    }
+                                    if (updatedRooms.isNotEmpty() || newRooms.isNotEmpty() || removedRoomIds.isNotEmpty()) {
+                                        val merged = SyncUpdateResult(
+                                            updatedRooms = updatedRooms.values.toList(),
+                                            newRooms = newRooms.values.toList(),
+                                            removedRoomIds = removedRoomIds.toList()
+                                        )
+                                        if (BuildConfig.DEBUG) android.util.Log.d(
+                                            "Andromuks",
+                                            "🟣 onInitComplete: Applying merged result — newRooms=${merged.newRooms.size}, updatedRooms=${merged.updatedRooms.size}, removedRoomIds=${merged.removedRoomIds.size}"
+                                        )
+                                        syncRoomsCoordinator.applyBatchedRoomListResult(merged)
+                                    }
+                                }
+
                                 if (BuildConfig.DEBUG) {
                                     android.util.Log.d("Andromuks", "AppViewModel: Finished processing all ${queuedMessages.size} initial sync_complete messages")
                                 }
