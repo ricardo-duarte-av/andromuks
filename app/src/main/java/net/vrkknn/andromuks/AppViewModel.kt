@@ -341,13 +341,23 @@ class AppViewModel : ViewModel() {
                     true
                 }
 
-                // The WS must actually be connected before we can declare readiness.
-                // Other flags (initialSyncComplete, allRoomStatesLoaded) survive a
+                // The WS must actually be connected before we can declare readiness —
+                // OTHER flags (initialSyncComplete, allRoomStatesLoaded) survive a
                 // service restart with stale "true" values from the previous session,
                 // so they alone can't tell us "the current cold start has completed".
-                // Without this gate, sidecar-resume navigation fires while the WS is
-                // still dialing → requestRoomTimeline sees disconnected → no data.
-                val websocketReady = WebSocketService.isWebSocketConnected()
+                //
+                // BUT: if we already have real timeline data for the target room from
+                // the LRU cache, that's actual data (not a stale flag), and there's no
+                // reason to hard-block the consumer on a network round-trip we may not
+                // even need. Releases the gate immediately in the WS-down case when
+                // cache is sufficient. The WS will reconnect in the background and the
+                // drainDeferredInitialPaginates path picks up any rooms whose paginate
+                // was queued by the early-exit in requestRoomTimeline.
+                val haveUsableCachedData = roomId != null &&
+                    currentRoomId == roomId &&
+                    timelineEvents.isNotEmpty() &&
+                    !isTimelineLoading
+                val websocketReady = WebSocketService.isWebSocketConnected() || haveUsableCachedData
 
                 if (pollCount % 10 == 0 || (!pendingReady || !syncReady || !initReady || !notificationFlushReady || !timelineReady || !roomStateReady || !websocketReady)) {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: Polling[$pollCount] - pendingReady=$pendingReady, syncReady=$syncReady, initReady=$initReady, notificationFlushReady=$notificationFlushReady, timelineReady=$timelineReady, roomStateReady=$roomStateReady, websocketReady=$websocketReady | isTimelineLoading=$isTimelineLoading, events=${timelineEvents.size}, allRoomStatesLoaded=$allRoomStatesLoaded, isPendingNavFromNotif=$isPendingNavigationFromNotification, currentRoomId=$currentRoomId")
@@ -364,6 +374,13 @@ class AppViewModel : ViewModel() {
         } ?: run {
             val elapsed = System.currentTimeMillis() - startTime
             android.util.Log.w("Andromuks", "🟣 awaitRoomDataReadiness: TIMEOUT - roomId=$roomId, elapsed=${elapsed}ms, timeoutMs=$timeoutMs, isProcessingPendingItems=$isProcessingPendingItems, isPendingNavFromNotif=$isPendingNavigationFromNotification, initialSyncComplete=$initialSyncComplete, isTimelineLoading=$isTimelineLoading, timelineEvents=${timelineEvents.size}, currentRoomId=$currentRoomId")
+            // Bug B defense-in-depth: don't poison the next FCM-open with a stuck flag.
+            // If we timed out and still believe we're mid-notification-nav for this room,
+            // release the gate so subsequent navigations aren't blocked from the start.
+            if (isPendingNavigationFromNotification && (roomId == null || currentRoomId == roomId)) {
+                isPendingNavigationFromNotification = false
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 awaitRoomDataReadiness: Cleared isPendingNavigationFromNotification on timeout")
+            }
             false
         }
     }
@@ -7689,9 +7706,27 @@ class AppViewModel : ViewModel() {
         // ✓ FIX: Only update currentRoomState if this is the currently open room
         // This prevents the room header from flashing through all rooms during shortcut loading
         if (roomId == currentRoomId) {
-            currentRoomState = roomState
+            // MERGE rather than overwrite: get_room_state responses for a given room can
+            // arrive with only a subset of state events (e.g. just power_levels + encryption,
+            // no m.room.name / m.room.avatar). A destructive `currentRoomState = roomState`
+            // assignment then wipes the name/avatar that an earlier response or
+            // updateRoomStateFromTimelineEvents call had populated, producing the visible
+            // header flicker on FCM open. Keep the previous value when the new field is null.
+            val previous = currentRoomState?.takeIf { it.roomId == roomId }
+            currentRoomState = if (previous != null) {
+                roomState.copy(
+                    name = roomState.name ?: previous.name,
+                    canonicalAlias = roomState.canonicalAlias ?: previous.canonicalAlias,
+                    topic = roomState.topic ?: previous.topic,
+                    avatarUrl = roomState.avatarUrl ?: previous.avatarUrl,
+                    powerLevels = roomState.powerLevels ?: previous.powerLevels,
+                    bridgeInfo = roomState.bridgeInfo ?: previous.bridgeInfo,
+                )
+            } else {
+                roomState
+            }
             roomStateUpdateCounter++
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✓ Updated current room state - Name: $name, Alias: $canonicalAlias, Topic: $topic, Avatar: $avatarUrl, Encrypted: $isEncrypted")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✓ Updated current room state - Name: ${currentRoomState?.name}, Alias: ${currentRoomState?.canonicalAlias}, Topic: ${currentRoomState?.topic}, Avatar: ${currentRoomState?.avatarUrl}, Encrypted: ${currentRoomState?.isEncrypted} (response had Name=$name, Avatar=$avatarUrl)")
         }
     }
     
@@ -9784,6 +9819,22 @@ class AppViewModel : ViewModel() {
         // canSendCommandsToBackend is true here so commands go directly to the socket,
         // not back into pendingCommandsQueue, preventing double-sends.
         persistenceCoordinator.retryPendingWebSocketOperations(bypassTimeout = true)
+        // If a room is open, bump the timeline refresh trigger so RoomTimelineScreen's
+        // LaunchedEffect(timelineRefreshTrigger) re-runs requestRoomTimeline. This is the
+        // architectural retry hook for the FCM-cold-open case where the initial paginate
+        // was dropped by the WS-down early-exit — on cold connect the backend issues
+        // clear_state=true which wipes the room's cache, so requestRoomTimeline will
+        // either no-op (if cache survived / refilled from sync_complete to >= threshold)
+        // or paginate (if cache is insufficient). Either way matches the cache contract.
+        if (currentRoomId.isNotEmpty()) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: flushPendingCommandsQueue - room open ($currentRoomId), bumping timelineRefreshTrigger",
+                )
+            }
+            timelineRefreshTrigger++
+        }
     }
     
     /**

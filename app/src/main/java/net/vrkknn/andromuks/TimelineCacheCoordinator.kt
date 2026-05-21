@@ -690,6 +690,20 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     )
                 updateCurrentRoomIdInPrefs(roomId)
                 isTimelineLoading = false
+                // The LRU restore populated timelineEvents synchronously; release any
+                // notification-pending gate so awaitRoomDataReadiness can resolve.
+                // Without this, FCM taps that hit the LRU fast path leave the flag set and
+                // notificationFlushReady spins for the full 15s timeout (the background
+                // paginate fired below uses backgroundPrefetchRequests and won't clear it).
+                if (isPendingNavigationFromNotification && currentRoomId == roomId) {
+                    isPendingNavigationFromNotification = false
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                            "Andromuks",
+                            "🟢 requestRoomTimeline: Cleared isPendingNavigationFromNotification (LRU restore complete)",
+                        )
+                    }
+                }
                 // Any in-flight pagination from a previous room visit is now stale — clear the
                 // indicator so the auto-paginate loop can restart cleanly for this room.
                 isPaginating = false
@@ -847,10 +861,17 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
                 // Process events through chain processing (builds timeline structure)
                 // Include redaction events so "Removed by X for Y" renders correctly
+                //
+                // openingFromNotification: forward the notification-pending state of this VM so
+                // processCachedEvents clears isPendingNavigationFromNotification when it's done.
+                // Hardcoding false here meant FCM taps that hit this branch (cache had a few
+                // events but < threshold) left the flag stuck, blocking awaitRoomDataReadiness's
+                // notificationFlushReady gate for the full 15s timeout.
                 processCachedEvents(
                     roomId,
                     RoomTimelineCache.getCachedEventsForTimeline(roomId),
-                    openingFromNotification = false,
+                    openingFromNotification =
+                        isPendingNavigationFromNotification && currentRoomId == roomId,
                 )
 
                 // Mark room as accessed in RoomTimelineCache for LRU eviction
@@ -928,11 +949,24 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             if (!isWebSocketConnected()) {
                 android.util.Log.w(
                     "Andromuks",
-                    "🟢 requestRoomTimeline: WebSocket not connected - roomId=$roomId, setting loading=true and clearing timeline",
+                    "🟢 requestRoomTimeline: WebSocket not connected - roomId=$roomId, exiting (will retry via timelineRefreshTrigger after init_complete)",
                 )
                 // Set loading state and clear timeline
                 timelineEvents = emptyList()
                 isTimelineLoading = true
+                // Bug B: clear the notification-pending flag so awaitRoomDataReadiness unsticks.
+                // The natural retry path (flushPendingCommandsQueue bumps timelineRefreshTrigger
+                // when canSendCommandsToBackend flips to true) will re-invoke requestRoomTimeline
+                // once the WS is up; the eventual handleInitialTimelineBuild clears this flag.
+                if (isPendingNavigationFromNotification && currentRoomId == roomId) {
+                    isPendingNavigationFromNotification = false
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                            "Andromuks",
+                            "🟢 requestRoomTimeline: Cleared isPendingNavigationFromNotification (will retry on init_complete)",
+                        )
+                    }
+                }
                 android.util.Log.d(
                     "Andromuks",
                     "🟢 requestRoomTimeline: EXIT (WebSocket not connected) - roomId=$roomId, isTimelineLoading=$isTimelineLoading",

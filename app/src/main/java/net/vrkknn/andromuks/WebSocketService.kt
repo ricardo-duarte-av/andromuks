@@ -1209,6 +1209,41 @@ class WebSocketService : Service() {
         fun getConnectionState(): ConnectionState? {
             return instance?.connectionState
         }
+
+        /**
+         * Wall-clock time of the last message received over the WebSocket, or 0 if none.
+         * Used by recovery paths (e.g. resume-from-doze) to detect a half-dead socket whose
+         * connectionState still reads Ready but where nothing has come through in a long time.
+         */
+        fun lastMessageAtMs(): Long {
+            return instance?.lastMessageReceivedTimestamp ?: 0L
+        }
+
+        /**
+         * Trigger an immediate ping with a short pong watchdog. If no pong arrives within
+         * [watchdogMs] the WebSocket is treated as dead and a reconnection is scheduled.
+         * Returns false if the service isn't running or isn't in Ready state (caller may
+         * choose to force a reconnect directly).
+         */
+        fun pingNowWithWatchdog(watchdogMs: Long = 3_000L): Boolean {
+            val svc = instance ?: return false
+            if (!svc.connectionState.isReady()) return false
+            val expectedSeenAfter = svc.lastMessageReceivedTimestamp
+            svc.sendPing()
+            svc.serviceScope.launch {
+                delay(watchdogMs)
+                val updatedSeen = instance?.lastMessageReceivedTimestamp ?: return@launch
+                if (updatedSeen <= expectedSeenAfter) {
+                    android.util.Log.w(
+                        "WebSocketService",
+                        "pingNowWithWatchdog: no traffic within ${watchdogMs}ms after ping — treating socket as dead",
+                    )
+                    clearWebSocket("ping watchdog: no traffic after immediate ping")
+                    scheduleReconnection(ReconnectTrigger.MessageTimeout)
+                }
+            }
+            return true
+        }
         
         /**
          * Check if service is currently reconnecting or connecting
@@ -2242,6 +2277,12 @@ class WebSocketService : Service() {
                 Intent.ACTION_SCREEN_ON -> {
                     isScreenOn = true
                     if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Screen turned ON")
+                    // Bug C2: Doze can silently kill the underlying TCP socket while the OS-visible
+                    // state still reads Ready. Fire an immediate ping with a 3s pong watchdog so we
+                    // detect the dead socket in seconds instead of waiting for the 60s message-
+                    // timeout check. No-op if the service isn't Ready (the lifecycle resume path
+                    // will handle re-dialling).
+                    pingNowWithWatchdog()
                 }
                 Intent.ACTION_SCREEN_OFF -> {
                     isScreenOn = false

@@ -223,24 +223,38 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 if (WebSocketService.isSidecarUserDisconnected(ctx)) {
                     WebSocketService.setSidecarUserDisconnected(ctx, false)
                 }
-                if (useSidecarMode && !WebSocketService.isServiceRunning()) {
-                    if (BuildConfig.DEBUG) android.util.Log.i(
-                        "Andromuks",
-                        "AppViewModel: Resuming from sidecar suspend — restarting WebSocketService + dialing WS",
-                    )
-                    // startWebSocketService() alone creates the foreground service shell but
-                    // does not dial the WebSocket. Without an explicit initialize call the
-                    // service sits in Disconnected until the 30s unified-monitoring health
-                    // check detects "stuck disconnected" and triggers reconnection. That
-                    // delay races every notification-navigation path: requestRoomTimeline
-                    // sees isWebSocketConnected=false and exits before any data arrives.
-                    val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-                    val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
-                    val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
-                    if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
-                        initializeWebSocketConnection(homeserverUrl, authToken)
+                if (useSidecarMode) {
+                    // Bug C1: don't gate solely on isServiceRunning(). Three failure modes get past
+                    // a naive guard and leave the room timeline stale on resume:
+                    //   1. Service was stopped by sidecar linger and never restarted.
+                    //   2. AutoRestartReceiver created a service shell but never dialled the WS.
+                    //   3. Service is alive and "Ready", but the underlying TCP socket was killed
+                    //      by Doze/kernel idle reaping (no FIN delivered) — connectionState lies.
+                    val running = WebSocketService.isServiceRunning()
+                    val state = WebSocketService.getConnectionState()
+                    val lastMsgAt = WebSocketService.lastMessageAtMs()
+                    val staleness = if (lastMsgAt == 0L) Long.MAX_VALUE else System.currentTimeMillis() - lastMsgAt
+                    val needsDial = !running ||
+                        state !is net.vrkknn.andromuks.ConnectionState.Ready ||
+                        staleness > 30_000L
+                    if (needsDial) {
+                        if (BuildConfig.DEBUG) android.util.Log.i(
+                            "Andromuks",
+                            "AppViewModel: Resume health check — running=$running, state=$state, staleness=${staleness}ms → re-dialling WebSocket",
+                        )
+                        val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+                        val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
+                        val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
+                        if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+                            initializeWebSocketConnection(homeserverUrl, authToken)
+                        } else {
+                            startWebSocketService()
+                        }
                     } else {
-                        startWebSocketService()
+                        // Looks healthy on paper — still fire a cheap probe to confirm the socket
+                        // isn't a half-dead Doze casualty. The watchdog inside pingNowWithWatchdog
+                        // triggers a reconnect if no traffic arrives within 3s.
+                        WebSocketService.pingNowWithWatchdog()
                     }
                 }
             }
