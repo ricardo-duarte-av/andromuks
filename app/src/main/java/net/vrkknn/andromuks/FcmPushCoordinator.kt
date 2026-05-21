@@ -17,8 +17,9 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
             if (!WebSocketService.isViewModelRegistered(viewModelId)) {
                 WebSocketService.registerViewModel(viewModelId, isPrimary = false)
             }
-            appContext = context
-            RoomTimelineCache.setAppContext(context)
+            val appCtx = context.applicationContext
+            appContext = appCtx
+            RoomTimelineCache.setAppContext(appCtx)
 
             if (!skipCacheClear) {
                 clearCurrentRoomId()

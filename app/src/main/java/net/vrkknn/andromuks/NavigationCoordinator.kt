@@ -235,6 +235,17 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                             "🔵 navigateToRoomWithCache: Cache hit - roomId=$roomId, cachedEvents.size=${cachedEvents.size}, building timeline from cache",
                         )
 
+                        // Abort if navigation was superseded — processCachedEvents mutates
+                        // eventChainMap/editEventsMap synchronously and the expectedRoomId guard
+                        // inside executeTimelineRebuild only discards the final state write.
+                        if (currentRoomId != roomId) {
+                            android.util.Log.d(
+                                "Andromuks",
+                                "🔵 navigateToRoomWithCache: Aborting cache-hit fast path — superseded by currentRoomId=$currentRoomId",
+                            )
+                            return@launch
+                        }
+
                         processCachedEvents(
                             roomId,
                             RoomTimelineCache.getCachedEventsForTimeline(roomId),
@@ -296,6 +307,15 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                     )
                     val partialCachedEvents = RoomTimelineCache.getCachedEvents(roomId)
                     if (partialCachedEvents != null && partialCachedEvents.isNotEmpty()) {
+                        // Abort if navigation was superseded — see note on the cache-hit branch above.
+                        if (currentRoomId != roomId) {
+                            android.util.Log.d(
+                                "Andromuks",
+                                "🔵 navigateToRoomWithCache: Aborting partial-cache notification merge — superseded by currentRoomId=$currentRoomId",
+                            )
+                            return@launch
+                        }
+
                         processCachedEvents(
                             roomId,
                             RoomTimelineCache.getCachedEventsForTimeline(roomId),
