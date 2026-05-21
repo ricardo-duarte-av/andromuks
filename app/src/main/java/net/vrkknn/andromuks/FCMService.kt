@@ -191,10 +191,14 @@ class FCMService : FirebaseMessagingService() {
             // coroutines — without this the CPU can re-enter Doze before the notification posts.
             val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
             val wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "andromuks:fcm_processing")
-            wakeLock.acquire(20_000L) // 20s hard cap — FCM itself only gives us 20s
 
-            // Parse the decrypted JSON and handle different payload types
+            // Parse the decrypted JSON and handle different payload types.
+            // Acquire the WakeLock *inside* the launched coroutine's try block so the
+            // matching release in `finally` is guaranteed to run. Acquiring before
+            // `launch` risked a leak if serviceScope was cancelled between acquire and
+            // the lambda body executing — the 20s timeout was the only safety net.
             serviceScope.launch {
+                wakeLock.acquire(20_000L) // 20s hard cap — FCM itself only gives us 20s
                 try {
                     val jsonObject = JSONObject(decryptedPayload)
                     if (BuildConfig.DEBUG) Log.d(TAG, "Decrypted JSON keys: ${jsonObject.keys().asSequence().toList()}")
