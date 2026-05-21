@@ -11,6 +11,32 @@ import net.vrkknn.andromuks.utils.SpaceRoomParser
 import org.json.JSONObject
 
 /**
+ * Top-level `account_data` keys Andromuks actually reads. Everything else in the sync_complete
+ * `account_data` block is dropped at the chokepoint in [SyncRoomsCoordinator.processAccountData]
+ * before it reaches [AccountDataCache] or any downstream parser. Strict allowlist so future
+ * vendor keys from gomuks don't silently bloat the client.
+ *
+ * Per-room `account_data` (e.g. `m.tag`, room-scoped `fi.mau.gomuks.preferences`) is a separate
+ * channel handled in [SpaceRoomParser] / [SyncIngestor] and is NOT filtered here.
+ */
+private val ACCOUNT_DATA_ALLOWLIST = setOf(
+    "m.direct",
+    "io.element.recent_emoji",
+    "m.ignored_user_list",
+    "m.image_pack.rooms",
+    "im.ponies.emote_rooms",
+    "fi.mau.gomuks.preferences",
+)
+
+private fun filterAccountDataToAllowlist(src: JSONObject): JSONObject {
+    val out = JSONObject()
+    for (key in ACCOUNT_DATA_ALLOWLIST) {
+        if (src.has(key)) out.put(key, src.get(key))
+    }
+    return out
+}
+
+/**
  * Initial sync, [SyncUpdateResult] application, room/space state, and account_data from sync_complete.
  * Mutable UI state lives on [AppViewModel]; this class holds orchestration only.
  *
@@ -125,16 +151,21 @@ internal class SyncRoomsCoordinator(
         }
     }
 
-    fun processAccountData(accountDataJson: JSONObject) {
+    fun processAccountData(rawAccountDataJson: JSONObject) {
+        // Strip non-load-bearing keys at the chokepoint so neither AccountDataCache nor any
+        // downstream code below ever observes them. See ACCOUNT_DATA_ALLOWLIST above.
+        val accountDataJson = filterAccountDataToAllowlist(rawAccountDataJson)
         with(vm) {
                     // CRITICAL FIX: Store account_data in singleton cache so all ViewModel instances can access it
                     // This ensures secondary instances (e.g., opened from Contacts) can access account_data
                     AccountDataCache.setAllAccountData(accountDataJson)
-        
+
                     // Account data is already extracted, process it directly
                     if (BuildConfig.DEBUG) {
-                        val allKeys = accountDataJson.keys().asSequence().toList()
-                        android.util.Log.d("Andromuks", "AppViewModel: processAccountData - Processing account_data with ${allKeys.size} keys: ${allKeys.joinToString(", ")}")
+                        val incomingKeys = rawAccountDataJson.keys().asSequence().toList()
+                        val keptKeys = accountDataJson.keys().asSequence().toList()
+                        val droppedKeys = incomingKeys - keptKeys.toSet()
+                        android.util.Log.d("Andromuks", "AppViewModel: processAccountData - kept ${keptKeys.size}/${incomingKeys.size} keys: ${keptKeys.joinToString(", ")}; dropped ${droppedKeys.size}: ${droppedKeys.joinToString(", ")}")
                     }
         
                     // Process recent emoji account data
