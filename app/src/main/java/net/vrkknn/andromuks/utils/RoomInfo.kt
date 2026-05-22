@@ -215,6 +215,31 @@ fun RoomInfoScreen(
                 )
             }
         } else if (roomStateInfo != null) {
+            // Heroes fallback for nameless / avatarless rooms (typically DMs). Mirrors the
+            // displayRoomName / displayAvatarUrl logic in RoomTimelineScreen so the room header's
+            // avatar and the RoomInfo avatar stay in sync — without this, opening RoomInfo for a
+            // DM hands AvatarImage a null mxcUrl and Coil chokes on the data: SVG fallback.
+            // See docs/ROOM_DISPLAY.md for the rule.
+            val needsHeroesFallback = roomStateInfo!!.name.isNullOrBlank() &&
+                roomStateInfo!!.canonicalAlias.isNullOrBlank()
+            val heroMember: RoomMember? = if (needsHeroesFallback) {
+                val myUserId = appViewModel.currentUserId
+                val serviceMembers = appViewModel.functionalMembersCache[roomId] ?: emptySet()
+                roomStateInfo!!.members
+                    .asSequence()
+                    .filter { it.membership == "join" }
+                    .filter { it.userId != myUserId && it.userId !in serviceMembers }
+                    .firstOrNull()
+                    ?: roomStateInfo!!.members
+                        .asSequence()
+                        .filter { it.userId != myUserId && it.userId !in serviceMembers }
+                        .firstOrNull()
+            } else null
+            val effectiveAvatarUrl = roomStateInfo!!.avatarUrl ?: heroMember?.avatarUrl
+            val effectiveName = roomStateInfo!!.name
+                ?: heroMember?.displayName
+                ?: heroMember?.userId?.let { usernameFromMatrixId(it) }
+
             val roomInfoScrollState = rememberScrollState()
             Column(
                 modifier = Modifier
@@ -237,7 +262,7 @@ fun RoomInfoScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    roomStateInfo!!.name?.let { name ->
+                    effectiveName?.let { name ->
                         Text(
                             text = name,
                             style = MaterialTheme.typography.headlineMedium,
@@ -264,8 +289,8 @@ fun RoomInfoScreen(
                     Box(
                         modifier = Modifier
                             .size(120.dp)
-                            .clickable(enabled = roomStateInfo!!.avatarUrl != null) {
-                                val avatarUrl = roomStateInfo!!.avatarUrl
+                            .clickable(enabled = effectiveAvatarUrl != null) {
+                                val avatarUrl = effectiveAvatarUrl
                                 if (!avatarUrl.isNullOrBlank()) {
                                     val fullUrl = AvatarUtils.getFullImageUrl(
                                         context,
@@ -301,13 +326,13 @@ fun RoomInfoScreen(
                             val sharedKey = "avatar-${roomId}"
                             with(sharedTransitionScope) {
                                 AvatarImage(
-                                    mxcUrl = roomStateInfo!!.avatarUrl,
+                                    mxcUrl = effectiveAvatarUrl,
                                     homeserverUrl = appViewModel.homeserverUrl,
                                     authToken = appViewModel.authToken,
-                                    fallbackText = roomStateInfo!!.name ?: roomId,
+                                    fallbackText = effectiveName ?: roomId,
                                     size = 120.dp,
                                     userId = roomId,
-                                    displayName = roomStateInfo!!.name,
+                                    displayName = effectiveName,
                                     useCircleCache = true, // Match RoomListScreen's cache path for smooth shared element transitions
                                     modifier = Modifier
                                         .sharedElement(
@@ -327,13 +352,13 @@ fun RoomInfoScreen(
                             }
                         } else {
                             AvatarImage(
-                                mxcUrl = roomStateInfo!!.avatarUrl,
+                                mxcUrl = effectiveAvatarUrl,
                                 homeserverUrl = appViewModel.homeserverUrl,
                                 authToken = appViewModel.authToken,
-                                fallbackText = roomStateInfo!!.name ?: roomId,
+                                fallbackText = effectiveName ?: roomId,
                                 size = 120.dp,
                                 userId = roomId,
-                                displayName = roomStateInfo!!.name,
+                                displayName = effectiveName,
                                 useCircleCache = true, // Match RoomListScreen's cache path for consistent avatar loading
                                 modifier = Modifier.clip(CircleShape)
                             )
