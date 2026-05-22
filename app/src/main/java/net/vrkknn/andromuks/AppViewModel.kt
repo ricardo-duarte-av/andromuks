@@ -3132,9 +3132,24 @@ class AppViewModel : ViewModel() {
      * Events, profile info, and media cache remain untouched.
      */
 
-    
-    
-    
+    /**
+     * Drops the in-memory timeline cache and its paginate cursors. Used when the
+     * sidecar-mode linger expires and the persistent WebSocket is about to be torn down:
+     * on the next reconnect the server sends `clear_state=true` and we re-hydrate from
+     * scratch anyway, so retaining the cache only risks a stale-merge on pagination if
+     * the user reopens a room before the new sync lands. Media (mxc:// is immutable) is
+     * intentionally left to Coil's disk cache.
+     */
+    fun clearTimelineCachesForServerResync() {
+        if (BuildConfig.DEBUG) android.util.Log.i(
+            "Andromuks",
+            "AppViewModel: clearTimelineCachesForServerResync — dropping RoomTimelineCache + paginate cursors"
+        )
+        RoomTimelineCache.clearAll()
+        oldestRowIdPerRoom.clear()
+        roomsWithPendingPaginate.clear()
+    }
+
     fun onInitComplete() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 onInitComplete: START - initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded, initialSyncCompleteQueue.size=${initialSyncCompleteQueue.size}")
         addStartupProgressMessage("Initialization complete - processing ${initialSyncCompleteQueue.size} sync messages")

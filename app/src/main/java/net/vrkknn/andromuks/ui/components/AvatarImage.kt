@@ -27,7 +27,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import android.os.Build
+import android.util.Log
 import coil.compose.AsyncImage
+import net.vrkknn.andromuks.BuildConfig
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.decode.SvgDecoder
@@ -92,26 +94,40 @@ fun AvatarImage(
         if (useCircleCache && mxcUrl != null) {
             val resolved = AvatarUtils.getAvatarUrlForRoomList(context, mxcUrl, homeserverUrl, effectiveUserId, effectiveDisplayName)
             if (resolved != avatarUrl) {
+                if (BuildConfig.DEBUG) Log.d(
+                    "Andromuks",
+                    "AvatarImage[$effectiveUserId]: LaunchedEffect override mxc=$mxcUrl prev=$avatarUrl → resolved=$resolved"
+                )
                 avatarUrl = resolved
+            } else if (BuildConfig.DEBUG) {
+                Log.d(
+                    "Andromuks",
+                    "AvatarImage[$effectiveUserId]: LaunchedEffect no-op mxc=$mxcUrl resolved=$resolved (matches current)"
+                )
             }
         }
     }
     
     // CRITICAL FIX: Use a stable key (userId or fallbackText) instead of avatarUrl for state persistence
     // This prevents state reset when avatarUrl is recalculated (even if it's the same value)
-    // The stable key ensures state persists across room list updates (sync_complete recompositions)
+    // The stable key ensures state persists across room list updates (sync_complete recompositions).
+    //
+    // mxcUrl is included as a co-key: it only changes when the underlying media source changes
+    // (e.g. roomState arrives and the avatar mxc flips from null → real, or admin sets a new
+    // room avatar). A real source change must reset imageLoadFailed/imageHasLoaded — otherwise
+    // a transient null mxcUrl (Coil cannot decode our data: SVG fallback → onError →
+    // imageLoadFailed=true) latches the text fallback even after the real mxc arrives.
     val stableKey = userId ?: fallbackText
-    
-    // Track if the image failed to load - key by stableKey to persist across recompositions
-    var imageLoadFailed by remember(stableKey) { mutableStateOf(false) }
-    
+
+    // Track if the image failed to load - key by (stableKey, mxcUrl) so it resets on source change.
+    var imageLoadFailed by remember(stableKey, mxcUrl) { mutableStateOf(false) }
+
     // PERFORMANCE: Track if image has successfully loaded - once loaded, show it even during fast scrolling
-    var imageHasLoaded by remember(stableKey) { mutableStateOf(false) }
-    
+    var imageHasLoaded by remember(stableKey, mxcUrl) { mutableStateOf(false) }
+
     // CRITICAL FIX: Initialize shouldLoadImage based on avatarUrl, but persist state per stableKey
     // This prevents fallback flash: if avatarUrl exists, start with shouldLoadImage=true
-    // State persists across recompositions based on stableKey (room/user ID), not avatarUrl
-    var shouldLoadImage by remember(stableKey) { 
+    var shouldLoadImage by remember(stableKey, mxcUrl) {
         // Initialize to true if avatarUrl exists - AsyncImage handles cached images efficiently
         mutableStateOf(avatarUrl != null && isVisible)
     }
@@ -238,6 +254,10 @@ fun AvatarImage(
                             .clip(CircleShape),
                         contentScale = ContentScale.Crop,
                         onSuccess = {
+                            if (BuildConfig.DEBUG) Log.d(
+                                "Andromuks",
+                                "AvatarImage[$effectiveUserId]: onSuccess mxc=$mxcUrl url=$currentAvatarUrl"
+                            )
                             imageLoadFailed = false
                             imageHasLoaded = true
                             if (useCircleCache && mxcUrl != null) {
@@ -258,7 +278,15 @@ fun AvatarImage(
                             }
                         },
                         onError = {
+                            if (BuildConfig.DEBUG) Log.d(
+                                "Andromuks",
+                                "AvatarImage[$effectiveUserId]: onError mxc=$mxcUrl url=$currentAvatarUrl result=${it.result.throwable.javaClass.simpleName}: ${it.result.throwable.message}"
+                            )
                             if (currentAvatarUrl.startsWith("data:")) {
+                                if (BuildConfig.DEBUG) Log.d(
+                                    "Andromuks",
+                                    "AvatarImage[$effectiveUserId]: onError → data: failed, marking imageLoadFailed"
+                                )
                                 imageLoadFailed = true
                                 return@AsyncImage
                             }
@@ -266,11 +294,19 @@ fun AvatarImage(
                                 AvatarUtils.removeResolvedUrl(mxcUrl)
                                 val httpUrl = AvatarUtils.mxcToHttpUrl(mxcUrl, homeserverUrl, effectiveUserId, effectiveDisplayName)
                                 if (httpUrl != null) {
+                                    if (BuildConfig.DEBUG) Log.d(
+                                        "Andromuks",
+                                        "AvatarImage[$effectiveUserId]: onError → retrying with http url=$httpUrl (was non-http)"
+                                    )
                                     avatarUrl = httpUrl
                                     shouldLoadImage = true
                                     return@AsyncImage
                                 }
                             }
+                            if (BuildConfig.DEBUG) Log.d(
+                                "Andromuks",
+                                "AvatarImage[$effectiveUserId]: onError → falling back to SVG (no http retry path)"
+                            )
                             avatarUrl = svgFallbackUri
                             shouldLoadImage = true
                         }

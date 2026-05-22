@@ -582,6 +582,20 @@ class WebSocketService : Service() {
                     "WebSocketService",
                     "Sidecar linger expired — stopping service",
                 )
+                // Drop the in-memory timeline cache + paginate cursors before tearing down
+                // the WS. On reconnect the server sends clear_state=true and re-hydrates
+                // everything, so keeping these around only risks a stale pagination merge
+                // if the user reopens a room before the new sync lands. Prefer routing
+                // through the live AppViewModel (so its instance maps are wiped too); fall
+                // back to the singleton wipe if no VM is attached.
+                val primaryVm = SyncRepository.getPrimaryViewModelId()
+                    ?.let { SyncRepository.getViewModel(it) }
+                    ?: SyncRepository.getAttachedViewModels().firstOrNull()
+                if (primaryVm != null) {
+                    primaryVm.clearTimelineCachesForServerResync()
+                } else {
+                    RoomTimelineCache.clearAll()
+                }
                 setSidecarUserDisconnected(ctx, true)
                 svc.stopService()
             }
