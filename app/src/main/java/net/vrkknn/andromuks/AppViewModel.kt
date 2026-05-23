@@ -194,6 +194,13 @@ class AppViewModel : ViewModel() {
         
         // Notification reply deduplication window to prevent duplicate sends
         private const val NOTIFICATION_REPLY_DEDUP_WINDOW_MS = 5000L // 5 seconds deduplication window
+
+        // Soft caps and TTLs applied by performPeriodicMemoryCleanup() to prevent unbounded
+        // per-VM map growth during long sessions.
+        private const val MAX_PENDING_HIGHLIGHTS = 200
+        private const val MAX_NAVIGATION_CACHE = 500
+        private const val ROOM_TIMESTAMP_TTL_MS = 24L * 60 * 60 * 1000  // 24h
+        private const val PROFILE_REQUEST_TTL_MS = 60L * 1000  // 60s
     }
     
 
@@ -11311,34 +11318,89 @@ class AppViewModel : ViewModel() {
         try {
             // Clean up stale member cache entries
             memberProfilesCoordinator.performMemberCacheCleanup()
-            
+
             // Clean up stale message versions (keep only recent ones)
             val currentTime = System.currentTimeMillis()
             val cutoffTime = currentTime - (7 * 24 * 60 * 60 * 1000) // 7 days ago
-            
+
             val versionsToRemove = messageVersions.filter { (_, versioned) ->
-                versioned.versions.isNotEmpty() && 
+                versioned.versions.isNotEmpty() &&
                 versioned.versions.first().timestamp < cutoffTime
             }.keys
-            
+
             if (versionsToRemove.isNotEmpty()) {
                 // Note: MessageVersionsCache doesn't have per-event removal, so we clear all
                 // In practice, this cleanup happens rarely and clearing all is acceptable
                 MessageVersionsCache.clear()
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleaned up ${versionsToRemove.size} old message versions")
             }
-            
+
             // Clean up old processed reactions
             if (processedReactions.size > 200) {
                 val toRemove = processedReactions.take(processedReactions.size - 100)
                 processedReactions.removeAll(toRemove)
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleaned up ${toRemove.size} old processed reactions")
             }
-            
+
+            // Bound the per-room maps. Without this they accumulate forever during a session:
+            //  - roomOpenTimestamps / timelineForegroundTimestamps: only pruned by clearRoomCaches
+            //  - navigationCache: never pruned
+            //  - pendingHighlightEvents: only consumed when the user opens the room; dismissed
+            //    notifications leave entries behind permanently
+            //  - recentProfileRequestTimes: inline cutoff only runs when enqueueNetworkRequest
+            //    is called, so it stops shrinking when profile requests stop
+            val roomTsCutoff = currentTime - ROOM_TIMESTAMP_TTL_MS
+            val openTsBefore = roomOpenTimestamps.size
+            roomOpenTimestamps.entries.removeAll { it.value < roomTsCutoff }
+            val fgTsBefore = timelineForegroundTimestamps.size
+            timelineForegroundTimestamps.entries.removeAll { it.value < roomTsCutoff }
+
+            val profileReqCutoff = currentTime - PROFILE_REQUEST_TTL_MS
+            val profileTsBefore = recentProfileRequestTimes.size
+            recentProfileRequestTimes.entries.removeAll { it.value < profileReqCutoff }
+
+            // No timestamps on these two — soft-cap by size. Dropping arbitrary entries is
+            // acceptable: navigationCache rebuilds on next room open, pendingHighlightEvents
+            // just loses a "jump to event" target for the oldest entries.
+            val highlightTrimmed = trimMapToSize(pendingHighlightEvents, MAX_PENDING_HIGHLIGHTS)
+            val navTrimmed = trimMapToSize(navigationCache, MAX_NAVIGATION_CACHE)
+
+            if (BuildConfig.DEBUG) {
+                val openTsRemoved = openTsBefore - roomOpenTimestamps.size
+                val fgTsRemoved = fgTsBefore - timelineForegroundTimestamps.size
+                val profileTsRemoved = profileTsBefore - recentProfileRequestTimes.size
+                if (openTsRemoved + fgTsRemoved + profileTsRemoved + highlightTrimmed + navTrimmed > 0) {
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Trimmed maps — roomOpenTimestamps:-$openTsRemoved timelineForegroundTimestamps:-$fgTsRemoved recentProfileRequestTimes:-$profileTsRemoved pendingHighlightEvents:-$highlightTrimmed navigationCache:-$navTrimmed"
+                    )
+                }
+            }
+
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Error during periodic memory cleanup", e)
         }
     }
+
+    /**
+     * Drop arbitrary entries from [map] until its size is at most [maxSize].
+     * Returns the number of entries removed. ConcurrentHashMap iteration is unordered, so this
+     * is "drop whatever the iterator visits first" — adequate for caches where staleness >
+     * freshness and we don't care which specific entries survive.
+     */
+    private fun <K, V> trimMapToSize(map: MutableMap<K, V>, maxSize: Int): Int {
+        if (map.size <= maxSize) return 0
+        val excess = map.size - maxSize
+        val iterator = map.entries.iterator()
+        var removed = 0
+        while (iterator.hasNext() && removed < excess) {
+            iterator.next()
+            iterator.remove()
+            removed++
+        }
+        return removed
+    }
+
     
     // =============================================================================
     // HELPER FUNCTIONS FOR TIMELINE RESPONSE REFACTORING
