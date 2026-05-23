@@ -69,6 +69,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -1135,6 +1136,62 @@ fun AppNavigation(
         }
     }
     
+    // Centralised notification/shortcut room navigation. Lives at the NavHost scope so it
+    // works regardless of which screen is on top — previously this collector lived inside
+    // RoomListScreen, so opening a room from FCM while sitting on RoomInfoScreen (or any
+    // other secondary screen) did nothing until the user manually backed out to room_list.
+    //
+    // RT's LaunchedEffect(navTrigger) still owns same-room scroll-to-event and cross-room
+    // hot-swap when the user is already on a timeline, so defer to it in those cases.
+    LaunchedEffect(Unit) {
+        appViewModel.roomNavigationRequests.collectLatest { request ->
+            // NOTIFICATION requests also bump directRoomNavigationTrigger; if RT is the
+            // active route, its navTrigger LaunchedEffect already owns the navigation
+            // (cross-room hot-swap or same-room highlight). Proceeding here would race
+            // and produce a duplicate back-stack entry.
+            // SHORTCUT/RESTORE do NOT bump the trigger, so RT cannot handle them — these
+            // proceed even when room_timeline is the active route.
+            if (request.source == RoomNavigationRequest.Source.NOTIFICATION &&
+                navController.currentBackStackEntry?.destination?.route?.startsWith("room_timeline/") == true) {
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "AppNavigation: NOTIFICATION to ${request.roomId} while room_timeline active — deferring to RoomTimelineScreen navTrigger handler")
+                return@collectLatest
+            }
+
+            // Same-room guard: if the target room is the one currentRoomId points at,
+            // defer to RT's same-room handler so it can scroll-to-event without reloading.
+            if (request.roomId == appViewModel.currentRoomId) {
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "AppNavigation: Same room already current (${request.roomId}), deferring to RoomTimelineScreen same-room handler")
+                return@collectLatest
+            }
+
+            val roomId = request.roomId
+            val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
+            val isRoomCached = cachedEventCount >= 10 || RoomTimelineCache.isRoomActivelyCached(roomId)
+
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "AppNavigation: channel navigation request — room=$roomId source=${request.source} cached=$isRoomCached ($cachedEventCount events)")
+
+            // Poll until both WS and (for uncached rooms) spacesLoaded are ready, or 10s elapses.
+            val deadlineMs = System.currentTimeMillis() + 10_000L
+            while (System.currentTimeMillis() < deadlineMs) {
+                val wsReady = appViewModel.isWebSocketConnected()
+                val spacesReady = isRoomCached || appViewModel.spacesLoaded
+                if (wsReady && spacesReady) break
+                delay(100)
+            }
+
+            if (BuildConfig.DEBUG) {
+                Log.d("Andromuks", "AppNavigation: proceeding with navigation to $roomId (ws=${appViewModel.isWebSocketConnected()} spaces=${appViewModel.spacesLoaded})")
+            }
+
+            val clearFn: () -> Unit = when (request.source) {
+                RoomNavigationRequest.Source.NOTIFICATION -> appViewModel::clearDirectRoomNavigation
+                RoomNavigationRequest.Source.SHORTCUT -> appViewModel::clearPendingRoomNavigation
+                else -> ({})
+            }
+            executeRoomNavigation(appViewModel, navController, roomId, request.timestamp, clearFn)
+        }
+    }
+
     // Wrap NavHost in SharedTransitionLayout for shared element transitions.
     // An outer Box layers the call overlay above the nav graph.
     Box(modifier = modifier) {

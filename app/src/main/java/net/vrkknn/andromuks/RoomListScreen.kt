@@ -96,7 +96,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
@@ -194,7 +193,7 @@ private fun usernameFromMatrixId(userId: String): String =
  * so popUpTo(navController.graph.id) is used instead of popUpTo("auth_check") to reliably clear room_list too.
  * User-initiated opens from the list use plain [NavController.navigate] to keep room_list under the timeline.
  */
-private fun NavController.navigateToRoomTimelineForExternalEntry(roomId: String) {
+internal fun NavController.navigateToRoomTimelineForExternalEntry(roomId: String) {
     navigate("room_timeline/$roomId") {
         popUpTo(graph.id) { inclusive = true }
         launchSingleTop = true
@@ -208,7 +207,7 @@ private fun NavController.navigateToRoomTimelineForExternalEntry(roomId: String)
  * suspension — this shields navigateToRoomListIfNeeded from force-navigating to room_list
  * (with popUpTo(navController.graph.id)) and cancelling this coroutine while the batch is still processing.
  */
-private suspend fun executeRoomNavigation(
+internal suspend fun executeRoomNavigation(
     appViewModel: AppViewModel,
     navController: NavController,
     roomId: String,
@@ -663,57 +662,10 @@ fun RoomListScreen(
         smartTimestampUpdateCounter++
     }
     
-    // Single channel consumer: handles cold start, warm start (onNewIntent), shortcuts, and timeout.
-    // collectLatest provides natural cancellation — a new navigation request supersedes any in-flight
-    // poll or flush, which is correct behaviour (most-recent-wins).
-    LaunchedEffect(Unit) {
-        appViewModel.roomNavigationRequests.collectLatest { request ->
-            // NOTIFICATION requests also increment directRoomNavigationTrigger, so
-            // RoomTimelineScreen's navTrigger LaunchedEffect already owns that navigation
-            // (same-room scroll-to-event or hot-swap to a different room). Proceeding here
-            // would race and produce a duplicate back-stack entry.
-            // SHORTCUT/RESTORE requests do NOT increment the trigger, so RoomTimelineScreen
-            // cannot handle them — proceed even when room_timeline is the active route.
-            if (request.source == RoomNavigationRequest.Source.NOTIFICATION &&
-                navController.currentBackStackEntry?.destination?.route?.startsWith("room_timeline/") == true) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: NOTIFICATION to ${request.roomId} while room_timeline active — deferring to RoomTimelineScreen navTrigger handler")
-                return@collectLatest
-            }
-
-            // Same-room guard: if the target room is already open, defer to RoomTimelineScreen's
-            // own navTrigger handler so it can scroll-to-event without reloading the timeline.
-            if (request.roomId == appViewModel.currentRoomId) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Same room already open (${request.roomId}), deferring to RoomTimelineScreen same-room handler")
-                return@collectLatest
-            }
-
-            val roomId = request.roomId
-            val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
-            val isRoomCached = cachedEventCount >= 10 || RoomTimelineCache.isRoomActivelyCached(roomId)
-
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: channel navigation request — room=$roomId source=${request.source} cached=$isRoomCached ($cachedEventCount events)")
-
-            // Poll until both WS and (for uncached rooms) spacesLoaded are ready, or 10s elapses.
-            val deadlineMs = System.currentTimeMillis() + 10_000L
-            while (System.currentTimeMillis() < deadlineMs) {
-                val wsReady = appViewModel.isWebSocketConnected()
-                val spacesReady = isRoomCached || appViewModel.spacesLoaded
-                if (wsReady && spacesReady) break
-                kotlinx.coroutines.delay(100)
-            }
-
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "RoomListScreen: proceeding with navigation to $roomId (ws=${appViewModel.isWebSocketConnected()} spaces=${appViewModel.spacesLoaded})")
-            }
-
-            val clearFn: () -> Unit = when (request.source) {
-                RoomNavigationRequest.Source.NOTIFICATION -> appViewModel::clearDirectRoomNavigation
-                RoomNavigationRequest.Source.SHORTCUT -> appViewModel::clearPendingRoomNavigation
-                else -> ({})
-            }
-            executeRoomNavigation(appViewModel, navController, roomId, request.timestamp, clearFn)
-        }
-    }
+    // Channel consumer was moved to AppNavigation (MainActivity.kt) so notification/shortcut
+    // navigation works regardless of which screen is composed (RoomInfo, UserInfo, etc.).
+    // RT's LaunchedEffect(navTrigger) still owns same-room scroll-to-event and cross-room
+    // hot-swap when the user is already on a timeline.
 
     // Determine update interval based on the newest message in the current section
     val updateInterval = remember(displayedSection.rooms) {
