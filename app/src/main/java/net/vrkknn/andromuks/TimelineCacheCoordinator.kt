@@ -35,10 +35,18 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
         with(vm) {
             if (roomId.isBlank() || timelineEvents.isEmpty()) return
 
+            // Snapshot both maps under the lock so they are mutually consistent (no rebuild
+            // running in between).
+            val chainSnapshot: Map<String, AppViewModel.EventChainEntry>
+            val editsSnapshot: Map<String, TimelineEvent>
+            synchronized(eventChainMapLock) {
+                chainSnapshot = eventChainMap.toMap()
+                editsSnapshot = editEventsMap.toMap()
+            }
             RoomTimelineCache.saveProcessedTimelineState(
                 roomId = roomId,
-                eventChainMap = eventChainMap.toMap(),
-                editEventsMap = editEventsMap.toMap()
+                eventChainMap = chainSnapshot,
+                editEventsMap = editsSnapshot
             )
 
             if (BuildConfig.DEBUG)
@@ -221,11 +229,18 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 // Process edit relationships for newly added events
                 processEditRelationships()
 
-                // Update processed state in cache
+                // Update processed state in cache. Snapshot under the lock so the two maps
+                // are mutually consistent (no concurrent rebuild between the two toMap() calls).
+                val chainSnapshot: Map<String, AppViewModel.EventChainEntry>
+                val editsSnapshot: Map<String, TimelineEvent>
+                synchronized(eventChainMapLock) {
+                    chainSnapshot = eventChainMap.toMap()
+                    editsSnapshot = editEventsMap.toMap()
+                }
                 RoomTimelineCache.saveProcessedTimelineState(
                     roomId = roomId,
-                    eventChainMap = eventChainMap.toMap(),
-                    editEventsMap = editEventsMap.toMap(),
+                    eventChainMap = chainSnapshot,
+                    editEventsMap = editsSnapshot,
                 )
 
                 // CRITICAL FIX: Defer timeline rebuild during batch processing to avoid rebuilding
@@ -435,14 +450,19 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     )
             }
 
-            // Clear and rebuild internal structures (but don't clear timelineEvents yet)
+            // Clear and rebuild internal structures (but don't clear timelineEvents yet).
+            // Lock so a concurrent buildTimelineFromChain on Dispatchers.Default cannot
+            // snapshot a half-rebuilt pair. MessageVersionsCache and friends have their own
+            // concurrency and stay outside the lock.
             if (BuildConfig.DEBUG)
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Clearing eventChainMap (had ${eventChainMap.size} entries) before processing ${cachedEvents.size} cached events",
                 )
-            eventChainMap.clear()
-            editEventsMap.clear()
+            synchronized(eventChainMapLock) {
+                eventChainMap.clear()
+                editEventsMap.clear()
+            }
             MessageVersionsCache.clear()
             // editToOriginal is computed from messageVersions, no need to clear separately
             MessageReactionsCache.clear()
@@ -467,6 +487,10 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             var regularEventCount = 0
             var editEventCount = 0
 
+            // Loop adds entries to eventChainMap/editEventsMap. Hold the lock so the rebuild
+            // is observable to other threads as either "old map" or "new map" but never
+            // "partially populated new map".
+            synchronized(eventChainMapLock) {
             for (event in cachedEvents) {
                 val isEditEvent = isEditEvent(event)
 
@@ -528,6 +552,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 )
                 editEventsInChain.forEach { eventChainMap.remove(it) }
             }
+            } // synchronized(eventChainMapLock)
 
             // DIAGNOSTIC: Verify all events were added
             if (eventChainMap.size != regularEventCount) {
@@ -2565,11 +2590,13 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 // this is the current room
                 if (roomId == currentRoomId) {
                     // Clear and rebuild eventChainMap from all cached events.
-                    // Synchronized so buildTimelineFromChain() (also on Dispatchers.Default)
-                    // cannot snapshot a half-rebuilt map via its own synchronized(eventChainMap)
-                    // read. buildTimelineFromChain() is called outside the lock — it's async
-                    // (fires a new coroutine) and manages its own locking internally.
-                    synchronized(eventChainMap) {
+                    // Synchronized on eventChainMapLock so buildTimelineFromChain() (also on
+                    // Dispatchers.Default) cannot snapshot a half-rebuilt map. The map itself
+                    // is now a ConcurrentHashMap, so single-key operations are race-free; the
+                    // lock only serialises composite clear+rebuild against snapshot reads.
+                    // buildTimelineFromChain() is called outside the lock — it's async (fires
+                    // a new coroutine) and takes the lock itself.
+                    synchronized(eventChainMapLock) {
                         eventChainMap.clear()
                         editEventsMap.clear()
 
@@ -2607,7 +2634,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 // Fallback: if we can't get all cached events, just merge the new ones
                 // Only if it's the current room. Otherwise skip.
                 if (roomId == currentRoomId) {
-                    synchronized(eventChainMap) {
+                    synchronized(eventChainMapLock) {
                         mergePaginationEvents(timelineList, expectedRoomId = roomId)
                     }
                 }

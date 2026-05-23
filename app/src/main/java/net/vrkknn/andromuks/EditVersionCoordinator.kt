@@ -222,8 +222,13 @@ internal class EditVersionCoordinator(
 
     fun buildEditChainsFromEvents(timelineList: List<TimelineEvent>, clearExisting: Boolean = true) {
         if (clearExisting) {
-            vm.eventChainMap.clear()
-            vm.editEventsMap.clear()
+            // Lock so a concurrent buildTimelineFromChain on Dispatchers.Default cannot
+            // snapshot a half-cleared pair (eventChainMap empty but editEventsMap still
+            // populated, or vice versa).
+            synchronized(vm.eventChainMapLock) {
+                vm.eventChainMap.clear()
+                vm.editEventsMap.clear()
+            }
         }
 
         for (event in timelineList) {

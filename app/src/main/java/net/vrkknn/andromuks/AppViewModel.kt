@@ -1007,7 +1007,9 @@ class AppViewModel : ViewModel() {
     
     // NAVIGATION PERFORMANCE: Prefetch and caching system
     private val prefetchedRooms = mutableSetOf<String>() // Track which rooms have been prefetched
-    internal val navigationCache = mutableMapOf<String, RoomNavigationState>() // Cache room navigation state
+    // Touched from Main and IO dispatchers (room nav state updates from coordinators, reads
+    // from UI). Was plain mutableMapOf, which can throw CME under concurrent access.
+    internal val navigationCache: MutableMap<String, RoomNavigationState> = ConcurrentHashMap()
     private var lastRoomListScrollPosition = 0 // Track scroll position for prefetching
     
     // Read receipts update counter - separate from main updateCounter to reduce unnecessary UI updates
@@ -1708,7 +1710,10 @@ class AppViewModel : ViewModel() {
      * so batched sync_completes after app resume do not animate every message — only
      * events with server timestamp after this (i.e. truly received while user is looking).
      */
-    private var timelineForegroundTimestamps = mutableMapOf<String, Long>() // roomId -> wall clock ms
+    // Written from Main (markTimelineForeground), read from buildTimelineFromChain on
+    // Dispatchers.Default. Was plain mutableMapOf — swapped to ConcurrentHashMap for
+    // race-safe single-key access.
+    private val timelineForegroundTimestamps: MutableMap<String, Long> = ConcurrentHashMap()
 
     fun getTimelineForegroundTimestamp(roomId: String): Long? = timelineForegroundTimestamps[roomId]
 
@@ -4348,8 +4353,12 @@ class AppViewModel : ViewModel() {
                 // Clear stale event chains so sync_complete events arriving before the new room's
                 // timeline loads cannot be appended to the previous room's chain data and produce
                 // a mixed-room timeline. processCachedEvents/restoreFromLruCache repopulate these.
-                eventChainMap.clear()
-                editEventsMap.clear()
+                // Lock so a concurrent buildTimelineFromChain on Dispatchers.Default cannot
+                // snapshot a half-cleared pair (eventChainMap empty but editEventsMap still populated).
+                synchronized(eventChainMapLock) {
+                    eventChainMap.clear()
+                    editEventsMap.clear()
+                }
             }
         }
 
@@ -4511,8 +4520,14 @@ class AppViewModel : ViewModel() {
         val originalTimestamp: Long
     )
     
-    internal val eventChainMap = mutableMapOf<String, EventChainEntry>()
-    internal val editEventsMap = mutableMapOf<String, TimelineEvent>() // Store edit events separately
+    // eventChainMap / editEventsMap are touched from Main (echo writes), Dispatchers.Default
+    // (chain rebuilds in TimelineCacheCoordinator and buildTimelineFromChain), and IO
+    // (persistence). ConcurrentHashMap handles single-key reads/writes race-free; the lock
+    // below covers composite operations (clear + rebuild) so other threads see either the
+    // old map or the fully-rebuilt new map, never an empty mid-rebuild snapshot.
+    internal val eventChainMap: MutableMap<String, EventChainEntry> = ConcurrentHashMap()
+    internal val editEventsMap: MutableMap<String, TimelineEvent> = ConcurrentHashMap()
+    internal val eventChainMapLock = Any()
     internal val roomsPaginatedOnce = Collections.synchronizedSet(mutableSetOf<String>())
     // Track rooms that need timeline rebuild during batch processing (defer rebuild until batch completes)
     internal val roomsNeedingRebuildDuringBatch = Collections.synchronizedSet(mutableSetOf<String>())
@@ -4618,7 +4633,10 @@ class AppViewModel : ViewModel() {
     // CRITICAL: Track when each room was opened (in milliseconds, Matrix timestamp format)
     // Only messages with timestamp NEWER than this will animate
     // This ensures paginated (old) messages don't animate, only truly new messages do
-    internal var roomOpenTimestamps = mutableMapOf<String, Long>() // roomId -> openTimestamp
+    // Written from Main (room open) and read from buildTimelineFromChain on
+    // Dispatchers.Default. Was plain mutableMapOf — swapped to ConcurrentHashMap for
+    // race-safe single-key access.
+    internal val roomOpenTimestamps: MutableMap<String, Long> = ConcurrentHashMap()
     // Now using singleton PendingInvitesCache
     private val pendingInvites: Map<String, RoomInvite>
         get() = PendingInvitesCache.getAllInvites()
@@ -5911,8 +5929,12 @@ class AppViewModel : ViewModel() {
         isPaginating = false
         hasMoreMessages = true
         
-        eventChainMap.clear()
-        editEventsMap.clear()
+        // Lock so a concurrent buildTimelineFromChain on Dispatchers.Default cannot snapshot
+        // a half-cleared pair (eventChainMap empty but editEventsMap still populated).
+        synchronized(eventChainMapLock) {
+            eventChainMap.clear()
+            editEventsMap.clear()
+        }
         MessageVersionsCache.clear()
         // editToOriginal is computed from messageVersions, no need to clear separately
         MessageReactionsCache.clear()
@@ -9231,19 +9253,12 @@ class AppViewModel : ViewModel() {
             val redactionMap = mutableMapOf<String, String>() // Map of target eventId -> redaction eventId
             val redactionEventByOriginal = mutableMapOf<String, TimelineEvent>() // target eventId -> redaction event
         
-            // THREAD SAFETY: Create snapshot of map entries to prevent ConcurrentModificationException
-            // This prevents crashes when the map is modified concurrently (e.g., by background coroutines)
-            // Use synchronized block to safely create snapshot even if map is being modified
-            val eventChainSnapshot = try {
-                synchronized(eventChainMap) {
-                    eventChainMap.toMap()
-                }
-            } catch (e: ConcurrentModificationException) {
-                android.util.Log.w("Andromuks", "AppViewModel: ConcurrentModificationException while creating snapshot, retrying", e)
-                // Retry once - create a new map with current entries
-                synchronized(eventChainMap) {
-                    eventChainMap.toMap()
-                }
+            // Snapshot under the shared lock so we can't observe a half-rebuilt map.
+            // eventChainMap itself is a ConcurrentHashMap, so toMap() is iteration-safe; the
+            // lock is only needed to serialise against composite clear+rebuild operations
+            // in TimelineCacheCoordinator.
+            val eventChainSnapshot = synchronized(eventChainMapLock) {
+                eventChainMap.toMap()
             }
             
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "buildTimelineFromChain: Created snapshot with ${eventChainSnapshot.size} entries")
