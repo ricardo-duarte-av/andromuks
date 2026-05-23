@@ -368,11 +368,15 @@ fun RoomInfoScreen(
                             )
                         }
 
-                        // DM badge: when the heroes fallback is active, the 120dp avatar shows the
-                        // other party. Overlay the local user's avatar in the corner so the screen
-                        // communicates "this is a DM with X, and you are the other side."
+                        // DM badge: show whenever the room is a DM per m.direct, OR when the
+                        // heroes fallback is active (nameless/avatarless room — typically a DM
+                        // not yet recorded in m.direct). Bridged DMs (WhatsApp, etc.) have an
+                        // explicit m.room.name set by the bridge, so the heroes-only check would
+                        // miss them even though m.direct says they're DMs.
                         val selfProfile = appViewModel.currentUserProfile
-                        if (heroMember != null && selfProfile != null) {
+                        val isDmRoom = heroMember != null ||
+                            appViewModel.isDirectMessageFromAccountData(roomId)
+                        if (isDmRoom && selfProfile != null) {
                             // Delay the fade-in so the shared-element transition from RT's header
                             // avatar can settle before the badge appears on top of it. 500 ms
                             // covers the StiffnessLow spring settle, 100 ms fade is just enough to
