@@ -21,6 +21,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.utils.isValidMatrixRoomId
 import androidx.activity.compose.BackHandler
 
 
@@ -130,19 +131,24 @@ class ShortcutActivity : ComponentActivity() {
     private fun extractRoomIdFromIntent(intent: Intent): String? {
         // OPTIMIZATION #3: Fast path - check for direct room_id first
         val directRoomId = intent.getStringExtra("room_id")
-        if (directRoomId != null) {
+        val candidate = if (directRoomId != null) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Using direct room_id: $directRoomId")
-            return directRoomId
+            directRoomId
+        } else {
+            // Fallback to URI parsing for legacy shortcuts
+            val data = intent.data
+            if (data != null) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Parsing URI: $data")
+                extractRoomIdFromMatrixUri(data.toString())
+            } else null
         }
-        
-        // Fallback to URI parsing for legacy shortcuts
-        val data = intent.data
-        if (data != null) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Parsing URI: $data")
-            return extractRoomIdFromMatrixUri(data.toString())
+        // ShortcutActivity is exported and accepts matrix: URIs from any app on the device.
+        // Reject malformed IDs before they reach navigation / homeserver paginate.
+        if (candidate != null && !isValidMatrixRoomId(candidate)) {
+            android.util.Log.w("Andromuks", "ShortcutActivity: rejected malformed room_id from intent (length=${candidate.length})")
+            return null
         }
-        
-        return null
+        return candidate
     }
     
     private fun extractRoomIdFromMatrixUri(uri: String): String? {

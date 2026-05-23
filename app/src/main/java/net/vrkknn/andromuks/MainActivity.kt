@@ -76,6 +76,7 @@ import androidx.navigation.compose.rememberNavController
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.CrashHandler
 import net.vrkknn.andromuks.utils.CrashReportDialog
+import net.vrkknn.andromuks.utils.isValidMatrixRoomId
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.MatrixContactsProvider
 
@@ -343,7 +344,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             
-                            val extractedRoomId = if (directNavigation && roomId != null) {
+                            val candidateRoomId = if (directNavigation && roomId != null) {
                                 // OPTIMIZATION #2: Fast path - room ID already extracted
                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId")
                                 roomId
@@ -353,6 +354,16 @@ class MainActivity : ComponentActivity() {
                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - Fallback URI parsing: $uriRoomId")
                                 uriRoomId
                             }
+                            // Reject malformed IDs from third-party intents before they reach any
+                            // navigation / homeserver-paginate path. MainActivity is exported, so
+                            // any installed app can supply an arbitrary "room_id" extra.
+                            val extractedRoomId = candidateRoomId?.takeIf { isValidMatrixRoomId(it) }
+                                ?: run {
+                                    if (candidateRoomId != null) {
+                                        Log.w("Andromuks", "MainActivity: onCreate - rejected malformed room_id from intent (length=${candidateRoomId.length})")
+                                    }
+                                    null
+                                }
                             
                             // OPTIMIZATION: Skip cache clearing if opening from notification to preserve preemptive pagination cache
                             val skipCacheClear = extractedRoomId != null && (fromNotification || directNavigation)
@@ -867,7 +878,7 @@ class MainActivity : ComponentActivity() {
         
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
         
-        val extractedRoomId = if (directNavigation && roomId != null) {
+        val candidateRoomId = if (directNavigation && roomId != null) {
             // OPTIMIZATION #2: Fast path - room ID already extracted
             if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId")
             roomId
@@ -877,6 +888,15 @@ class MainActivity : ComponentActivity() {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - Fallback URI parsing: $uriRoomId")
             uriRoomId
         }
+        // Same intent-injection defence as onCreate. MainActivity is exported, so any installed
+        // app can call us with arbitrary "room_id" extras or matrix: URIs.
+        val extractedRoomId = candidateRoomId?.takeIf { isValidMatrixRoomId(it) }
+            ?: run {
+                if (candidateRoomId != null) {
+                    Log.w("Andromuks", "MainActivity: onNewIntent - rejected malformed room_id from intent (length=${candidateRoomId.length})")
+                }
+                null
+            }
         
         extractedRoomId?.let { roomId ->
             if (::appViewModel.isInitialized) {
