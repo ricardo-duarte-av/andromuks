@@ -215,46 +215,32 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
             appInvisibleJob = null
             WebSocketService.cancelSidecarLinger()
 
-            // Sidecar mode: if the service was suspended while backgrounded,
-            // clear the flag and restart it so the UI has a live WebSocket.
-            // (If the service is still running because we resumed before the
-            // 60s linger expired, this is a no-op aside from the flag clear.)
+            // Universal resume health check. Runs in both sidecar and persistent-WebSocket
+            // modes — the ping/pong cycle is the only honest signal (connectionState and
+            // isServiceRunning can both lie: zombie sockets, transient post-stopSelf state,
+            // kernel idle reaping). Two outcomes only:
+            //   1. pingNowWithWatchdog returns false → service gone or state not Ready → re-dial.
+            //   2. pingNowWithWatchdog returns true → ping in flight; its 3s watchdog will
+            //      reconnect on no-traffic via clearWebSocket + scheduleReconnection.
+            // If the connection is actually healthy, the cost is one ping round-trip.
             appContext?.applicationContext?.let { ctx ->
-                if (WebSocketService.isSidecarUserDisconnected(ctx)) {
+                if (useSidecarMode && WebSocketService.isSidecarUserDisconnected(ctx)) {
                     WebSocketService.setSidecarUserDisconnected(ctx, false)
                 }
-                if (useSidecarMode) {
-                    // Bug C1: don't gate solely on isServiceRunning(). Three failure modes get past
-                    // a naive guard and leave the room timeline stale on resume:
-                    //   1. Service was stopped by sidecar linger and never restarted.
-                    //   2. AutoRestartReceiver created a service shell but never dialled the WS.
-                    //   3. Service is alive and "Ready", but the underlying TCP socket was killed
-                    //      by Doze/kernel idle reaping (no FIN delivered) — connectionState lies.
-                    val running = WebSocketService.isServiceRunning()
-                    val state = WebSocketService.getConnectionState()
-                    val lastMsgAt = WebSocketService.lastMessageAtMs()
-                    val staleness = if (lastMsgAt == 0L) Long.MAX_VALUE else System.currentTimeMillis() - lastMsgAt
-                    val needsDial = !running ||
-                        state !is net.vrkknn.andromuks.ConnectionState.Ready ||
-                        staleness > 30_000L
-                    if (needsDial) {
-                        if (BuildConfig.DEBUG) android.util.Log.i(
-                            "Andromuks",
-                            "AppViewModel: Resume health check — running=$running, state=$state, staleness=${staleness}ms → re-dialling WebSocket",
-                        )
-                        val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-                        val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
-                        val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
-                        if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
-                            initializeWebSocketConnection(homeserverUrl, authToken)
-                        } else {
-                            startWebSocketService()
-                        }
+
+                val pingFired = WebSocketService.pingNowWithWatchdog()
+                if (!pingFired) {
+                    val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+                    val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
+                    val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
+                    if (BuildConfig.DEBUG) android.util.Log.i(
+                        "Andromuks",
+                        "AppViewModel: Resume health check — pingNowWithWatchdog returned false → re-dialling WebSocket",
+                    )
+                    if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+                        initializeWebSocketConnection(homeserverUrl, authToken)
                     } else {
-                        // Looks healthy on paper — still fire a cheap probe to confirm the socket
-                        // isn't a half-dead Doze casualty. The watchdog inside pingNowWithWatchdog
-                        // triggers a reconnect if no traffic arrives within 3s.
-                        WebSocketService.pingNowWithWatchdog()
+                        startWebSocketService()
                     }
                 }
             }
