@@ -249,8 +249,8 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             "AppViewModel: Batch processing in progress - deferring timeline rebuild for $roomId (will rebuild after batch completes)",
                         )
                     }
-                } else {
-                    // Not batch processing - rebuild immediately
+                } else if (roomId != currentRoomId) {
+                    // Non-current room: this is the only path that rebuilds for it, so do it.
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
@@ -258,6 +258,19 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         )
                     }
                     buildTimelineFromChain(expectedRoomId = roomId)
+                } else {
+                    // Current room: skip rebuild here. processSyncEventsArray (called shortly after
+                    // for the same sync_complete cycle) will rebuild the timeline from the same
+                    // chain map. Without this guard, both SyncIngestor.appendEventsToCachedRoom AND
+                    // processSyncEventsArray fire buildTimelineFromChain back-to-back with identical
+                    // eventChainMap.size — a full filter+sort of all visible events twice for a
+                    // single sync_complete event arrival.
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                            "Andromuks",
+                            "AppViewModel: Skipping immediate rebuild for current room $roomId — processSyncEventsArray will rebuild",
+                        )
+                    }
                 }
             }
 

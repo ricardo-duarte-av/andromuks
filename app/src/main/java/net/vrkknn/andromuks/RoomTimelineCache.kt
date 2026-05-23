@@ -794,9 +794,11 @@ object RoomTimelineCache {
                 return@sortWith a.eventId.compareTo(b.eventId)
             }
             
-            // CRITICAL FIX: Exclude events with timeline_rowid=0 (invalid, would break pagination)
-            // Find the oldest event with a valid timelineRowid (not 0)
-            val oldestEvent = cache.events.firstOrNull { it.timelineRowid != 0L }
+            // CRITICAL FIX: Exclude events with timeline_rowid <= 0 from pagination anchor.
+            // rowid=0 means "invalid"; rowid<0 means sync-bootstrap stub (not a real timeline
+            // position, only present so reply lookups can resolve the event). Returning a
+            // negative anchor would re-fetch events the server has already given us.
+            val oldestEvent = cache.events.firstOrNull { it.timelineRowid > 0L }
             val result = oldestEvent?.timelineRowid ?: -1L
             
             // Debug: Show range of timelineRowid values in cache

@@ -3529,34 +3529,42 @@ fun RoomTimelineScreen(
                                             previousItem is TimelineItem.Event && !isConsecutive
 
                                         val threadInfo = event.getThreadInfo()
-                                        if (threadInfo != null) {
-                                            if (BuildConfig.DEBUG) Log.d(
-                                                "Andromuks",
-                                                "RoomTimelineScreen: Rendering thread event ${event.eventId} -> root=${threadInfo.threadRootEventId}, fallbackReply=${threadInfo.fallbackReplyToEventId ?: "<none>"}"
-                                            )
-                                        } else if (
-                                            event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.thread" ||
-                                            event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.thread"
-                                        ) {
-                                            val relationType = event.relationType
-                                            val relatesToId = event.relatesTo
-                                            val rawRelType = event.content?.optJSONObject("m.relates_to")?.optString("rel_type")
-                                            val decryptedRelType = event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type")
-                                            val rawEventId = event.content?.optJSONObject("m.relates_to")?.optString("event_id")
-                                            val decryptedEventId = event.decrypted?.optJSONObject("m.relates_to")?.optString("event_id")
-                                            Log.w(
-                                                "Andromuks",
-                                                "RoomTimelineScreen: Event ${event.eventId} has thread relates_to but getThreadInfo() returned null (relationType=$relationType, relatesTo=$relatesToId, rawRelType=$rawRelType, decryptedRelType=$decryptedRelType, rawEventId=$rawEventId, decryptedEventId=$decryptedEventId)"
-                                            )
-                                        }
-
-                                        val threadRootIdFromRelates = event.content?.optJSONObject("m.relates_to")?.optString("event_id")
-                                            ?: event.decrypted?.optJSONObject("m.relates_to")?.optString("event_id")
-                                        if (threadRootIdFromRelates != null && threadInfo == null) {
-                                            if (BuildConfig.DEBUG) Log.d(
-                                                "Andromuks",
-                                                "RoomTimelineScreen: Event ${event.eventId} relates_to thread root $threadRootIdFromRelates but threadInfo is null"
-                                            )
+                                        // All thread-diagnostics gated behind BuildConfig.DEBUG: this whole
+                                        // block runs per-visible-event per-recomposition. The optJSONObject /
+                                        // optString lookups allocate JSONObject wrappers + Strings whether or
+                                        // not the Log call actually emits — observed thousands of needless
+                                        // allocations during a 1-minute scroll. Diagnostic value is debug-only;
+                                        // there's no behavior tied to these reads.
+                                        if (BuildConfig.DEBUG) {
+                                            if (threadInfo != null) {
+                                                Log.d(
+                                                    "Andromuks",
+                                                    "RoomTimelineScreen: Rendering thread event ${event.eventId} -> root=${threadInfo.threadRootEventId}, fallbackReply=${threadInfo.fallbackReplyToEventId ?: "<none>"}"
+                                                )
+                                            } else if (
+                                                event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.thread" ||
+                                                event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.thread"
+                                            ) {
+                                                val relationType = event.relationType
+                                                val relatesToId = event.relatesTo
+                                                val rawRelType = event.content?.optJSONObject("m.relates_to")?.optString("rel_type")
+                                                val decryptedRelType = event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type")
+                                                val rawEventId = event.content?.optJSONObject("m.relates_to")?.optString("event_id")
+                                                val decryptedEventId = event.decrypted?.optJSONObject("m.relates_to")?.optString("event_id")
+                                                Log.w(
+                                                    "Andromuks",
+                                                    "RoomTimelineScreen: Event ${event.eventId} has thread relates_to but getThreadInfo() returned null (relationType=$relationType, relatesTo=$relatesToId, rawRelType=$rawRelType, decryptedRelType=$decryptedRelType, rawEventId=$rawEventId, decryptedEventId=$decryptedEventId)"
+                                                )
+                                            } else {
+                                                val threadRootIdFromRelates = event.content?.optJSONObject("m.relates_to")?.optString("event_id")
+                                                    ?: event.decrypted?.optJSONObject("m.relates_to")?.optString("event_id")
+                                                if (threadRootIdFromRelates != null) {
+                                                    Log.d(
+                                                        "Andromuks",
+                                                        "RoomTimelineScreen: Event ${event.eventId} relates_to thread root $threadRootIdFromRelates but threadInfo is null"
+                                                    )
+                                                }
+                                            }
                                         }
 
                                         Column {
