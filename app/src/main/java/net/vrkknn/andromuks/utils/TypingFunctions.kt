@@ -48,25 +48,17 @@ fun TypingNotificationArea(
     appViewModel: AppViewModel? = null,
     modifier: Modifier = Modifier
 ) {
-    // OPPORTUNISTIC PROFILE LOADING: Request profiles for typing users when they start typing
-    LaunchedEffect(typingUsers, roomId, appViewModel?.memberUpdateCounter) {
-        if (appViewModel != null && roomId.isNotEmpty() && typingUsers.isNotEmpty()) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TypingNotificationArea: LaunchedEffect triggered - typing users: ${typingUsers.size}, roomId: $roomId, memberUpdateCounter: ${appViewModel.memberUpdateCounter}")
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TypingNotificationArea: Requesting profiles for ${typingUsers.size} typing users")
-            typingUsers.forEach { userId ->
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TypingNotificationArea: Processing typing user: $userId")
-                val existingProfile = appViewModel.getUserProfile(userId, roomId)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TypingNotificationArea: Profile check for $userId - cached: ${existingProfile != null}, displayName: ${existingProfile?.displayName}")
-                if (existingProfile == null) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TypingNotificationArea: Profile not cached for $userId, requesting...")
-                    appViewModel.requestUserProfileOnDemand(userId, roomId)
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TypingNotificationArea: Profile request sent for $userId")
-                } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TypingNotificationArea: Profile already cached for $userId - displayName: ${existingProfile.displayName}")
-                }
+    // OPPORTUNISTIC PROFILE LOADING: Request profiles for typing users when they start typing.
+    // Key only on typingUsers/roomId — NOT memberUpdateCounter. Typing comes from sync_complete;
+    // it is not affected by unrelated member profile updates, and keying on memberUpdateCounter
+    // caused this effect to re-launch on every sync that touched any room's profiles (observed:
+    // 22 re-fires in a single 1.3s cold-resume window, all hitting the empty-typingUsers branch).
+    LaunchedEffect(typingUsers, roomId) {
+        if (typingUsers.isEmpty() || appViewModel == null || roomId.isEmpty()) return@LaunchedEffect
+        typingUsers.forEach { userId ->
+            if (appViewModel.getUserProfile(userId, roomId) == null) {
+                appViewModel.requestUserProfileOnDemand(userId, roomId)
             }
-        } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TypingNotificationArea: Skipping profile requests - appViewModel: ${appViewModel != null}, roomId: $roomId, typingUsers: ${typingUsers.size}")
         }
     }
 

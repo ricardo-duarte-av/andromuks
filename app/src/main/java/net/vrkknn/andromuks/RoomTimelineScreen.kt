@@ -2994,22 +2994,29 @@ fun RoomTimelineScreen(
     //    }
     // }
 
-    // Validate and request missing user profiles when timeline events change
-    // This ensures all users in the timeline have complete profile data (display name, avatar)
-    // Missing profiles are automatically requested from the server
-    // PERFORMANCE: Only run when app is visible and this is the current room
+    // Validate and request missing user profiles when timeline events change.
+    // Short-circuit: only re-validate when the *set of distinct senders* changes. Multiple
+    // upstream rebuilds of the same event set were each walking ~100 events to validate
+    // profiles even though the sender set was identical. Tracking the last-validated set
+    // keeps us correct (new senders still trigger a fetch) while avoiding 3× walks per nav.
+    var lastValidatedSenderSetHash by remember(roomId) { mutableStateOf<Int?>(null) }
     LaunchedEffect(sortedEvents, appViewModel.isAppVisible, appViewModel.currentRoomId) {
-        if (!appViewModel.isAppVisible || appViewModel.currentRoomId != roomId) {
-            return@LaunchedEffect
-        }
-        
-        if (sortedEvents.isNotEmpty()) {
-            if (BuildConfig.DEBUG) Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Validating user profiles for ${sortedEvents.size} events"
-            )
-            appViewModel.validateAndRequestMissingProfiles(roomId, sortedEvents)
-        }
+        if (!appViewModel.isAppVisible || appViewModel.currentRoomId != roomId) return@LaunchedEffect
+        if (sortedEvents.isEmpty()) return@LaunchedEffect
+        // Lightweight signature: hash of distinct senders. Cheap to compute (single pass)
+        // and stable while no new senders appear. If a profile is later updated *for the
+        // same sender*, validateAndRequestMissingProfiles' callees will re-fetch only on
+        // their own paths — re-walking the whole timeline here doesn't unblock that.
+        val senderSet = HashSet<String>(sortedEvents.size)
+        sortedEvents.forEach { senderSet.add(it.sender) }
+        val hash = senderSet.hashCode()
+        if (hash == lastValidatedSenderSetHash) return@LaunchedEffect
+        lastValidatedSenderSetHash = hash
+        if (BuildConfig.DEBUG) Log.d(
+            "Andromuks",
+            "RoomTimelineScreen: Validating user profiles for ${sortedEvents.size} events (${senderSet.size} distinct senders)"
+        )
+        appViewModel.validateAndRequestMissingProfiles(roomId, sortedEvents)
     }
 
     // OPPORTUNISTIC PROFILE LOADING: Only request profiles when actually needed for rendering
@@ -3051,30 +3058,9 @@ fun RoomTimelineScreen(
         }
     }
 
-    // Save updated profiles to disk when member cache changes
-    // This persists user profile data (display names, avatars) to disk for future app sessions
-    // Only save profiles for users involved in the events being processed to avoid performance
-    // issues
-    // PERFORMANCE: Only run when app is visible and this is the current room
-    LaunchedEffect(appViewModel.memberUpdateCounter, appViewModel.isAppVisible, appViewModel.currentRoomId) {
-        if (!appViewModel.isAppVisible || appViewModel.currentRoomId != roomId) {
-            return@LaunchedEffect
-        }
-        
-        // Only save profiles for users who are actually involved in the current timeline events
-        val usersInTimeline = sortedEvents.map { it.sender }.distinct().toSet()
-        if (usersInTimeline.isNotEmpty()) {
-            val memberMap = appViewModel.getMemberMap(roomId)
-            val profilesToSave = usersInTimeline.filter { memberMap.containsKey(it) }
-            if (profilesToSave.isNotEmpty()) {
-                if (BuildConfig.DEBUG) android.util.Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Saving ${profilesToSave.size} profiles to disk for users in timeline"
-                )
-                // Profiles are cached in-memory only - no DB persistence needed
-            }
-        }
-    }
+    // (Removed: dead "save profiles to disk" effect. Profiles are in-memory only — media is the
+    // only thing the app persists to disk. The effect was walking sortedEvents + getMemberMap on
+    // every memberUpdateCounter bump just to log "saving N profiles" without actually saving.)
 
     // Ensure timeline reactively updates when new events arrive from sync
     // OPTIMIZED: Only track timelineEvents changes directly, updateCounter is handled by receipt updates
@@ -3774,13 +3760,23 @@ fun RoomTimelineScreen(
                     }
                     }
 
-                    // 4. Typing notification area (stacks naturally above text box)
+                    // 4. Typing notification area (stacks naturally above text box).
+                    // Hoist getTypingUsersForRoom behind remember keyed on the observable
+                    // typingUsers field. Reuse the already-hoisted `memberMap` (line ~1962)
+                    // instead of calling getMemberMap(roomId) inline — that inline call
+                    // produced 36 cache reads of the previous room during a single
+                    // navigation crossfade, because getMemberMap falls back to
+                    // RoomTimelineCache.getCachedEvents() for non-current rooms and was
+                    // running on every parent recomposition.
+                    val typingUsersForRoom = remember(roomId, appViewModel.typingUsers) {
+                        appViewModel.getTypingUsersForRoom(roomId)
+                    }
                     TypingNotificationArea(
-                        typingUsers = appViewModel.getTypingUsersForRoom(roomId),
+                        typingUsers = typingUsersForRoom,
                         roomId = roomId,
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
-                        userProfileCache = appViewModel.getMemberMap(roomId),
+                        userProfileCache = memberMap,
                         appViewModel = appViewModel
                     )
 

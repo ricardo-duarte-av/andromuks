@@ -9879,22 +9879,12 @@ class AppViewModel : ViewModel() {
         // canSendCommandsToBackend is true here so commands go directly to the socket,
         // not back into pendingCommandsQueue, preventing double-sends.
         persistenceCoordinator.retryPendingWebSocketOperations(bypassTimeout = true)
-        // If a room is open, bump the timeline refresh trigger so RoomTimelineScreen's
-        // LaunchedEffect(timelineRefreshTrigger) re-runs requestRoomTimeline. This is the
-        // architectural retry hook for the FCM-cold-open case where the initial paginate
-        // was dropped by the WS-down early-exit — on cold connect the backend issues
-        // clear_state=true which wipes the room's cache, so requestRoomTimeline will
-        // either no-op (if cache survived / refilled from sync_complete to >= threshold)
-        // or paginate (if cache is insufficient). Either way matches the cache contract.
-        if (currentRoomId.isNotEmpty()) {
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: flushPendingCommandsQueue - room open ($currentRoomId), bumping timelineRefreshTrigger",
-                )
-            }
-            timelineRefreshTrigger++
-        }
+        // NOTE: Do NOT bump timelineRefreshTrigger here. Draining the queue does not change
+        // timeline events; the bump was triggering a full processTimelineEvents pass (filter +
+        // sort of all visible events) on every queue flush, including post-init_complete where
+        // RT screen is also already responding to the real event arrivals. The FCM-cold-open
+        // deferred-paginate case is now handled via roomsAwaitingInitCompletePaginate drained
+        // in onInitComplete (see AppViewModel.kt:3-paginate-retry block).
     }
     
     /**
