@@ -580,6 +580,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     systemNotificationManager.activeNotifications?.lastOrNull { it.id == notifID }
                 } catch (e: Exception) { null }
 
+                // Use the in-memory cache (updated synchronously below) as the source of truth
+                // for "is there already a notification for this room?". activeNotifications has
+                // a propagation delay that causes back-to-back messages from different senders
+                // to miss the existing notification, which then re-alerts and reorders in the
+                // shade — looking to the user like the notification was dismissed and recreated.
+                val hadPriorNotification = (roomMessageCache[notificationData.roomId]?.isNotEmpty() == true)
+
                 // Conversation title: group rooms use room name, DMs use sender display name
                 val conversationTitle = if (isGroupRoom) {
                     notificationData.roomName
@@ -681,6 +688,12 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     .apply {
                         if (existingNotification != null) {
                             setWhen(existingNotification.notification.`when`)
+                        } else if (hadPriorNotification) {
+                            // activeNotifications race: a notification exists for this room but
+                            // hasn't propagated yet. Anchor `when` to the first cached message
+                            // so the notification doesn't jump in shade ordering.
+                            val firstTs = roomMessageCache[notificationData.roomId]?.firstOrNull()?.timestamp
+                            setWhen(firstTs ?: notificationData.timestamp ?: System.currentTimeMillis())
                         } else {
                             setWhen(notificationData.timestamp ?: System.currentTimeMillis())
                         }
@@ -731,7 +744,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         // CRITICAL: Do NOT call setSilent() at all for normal notifications
                         // Calling setSilent(false) doesn't work - instead, explicitly set sound/vibration
                         // Only suppress re-alerting on updates; new notifications must alert so Wear OS picks them up
-                        if (existingNotification != null) setOnlyAlertOnce(true)
+                        // Suppress re-alert on update. Use the cache (race-free) rather than
+                        // existingNotification (subject to activeNotifications propagation delay).
+                        if (hadPriorNotification) setOnlyAlertOnce(true)
                         setPriority(NotificationCompat.PRIORITY_HIGH)
                         // CRITICAL: On Android 8.0+, channels control sound/vibration
                         // We must ensure the channel has sound enabled, then the notification will use it
