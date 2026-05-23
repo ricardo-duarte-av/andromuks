@@ -601,7 +601,7 @@ internal class SyncRoomsCoordinator(
 
     fun handleClearStateReset() {
         with(vm) {
-            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: clear_state=true received - clearing derived room/space state (events preserved)")
+            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: clear_state=true received - purging all room/space state including currently opened rooms (backend is authoritative)")
             clearDerivedStateInMemory()
             // SyncIngestor.handleClearStateSignal() is a no-op stub and is also called
             // from within SyncIngestor.ingestSyncComplete() — no need to invoke it here.
@@ -666,7 +666,9 @@ internal class SyncRoomsCoordinator(
         
                     // CRITICAL: Clear timeline caches only when server sends clear_state=true (base set of data).
                     // Do not clear on init_complete or resume (last_received_event); only when clear_state is present.
-                    RoomTimelineCache.clearAll()
+                    // preserveOpened=false: the backend explicitly told us our state is rotten — currently opened
+                    // rooms get their events purged too, and the incoming sync_complete will repopulate them.
+                    RoomTimelineCache.clearAll(preserveOpened = false)
                     oldestRowIdPerRoom.clear()
                     roomsWithPendingPaginate.clear()
         

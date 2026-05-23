@@ -3480,6 +3480,34 @@ class AppViewModel : ViewModel() {
         // QUEUE FLUSHING FIX: Flush pending queue after init_complete with stabilization delay
         // This ensures backend is ready and prevents triple-sending
         flushPendingQueueAfterReconnection()
+
+        // Drain rooms whose initial paginate was deferred because the WS was down at navigate
+        // time (cold resume via notification in sidecar mode is the common case). We do this
+        // explicitly here instead of relying on RT screen's timelineRefreshTrigger LaunchedEffect,
+        // which is gated by a 500ms isInitialLoadComplete delay and can miss the retry signal.
+        val toRetry = synchronized(roomsAwaitingInitCompletePaginate) {
+            val copy = roomsAwaitingInitCompletePaginate.toList()
+            roomsAwaitingInitCompletePaginate.clear()
+            copy
+        }
+        if (toRetry.isNotEmpty()) {
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: onInitComplete — retrying deferred paginate for ${toRetry.size} room(s): $toRetry",
+            )
+            // Only retry rooms the user still cares about (currently open or pending nav target);
+            // skip rooms abandoned before WS came up, to avoid clobbering currentRoomId state.
+            toRetry.forEach { roomId ->
+                if (roomId == currentRoomId) {
+                    requestRoomTimeline(roomId)
+                } else if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: onInitComplete — skipping deferred retry for $roomId (no longer current, now=$currentRoomId)",
+                    )
+                }
+            }
+        }
         
         // CRITICAL FIX: Force refresh room list after reconnection to ensure data is up-to-date
         // This handles cases where initial sync queue was empty or rooms weren't properly updated
@@ -4541,6 +4569,11 @@ class AppViewModel : ViewModel() {
     internal val timelineRequests = java.util.concurrent.ConcurrentHashMap<Int, String>() // requestId -> roomId
     // Track rooms with pending initial paginate requests to prevent duplicates
     internal val roomsWithPendingPaginate = Collections.synchronizedSet(mutableSetOf<String>())
+    // Track rooms whose initial paginate was attempted while the WebSocket was down (e.g. cold
+    // resume via notification in sidecar mode). Drained in onInitComplete after the WS reconnect.
+    // The previously-relied-upon timelineRefreshTrigger retry can race with RT screen's
+    // 500ms isInitialLoadComplete delay and lose the bump.
+    internal val roomsAwaitingInitCompletePaginate = Collections.synchronizedSet(mutableSetOf<String>())
     internal val profileRequestRooms = mutableMapOf<Int, String>() // requestId -> roomId (for profile requests initiated from a specific room)
     internal val roomStateRequests = mutableMapOf<Int, String>() // requestId -> roomId
     internal val messageRequests = mutableMapOf<Int, String>() // requestId -> roomId
@@ -5787,11 +5820,23 @@ class AppViewModel : ViewModel() {
         viewModelScope.launch {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: triggerPreemptivePagination called for room: $roomId")
 
+            // Sidecar mode: never preemptively paginate. The WS is intentionally torn down
+            // in background; even when transiently up, queueing a paginate risks
+            // flushPendingCommandsQueue dispatching it later (after the user has already
+            // opened the room and triggered their own paginate, or after the next sidecar
+            // linger has expired). The user-open path handles fetching on tap.
+            if (useSidecarMode) {
+                if (BuildConfig.DEBUG) android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: Sidecar mode active, skipping preemptive pagination for $roomId (open-room path will fetch)"
+                )
+                return@launch
+            }
+
             // If the WebSocket is not connected, paginate would fail anyway. Bail out
             // BEFORE marking the room as actively cached — otherwise the cache flag is
             // set without any data behind it, and the next room open thinks the cache
-            // is warm when it isn't. This covers sidecar mode (WS deliberately closed
-            // in background) and any other transient disconnect.
+            // is warm when it isn't.
             if (!WebSocketService.isWebSocketConnected()) {
                 if (BuildConfig.DEBUG) android.util.Log.d(
                     "Andromuks",

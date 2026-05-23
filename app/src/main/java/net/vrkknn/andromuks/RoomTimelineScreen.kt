@@ -2450,6 +2450,12 @@ fun RoomTimelineScreen(
                     && !pendingScrollRestoration
                     && !isPaginating
                     && appViewModel.hasMoreMessages
+                    // Guard against stale composition during navigation crossfade: the previous
+                    // room's screen is briefly still composed and its timelineItems may transiently
+                    // hit 0 as items are swept for the new room. Without this check, it fires an
+                    // auto-paginate for the *previous* room (wrong roomId, wasted request, can
+                    // also starve the new room of a request slot).
+                    && roomId == appViewModel.currentRoomId
                 ) {
                     // Only capture a scroll anchor when the user is scrolled up. When at the
                     // bottom (index 0), older events are added above the viewport at higher

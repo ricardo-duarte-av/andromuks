@@ -1190,15 +1190,20 @@ object RoomTimelineCache {
     }
     
     /**
-     * Clear all caches and mark all rooms as needing pagination
-     * Called on WebSocket connect/reconnect to mark all caches as stale
-     * EXCEPTION: Currently opened rooms are preserved (exempt from cache clearing)
+     * Clear all caches and mark all rooms as needing pagination.
+     * Called on WebSocket connect/reconnect to mark all caches as stale.
+     *
+     * By default, currently opened rooms are preserved (to avoid wiping the UI mid-resume
+     * when only stale-marking is needed). Pass [preserveOpened] = false from paths where
+     * the backend explicitly signalled rotten state (clear_state=true): in that case the
+     * backend is authoritative and we MUST drop every event in every room, including the
+     * one the user is currently viewing — the next sync_complete will repopulate them.
      */
-    fun clearAll() {
+    fun clearAll(preserveOpened: Boolean = true) {
         synchronized(cacheLock) {
             synchronized(cacheStateLock) {
-                val openedRooms = getOpenedRooms()
-            
+                val openedRooms = if (preserveOpened) getOpenedRooms() else emptySet()
+
                 if (openedRooms.isEmpty()) {
                     // No opened rooms - clear everything
                     val allRoomIds = roomEventsCache.keys.toSet()

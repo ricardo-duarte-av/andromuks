@@ -678,11 +678,27 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 "🟢 requestRoomTimeline: START - roomId=$roomId, useLruCache=$useLruCache, currentRoomId=$currentRoomId, isTimelineLoading=$isTimelineLoading, isPaginating=$isPaginating",
             )
 
-            // Check if we're refreshing the same room before updating currentRoomId
-            val isRefreshingSameRoom = currentRoomId == roomId && timelineEvents.isNotEmpty()
+            // Check if we're refreshing the same room before updating currentRoomId.
+            // "Same room" requires a meaningfully loaded timeline — not just any events.
+            // A handful of rowId=-1 sync-bootstrap events leaks past .isNotEmpty() and was making
+            // the post-init_complete retry skip its paginate (both the line ~896 path and the
+            // line ~1001 "cache insufficient" path are gated on !isRefreshingSameRoom), leaving
+            // the screen stuck on "Room loading..." because no real fetch ever fired.
+            val refreshThreshold = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT / 2
+            val isRefreshingSameRoom = currentRoomId == roomId && timelineEvents.size >= refreshThreshold
 
             // LRU CACHE: Try to restore from cache first (instant room switch)
-            if (useLruCache && !isRefreshingSameRoom && restoreFromLruCache(roomId)) {
+            // LRU restore requires at least INITIAL_ROOM_PAGINATE_LIMIT/2 cached events. A handful
+            // of rowId=-1 sync-bootstrap events (delivered before paginate completes for a freshly
+            // opened room) would otherwise "succeed" the restore, flip isTimelineLoading=false, and
+            // produce a visible flash of "empty room" because the RT filter drops rowId=-1 events.
+            // Falling through to the paginate path keeps the loading indicator up until real events
+            // arrive.
+            val lruThreshold = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT / 2
+            val lruRestoreEligible = useLruCache &&
+                !isRefreshingSameRoom &&
+                (RoomTimelineCache.getCachedEventCount(roomId) >= lruThreshold)
+            if (lruRestoreEligible && restoreFromLruCache(roomId)) {
                 if (BuildConfig.DEBUG)
                     android.util.Log.d(
                         "Andromuks",
@@ -949,15 +965,18 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             if (!isWebSocketConnected()) {
                 android.util.Log.w(
                     "Andromuks",
-                    "🟢 requestRoomTimeline: WebSocket not connected - roomId=$roomId, exiting (will retry via timelineRefreshTrigger after init_complete)",
+                    "🟢 requestRoomTimeline: WebSocket not connected - roomId=$roomId, exiting (queued for retry in onInitComplete)",
                 )
                 // Set loading state and clear timeline
                 timelineEvents = emptyList()
                 isTimelineLoading = true
+                // Register for explicit retry after init_complete. Relying on flushPendingCommandsQueue
+                // bumping timelineRefreshTrigger is unreliable: RT screen gates the trigger LaunchedEffect
+                // on isInitialLoadComplete (a 500ms delay after roomId change), and on cold resume the
+                // bumps arrive before that gate opens — they get "consumed" by lastKnownRefreshTrigger
+                // without firing the retry, leaving the room stuck on "Loading...".
+                roomsAwaitingInitCompletePaginate.add(roomId)
                 // Bug B: clear the notification-pending flag so awaitRoomDataReadiness unsticks.
-                // The natural retry path (flushPendingCommandsQueue bumps timelineRefreshTrigger
-                // when canSendCommandsToBackend flips to true) will re-invoke requestRoomTimeline
-                // once the WS is up; the eventual handleInitialTimelineBuild clears this flag.
                 if (isPendingNavigationFromNotification && currentRoomId == roomId) {
                     isPendingNavigationFromNotification = false
                     if (BuildConfig.DEBUG) {
@@ -969,7 +988,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 }
                 android.util.Log.d(
                     "Andromuks",
-                    "🟢 requestRoomTimeline: EXIT (WebSocket not connected) - roomId=$roomId, isTimelineLoading=$isTimelineLoading",
+                    "🟢 requestRoomTimeline: EXIT (WebSocket not connected) - roomId=$roomId, isTimelineLoading=$isTimelineLoading, queued for retry",
                 )
                 return
             }
