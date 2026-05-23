@@ -2,6 +2,7 @@ package net.vrkknn.andromuks.utils
 
 import net.vrkknn.andromuks.BuildConfig
 import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -36,8 +37,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import net.vrkknn.andromuks.utils.navigateToUserInfo
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import kotlinx.coroutines.delay
@@ -362,6 +366,55 @@ fun RoomInfoScreen(
                                 useCircleCache = true, // Match RoomListScreen's cache path for consistent avatar loading
                                 modifier = Modifier.clip(CircleShape)
                             )
+                        }
+
+                        // DM badge: when the heroes fallback is active, the 120dp avatar shows the
+                        // other party. Overlay the local user's avatar in the corner so the screen
+                        // communicates "this is a DM with X, and you are the other side."
+                        val selfProfile = appViewModel.currentUserProfile
+                        if (heroMember != null && selfProfile != null) {
+                            // Delay the fade-in so the shared-element transition from RT's header
+                            // avatar can settle before the badge appears on top of it. 500 ms
+                            // covers the StiffnessLow spring settle, 100 ms fade is just enough to
+                            // not look like a pop.
+                            val badgeAlpha = remember { Animatable(0f) }
+                            LaunchedEffect(Unit) {
+                                kotlinx.coroutines.delay(500)
+                                badgeAlpha.animateTo(1f, animationSpec = tween(durationMillis = 100))
+                            }
+                            // While the shared-element transition runs, the room avatar is hoisted
+                            // into the SharedTransitionScope overlay (zIndexInOverlay=1f), which
+                            // draws above any sibling in the normal composition. Hoist the badge
+                            // into the same overlay at a higher zIndex so it sits on top instead
+                            // of being clipped behind the avatar during settle.
+                            val overlayModifier = if (sharedTransitionScope != null) {
+                                with(sharedTransitionScope) {
+                                    Modifier.renderInSharedTransitionScopeOverlay(zIndexInOverlay = 2f)
+                                }
+                            } else {
+                                Modifier
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .size(40.dp)
+                                    .then(overlayModifier)
+                                    .alpha(badgeAlpha.value)
+                                    .background(MaterialTheme.colorScheme.surface, CircleShape)
+                                    .padding(2.dp)
+                            ) {
+                                AvatarImage(
+                                    mxcUrl = selfProfile.avatarUrl,
+                                    homeserverUrl = appViewModel.homeserverUrl,
+                                    authToken = appViewModel.authToken,
+                                    fallbackText = selfProfile.displayName ?: selfProfile.userId,
+                                    size = 36.dp,
+                                    userId = selfProfile.userId,
+                                    displayName = selfProfile.displayName,
+                                    useCircleCache = true,
+                                    modifier = Modifier.clip(CircleShape)
+                                )
+                            }
                         }
                     }
                 }
