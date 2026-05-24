@@ -160,5 +160,11 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
+    // LeakCanary auto-installs via ContentProvider when present on the classpath.
+    // debugImplementation keeps it out of release builds entirely (no APK bloat, no overhead).
+    // Self-reports retained-too-long Activity / Fragment / ViewModel instances in logcat and a
+    // dedicated launcher icon.
+    debugImplementation("com.squareup.leakcanary:leakcanary-android:2.14")
+
     baselineProfile(project(":baselineprofile"))
 }

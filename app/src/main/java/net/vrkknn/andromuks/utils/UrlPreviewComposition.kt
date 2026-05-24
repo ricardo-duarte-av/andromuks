@@ -52,6 +52,11 @@ import java.net.URLEncoder
 // not while they're still typing the URL character by character.
 private val urlRegex = Regex("https://\\S+(?=\\s)")
 
+// Lazy process-wide singleton. Constructing OkHttpClient touches the system CA store on
+// first build (~tens of ms disk read). Was previously `remember { OkHttpClient() }` inside
+// UrlPreviewCompositionBar which ran on Main during composition — StrictMode flagged it.
+private val urlPreviewHttpClient: OkHttpClient by lazy { OkHttpClient() }
+
 data class UrlPreviewItemState(
     val url: String,
     val isLoading: Boolean = false,
@@ -128,7 +133,7 @@ fun UrlPreviewCompositionBar(
     isRoomEncrypted: Boolean
 ) {
     val scope = rememberCoroutineScope()
-    val httpClient = remember { OkHttpClient() }
+    val httpClient = urlPreviewHttpClient
 
     val detectedUrls = remember(text) {
         urlRegex.findAll(text).map { it.value }

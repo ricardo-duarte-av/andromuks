@@ -123,7 +123,10 @@ object IntelligentMediaCache {
      * @param mxcUrl MXC URL to look up
      * @return Cached file if exists, null otherwise
      */
-    suspend fun getCachedFile(context: Context, mxcUrl: String): File? = cacheMutex.withLock {
+    // The body does File.exists() and File.length() — disk reads. Run on Dispatchers.IO so
+    // callers from a Main-bound LaunchedEffect (e.g. ImageViewerDialog) don't trip StrictMode.
+    suspend fun getCachedFile(context: Context, mxcUrl: String): File? = withContext(Dispatchers.IO) {
+        cacheMutex.withLock {
         val entry = cacheEntries[mxcUrl]
         if (entry != null && entry.file.exists() && entry.file.length() > 0L) {
             // Update access statistics
@@ -170,8 +173,9 @@ object IntelligentMediaCache {
         if (BuildConfig.DEBUG) Log.d(TAG, "Cache miss for $mxcUrl")
 
         return@withLock null
+        }
     }
-    
+
     /**
      * Cache file with intelligent management.
      * 

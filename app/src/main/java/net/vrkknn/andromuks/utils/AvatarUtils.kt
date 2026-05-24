@@ -10,6 +10,8 @@ import coil.request.SuccessResult
 import java.io.File
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.CircleAvatarCache
 
 object AvatarUtils {
@@ -189,9 +191,13 @@ object AvatarUtils {
         if (mxcUrl == null) return null
         val cached = resolvedUrlCache[mxcUrl]
         if (cached != null) {
-            if (cached.startsWith("http", ignoreCase = true)) return cached
-            if (File(cached).exists()) return cached
-            resolvedUrlCache.remove(mxcUrl)
+            // Trust the in-memory cache. Previously we did File(cached).exists() here as a
+            // defensive check against eviction, but that fires on Main during every
+            // RoomListItem composition (StrictMode catches it). Coil's load-failure path
+            // calls removeResolvedUrl() to invalidate stale entries, and onTrimMemory
+            // clears the whole map on memory pressure — both keep this map honest without
+            // a per-row stat() on Main.
+            return cached
         }
         return mxcToHttpUrl(mxcUrl, homeserverUrl, userId, displayName)
     }
@@ -214,20 +220,25 @@ object AvatarUtils {
     ): String? {
         if (mxcUrl == null) return null
 
-        resolvedUrlCache[mxcUrl]?.let { cached ->
-            if (cached.startsWith("http", ignoreCase = true)) return cached
-            if (File(cached).exists()) return cached
-            resolvedUrlCache.remove(mxcUrl)
-        }
+        // The File(...).exists() check and the CircleAvatarCache lookup both do disk I/O.
+        // This is a suspend function called from a Main-scope LaunchedEffect, so wrap in
+        // IO to avoid StrictMode hits.
+        return withContext(Dispatchers.IO) {
+            resolvedUrlCache[mxcUrl]?.let { cached ->
+                if (cached.startsWith("http", ignoreCase = true)) return@withContext cached
+                if (File(cached).exists()) return@withContext cached
+                resolvedUrlCache.remove(mxcUrl)
+            }
 
-        val circleCachedFile = CircleAvatarCache.getCachedFile(context, mxcUrl)
-        if (circleCachedFile != null) {
-            val path = circleCachedFile.absolutePath
-            if (resolvedUrlCache.size < MAX_RESOLVED_URL_CACHE_SIZE) resolvedUrlCache[mxcUrl] = path
-            return path
-        }
+            val circleCachedFile = CircleAvatarCache.getCachedFile(context, mxcUrl)
+            if (circleCachedFile != null) {
+                val path = circleCachedFile.absolutePath
+                if (resolvedUrlCache.size < MAX_RESOLVED_URL_CACHE_SIZE) resolvedUrlCache[mxcUrl] = path
+                return@withContext path
+            }
 
-        return mxcToHttpUrl(mxcUrl, homeserverUrl, userId, displayName)
+            mxcToHttpUrl(mxcUrl, homeserverUrl, userId, displayName)
+        }
     }
 
     /**

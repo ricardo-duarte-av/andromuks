@@ -113,9 +113,12 @@ internal class DiagnosticsCoordinator(private val vm: AppViewModel) {
                     logArray.put(entry.toJson())
                 }
 
+                // apply() instead of commit(): activity log is best-effort, no need to block
+                // the calling thread on the fsync. StrictMode was flagging this ~10ms write
+                // on Main during AutoRestartReceiver.onReceive — that path is now async.
                 prefs.edit()
                     .putString(ACTIVITY_LOG_PREFS_KEY, logArray.toString())
-                    .commit()
+                    .apply()
 
             } catch (e: Exception) {
                 android.util.Log.e("Andromuks", "AppViewModel: Failed to save activity log to storage", e)

@@ -200,11 +200,27 @@ fun AvatarImage(
     // crossfade(200) softens the swap from fallback-letter → bitmap; the swap itself is
     // unavoidable (Coil dispatches the request when AsyncImage composes), but a 200ms
     // fade makes it read as an intentional transition rather than a pop.
-    val imageRequest = remember(currentAvatarUrl, targetPixelSize) {
+    val imageRequest = remember(currentAvatarUrl, targetPixelSize, mxcUrl) {
         currentAvatarUrl?.let { url ->
             ImageRequest.Builder(context)
                 .data(url)
-                .apply { size(targetPixelSize) }
+                .apply {
+                    size(targetPixelSize)
+                    // When we pass a local file path as the data string, Coil's FileKeyer
+                    // computes the cache key via File.lastModified() — a 100-180 ms disk
+                    // read on Main during composition (StrictMode flagged this). MXC URLs
+                    // are content-addressed and immutable, so using them as explicit
+                    // memory + disk cache keys bypasses the keyer entirely. Use the size
+                    // suffix so two different render sizes don't collide in the memory
+                    // cache (Coil stores each size as its own bitmap).
+                    if (mxcUrl != null) {
+                        // targetPixelSize is an Int (square px). Suffix it so two render
+                        // sizes for the same mxc URL keep separate cache entries.
+                        val key = "${mxcUrl}@${targetPixelSize}"
+                        memoryCacheKey(key)
+                        diskCacheKey(key)
+                    }
+                }
                 .crossfade(200)
                 .memoryCachePolicy(CachePolicy.ENABLED)
                 .diskCachePolicy(CachePolicy.ENABLED)

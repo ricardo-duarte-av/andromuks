@@ -544,9 +544,15 @@ fun RoomListScreen(
                     val url = AvatarUtils.getAvatarUrlForRoomList(
                         context, mxc, appViewModel.homeserverUrl, room.id, room.name
                     ) ?: return@forEach
+                    // Use the same explicit cache key as AvatarImage so this preload
+                    // populates the same memory/disk slot the row will later hit, and
+                    // skips Coil's FileKeyer (which does File.lastModified() on Main).
+                    val cacheKey = "${mxc}@${avatarPreloadPx}"
                     val request = ImageRequest.Builder(context)
                         .data(url)
                         .size(avatarPreloadPx)
+                        .memoryCacheKey(cacheKey)
+                        .diskCacheKey(cacheKey)
                         .memoryCachePolicy(CachePolicy.ENABLED)
                         .diskCachePolicy(CachePolicy.ENABLED)
                         .build()

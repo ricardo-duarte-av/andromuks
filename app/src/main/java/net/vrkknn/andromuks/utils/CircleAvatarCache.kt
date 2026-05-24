@@ -93,23 +93,23 @@ object CircleAvatarCache {
      * @param mxcUrl MXC URL to look up
      * @return Cached file if exists, null otherwise
      */
-    suspend fun getCachedFile(context: Context, mxcUrl: String): File? {
+    suspend fun getCachedFile(context: Context, mxcUrl: String): File? = withContext(Dispatchers.IO) {
         // Fast path: already known to exist on disk
         knownOnDisk[mxcUrl]?.let { file ->
-            if (file.exists()) return file
+            if (file.exists()) return@withContext file
             // File was deleted externally — evict from map
             knownOnDisk.remove(mxcUrl)
         }
-        
+
         // Slow path: check disk (still no Mutex needed for a read-only file existence check)
         val cacheFile = getCacheFile(context, mxcUrl)
-        
+
         if (cacheFile.exists() && cacheFile.length() > 0) {
             knownOnDisk[mxcUrl] = cacheFile
-            return cacheFile
+            return@withContext cacheFile
         }
-        
-        return null
+
+        null
     }
     
     /**

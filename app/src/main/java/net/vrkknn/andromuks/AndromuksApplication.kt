@@ -2,6 +2,7 @@ package net.vrkknn.andromuks
 
 import android.app.Application
 import android.content.ComponentCallbacks2
+import android.os.StrictMode
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +33,13 @@ class AndromuksApplication : Application() {
     }
     
     override fun onCreate() {
+        // StrictMode must be installed BEFORE any other work so it catches violations during
+        // our own onCreate path too. Debug-only: penaltyLog only (no death), so a flood of
+        // findings doesn't crash the app — we just want them in logcat to triage at our own
+        // pace. Filter by tag "StrictMode" in logcat.
+        if (BuildConfig.DEBUG) {
+            installStrictMode()
+        }
         super.onCreate()
         if (BuildConfig.DEBUG) {
             Log.d("Andromuks", "AndromuksApplication: onCreate()")
@@ -40,6 +48,30 @@ class AndromuksApplication : Application() {
         // even before AppViewModel.updateAuthToken is called.
         ImageLoaderSingleton.initFromStorage(this)
         migrateLegacyImageCache()
+    }
+
+    private fun installStrictMode() {
+        StrictMode.setThreadPolicy(
+            StrictMode.ThreadPolicy.Builder()
+                .detectDiskReads()
+                .detectDiskWrites()
+                .detectNetwork()
+                .detectCustomSlowCalls()
+                .penaltyLog()
+                .build()
+        )
+        StrictMode.setVmPolicy(
+            StrictMode.VmPolicy.Builder()
+                .detectLeakedClosableObjects()
+                .detectLeakedRegistrationObjects()
+                .detectActivityLeaks()
+                .detectFileUriExposure()
+                // Note: do NOT enable detectLeakedSqlLiteObjects — we don't use SQLite directly,
+                // and Coil/OkHttp can briefly hold prepared statements that look like leaks
+                // before their natural close.
+                .penaltyLog()
+                .build()
+        )
     }
 
     private fun migrateLegacyImageCache() {
