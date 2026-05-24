@@ -326,9 +326,14 @@ class FCMService : FirebaseMessagingService() {
             return false
         }
         
-        val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-        val currentOpenRoomId = sharedPrefs.getString("current_open_room_id", "") ?: ""
-        val isAppVisiblePrefs = sharedPrefs.getBoolean("app_is_visible", false)
+        // Read from the in-memory mirror (atomic) instead of SharedPreferences directly. The
+        // mirror is populated the moment AppViewModel updates the room/visibility — no disk
+        // round-trip. First-ever read in a fresh process hydrates from SharedPreferences
+        // lazily, so cold-start FCMService still sees the last persisted state.
+        val currentOpenRoomId = net.vrkknn.andromuks.utils.NotificationSuppressionState
+            .getCurrentOpenRoomId(this) ?: ""
+        val isAppVisiblePrefs = net.vrkknn.andromuks.utils.NotificationSuppressionState
+            .isAppVisible(this)
         
         // Normalize room IDs for comparison (remove "!" prefix if present)
         val normalizedRoomId = roomId.removePrefix("!")

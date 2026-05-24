@@ -303,9 +303,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 return
             }
             
-            // Check if this room is currently open in the app - skip notifications if user is viewing the room
-            val currentOpenRoomId = sharedPrefs.getString("current_open_room_id", null)
-            val appIsVisible = sharedPrefs.getBoolean("app_is_visible", false)
+            // Check if this room is currently open in the app - skip notifications if user is viewing the room.
+            // Read from the in-memory mirror (atomic) instead of SharedPreferences directly; see
+            // NotificationSuppressionState for the design.
+            val currentOpenRoomId = net.vrkknn.andromuks.utils.NotificationSuppressionState
+                .getCurrentOpenRoomId(context)
+            val appIsVisible = net.vrkknn.andromuks.utils.NotificationSuppressionState
+                .isAppVisible(context)
             if (BuildConfig.DEBUG) Log.d(
                 TAG,
                 "Notification check - appVisible: $appIsVisible, currentOpenRoomId: '$currentOpenRoomId', notificationRoomId: '${notificationData.roomId}', match: ${currentOpenRoomId == notificationData.roomId}"

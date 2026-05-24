@@ -202,11 +202,11 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 if (BuildConfig.DEBUG)
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Restoring current_open_room_id=$currentRoomId to SharedPreferences on visibility change",
+                        "AppViewModel: Restoring current_open_room_id=$currentRoomId on visibility change",
                     )
                 appContext?.applicationContext?.let { ctx ->
-                    ctx.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-                        .edit().putString("current_open_room_id", currentRoomId).commit()
+                    net.vrkknn.andromuks.utils.NotificationSuppressionState
+                        .setCurrentOpenRoomId(ctx, currentRoomId)
                 }
             }
 
@@ -329,12 +329,12 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                         "Andromuks",
                         "AppViewModel: App invisible — clearing SharedPreferences room entry to allow FCM notifications for $currentRoomId (in-memory currentRoomId preserved)",
                     )
-                // Clear current_open_room_id in SharedPreferences so FCM doesn't suppress
-                // notifications for this room while backgrounded. The in-memory currentRoomId is
-                // kept so timelineRefreshTrigger works immediately on resume without a restore dance.
+                // Clear current_open_room_id so FCM doesn't suppress notifications for this
+                // room while backgrounded. The in-memory currentRoomId on AppViewModel is kept
+                // so timelineRefreshTrigger works immediately on resume without a restore dance.
                 appContext?.applicationContext?.let { ctx ->
-                    ctx.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-                        .edit().remove("current_open_room_id").commit()
+                    net.vrkknn.andromuks.utils.NotificationSuppressionState
+                        .setCurrentOpenRoomId(ctx, null)
                 }
                 typingUsers = emptyList()
             }

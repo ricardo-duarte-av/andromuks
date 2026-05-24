@@ -4381,44 +4381,30 @@ class AppViewModel : ViewModel() {
             return
         }
 
-        // Save to SharedPreferences so notification service can check if room is open
-        // Use commit() instead of apply() to ensure immediate write (critical for notification suppression)
+        // Publish the new value to the in-memory mirror (atomic, instant) and let it
+        // schedule an async SharedPreferences write for crash recovery. FCMService reads
+        // from the mirror, so the race with notification suppression closes the moment we
+        // call set*. No more commit() blocking Main on slow flash.
         appContext?.applicationContext?.let { context ->
-            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            val editor = sharedPrefs.edit()
             if (roomId.isNotEmpty()) {
-                editor.putString("current_open_room_id", roomId)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saving current open room ID to SharedPreferences: $roomId")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Publishing current open room to memory + prefs: $roomId")
             } else {
-                editor.remove("current_open_room_id")
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Clearing current open room ID from SharedPreferences")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Clearing current open room from memory + prefs")
             }
-            // Use commit() for synchronous write - critical to prevent race condition with notifications
-            val success = editor.commit()
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SharedPreferences commit ${if (success) "succeeded" else "failed"} for room ID: $roomId")
+            net.vrkknn.andromuks.utils.NotificationSuppressionState.setCurrentOpenRoomId(context, roomId)
         }
     }
     
     internal fun updateAppVisibilityInPrefs(visible: Boolean) {
         appContext?.applicationContext?.let { context ->
-            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            val editor = sharedPrefs.edit()
-            editor.putBoolean("app_is_visible", visible)
-            // Use commit() for synchronous write - critical for FCM notification suppression
-            val success = editor.commit()
+            // Same memory-first pattern as updateCurrentRoomIdInPrefs — publish the new
+            // visibility to the atomic mirror instantly, then let it write through to
+            // SharedPreferences asynchronously for crash recovery.
+            net.vrkknn.andromuks.utils.NotificationSuppressionState.setAppVisible(context, visible)
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: SharedPreferences commit ${if (success) "succeeded" else "failed"} for app visibility: $visible (currentRoomId=$currentRoomId)"
+                "AppViewModel: Published app visibility=$visible to memory + prefs (currentRoomId=$currentRoomId)"
             )
-            
-            // Verify the write was successful
-            val verifyValue = sharedPrefs.getBoolean("app_is_visible", !visible)
-            if (verifyValue != visible) {
-                android.util.Log.w(
-                    "Andromuks",
-                    "AppViewModel: WARNING - App visibility write verification failed! Expected: $visible, Got: $verifyValue"
-                )
-            }
         } ?: run {
             android.util.Log.w("Andromuks", "AppViewModel: Cannot update app visibility - appContext is null")
         }
