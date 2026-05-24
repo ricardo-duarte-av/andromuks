@@ -82,6 +82,11 @@ class ChatBubbleActivity : ComponentActivity() {
                         // Load cached user profiles on app startup
                         appViewModel.loadCachedProfiles(this)
                         appViewModel.loadSettings(this)
+                        // Copy hydrated stub rooms from the singleton RoomListCache into this
+                        // bubble VM's local roomMap so awaitRoomDataReadiness's getRoomById gate
+                        // can close without waiting for a full-state sync that may never arrive
+                        // for a sidecar-only room.
+                        appViewModel.populateRoomMapFromCache()
                         appViewModel.attachToExistingWebSocketIfAvailable()
                         
                         // IMPORTANT: Mark bubble as visible for live updates WITHOUT expensive UI refresh

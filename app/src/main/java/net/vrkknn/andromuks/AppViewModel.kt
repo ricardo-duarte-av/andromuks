@@ -7211,7 +7211,15 @@ class AppViewModel : ViewModel() {
             if (appContext == null) {
                 appContext = context.applicationContext
             }
-            
+
+            // Open the persistent room metadata DB and hydrate RoomListCache from it so
+            // cold-start UIs (bubbles, shortcuts, notification taps) have something to
+            // render before sync_complete arrives. Safe to call repeatedly — initialize
+            // is idempotent and hydrateFromDisk skips slots that already exist in memory.
+            net.vrkknn.andromuks.utils.RoomMetadataStore.initialize(context)
+            net.vrkknn.andromuks.utils.BridgeInfoCache.migrateFromSharedPreferencesIfNeeded(context)
+            RoomListCache.hydrateFromDisk()
+
             // Get current user ID from SharedPreferences if not already set
             val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
             val storedUserId = sharedPrefs.getString("current_user_id", "") ?: ""
@@ -7754,6 +7762,13 @@ class AppViewModel : ViewModel() {
             pinnedEventIds = pinnedEventIds,
             bridgeInfo = bridgeInfo
         )
+
+        // Persist raw m.room.name / m.room.avatar values from this state snapshot so cold-start
+        // UIs (bubbles, shortcuts, notification taps) can render the room before sync_complete.
+        // Uses null/"" semantics from RoomMetadataStore — null args here mean "don't touch".
+        if (name != null || avatarUrl != null) {
+            net.vrkknn.andromuks.utils.RoomMetadataStore.upsertNameAvatar(roomId, name, avatarUrl)
+        }
         
         // Extract bridge protocol avatar URL for room list badge display
         val bridgeProtocolAvatarUrl = bridgeInfo?.protocol?.avatarUrl

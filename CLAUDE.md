@@ -48,7 +48,7 @@ AppViewModel  ←→  18+ Coordinator classes  (feature-specific orchestration)
     ↓
 WebSocketService (foreground service) → SyncRepository (event flow)
     ↓
-OkHttp WebSocket (Matrix protocol) + SQLite (BootstrapLoader)
+OkHttp WebSocket (Matrix protocol)
 ```
 
 ### Core Classes
@@ -89,7 +89,6 @@ Android chat bubbles use `ChatBubbleActivity` → `BubbleTimelineScreen`.
 - **Background**: WorkManager, BroadcastReceiver
 - **Notifications**: Firebase Cloud Messaging (FCM)
 - **Serialization**: Kotlin Serialization (kotlinx.serialization)
-- **Database**: SQLite via Android framework (BootstrapLoader pattern)
 
 ## Project Structure Notes
 

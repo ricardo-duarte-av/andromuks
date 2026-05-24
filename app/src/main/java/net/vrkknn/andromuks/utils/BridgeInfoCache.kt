@@ -1,131 +1,130 @@
 package net.vrkknn.andromuks.utils
 
 import android.content.Context
-import android.content.SharedPreferences
 import net.vrkknn.andromuks.BuildConfig
 
 /**
- * Cache for bridge protocol avatar URLs in SharedPreferences
- * 
- * Stores bridge info per room_id:
- * - If room is bridged: stores the mxc:// URL of the bridge protocol avatar
- * - If room is not bridged: stores empty string ""
- * 
- * This allows us to skip get_room_state requests for rooms we already know about.
+ * Cache for bridge protocol avatar URLs and display names.
+ *
+ * Historically backed by SharedPreferences; now delegates to [RoomMetadataStore]
+ * (SQLite). The public API and null/empty-string semantics are unchanged:
+ *   - getBridgeAvatarUrl: null  → not cached
+ *                          ""    → not bridged
+ *                          "x"   → bridged with this mxc:// URL
+ *   - getBridgeDisplayName: null → not cached or not bridged
+ *                            "x" → bridged with this display name
+ *
+ * Callers do not need to invoke any initialization here; [RoomMetadataStore]
+ * is initialized once at app startup via [AppViewModel.loadCachedProfiles].
  */
 object BridgeInfoCache {
+    private const val TAG = "BridgeInfoCache"
+
+    // Legacy SharedPreferences keys (retained for one-shot migration).
     private const val PREFS_NAME = "AndromuksAppPrefs"
     private const val BRIDGE_INFO_PREFIX = "bridge_avatar_"
     private const val BRIDGE_DISPLAY_NAME_PREFIX = "bridge_displayname_"
-    
+    private const val MIGRATION_FLAG_KEY = "bridge_prefs_migrated_to_sqlite_v1"
+
     /**
-     * Get bridge protocol avatar URL for a room from cache
-     * @return mxc:// URL if room is bridged, empty string if not bridged, null if not cached
+     * Get bridge protocol avatar URL.
+     * @return mxc:// URL if room is bridged, empty string if not bridged, null if not cached.
      */
     fun getBridgeAvatarUrl(context: Context, roomId: String): String? {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val key = BRIDGE_INFO_PREFIX + roomId
-        
-        // Check if key exists (to distinguish between "not bridged" and "not cached")
-        if (!prefs.contains(key)) {
-            return null // Not cached
-        }
-        
-        val avatarUrl = prefs.getString(key, null) ?: ""
-        return avatarUrl // Empty string means "not bridged", non-empty means "bridged with this avatar"
+        val row = RoomMetadataStore.getRow(roomId) ?: return null
+        return row.bridgeAvatarMxc
     }
-    
+
     /**
-     * Get bridge protocol display name for a room from cache
-     * @return Display name (e.g., "WhatsApp", "Telegram") if room is bridged, null if not cached or not bridged
+     * Get bridge protocol display name.
+     * @return Display name if bridged, null if not cached or not bridged.
      */
     fun getBridgeDisplayName(context: Context, roomId: String): String? {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val key = BRIDGE_DISPLAY_NAME_PREFIX + roomId
-        
-        if (!prefs.contains(key)) {
-            return null // Not cached
-        }
-        
-        val displayName = prefs.getString(key, null) ?: ""
-        return displayName.takeIf { it.isNotEmpty() } // Return null if empty (not bridged)
+        val row = RoomMetadataStore.getRow(roomId) ?: return null
+        return row.bridgeDisplayName?.takeIf { it.isNotEmpty() }
     }
-    
-    /**
-     * Check if a room's bridge info is cached
-     */
+
+    /** True iff we have observed a bridge avatar value (including the explicit "not bridged" sentinel). */
     fun isCached(context: Context, roomId: String): Boolean {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val key = BRIDGE_INFO_PREFIX + roomId
-        return prefs.contains(key)
+        val row = RoomMetadataStore.getRow(roomId) ?: return false
+        return row.bridgeAvatarMxc != null
     }
-    
+
     /**
-     * Save bridge protocol avatar URL for a room
-     * @param avatarUrl mxc:// URL if room is bridged, empty string if not bridged
+     * Save bridge protocol avatar URL for a room.
+     * @param avatarUrl mxc:// URL if bridged, empty string if not bridged.
      */
     fun saveBridgeAvatarUrl(context: Context, roomId: String, avatarUrl: String) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val key = BRIDGE_INFO_PREFIX + roomId
-        
-        val editor = prefs.edit()
-        editor.putString(key, avatarUrl)
-        editor.apply() // Use apply() for async write (not critical path)
-        
+        RoomMetadataStore.upsertBridgeAvatar(roomId, avatarUrl)
     }
-    
+
     /**
-     * Save bridge protocol display name for a room
-     * @param displayName Display name (e.g., "WhatsApp", "Telegram") if room is bridged, empty string if not bridged
+     * Save bridge protocol display name for a room.
+     * @param displayName Display name if bridged, empty string if not bridged.
      */
     fun saveBridgeDisplayName(context: Context, roomId: String, displayName: String) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val key = BRIDGE_DISPLAY_NAME_PREFIX + roomId
-        
-        val editor = prefs.edit()
-        editor.putString(key, displayName)
-        editor.apply() // Use apply() for async write (not critical path)
-        
+        RoomMetadataStore.upsertBridgeDisplayName(roomId, displayName)
     }
-    
-    /**
-     * Remove bridge info for a room (e.g., when room is left)
-     */
+
+    /** Remove bridge info for a room (e.g. when room is left). Drops the entire metadata row. */
     fun removeBridgeInfo(context: Context, roomId: String) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val avatarKey = BRIDGE_INFO_PREFIX + roomId
-        val displayNameKey = BRIDGE_DISPLAY_NAME_PREFIX + roomId
-        
-        val editor = prefs.edit()
-        editor.remove(avatarKey)
-        editor.remove(displayNameKey)
-        editor.apply()
-        
+        RoomMetadataStore.remove(roomId)
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "BridgeInfoCache: Removed bridge info for $roomId")
+            android.util.Log.d("Andromuks", "$TAG: Removed metadata for $roomId")
         }
     }
-    
-    /**
-     * Clear all bridge info (e.g., on logout)
-     */
+
+    /** Clear all bridge info (e.g. on logout). */
     fun clearAll(context: Context) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val editor = prefs.edit()
-        
-        // Get all keys with bridge prefix (both avatar and display name)
-        val allKeys = prefs.all.keys.filter { 
-            it.startsWith(BRIDGE_INFO_PREFIX) || it.startsWith(BRIDGE_DISPLAY_NAME_PREFIX) 
-        }
-        allKeys.forEach { key ->
-            editor.remove(key)
-        }
-        
-        editor.apply()
-        
+        RoomMetadataStore.clearAll()
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "BridgeInfoCache: Cleared ${allKeys.size} bridge info entries")
+            android.util.Log.d("Andromuks", "$TAG: Cleared all bridge info")
+        }
+    }
+
+    /**
+     * One-shot migration of any legacy SharedPreferences bridge entries into [RoomMetadataStore].
+     * Safe to call multiple times — guarded by [MIGRATION_FLAG_KEY]. Leaves the SharedPreferences
+     * keys in place as a rollback safety net.
+     *
+     * Must be called after [RoomMetadataStore.initialize].
+     */
+    fun migrateFromSharedPreferencesIfNeeded(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(MIGRATION_FLAG_KEY, false)) return
+
+        val rows = try {
+            val all = prefs.all
+            val roomIds = HashSet<String>()
+            for (key in all.keys) {
+                when {
+                    key.startsWith(BRIDGE_INFO_PREFIX) -> roomIds.add(key.removePrefix(BRIDGE_INFO_PREFIX))
+                    key.startsWith(BRIDGE_DISPLAY_NAME_PREFIX) -> roomIds.add(key.removePrefix(BRIDGE_DISPLAY_NAME_PREFIX))
+                }
+            }
+            roomIds.map { roomId ->
+                val avatarKey = BRIDGE_INFO_PREFIX + roomId
+                val nameKey = BRIDGE_DISPLAY_NAME_PREFIX + roomId
+                RoomMetadataStore.Row(
+                    roomId = roomId,
+                    name = null,
+                    avatarMxc = null,
+                    bridgeAvatarMxc = if (prefs.contains(avatarKey)) prefs.getString(avatarKey, "") ?: "" else null,
+                    bridgeDisplayName = if (prefs.contains(nameKey)) prefs.getString(nameKey, "") ?: "" else null,
+                )
+            }
+        } catch (t: Throwable) {
+            android.util.Log.w("Andromuks", "$TAG: migration prep failed", t)
+            return
+        }
+
+        // Synchronous transaction so the flag is only set after rows are durable.
+        RoomMetadataStore.bulkUpsertSync(rows)
+
+        prefs.edit().putBoolean(MIGRATION_FLAG_KEY, true).apply()
+        val migrated = rows.size
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "$TAG: migrated $migrated room(s) from SharedPreferences to SQLite")
         }
     }
 }
-

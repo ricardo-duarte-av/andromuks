@@ -2,6 +2,7 @@ package net.vrkknn.andromuks
 
 import android.util.Log
 import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.utils.RoomMetadataStore
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -35,8 +36,9 @@ object RoomListCache {
         synchronized(cacheLock) {
             roomCache[room.id] = room
         }
+        persistMetadata(room)
     }
-    
+
     /**
      * Update multiple rooms in the cache
      */
@@ -44,6 +46,22 @@ object RoomListCache {
         synchronized(cacheLock) {
             roomCache.putAll(rooms)
         }
+        rooms.values.forEach { persistMetadata(it) }
+    }
+
+    /**
+     * Mirror room display name + avatar into the persistent metadata store so that
+     * cold-start UIs (notifications, bubbles, shortcuts) can render something
+     * meaningful before the first sync_complete arrives.
+     *
+     * Skips the write when the parser couldn't resolve a real name (it falls back
+     * to the raw roomId in that case — persisting that would be misleading).
+     */
+    private fun persistMetadata(room: RoomItem) {
+        val name = room.name.takeIf { it.isNotBlank() && it != room.id }
+        val avatar = room.avatarUrl
+        if (name == null && avatar == null) return
+        RoomMetadataStore.upsertNameAvatar(room.id, name, avatar)
     }
     
     /**
@@ -96,6 +114,45 @@ object RoomListCache {
      * Return the event_id of the most recent event seen for [roomId], or null if unknown.
      */
     fun getLatestEventId(roomId: String): String? = latestEventCache[roomId]?.first
+
+    /**
+     * Seed the cache from [RoomMetadataStore] at process start so cold-start UIs render
+     * something before sync_complete arrives. Only fills slots that aren't already
+     * populated by an in-memory RoomItem (a warm AppViewModel survives ahead of us).
+     *
+     * The resulting stub RoomItems carry only id / name / avatarUrl / bridgeProtocolAvatarUrl;
+     * preview, sender, unread counts, and sortingTimestamp are intentionally left null/zero —
+     * sync_complete will overwrite them within a second or two.
+     */
+    fun hydrateFromDisk() {
+        val rows = try {
+            RoomMetadataStore.loadAll()
+        } catch (t: Throwable) {
+            Log.w(TAG, "hydrateFromDisk: loadAll failed", t)
+            return
+        }
+        if (rows.isEmpty()) return
+        var seeded = 0
+        synchronized(cacheLock) {
+            for ((roomId, row) in rows) {
+                if (roomCache.containsKey(roomId)) continue
+                val bridgeAvatar = row.bridgeAvatarMxc?.takeIf { it.isNotEmpty() }
+                roomCache[roomId] = RoomItem(
+                    id = roomId,
+                    name = row.name ?: roomId,
+                    messagePreview = null,
+                    messageSender = null,
+                    unreadCount = null,
+                    highlightCount = null,
+                    avatarUrl = row.avatarMxc?.takeIf { it.isNotEmpty() },
+                    sortingTimestamp = null,
+                    bridgeProtocolAvatarUrl = bridgeAvatar,
+                )
+                seeded++
+            }
+        }
+        if (BuildConfig.DEBUG) Log.d(TAG, "hydrateFromDisk: seeded $seeded room(s) from disk")
+    }
 
     /**
      * Clear all rooms from the cache
