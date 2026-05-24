@@ -20,6 +20,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.Encryption
@@ -95,7 +97,37 @@ class FCMService : FirebaseMessagingService() {
     
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    @Volatile
     private var enhancedNotificationDisplay: EnhancedNotificationDisplay? = null
+    private val initMutex = Mutex()
+
+    /**
+     * Lazily initialise [enhancedNotificationDisplay] off the main thread.
+     *
+     * The auth-token/homeserver-URL prefs read used to happen in [onCreate] (main
+     * thread, StrictMode DiskReadViolation). Service.onCreate runs on the main
+     * looper and we can't suspend there, so we defer initialisation until the
+     * first message arrives — at which point we're already inside a coroutine
+     * and can do the prefs read on Dispatchers.IO.
+     */
+    private suspend fun ensureNotificationDisplay(): EnhancedNotificationDisplay? {
+        enhancedNotificationDisplay?.let { return it }
+        return initMutex.withLock {
+            enhancedNotificationDisplay?.let { return@withLock it }
+            val display = withContext(Dispatchers.IO) {
+                val prefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
+                val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
+                val imageAuthToken = prefs.getString("image_auth_token", "")
+                    .takeIf { !it.isNullOrBlank() } ?: authToken
+                if (homeserverUrl.isEmpty() || authToken.isEmpty()) return@withContext null
+                EnhancedNotificationDisplay(this@FCMService, homeserverUrl, imageAuthToken)
+                    .also { it.createNotificationChannel() }
+            }
+            enhancedNotificationDisplay = display
+            display
+        }
+    }
 
     private fun buildRawResourceUri(rawResId: Int): android.net.Uri {
         // Match the format android.resource resolver expects:
@@ -111,19 +143,8 @@ class FCMService : FirebaseMessagingService() {
     
     override fun onCreate() {
         super.onCreate()
-        
-        // Get auth token and homeserver URL from SharedPreferences
-        val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-        val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
-        val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
-        // Prefer the JWT image_auth_token for media downloads (required for encrypted media).
-        // Falls back to gomuks_auth_token if the image token hasn't been persisted yet.
-        val imageAuthToken = sharedPrefs.getString("image_auth_token", "").takeIf { !it.isNullOrBlank() } ?: authToken
-
-        if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
-            enhancedNotificationDisplay = EnhancedNotificationDisplay(this, homeserverUrl, imageAuthToken)
-            enhancedNotificationDisplay?.createNotificationChannel()
-        }
+        // EnhancedNotificationDisplay is built lazily via ensureNotificationDisplay()
+        // on the first message — keeps the prefs disk read off the main thread.
     }
 
     override fun onDestroy() {
@@ -133,7 +154,15 @@ class FCMService : FirebaseMessagingService() {
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
-        
+
+        // onMessageReceived runs on the FCM worker thread (not main), so doing the
+        // first SharedPreferences lookup here warms ContextImpl's per-name path cache
+        // (mSharedPrefsPaths) off the main thread. The downstream coroutine bodies
+        // run on Dispatchers.Main.immediate and call getSharedPreferences several
+        // times — once warmed, those calls hit the cache and skip the File.exists
+        // probes that StrictMode flags as DiskReadViolation.
+        getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+
         if (BuildConfig.DEBUG) Log.d(TAG, "FCM message received - data: ${remoteMessage.data}, notification: ${remoteMessage.notification}")
         
         // Handle data payload (matches the other Gomuks client approach)
@@ -243,7 +272,7 @@ class FCMService : FirebaseMessagingService() {
                                         }
                                         if (!wasCancelled) {
                                             withContext(NonCancellable) {
-                                                enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
+                                                ensureNotificationDisplay()?.showEnhancedNotification(notificationData)
                                                 synchronized(pendingNotificationsLock) {
                                                     pendingNotifications.remove(notificationData.roomId)
                                                 }
@@ -492,7 +521,7 @@ class FCMService : FirebaseMessagingService() {
                     }
                     if (!wasCancelled) {
                         withContext(NonCancellable) {
-                            enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
+                            ensureNotificationDisplay()?.showEnhancedNotification(notificationData)
                             synchronized(pendingNotificationsLock) {
                                 pendingNotifications.remove(roomId)
                             }

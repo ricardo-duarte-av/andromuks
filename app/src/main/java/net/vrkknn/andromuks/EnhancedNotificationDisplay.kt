@@ -100,6 +100,14 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     // Per-room locks to prevent concurrent notification updates for the same room
     private val roomNotificationLocks = ConcurrentHashMap<String, Any>()
     
+    // Max pixel size for notification/bubble avatars. Android downscales any bitmap
+    // passed via Icon at notification build() time on the main thread (StrictMode
+    // "Downscaling oversized Icon Bitmap"); decoding to ~48dp up-front avoids that.
+    private val maxIconPx: Int by lazy {
+        val density = context.resources.displayMetrics.density
+        (48f * density).toInt().coerceAtLeast(96)
+    }
+
     // In-memory cache for avatar icons to avoid reloading on every notification update
     // Key: avatar URL (MXC or HTTP), Value: IconCompat
     // Using LRU cache with max size of 100 to limit memory usage
@@ -392,6 +400,24 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 loadAvatarBitmap(it, notificationData.imageAuthToken)
             } ?: createFallbackAvatarBitmap(senderDisplayNameForDisplay, notificationData.sender, 128)
             val circularSenderAvatar = createCircularBitmap(senderAvatarBitmap)
+
+            // Bubble icon: use a content-URI-backed IconCompat so it qualifies as
+            // TYPE_URI_ADAPTIVE_BITMAP (required by future Android versions for bubbles).
+            val bubbleIcon = if (isGroupRoom) {
+                loadAvatarAsUriIcon(
+                    notificationData.roomAvatarUrl,
+                    notificationData.roomName,
+                    notificationData.roomId,
+                    notificationData.imageAuthToken
+                )
+            } else {
+                loadAvatarAsUriIcon(
+                    notificationData.avatarUrl,
+                    senderDisplayNameForDisplay,
+                    notificationData.sender,
+                    notificationData.imageAuthToken
+                )
+            }
             
             // Get current user info for MessagingStyle (the local user, not the room)
             val currentUserId = sharedPrefs.getString("current_user_id", "self") ?: "self"
@@ -404,7 +430,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     val cachedFile = IntelligentMediaCache.getCachedFile(context, avatarUrl)
                     val avatarBitmap = if (cachedFile != null) {
                         if (BuildConfig.DEBUG) Log.d(TAG, "Using cached avatar for current user: $avatarUrl")
-                        android.graphics.BitmapFactory.decodeFile(cachedFile.absolutePath)
+                        decodeScaledBitmap(cachedFile)
                     } else {
                         val baseHttpUrl = MediaUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
                         if (baseHttpUrl != null) {
@@ -418,7 +444,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                             val downloadedFile = IntelligentMediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
                             if (downloadedFile != null) {
                                 if (BuildConfig.DEBUG) Log.d(TAG, "Downloaded current user avatar to cache: ${downloadedFile.absolutePath}")
-                                android.graphics.BitmapFactory.decodeFile(downloadedFile.absolutePath)
+                                decodeScaledBitmap(downloadedFile)
                             } else {
                                 if (BuildConfig.DEBUG) Log.d(TAG, "Failed to download current user avatar: $avatarUrl")
                                 null
@@ -441,7 +467,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 Log.e(TAG, "Error loading current user avatar", e)
                 null
             }
-            
+
             // Helper function to build Person URI (same format as PersonsApi)
             fun buildPersonUri(userId: String): String {
                 val sanitized = userId.removePrefix("@")
@@ -665,9 +691,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 // The metadata's setSuppressNotification will be set based on visibility
                 val bubbleMetadata = createBubbleMetadata(
                     notificationData = notificationData,
-                    isGroupRoom = isGroupRoom,
-                    roomAvatarIcon = roomAvatarIcon,
-                    senderAvatarIcon = senderAvatarIcon
+                    bubbleIcon = bubbleIcon
                 )
                 
                 // Determine large icon based on room type
@@ -904,9 +928,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      */
     private fun createBubbleMetadata(
         notificationData: NotificationData,
-        isGroupRoom: Boolean,
-        roomAvatarIcon: IconCompat?,
-        senderAvatarIcon: IconCompat?
+        bubbleIcon: IconCompat
     ): NotificationCompat.BubbleMetadata? {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try {
@@ -948,8 +970,6 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     pendingIntentFlags
                 )
                 
-                val bubbleIcon = (if (isGroupRoom) roomAvatarIcon else senderAvatarIcon)
-                    ?: createDefaultAdaptiveIcon()
                 val shouldAutoExpand = autoExpandedBubbleRooms.add(notificationData.roomId)
                 
                 val desiredHeight = TypedValue.applyDimension(
@@ -1281,6 +1301,97 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      * the IntelligentMediaCache key so the cached file survives across push batches even though
      * the HMAC token changes.
      */
+    /**
+     * Decode a bitmap file scaled down to [maxIconPx]. Avoids handing oversized bitmaps
+     * to Notification builders, which otherwise scale them on the main thread (logged
+     * by StrictMode as "Downscaling oversized Icon Bitmap").
+     */
+    private fun decodeScaledBitmap(file: java.io.File, maxPx: Int = maxIconPx): Bitmap? {
+        return try {
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds)
+            val w = bounds.outWidth
+            val h = bounds.outHeight
+            if (w <= 0 || h <= 0) return null
+            var sample = 1
+            while ((w / sample) > maxPx * 2 || (h / sample) > maxPx * 2) sample *= 2
+            val opts = android.graphics.BitmapFactory.Options().apply {
+                inSampleSize = sample
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            val raw = android.graphics.BitmapFactory.decodeFile(file.absolutePath, opts) ?: return null
+            if (raw.width > maxPx || raw.height > maxPx) {
+                val scale = maxPx.toFloat() / maxOf(raw.width, raw.height)
+                val tw = (raw.width * scale).toInt().coerceAtLeast(1)
+                val th = (raw.height * scale).toInt().coerceAtLeast(1)
+                val scaled = Bitmap.createScaledBitmap(raw, tw, th, true)
+                if (scaled !== raw) raw.recycle()
+                scaled
+            } else {
+                raw
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "decodeScaledBitmap failed: ${file.absolutePath}", e)
+            null
+        }
+    }
+
+    /**
+     * Write a circular bubble-icon bitmap to a FileProvider-served cache file and
+     * return its content:// URI. Bubbles require IconCompat.TYPE_URI / TYPE_URI_ADAPTIVE_BITMAP
+     * to suppress the framework warning ("Bubbles work best with icons of TYPE_URI...").
+     */
+    private suspend fun writeBubbleIconToCache(bitmap: Bitmap, key: String): android.net.Uri? =
+        withContext(Dispatchers.IO) {
+            try {
+                val dir = java.io.File(context.cacheDir, "intelligent_media_cache/bubble_icons").apply { mkdirs() }
+                val safeKey = key.replace(Regex("[^A-Za-z0-9_-]"), "_")
+                val file = java.io.File(dir, "$safeKey.png")
+                java.io.FileOutputStream(file).use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            } catch (e: Exception) {
+                Log.e(TAG, "writeBubbleIconToCache failed", e)
+                null
+            }
+        }
+
+    /**
+     * Build a bubble-suitable IconCompat backed by a content URI (FileProvider).
+     * Falls back to an adaptive-bitmap icon if writing the URI file fails.
+     */
+    private suspend fun loadAvatarAsUriIcon(
+        avatarUrl: String?,
+        fallbackName: String?,
+        fallbackId: String,
+        imageAuthToken: String? = null
+    ): IconCompat = try {
+        val bitmap = if (!avatarUrl.isNullOrEmpty()) {
+            loadAvatarBitmap(avatarUrl, imageAuthToken)
+                ?: createFallbackAvatarBitmap(fallbackName, fallbackId, maxIconPx)
+        } else {
+            createFallbackAvatarBitmap(fallbackName, fallbackId, maxIconPx)
+        }
+        val circular = createCircularBitmap(bitmap)
+        val uri = writeBubbleIconToCache(circular, fallbackId)
+        if (uri != null) {
+            try {
+                context.grantUriPermission(
+                    "com.android.systemui",
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) {}
+            IconCompat.createWithAdaptiveBitmapContentUri(uri)
+        } else {
+            IconCompat.createWithAdaptiveBitmap(circular)
+        }
+    } catch (e: Exception) {
+        Log.e(TAG, "loadAvatarAsUriIcon failed for $avatarUrl", e)
+        createDefaultAdaptiveIcon()
+    }
+
     private suspend fun loadAvatarBitmap(avatarUrl: String, imageAuthToken: String? = null): Bitmap? = withContext(Dispatchers.IO) {
         try {
             if (BuildConfig.DEBUG) Log.d(TAG, "loadAvatarBitmap called with: $avatarUrl")
@@ -1295,7 +1406,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val cachedFile = IntelligentMediaCache.getCachedFile(context, avatarUrl)
             if (cachedFile != null) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Using cached avatar file: ${cachedFile.absolutePath}")
-                return@withContext android.graphics.BitmapFactory.decodeFile(cachedFile.absolutePath)
+                return@withContext decodeScaledBitmap(cachedFile)
             }
 
             // Build the base HTTP URL from the MXC or relative form.
@@ -1329,7 +1440,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
 
             if (downloadedFile != null) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Successfully downloaded and cached avatar: ${downloadedFile.absolutePath}")
-                android.graphics.BitmapFactory.decodeFile(downloadedFile.absolutePath)
+                decodeScaledBitmap(downloadedFile)
             } else {
                 Log.e(TAG, "Failed to download avatar")
                 null
@@ -1459,7 +1570,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     } else null
                     val avatarBitmap = if (cachedFile != null) {
                         if (BuildConfig.DEBUG) Log.d(TAG, "Using cached avatar for reply: $avatarUrl")
-                        android.graphics.BitmapFactory.decodeFile(cachedFile.absolutePath)
+                        decodeScaledBitmap(cachedFile)
                     } else {
                         if (BuildConfig.DEBUG) Log.d(TAG, "Avatar not cached, reply will show without avatar: $avatarUrl")
                         null
