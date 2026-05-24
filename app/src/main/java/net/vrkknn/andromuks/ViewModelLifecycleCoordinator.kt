@@ -184,6 +184,7 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
             if (BuildConfig.DEBUG)
                 android.util.Log.d("Andromuks", "AppViewModel: App became visible")
             isAppVisible = true
+            mainActivityEverResumed = true
             updateAppVisibilityInPrefs(true)
 
             // BATTERY OPTIMIZATION: Notify batch processor to flush pending messages and process
@@ -352,11 +353,22 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 // the user swiping the task away destroys MainActivity and clears
                 // the ViewModel, which would cancel a viewModelScope.launch before
                 // the 60s delay fired.
-                WebSocketService.scheduleSidecarLinger()
-                if (BuildConfig.DEBUG) android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Sidecar mode active — service will stop after linger",
-                )
+                //
+                // Skip scheduling if a chat bubble is currently on screen — tearing
+                // down the WebSocket would break a UI the user is actively using.
+                // setBubbleVisible(false) reschedules when the last bubble closes.
+                if (BubbleTracker.anyBubbleVisible()) {
+                    if (BuildConfig.DEBUG) android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Sidecar linger skipped — bubble visible",
+                    )
+                } else {
+                    WebSocketService.scheduleSidecarLinger()
+                    if (BuildConfig.DEBUG) android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Sidecar mode active — service will stop after linger",
+                    )
+                }
             } else {
                 // Persistent-WebSocket mode: service stays alive in background.
                 if (BuildConfig.DEBUG)

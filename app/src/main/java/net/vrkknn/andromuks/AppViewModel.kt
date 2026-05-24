@@ -3757,6 +3757,15 @@ class AppViewModel : ViewModel() {
     
     // App lifecycle state
     var isAppVisible by mutableStateOf(true)
+
+    // True once MainActivity.onResume has ever fired in this process. Used to
+    // disambiguate the default-true [isAppVisible] from "main UI has actually
+    // become visible at least once" — needed for the sidecar-mode bubble path,
+    // where a bubble can launch cold from a notification with MainActivity
+    // never having existed in this process. Without this, the bubble-close
+    // linger reschedule reads [isAppVisible] == true (its default) and
+    // incorrectly assumes the main UI is foregrounded.
+    internal var mainActivityEverResumed: Boolean = false
         internal set
     
     // Delayed shutdown job for when app becomes invisible
@@ -3968,7 +3977,23 @@ class AppViewModel : ViewModel() {
             // Cancel any pending shutdown
             appInvisibleJob?.cancel()
             appInvisibleJob = null
-            
+
+            // Cancel any in-flight sidecar linger — the bubble is now on screen
+            // and needs the WebSocket alive. Safe to call unconditionally; it
+            // no-ops when no linger is pending.
+            WebSocketService.cancelSidecarLinger()
+
+            // Also clear sidecar_user_disconnected so the auto-restart machinery
+            // (AutoRestartReceiver, ServiceStartWorker) doesn't refuse to bring
+            // the WebSocket back up if it flaps while the bubble is open. The
+            // linger reschedules on setBubbleVisible(false) and will re-set the
+            // flag when it fires, restoring battery-saver behaviour.
+            appContext?.let { ctx ->
+                if (useSidecarMode && WebSocketService.isSidecarUserDisconnected(ctx)) {
+                    WebSocketService.setSidecarUserDisconnected(ctx, false)
+                }
+            }
+
             // If a room is currently open, trigger timeline refresh to show new events from cache
             if (currentRoomId.isNotEmpty()) {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room is open ($currentRoomId), triggering timeline refresh for bubble")
@@ -3979,6 +4004,24 @@ class AppViewModel : ViewModel() {
                 "Andromuks",
                 "AppViewModel: Bubble hidden - notifications remain enabled for $currentRoomId"
             )
+
+            // If the main UI is also invisible and no other bubble is on screen,
+            // start the sidecar linger now — onAppBecameInvisible already ran and
+            // was skipped because a bubble was visible at that point.
+            //
+            // mainActivityEverResumed disambiguates the default-true isAppVisible:
+            // when a bubble is launched cold from a notification, MainActivity has
+            // never resumed and isAppVisible is still its initial true. Treating
+            // that as "main is foreground" would leave us stuck in permanent-WS
+            // mode forever after the bubble closes.
+            val mainUiForeground = isAppVisible && mainActivityEverResumed
+            if (useSidecarMode && !mainUiForeground && !BubbleTracker.anyBubbleVisible()) {
+                if (BuildConfig.DEBUG) android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: Last bubble hidden while app invisible — scheduling sidecar linger",
+                )
+                WebSocketService.scheduleSidecarLinger()
+            }
         }
         // Don't call refreshUIState() - bubbles don't need room list updates or shortcut updates
     }

@@ -118,6 +118,17 @@ object BubbleTracker {
             return visibleBubbles.toSet()
         }
     }
+
+    /**
+     * Whether any bubble window is currently on screen. Used to gate the
+     * sidecar-mode background linger so we don't tear down the WebSocket
+     * while the user is reading/typing in a visible bubble.
+     */
+    fun anyBubbleVisible(): Boolean {
+        synchronized(openBubbles) {
+            return visibleBubbles.isNotEmpty()
+        }
+    }
     
     /**
      * Clear all tracked bubbles (useful for testing or app reset).

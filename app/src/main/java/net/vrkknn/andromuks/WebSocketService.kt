@@ -3880,7 +3880,7 @@ class WebSocketService : Service() {
      * Falls back to "Andromuks" if no server URL is configured.
      */
     private fun getNotificationTitle(): String {
-        return try {
+        val base = try {
             val prefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
             val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
             if (homeserverUrl.isNotBlank()) {
@@ -3893,6 +3893,11 @@ class WebSocketService : Service() {
         } catch (e: Exception) {
             "Andromuks"
         }
+        // Indicate to the user when the WebSocket is being kept up specifically
+        // because a chat bubble is on screen — otherwise the notification looks
+        // identical between "battery-saver sidecar mode honoured" and "we're in
+        // permanent-WS-because-of-bubble override."
+        return if (BubbleTracker.anyBubbleVisible()) "$base 💬" else base
     }
 
     private fun createNotificationChannel() {

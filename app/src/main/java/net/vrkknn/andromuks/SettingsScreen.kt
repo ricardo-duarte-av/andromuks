@@ -256,7 +256,7 @@ fun SettingsScreen(
                                 fontWeight = FontWeight.Medium
                             )
                             Text(
-                                text = "Closes the persistent WebSocket while the app is backgrounded. Notification reply and mark-as-read are sent through a small HTTP sidecar at <homeserver>/_gomuks/sidecar instead. Saves significant battery on cellular but requires the sidecar to be deployed alongside the gomuks backend.",
+                                text = "Closes the persistent WebSocket while the app is backgrounded. Notification reply and mark-as-read are sent through a small HTTP sidecar at <homeserver>/_gomuks/sidecar instead. Saves significant battery on cellular but requires the sidecar to be deployed alongside the gomuks backend. The WebSocket is automatically reconnected while a chat bubble is open and torn down again 60 s after the last bubble closes.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
