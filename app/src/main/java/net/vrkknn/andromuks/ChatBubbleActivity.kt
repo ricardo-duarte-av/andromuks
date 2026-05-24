@@ -20,6 +20,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 import androidx.navigation.NavType
@@ -454,9 +456,6 @@ private fun ChatBubbleLoadingScreen(
     onCloseBubble: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
-    val token = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", null) }
-    val homeserverUrl = remember(sharedPreferences) { sharedPreferences.getString("homeserver_url", null) }
 
     BackHandler {
         if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: Back button pressed - minimizing bubble")
@@ -466,12 +465,23 @@ private fun ChatBubbleLoadingScreen(
     LaunchedEffect(Unit) {
         if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: ═══ BUBBLE LOADING STARTED ═══")
 
+        // All disk reads (SharedPreferences, FCM init, activity log file) must
+        // be off-main: this LaunchedEffect runs on Dispatchers.Main by default
+        // and StrictMode flags each one. The Compose snapshot system handles
+        // MutableState writes from background threads safely.
+        val (token, homeserverUrl) = withContext(Dispatchers.IO) {
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.getString("gomuks_auth_token", null) to prefs.getString("homeserver_url", null)
+        }
+
         if (token != null && homeserverUrl != null) {
-            appViewModel.initializeFCM(context, homeserverUrl, token)
-            appViewModel.updateHomeserverUrl(homeserverUrl)
-            appViewModel.updateAuthToken(token)
-            appViewModel.loadSettings(context)
-            appViewModel.loadStateFromStorage(context)
+            withContext(Dispatchers.IO) {
+                appViewModel.initializeFCM(context, homeserverUrl, token)
+                appViewModel.updateHomeserverUrl(homeserverUrl)
+                appViewModel.updateAuthToken(token)
+                appViewModel.loadSettings(context)
+                appViewModel.loadStateFromStorage(context)
+            }
 
             val roomId = (context as? ComponentActivity)?.intent?.getStringExtra("room_id")
                 ?: extractBubbleRoomIdFromIntent((context as? ComponentActivity)?.intent)
