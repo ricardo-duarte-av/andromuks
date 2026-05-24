@@ -35,7 +35,21 @@ sealed class SyncEvent {
      * Primary (or sole) processor finished applying a [sync_complete] to shared stores ([RoomListCache], etc.).
      * Non-primary [AppViewModel] instances should refresh local state from singletons.
      */
-    data class RoomListSingletonReplicated(val processorId: String) : SyncEvent()
+    data class RoomListSingletonReplicated(
+        val processorId: String,
+        // True iff the source VM's sync_complete actually touched any
+        // m.room.member event. Secondary VMs gate the memberUpdateCounter
+        // bump on this — a quiet 2-user DM was otherwise paying one bump
+        // per sync_complete arrival even when no profile changed.
+        val hadMemberChanges: Boolean = false,
+        // Set of room IDs that had events ingested in this sync_complete.
+        // Secondary VMs use this to skip the per-room work (timeline
+        // restore, room list resort, etc.) when their currentRoomId
+        // wasn't in the set — previously every sync triggered a full
+        // 100-event chain rebuild for every open bubble regardless of
+        // whether the sync's payload had anything for that room.
+        val roomsWithEvents: Set<String> = emptySet(),
+    ) : SyncEvent()
 
     /**
      * Parsed WebSocket JSON (one direction: NetworkUtils → all attached ViewModels).

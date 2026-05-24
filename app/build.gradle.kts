@@ -83,6 +83,21 @@ android {
     }
 }
 
+// Opt-in Compose Compiler metrics + reports for diagnosing recomposition
+// hotspots (unstable params, non-skippable composables, lambda capture).
+// Enable with: ./gradlew assembleDebug -Pcompose.metrics=true
+// Reports land in app/build/compose-metrics/ and app/build/compose-reports/.
+if (project.hasProperty("compose.metrics")) {
+    val metricsDir = layout.buildDirectory.dir("compose-metrics").get().asFile.absolutePath
+    val reportsDir = layout.buildDirectory.dir("compose-reports").get().asFile.absolutePath
+    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+        compilerOptions.freeCompilerArgs.addAll(
+            "-P", "plugin:androidx.compose.compiler.plugins.kotlin:metricsDestination=$metricsDir",
+            "-P", "plugin:androidx.compose.compiler.plugins.kotlin:reportsDestination=$reportsDir",
+        )
+    }
+}
+
 dependencies {
     implementation("androidx.profileinstaller:profileinstaller:1.3.1")
     implementation("androidx.core:core-ktx:1.17.0")

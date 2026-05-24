@@ -537,10 +537,16 @@ internal class SyncRoomsCoordinator(
                 // Apply UI state changes on main thread (Compose safety)
                 withContext(Dispatchers.Main) {
                     try {
+                        // Captured so we can include it in the
+                        // RoomListSingletonReplicated event below. Default false
+                        // for the deferred path — that path passes an empty
+                        // syncJson, so member cache repopulation is skipped
+                        // anyway and "no member change" is correct.
+                        var hadMemberChanges = false
                         if (applyRoomListNow) {
                             // syncJson is safe here: both deferred coroutines used their own JSONObject(raw) copies
                             // and have already completed, so no concurrent access to syncJson exists.
-                            processParsedSyncResult(syncResult, syncJson)
+                            hadMemberChanges = processParsedSyncResult(syncResult, syncJson)
                         } else {
                             syncResultForCaller = syncResult                   // ← correct condition
                             // processParsedSyncResult is skipped in the deferred path, but the batched-apply
@@ -572,7 +578,13 @@ internal class SyncRoomsCoordinator(
                             vm.roomSummaryUpdateCounter++
                         }
 
-                        SyncRepository.emitEvent(SyncEvent.RoomListSingletonReplicated(vm.viewModelId))
+                        SyncRepository.emitEvent(
+                            SyncEvent.RoomListSingletonReplicated(
+                                processorId = vm.viewModelId,
+                                hadMemberChanges = hadMemberChanges,
+                                roomsWithEvents = roomsWithEvents,
+                            )
+                        )
                         onComplete?.invoke()
                     } catch (e: Exception) {
                         android.util.Log.e("Andromuks", "AppViewModel: Crash applying sync_complete on main: ${e.message}", e)
@@ -712,7 +724,14 @@ internal class SyncRoomsCoordinator(
         vm.syncBatchProcessor.processSyncComplete(syncJson, requestId, runId)
     }
 
-    fun processParsedSyncResult(syncResult: SyncUpdateResult, syncJson: JSONObject) {
+    /**
+     * @return true iff [populateMemberCacheFromSync] reported a member change
+     *   (any join/leave/ban in the sync's member events). Used by the caller
+     *   to skip the secondary-VM memberUpdateCounter bump on syncs that
+     *   didn't touch anyone.
+     */
+    fun processParsedSyncResult(syncResult: SyncUpdateResult, syncJson: JSONObject): Boolean {
+        var memberStateChangedResult = false
         with(vm) {
                     // CRITICAL: Increment sync message count FIRST to prevent duplicate processing
                     syncMessageCount++
@@ -869,6 +888,7 @@ internal class SyncRoomsCoordinator(
 
                     // Populate member cache from sync data and check for changes
                     val memberStateChanged = populateMemberCacheFromSync(syncJson)
+                    memberStateChangedResult = memberStateChanged
                     val hasRoomChanges = syncResult.updatedRooms.isNotEmpty() ||
                             syncResult.newRooms.isNotEmpty() ||
                             syncResult.removedRoomIds.isNotEmpty()
@@ -910,9 +930,9 @@ internal class SyncRoomsCoordinator(
                                 "AppViewModel: processParsedSyncResult - no changes detected (rooms/account/member), skipping UI work (account_data already processed above)"
                             )
                         }
-                        return
+                        return memberStateChangedResult
                     }
-        
+
                     // BATTERY OPTIMIZATION: This loop only processes rooms that actually changed in this sync (not all 588 rooms)
                     // syncResult.updatedRooms typically contains 1-10 rooms per sync, not all rooms
                     // Total cost: ~0.01-0.1ms per sync (much better than processing all 588 rooms)
@@ -1365,5 +1385,6 @@ internal class SyncRoomsCoordinator(
                         populateSpaceEdges()
                     }
         }
+        return memberStateChangedResult
     }
 }

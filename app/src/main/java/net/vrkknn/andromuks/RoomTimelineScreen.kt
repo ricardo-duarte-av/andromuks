@@ -1959,7 +1959,12 @@ fun RoomTimelineScreen(
     // Declared here (before the profile-loading LaunchedEffect below) so the LaunchedEffect
     // lambda can reference it to detect senders whose profile is cached but not yet in the map.
     // CRITICAL FIX: Don't depend on sortedEvents directly to avoid infinite recomposition loop
-    val memberMap = remember(roomId, appViewModel.memberUpdateCounter) {
+    //
+    // localMemberRefreshTrigger is screen-scoped — replaces the previous
+    // appViewModel.memberUpdateCounter++ feedback bump that invalidated every
+    // other open timeline screen too.
+    var localMemberRefreshTrigger by remember(roomId) { mutableStateOf(0) }
+    val memberMap = remember(roomId, appViewModel.memberUpdateCounter, localMemberRefreshTrigger) {
         appViewModel.getMemberMap(roomId)
     }
 
@@ -1977,13 +1982,13 @@ fun RoomTimelineScreen(
                     // Profile is cached but sender is not yet in memberMap (e.g. first message
                     // from this user in the current session). requestUserProfileOnDemand would
                     // skip the request, so memberUpdateCounter would never increment to include
-                    // this sender. Force a recompute here instead.
+                    // this sender. Force a recompute here instead — but only for THIS screen.
                     needsMemberMapRefresh = true
                 }
             }
 
             if (needsMemberMapRefresh) {
-                appViewModel.memberUpdateCounter++
+                localMemberRefreshTrigger++
             }
         }
     }

@@ -241,33 +241,61 @@ class AppViewModel : ViewModel() {
                     }
                     is SyncEvent.RoomListSingletonReplicated -> {
                         if (viewModelId != event.processorId) {
-                            // Secondary instances (bubbles) must reload state from replicated singleton caches
-                            
-                            // 1. Refresh room and space lists
-                            populateRoomMapFromCache()
-                            populateSpacesFromCache()
-                            roomListUpdateCounter++
-                            
-                            // 2. Refresh read receipts and reactions
+                            // Secondary instances (bubbles) must reload state from replicated singleton caches.
+                            //
+                            // Every step below is gated on whether the sync actually touched
+                            // a cached room. Previously this block ran top-to-bottom on every
+                            // sync arrival — for two open bubbles, every sync_complete rebuilt
+                            // 617 roomMap entries, re-sorted the room list, and rebuilt the
+                            // full 100-event timeline chain for both bubbles' current rooms,
+                            // even when the sync's only payload was for an unrelated room.
+                            val roomsWithEvents = event.roomsWithEvents
+                            val anyCachedRoomChanged = roomsWithEvents.isNotEmpty()
+                            val currentRoomChanged = currentRoomId.isNotEmpty() &&
+                                    currentRoomId in roomsWithEvents
+
+                            // 1. Refresh room/space lists only if any room actually had events.
+                            // populateRoomMapFromCache + forceRoomListSort is the most expensive
+                            // step (617-entry putAll + full re-sort).
+                            if (anyCachedRoomChanged) {
+                                populateRoomMapFromCache()
+                                populateSpacesFromCache()
+                                roomListUpdateCounter++
+                            }
+
+                            // 2. Refresh read receipts and reactions unconditionally.
+                            // Receipts and reactions arrive on their own channels (not in the
+                            // timeline events set), so a sync containing only receipts/reactions
+                            // legitimately has empty roomsWithEvents and we'd miss the update
+                            // if gated. Both have internal hasChanges short-circuits so the cost
+                            // when nothing changed is small.
                             populateReadReceiptsFromCache()
                             populateMessageReactionsFromCache()
-                            
-                            // 3. IMPORTANT: Reload timeline for the room currently displayed by
-                            // this VM. Only currentRoomId's events are bound to timelineEvents/
-                            // eventChainMap — other rooms' caches are already kept fresh by the
-                            // sync ingestor via appendEventsToCachedRoom. Iterating any other set
-                            // here would have restoreFromLruCache clobber timelineEvents with a
-                            // non-current room's data (last write wins), producing a mixed-room
-                            // timeline when the user has opened multiple rooms in this VM.
-                            if (currentRoomId.isNotEmpty()) {
+
+                            // 3. Reload timeline ONLY if this VM's currentRoomId was in the
+                            // sync's payload. Only currentRoomId's events are bound to
+                            // timelineEvents/eventChainMap — other rooms' caches are kept
+                            // fresh by the sync ingestor via appendEventsToCachedRoom.
+                            // Iterating any other set would have restoreFromLruCache clobber
+                            // timelineEvents with a non-current room's data (last write wins),
+                            // producing a mixed-room timeline when the user has opened
+                            // multiple rooms in this VM.
+                            if (currentRoomChanged) {
                                 if (restoreFromLruCache(currentRoomId)) {
                                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Refreshed timeline for current room $currentRoomId from replicated cache (vmId=$viewModelId)")
                                     timelineUpdateCounter++
                                 }
                             }
-                            
-                            // 4. Profiles may have updated too
-                            memberUpdateCounter++
+
+                            // 4. Profiles may have updated too. Gated on hadMemberChanges
+                            // so a quiet 2-user DM doesn't get a counter bump per sync
+                            // arrival when nobody actually changed. Routed through the
+                            // 16 ms debouncer so a burst of replicated member-bearing
+                            // syncs still coalesces.
+                            if (event.hadMemberChanges) {
+                                needsMemberUpdate = true
+                                scheduleUIUpdate("member")
+                            }
                         }
                     }
                     is SyncEvent.IncomingWebSocketMessage -> {
@@ -2675,9 +2703,14 @@ class AppViewModel : ViewModel() {
                                 // historical data from queued sync_complete messages even after initializationComplete is set
                                 if (isAppVisible && initialSyncComplete) {
                                     if (BuildConfig.DEBUG && isProfileChange) android.util.Log.d("Andromuks", "AppViewModel: Profile change detected for $userId - displayName: '$displayName', avatarUrl: '$avatarUrl'")
-                                    // Always increment directly so memberMap recomputes before or alongside
-                                    // the timeline update — avoids a stale first render with no avatar.
-                                    memberUpdateCounter++
+                                    // Route per-member updates through the 16 ms debouncer
+                                    // (scheduleUIUpdate) so a sync_complete with N joins fires
+                                    // a single counter increment instead of N. Compose batches
+                                    // snapshot writes within a frame anyway, so the avatar
+                                    // race the old direct-increment was guarding against
+                                    // doesn't actually exist.
+                                    needsMemberUpdate = true
+                                    scheduleUIUpdate("member")
                                 }
                                 // Removed debug log for member changes during initial sync to reduce log spam
                                 //android.util.Log.d("Andromuks", "AppViewModel: Cached joined member '$userId' in room '$roomId' -> displayName: '$displayName'")
@@ -2706,8 +2739,9 @@ class AppViewModel : ViewModel() {
                                 // BATTERY OPTIMIZATION: Only trigger UI updates when foregrounded AND initialization is complete
                                 // Cache is still updated (for accuracy), but no recompositions during initialization or when backgrounded
                                 if (isAppVisible && initializationComplete) {
-                                    // Trigger member update for leaves (critical change)
-                                    memberUpdateCounter++
+                                    // Same batching rationale as the join branch above.
+                                    needsMemberUpdate = true
+                                    scheduleUIUpdate("member")
                                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Member left/banned: $userId in room $roomId - triggering immediate UI update")
                                 } else {
                                     val reason = when {
@@ -11492,7 +11526,10 @@ class AppViewModel : ViewModel() {
         ProfileCache.setGlobalProfile(userId, ProfileCache.CachedProfileEntry(profile, System.currentTimeMillis()))
         
         return if (isProfileChange(previousProfile, profile, event)) {
-            memberUpdateCounter++
+            // Batched: a timeline ingest can include many m.room.member events
+            // back-to-back; the debouncer coalesces them into one increment.
+            needsMemberUpdate = true
+            scheduleUIUpdate("member")
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile change detected in timeline for $userId")
             true
         } else {
