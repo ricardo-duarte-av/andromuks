@@ -38,6 +38,13 @@ When opening a bridged room from `RoomListScreen`, the bridge protocol badge fli
 
 Mautrix bridges can attach `com.beeper.per_message_profile` to individual message events, overriding the sender's display name and avatar for that specific message (used for ghost users representing external network contacts). Handled in `TimelineEventItem`, `RoomTimelineScreen`, `BubbleTimelineScreen`, `ThreadViewerScreen`, and `ChatBubbleScreen`.
 
+**Fields are independently optional.** Some bridges supply only `displayname` (no `avatar_url`) — e.g. IRC-side users on the `chaos@...` network where the bridge doesn't have a protocol avatar. In that case the renderer falls back to the **sender's** cached avatar (the underlying Matrix user, often a ghost with a real bridge avatar), not a letter-mark. Logic in `TimelineEventItem`:
+
+- `displayName`: `per_message_profile.displayname` → `userProfileCache[sender].displayName` → username from MXID.
+- `avatarUrl`: `per_message_profile.avatar_url` → `userProfileCache[sender].avatarUrl` → letter-mark.
+
+The on-demand sender-profile fetch is gated on "per-message supplies BOTH fields"; otherwise we still need the sender cache populated so the fallback target is available.
+
 ## Bridge Send Status (`com.beeper.message_send_status`)
 
 Some bridges (when configured) send `com.beeper.message_send_status` events to confirm delivery of a Matrix message to the other network. These are **not** displayed in the timeline — they update the sender's message bubble with a small delivery status icon, and expose a "Delivery Info" dialog via the message long-press menu.

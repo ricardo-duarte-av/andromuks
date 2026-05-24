@@ -3350,7 +3350,13 @@ fun TimelineEventItem(
     val hasEncryptedPerMessageProfile = encryptedPerMessageProfile != null
 
     // Use per-message profile if available (prioritize encrypted over regular), otherwise fall back
-    // to regular profile cache
+    // to regular profile cache.
+    // Per-message profile fields are independently optional: a bridge may supply only a
+    // displayname (e.g. the IRC-side rice-bot user), leaving avatar_url absent. In that case
+    // we must fall back to the *sender's* cached avatar, not render a letter-mark, because the
+    // underlying Matrix user does have a real avatar. Same logic in the other direction if a
+    // bridge ever supplies an avatar but no displayname.
+    val senderCachedProfile = userProfileCache[event.sender]
     val actualProfile =
         when {
             hasEncryptedPerMessageProfile -> {
@@ -3358,32 +3364,36 @@ fun TimelineEventItem(
                     encryptedPerMessageProfile?.optString("displayname")?.takeIf { it.isNotBlank() }
                 val encryptedPerMessageAvatarUrl =
                     encryptedPerMessageProfile?.optString("avatar_url")?.takeIf { it.isNotBlank() }
-                val encryptedPerMessageUserId =
-                    encryptedPerMessageProfile?.optString("id")?.takeIf { it.isNotBlank() }
 
-                // Create a temporary profile object for encrypted per-message profile
-                MemberProfile(encryptedPerMessageDisplayName, encryptedPerMessageAvatarUrl)
+                MemberProfile(
+                    displayName = encryptedPerMessageDisplayName ?: senderCachedProfile?.displayName,
+                    avatarUrl = encryptedPerMessageAvatarUrl ?: senderCachedProfile?.avatarUrl
+                )
             }
             hasPerMessageProfile -> {
                 val perMessageDisplayName =
                     perMessageProfile?.optString("displayname")?.takeIf { it.isNotBlank() }
                 val perMessageAvatarUrl =
                     perMessageProfile?.optString("avatar_url")?.takeIf { it.isNotBlank() }
-                val perMessageUserId =
-                    perMessageProfile?.optString("id")?.takeIf { it.isNotBlank() }
 
-                // Create a temporary profile object for per-message profile
-                MemberProfile(perMessageDisplayName, perMessageAvatarUrl)
+                MemberProfile(
+                    displayName = perMessageDisplayName ?: senderCachedProfile?.displayName,
+                    avatarUrl = perMessageAvatarUrl ?: senderCachedProfile?.avatarUrl
+                )
             }
-            else -> userProfileCache[event.sender]
+            else -> senderCachedProfile
         }
 
-    // On-demand room member profile when cache is incomplete (no per-message profile).
-    // Guard inside LaunchedEffect so the effect is always invoked (Compose rules); the ViewModel
-    // fast-paths when already pending/throttled so scroll/recompose stays cheap.
+    // On-demand room member profile when cache is incomplete.
+    // We need the sender's profile loaded whenever the per-message profile is missing any
+    // field — those gaps are filled from the sender's cache above. Skip the request only
+    // when per-message supplies BOTH fields (so the sender's profile is genuinely unused).
     LaunchedEffect(event.sender, event.roomId) {
-        if (hasPerMessageProfile || hasEncryptedPerMessageProfile) return@LaunchedEffect
         if (appViewModel == null || event.roomId.isBlank()) return@LaunchedEffect
+        val perMsgComplete = (hasPerMessageProfile || hasEncryptedPerMessageProfile) &&
+            !actualProfile?.displayName.isNullOrBlank() &&
+            !actualProfile?.avatarUrl.isNullOrBlank()
+        if (perMsgComplete) return@LaunchedEffect
         val p = userProfileCache[event.sender]
         if (p != null &&
             !p.displayName.isNullOrBlank() &&
