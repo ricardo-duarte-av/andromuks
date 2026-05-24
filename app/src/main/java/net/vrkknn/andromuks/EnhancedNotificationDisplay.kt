@@ -337,32 +337,50 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             }
             
             // PREEMPTIVE CACHING: Check if room is already in cache, if not, trigger preemptive pagination
-            // This ensures the room timeline is cached before the user taps the notification
+            // This ensures the room timeline is cached before the user taps the notification.
+            //
+            // Gate: only paginate when the WebSocket is currently connected — regardless of why
+            // (foreground app, open/minimized bubble, persistent-mode service). In sidecar mode
+            // with the WS torn down there's no channel to paginate over, and forcing a wake-up
+            // here would defeat sidecar's battery aim. The user will paginate on demand when
+            // they tap the notification and the bubble/Activity launch path brings WS back up.
             try {
-                val cachedEventCount = RoomTimelineCache.getCachedEventCount(notificationData.roomId)
-                val isActivelyCached = RoomTimelineCache.isRoomActivelyCached(notificationData.roomId)
-                
-                if (BuildConfig.DEBUG) Log.d(TAG, "Preemptive caching check for room ${notificationData.roomId}: cachedEventCount=$cachedEventCount, isActivelyCached=$isActivelyCached")
-                
-                // If room is not in cache or not actively cached, mark it for preemptive pagination
-                if (cachedEventCount < 10 || !isActivelyCached) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Room ${notificationData.roomId} not in cache (< 10 events or not actively cached), marking for preemptive pagination")
-                    
-                    // Store room ID in SharedPreferences for AppViewModel to process
-                    val preemptivePaginateRooms = sharedPrefs.getStringSet("preemptive_paginate_rooms", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
-                    preemptivePaginateRooms.add(notificationData.roomId)
-                    sharedPrefs.edit().putStringSet("preemptive_paginate_rooms", preemptivePaginateRooms).apply()
-                    
-                    // Send broadcast to trigger immediate pagination if AppViewModel is available
-                    val intent = Intent("net.vrkknn.andromuks.PREEMPTIVE_PAGINATE").apply {
-                        putExtra("room_id", notificationData.roomId)
-                        setPackage(context.packageName)
-                    }
-                    context.sendBroadcast(intent)
-                    
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Sent preemptive pagination broadcast for room ${notificationData.roomId}")
+                if (!WebSocketService.isWebSocketConnected()) {
+                    // No channel to paginate over. Skip silently — pagination is a
+                    // best-effort optimisation; the notification renders fine without
+                    // a pre-warmed cache, and the user will paginate on demand when
+                    // they tap (which brings WS back up via the bubble/Activity launch
+                    // path).
+                    if (BuildConfig.DEBUG) Log.d(
+                        TAG,
+                        "Skipping preemptive pagination for room ${notificationData.roomId} — WebSocket is not connected",
+                    )
                 } else {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Room ${notificationData.roomId} already in cache ($cachedEventCount events, actively cached), skipping preemptive pagination")
+                    val cachedEventCount = RoomTimelineCache.getCachedEventCount(notificationData.roomId)
+                    val isActivelyCached = RoomTimelineCache.isRoomActivelyCached(notificationData.roomId)
+
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Preemptive caching check for room ${notificationData.roomId}: cachedEventCount=$cachedEventCount, isActivelyCached=$isActivelyCached")
+
+                    // If room is not in cache or not actively cached, mark it for preemptive pagination
+                    if (cachedEventCount < 10 || !isActivelyCached) {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Room ${notificationData.roomId} not in cache (< 10 events or not actively cached), marking for preemptive pagination")
+
+                        // Store room ID in SharedPreferences for AppViewModel to process
+                        val preemptivePaginateRooms = sharedPrefs.getStringSet("preemptive_paginate_rooms", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+                        preemptivePaginateRooms.add(notificationData.roomId)
+                        sharedPrefs.edit().putStringSet("preemptive_paginate_rooms", preemptivePaginateRooms).apply()
+
+                        // Send broadcast to trigger immediate pagination if AppViewModel is available
+                        val intent = Intent("net.vrkknn.andromuks.PREEMPTIVE_PAGINATE").apply {
+                            putExtra("room_id", notificationData.roomId)
+                            setPackage(context.packageName)
+                        }
+                        context.sendBroadcast(intent)
+
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Sent preemptive pagination broadcast for room ${notificationData.roomId}")
+                    } else {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Room ${notificationData.roomId} already in cache ($cachedEventCount events, actively cached), skipping preemptive pagination")
+                    }
                 }
             } catch (e: Exception) {
                 // Don't fail notification display if preemptive caching check fails

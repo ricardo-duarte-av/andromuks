@@ -577,6 +577,18 @@ class WebSocketService : Service() {
             svc.sidecarLingerJob?.cancel()
             svc.sidecarLingerJob = svc.serviceScope.launch {
                 kotlinx.coroutines.delay(lingerMs)
+                // Re-check after the delay: a chat bubble may have been opened during
+                // the linger window (state C → A/B). Without this guard, the linger
+                // races cancelSidecarLinger and can still tear down the WebSocket out
+                // from under a bubble that's currently rendering — leaving the user
+                // staring at a frozen UI with no live updates.
+                if (BubbleTracker.anyBubbleOpen()) {
+                    if (BuildConfig.DEBUG) android.util.Log.i(
+                        "WebSocketService",
+                        "Sidecar linger fired but bubble is open — keeping service alive",
+                    )
+                    return@launch
+                }
                 val ctx = svc.applicationContext
                 if (BuildConfig.DEBUG) android.util.Log.i(
                     "WebSocketService",

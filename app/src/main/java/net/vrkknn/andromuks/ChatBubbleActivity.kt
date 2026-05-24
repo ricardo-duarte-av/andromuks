@@ -312,6 +312,14 @@ class ChatBubbleActivity : ComponentActivity() {
         } else {
             if (BuildConfig.DEBUG) Log.w("Andromuks", "ChatBubbleActivity: onDestroy - Could not extract room ID from intent")
         }
+
+        // After the BubbleTracker bookkeeping is done, give the ViewModel a chance
+        // to (re-)schedule the sidecar linger: this is the only A/B→C transition
+        // path, and it's the trigger that ultimately drops the WebSocket once the
+        // last bubble has been swiped away.
+        if (::appViewModel.isInitialized) {
+            appViewModel.notifyBubbleClosed()
+        }
         
         // Note: BubbleTimelineScreen's DisposableEffect also tracks bubbles for redundancy
         // but Activity-level tracking in onDestroy() is the final authority for notification dismissal checks

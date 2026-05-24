@@ -120,13 +120,27 @@ object BubbleTracker {
     }
 
     /**
-     * Whether any bubble window is currently on screen. Used to gate the
-     * sidecar-mode background linger so we don't tear down the WebSocket
-     * while the user is reading/typing in a visible bubble.
+     * Whether any bubble window is currently expanded on screen (state A only).
+     * Use [anyBubbleOpen] for sidecar-linger gating — a minimized bubble icon
+     * (state B) still represents active user interest in live updates.
      */
     fun anyBubbleVisible(): Boolean {
         synchronized(openBubbles) {
             return visibleBubbles.isNotEmpty()
+        }
+    }
+
+    /**
+     * Whether any chat bubble Activity exists, expanded or minimized (state A or B).
+     *
+     * This is the correct gate for the sidecar-mode linger: as long as a bubble
+     * icon is on screen the user can tap to expand it at any moment and expects
+     * live updates. Only when every bubble has been swiped away (state C) is it
+     * safe to drop the WebSocket in sidecar mode.
+     */
+    fun anyBubbleOpen(): Boolean {
+        synchronized(openBubbles) {
+            return openBubbles.isNotEmpty()
         }
     }
     

@@ -1730,7 +1730,14 @@ fun RoomListItem(
         ?: room.messageSender?.let { usernameFromMatrixId(it) }
 
     // Timeline cache indicator for this room (matches AppViewModel's union logic).
-    val isTimelineCached = RoomTimelineCache.isRoomOpened(room.id) || RoomTimelineCache.isRoomActivelyCached(room.id)
+    // Reading the cacheStateCounter as Compose state subscribes this composable to
+    // future cache mutations (preemptive paginate from a notification, a bubble
+    // pre-warming a room, etc.), so the icon flips the moment the data becomes
+    // available — not only after some unrelated recomposition happens to fire.
+    val cacheStateCounter = RoomTimelineCache.cacheStateCounter.intValue
+    val isTimelineCached = remember(cacheStateCounter, room.id) {
+        RoomTimelineCache.isRoomOpened(room.id) || RoomTimelineCache.isRoomActivelyCached(room.id)
+    }
     
     // Wrapping box for the entire item
     Box(

@@ -3,6 +3,8 @@ package net.vrkknn.andromuks
 import android.content.Context
 import android.util.Log
 import android.widget.Toast
+import androidx.compose.runtime.IntState
+import androidx.compose.runtime.mutableIntStateOf
 import org.json.JSONArray
 import org.json.JSONObject
 import net.vrkknn.andromuks.BuildConfig
@@ -51,6 +53,26 @@ object RoomTimelineCache {
     // Supports multiple rooms (e.g., RoomTimelineScreen + BubbleTimelineScreen)
     private val currentlyOpenedRooms = mutableSetOf<String>()
     private val openedRoomsLock = Any()
+
+    /**
+     * Compose-observable counter that ticks whenever the "is this room cached?" answer
+     * could have changed for any room — specifically, on every mutation of
+     * [currentlyOpenedRooms] or [activelyCachedRooms].
+     *
+     * RoomListItem reads `cacheStateCounter.intValue` to subscribe; the icon predicate
+     * (`isRoomOpened || isRoomActivelyCached`) is re-evaluated on the next recomposition.
+     * Without this, a bubble pre-warming a room's cache could not surface in the room
+     * list until some unrelated recomposition happened to fire.
+     *
+     * Non-UI callers can ignore this — they keep using the plain `isRoomOpened` /
+     * `isRoomActivelyCached` getters.
+     */
+    private val _cacheStateCounter = mutableIntStateOf(0)
+    val cacheStateCounter: IntState get() = _cacheStateCounter
+
+    private fun bumpCacheStateCounter() {
+        _cacheStateCounter.intValue = _cacheStateCounter.intValue + 1
+    }
     
     // Processed timeline state (for quick room switching)
     // Uses AppViewModel.EventChainEntry for consistency
@@ -171,6 +193,7 @@ object RoomTimelineCache {
                 Log.d(TAG, "Set current room to $roomId (unlimited events allowed, opened rooms: ${currentlyOpenedRooms.size})")
             }
         }
+        bumpCacheStateCounter()
     }
     
     /**
@@ -184,8 +207,9 @@ object RoomTimelineCache {
             }
             if (BuildConfig.DEBUG) Log.d(TAG, "Added room $roomId to opened rooms (total: ${currentlyOpenedRooms.size})")
         }
+        bumpCacheStateCounter()
     }
-    
+
     /**
      * Remove a room from the set of currently opened rooms
      * Called when RoomTimelineScreen or BubbleTimelineScreen closes a room
@@ -197,6 +221,7 @@ object RoomTimelineCache {
             }
             if (BuildConfig.DEBUG) Log.d(TAG, "Removed room $roomId from opened rooms (total: ${currentlyOpenedRooms.size})")
         }
+        bumpCacheStateCounter()
     }
     
     /**
@@ -1272,6 +1297,9 @@ object RoomTimelineCache {
                 }
             }
         }
+        // clearAll wipes (or shrinks) activelyCachedRooms; notify the UI so cache icons
+        // disappear from any row whose cache is now gone.
+        bumpCacheStateCounter()
     }
     
     /**
@@ -1285,8 +1313,9 @@ object RoomTimelineCache {
             }
             if (BuildConfig.DEBUG) Log.d(TAG, "Marked room $roomId as actively cached (will receive events from sync_complete)")
         }
+        bumpCacheStateCounter()
     }
-    
+
     /**
      * Mark a room as no longer cached (should not receive events from sync_complete)
      * Called when leaving a room or when cache is cleared
@@ -1298,6 +1327,7 @@ object RoomTimelineCache {
             }
             if (BuildConfig.DEBUG) Log.d(TAG, "Marked room $roomId as not cached (will not receive events from sync_complete)")
         }
+        bumpCacheStateCounter()
     }
     
     /**

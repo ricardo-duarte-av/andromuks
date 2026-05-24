@@ -4020,13 +4020,21 @@ class AppViewModel : ViewModel() {
             // Also clear sidecar_user_disconnected so the auto-restart machinery
             // (AutoRestartReceiver, ServiceStartWorker) doesn't refuse to bring
             // the WebSocket back up if it flaps while the bubble is open. The
-            // linger reschedules on setBubbleVisible(false) and will re-set the
-            // flag when it fires, restoring battery-saver behaviour.
+            // linger reschedules on notifyBubbleClosed (last bubble swiped away)
+            // and will re-set the flag when it fires, restoring battery-saver
+            // behaviour.
             appContext?.let { ctx ->
                 if (useSidecarMode && WebSocketService.isSidecarUserDisconnected(ctx)) {
                     WebSocketService.setSidecarUserDisconnected(ctx, false)
                 }
             }
+
+            // Bug 2 fix: clearing the flag isn't enough — if the linger already
+            // fired (or the OS killed the service, or a network blip never
+            // recovered), the WebSocket is dead and nothing else will bring it
+            // back. Mirror ChatBubbleLoadingScreen's cold-start reconnect logic
+            // so a backgrounded bubble's B→A transition restores live updates.
+            ensureWebSocketAliveForBubble()
 
             // If a room is currently open, trigger timeline refresh to show new events from cache
             if (currentRoomId.isNotEmpty()) {
@@ -4039,27 +4047,78 @@ class AppViewModel : ViewModel() {
                 "AppViewModel: Bubble hidden - notifications remain enabled for $currentRoomId"
             )
 
-            // If the main UI is also invisible and no other bubble is on screen,
-            // start the sidecar linger now — onAppBecameInvisible already ran and
-            // was skipped because a bubble was visible at that point.
-            //
-            // mainActivityEverResumed disambiguates the default-true isAppVisible:
-            // when a bubble is launched cold from a notification, MainActivity has
-            // never resumed and isAppVisible is still its initial true. Treating
-            // that as "main is foreground" would leave us stuck in permanent-WS
-            // mode forever after the bubble closes.
-            val mainUiForeground = isAppVisible && mainActivityEverResumed
-            if (useSidecarMode && !mainUiForeground && !BubbleTracker.anyBubbleVisible()) {
-                if (BuildConfig.DEBUG) android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Last bubble hidden while app invisible — scheduling sidecar linger",
-                )
-                WebSocketService.scheduleSidecarLinger()
-            }
+            // A→B transition: bubble is still on screen as a minimized icon. The
+            // user expects live updates to keep flowing so the next expand shows
+            // fresh content. Sidecar linger is only scheduled when the last
+            // bubble is actually swiped away (notifyBubbleClosed), not when one
+            // is merely collapsed.
         }
         // Don't call refreshUIState() - bubbles don't need room list updates or shortcut updates
     }
-    
+
+    /**
+     * If the WebSocket is down, start the foreground service and dial a new
+     * connection. Mirrors the cold-start reconnect path in
+     * [ChatBubbleLoadingScreen] so a backgrounded bubble's B→A (or any wake
+     * after a service kill / network blip) restores live updates.
+     *
+     * Safe to call from any ViewModel role — uses the static
+     * [WebSocketService.connectWebSocket] entry point rather than
+     * [initializeWebSocketConnection] (which is primary-only).
+     */
+    private fun ensureWebSocketAliveForBubble() {
+        if (isWebSocketConnected()) return
+        val ctx = appContext ?: return
+        val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+        val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
+        val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
+        if (homeserverUrl.isBlank() || authToken.isBlank()) {
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: ensureWebSocketAliveForBubble - missing credentials, cannot reconnect",
+            )
+            return
+        }
+        if (BuildConfig.DEBUG) android.util.Log.i(
+            "Andromuks",
+            "AppViewModel: ensureWebSocketAliveForBubble - WS not connected, starting service + reconnecting",
+        )
+        try {
+            startWebSocketService()
+            WebSocketService.setAppVisibility(true)
+            WebSocketService.connectWebSocket(
+                homeserverUrl,
+                authToken,
+                this,
+                trigger = ReconnectTrigger.Unclassified("bubble_visible_reconnect"),
+            )
+        } catch (t: Throwable) {
+            android.util.Log.e(
+                "Andromuks",
+                "AppViewModel: ensureWebSocketAliveForBubble - reconnect failed",
+                t,
+            )
+        }
+    }
+
+    /**
+     * Called by [ChatBubbleActivity.onDestroy] after the bubble's row is removed
+     * from [BubbleTracker]. When the *last* bubble closes and the main UI is also
+     * not foreground, schedule the sidecar linger here — we deliberately do NOT
+     * schedule on A→B (collapse), only on A/B→C (dismiss), because a minimized
+     * bubble icon still represents active user interest in live updates.
+     */
+    fun notifyBubbleClosed() {
+        val mainUiForeground = isAppVisible && mainActivityEverResumed
+        if (useSidecarMode && !mainUiForeground && !BubbleTracker.anyBubbleOpen()) {
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Last bubble closed while app invisible — scheduling sidecar linger",
+            )
+            WebSocketService.scheduleSidecarLinger()
+        }
+    }
+
     fun attachToExistingWebSocketIfAvailable() {
         val existingWebSocket = WebSocketService.getWebSocket()
         if (existingWebSocket != null) {
@@ -5908,18 +5967,12 @@ class AppViewModel : ViewModel() {
         viewModelScope.launch {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: triggerPreemptivePagination called for room: $roomId")
 
-            // Sidecar mode: never preemptively paginate. The WS is intentionally torn down
-            // in background; even when transiently up, queueing a paginate risks
-            // flushPendingCommandsQueue dispatching it later (after the user has already
-            // opened the room and triggered their own paginate, or after the next sidecar
-            // linger has expired). The user-open path handles fetching on tap.
-            if (useSidecarMode) {
-                if (BuildConfig.DEBUG) android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Sidecar mode active, skipping preemptive pagination for $roomId (open-room path will fetch)"
-                )
-                return@launch
-            }
+            // Sidecar mode is no longer a hard bail-out: when the WS is up *for any
+            // reason* (foreground app, open/minimized bubble, transient persistent
+            // window) we want to seed the cache so the next room open is instant.
+            // The WS-connected check below is the only gate that matters — when WS
+            // is down (sidecar idle, network gap), paginate has nowhere to go and
+            // we silently defer to the user-open path.
 
             // If the WebSocket is not connected, paginate would fail anyway. Bail out
             // BEFORE marking the room as actively cached — otherwise the cache flag is

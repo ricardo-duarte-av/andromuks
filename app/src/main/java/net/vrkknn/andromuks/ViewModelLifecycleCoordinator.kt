@@ -354,13 +354,16 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 // the ViewModel, which would cancel a viewModelScope.launch before
                 // the 60s delay fired.
                 //
-                // Skip scheduling if a chat bubble is currently on screen — tearing
-                // down the WebSocket would break a UI the user is actively using.
-                // setBubbleVisible(false) reschedules when the last bubble closes.
-                if (BubbleTracker.anyBubbleVisible()) {
+                // Skip scheduling if any chat bubble Activity exists (expanded or
+                // minimized — anyBubbleOpen, not anyBubbleVisible). A minimized bubble
+                // icon still represents active user interest: tearing down the WebSocket
+                // would freeze live updates and break the bubble the moment the user
+                // taps to expand it. AppViewModel.notifyBubbleClosed reschedules when
+                // the last bubble is swiped away.
+                if (BubbleTracker.anyBubbleOpen()) {
                     if (BuildConfig.DEBUG) android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Sidecar linger skipped — bubble visible",
+                        "AppViewModel: Sidecar linger skipped — bubble open",
                     )
                 } else {
                     WebSocketService.scheduleSidecarLinger()
