@@ -344,9 +344,8 @@ fun AuthCheckScreen(
                     // Navigate directly to room timeline (like ShortcutActivity does)
                     // This bypasses RoomListScreen to avoid delays and missing rooms
                     val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
-                    appViewModel.clearDirectRoomNavigation()
                     val encodedRoomId = java.net.URLEncoder.encode(directRoomId, "UTF-8")
-                    
+
                     // Set current room ID and navigate to room with cache
                     appViewModel.setCurrentRoomIdForTimeline(directRoomId)
                     if (notificationTimestamp != null) {
@@ -354,19 +353,26 @@ fun AuthCheckScreen(
                     } else {
                         appViewModel.navigateToRoomWithCache(directRoomId)
                     }
-                    
+
                     // WAIT for room data readiness BEFORE navigating.
                     // The callback is a plain lambda so we launch on the ViewModel's scope,
                     // which is always available and tied to the ViewModel's lifecycle.
+                    //
+                    // IMPORTANT: do NOT clear directRoomNavigation here. The spaces-loaded
+                    // LaunchedEffect below races this coroutine and uses directRoomNavigation
+                    // as its "don't navigate to room_list" gate — clearing early lets it fire
+                    // a stray navigate("room_list"), which then mounts a second RoomTimelineScreen
+                    // whose dispose wipes the cache. We clear it right before navController.navigate.
                     appViewModel.viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
                         val isReady = appViewModel.awaitRoomDataReadiness(
                             timeoutMs = 15_000L,
                             roomId = directRoomId,
                         )
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Readiness check completed (isReady=$isReady) for $directRoomId")
-                        
+
                         // Remove auth_check from the stack so Back returns to the previous app screen
                         // (or finishes) instead of landing on a synthetic room_list.
+                        appViewModel.clearDirectRoomNavigation()
                         navController.navigate("room_timeline/$encodedRoomId") {
                             popUpTo("auth_check") { inclusive = true }
                         }

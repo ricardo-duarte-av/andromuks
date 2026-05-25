@@ -44,10 +44,37 @@ class AndromuksApplication : Application() {
         if (BuildConfig.DEBUG) {
             Log.d("Andromuks", "AndromuksApplication: onCreate()")
         }
+        // Pre-warm SharedPreferences synchronously here so the first main-thread read in
+        // MainActivity.onCreate / FCMNotificationManager.<init> hits the in-process cache
+        // instead of doing disk I/O on the UI thread. Wrapped in allowThreadDiskReads
+        // because this is the canonical one-time startup load; everything afterwards is
+        // pure memory.
+        prewarmSharedPreferences()
         // Pre-load the session token so Coil's interceptor has it before the first image request,
         // even before AppViewModel.updateAuthToken is called.
         ImageLoaderSingleton.initFromStorage(this)
         migrateLegacyImageCache()
+    }
+
+    private fun prewarmSharedPreferences() {
+        val originalPolicy = StrictMode.getThreadPolicy()
+        // Permit both reads and writes during the one-time startup load (ensurePrivateDirExists
+        // may do a mkdir() the first time).
+        StrictMode.setThreadPolicy(
+            StrictMode.ThreadPolicy.Builder(originalPolicy)
+                .permitDiskReads()
+                .permitDiskWrites()
+                .build()
+        )
+        try {
+            // Touching getAll() forces SharedPreferencesImpl to finish its async file load
+            // synchronously and populate the in-memory map. Names must match every other
+            // getSharedPreferences() call in the app.
+            getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE).all
+            getSharedPreferences("fcm_prefs", MODE_PRIVATE).all
+        } finally {
+            StrictMode.setThreadPolicy(originalPolicy)
+        }
     }
 
     private fun installStrictMode() {
