@@ -1472,12 +1472,13 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                 "AppViewModel: 🏁 REACHED END OF MESSAGE HISTORY (has_more=false, empty response)",
                             )
                             appContext?.let { context ->
-                                android.widget.Toast.makeText(
+                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                    android.widget.Toast.makeText(
                                         context,
                                         "No more messages available",
                                         android.widget.Toast.LENGTH_SHORT,
-                                    )
-                                    .show()
+                                    ).show()
+                                }
                             }
                         }
                     } else {
@@ -2235,12 +2236,13 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             // regardless
                             // (it's idempotent)
                             appContext?.let { context ->
-                                android.widget.Toast.makeText(
+                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                    android.widget.Toast.makeText(
                                         context,
                                         "No more messages available",
                                         android.widget.Toast.LENGTH_SHORT,
-                                    )
-                                    .show()
+                                    ).show()
+                                }
                             }
                         }
                     } else if (backgroundPrefetchRequests.containsKey(requestId)) {
@@ -2492,12 +2494,13 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         "AppViewModel: ⚠️ Mismatched room_id in pagination merge for room $roomId, events from rooms: $distinctRooms (count=${mismatched.size})",
                     )
                     appContext?.let { context ->
-                        android.widget.Toast.makeText(
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            android.widget.Toast.makeText(
                                 context,
                                 "Debug: Dropped ${mismatched.size} events with wrong room_id for room $roomId",
                                 android.widget.Toast.LENGTH_SHORT,
-                            )
-                            .show()
+                            ).show()
+                        }
                     }
                 }
             }
@@ -2712,12 +2715,13 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             )
                             viewModelScope.launch(Dispatchers.Main) { hasMoreMessages = false }
                             appContext?.let { context ->
-                                android.widget.Toast.makeText(
+                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                    android.widget.Toast.makeText(
                                         context,
                                         "No more messages to load",
                                         android.widget.Toast.LENGTH_SHORT,
-                                    )
-                                    .show()
+                                    ).show()
+                                }
                             }
                         }
                     } else {
@@ -2812,12 +2816,13 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         "AppViewModel: ⚠️ Mismatched room_id in initial timeline build for room $roomId, events from rooms: $distinctRooms (count=${mismatched.size})",
                     )
                     appContext?.let { context ->
-                        android.widget.Toast.makeText(
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            android.widget.Toast.makeText(
                                 context,
                                 "Debug: Dropped ${mismatched.size} events with wrong room_id for room $roomId",
                                 android.widget.Toast.LENGTH_SHORT,
-                            )
-                            .show()
+                            ).show()
+                        }
                     }
                 }
             }
