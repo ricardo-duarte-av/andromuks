@@ -31,7 +31,7 @@ object RoomMetadataStore {
     private const val TAG = "RoomMetadataStore"
 
     private const val DB_NAME = "room_metadata.db"
-    private const val DB_VERSION = 1
+    private const val DB_VERSION = 2
 
     private const val TABLE = "room_metadata"
     private const val COL_ROOM_ID = "room_id"
@@ -40,6 +40,10 @@ object RoomMetadataStore {
     private const val COL_BRIDGE_AVATAR_MXC = "bridge_avatar_mxc"
     private const val COL_BRIDGE_DISPLAY_NAME = "bridge_display_name"
     private const val COL_UPDATED_AT = "updated_at"
+    // v2: last-known sortingTimestamp (matches RoomItem.sortingTimestamp). Persisted so the
+    // cached room list can be sorted descending on cold start, before sync_complete updates.
+    // 0 = unknown; the room list sort treats unknown rooms as oldest.
+    private const val COL_SORT_TS = "sort_ts"
 
     data class Row(
         val roomId: String,
@@ -47,6 +51,7 @@ object RoomMetadataStore {
         val avatarMxc: String?,
         val bridgeAvatarMxc: String?,
         val bridgeDisplayName: String?,
+        val sortTs: Long = 0L,
     )
 
     private val initialized = AtomicBoolean(false)
@@ -81,7 +86,7 @@ object RoomMetadataStore {
     private fun hydrateMirrorFromDisk(db: SQLiteDatabase) {
         db.query(
             TABLE,
-            arrayOf(COL_ROOM_ID, COL_NAME, COL_AVATAR_MXC, COL_BRIDGE_AVATAR_MXC, COL_BRIDGE_DISPLAY_NAME),
+            arrayOf(COL_ROOM_ID, COL_NAME, COL_AVATAR_MXC, COL_BRIDGE_AVATAR_MXC, COL_BRIDGE_DISPLAY_NAME, COL_SORT_TS),
             null, null, null, null, null
         ).use { c ->
             val iRoomId = c.getColumnIndexOrThrow(COL_ROOM_ID)
@@ -89,6 +94,7 @@ object RoomMetadataStore {
             val iAvatar = c.getColumnIndexOrThrow(COL_AVATAR_MXC)
             val iBridgeAvatar = c.getColumnIndexOrThrow(COL_BRIDGE_AVATAR_MXC)
             val iBridgeName = c.getColumnIndexOrThrow(COL_BRIDGE_DISPLAY_NAME)
+            val iSortTs = c.getColumnIndexOrThrow(COL_SORT_TS)
             while (c.moveToNext()) {
                 val roomId = c.getString(iRoomId) ?: continue
                 mirror[roomId] = Row(
@@ -97,6 +103,7 @@ object RoomMetadataStore {
                     avatarMxc = if (c.isNull(iAvatar)) null else c.getString(iAvatar),
                     bridgeAvatarMxc = if (c.isNull(iBridgeAvatar)) null else c.getString(iBridgeAvatar),
                     bridgeDisplayName = if (c.isNull(iBridgeName)) null else c.getString(iBridgeName),
+                    sortTs = if (c.isNull(iSortTs)) 0L else c.getLong(iSortTs),
                 )
             }
         }
@@ -145,6 +152,24 @@ object RoomMetadataStore {
         ioScope.launch {
             writePartial(roomId) { values ->
                 values.put(COL_BRIDGE_DISPLAY_NAME, bridgeDisplayName)
+            }
+        }
+    }
+
+    /**
+     * Upsert the last-known sorting timestamp for this room. Used so the cached room list
+     * can render in the correct order on cold start, before sync_complete arrives.
+     * Only advances forward — older timestamps are ignored.
+     */
+    fun upsertSortTs(roomId: String, sortTs: Long) {
+        if (sortTs <= 0L) return
+        val existing = mirror[roomId]
+        if (existing != null && existing.sortTs >= sortTs) return
+        mergeIntoMirror(roomId, sortTs = sortTs)
+        if (helper == null) return
+        ioScope.launch {
+            writePartial(roomId) { values ->
+                values.put(COL_SORT_TS, sortTs)
             }
         }
     }
@@ -234,6 +259,7 @@ object RoomMetadataStore {
         avatarMxc: String? = null,
         bridgeAvatarMxc: String? = null,
         bridgeDisplayName: String? = null,
+        sortTs: Long? = null,
     ): Row {
         return mirror.compute(roomId) { _, existing ->
             Row(
@@ -242,6 +268,7 @@ object RoomMetadataStore {
                 avatarMxc = avatarMxc ?: existing?.avatarMxc,
                 bridgeAvatarMxc = bridgeAvatarMxc ?: existing?.bridgeAvatarMxc,
                 bridgeDisplayName = bridgeDisplayName ?: existing?.bridgeDisplayName,
+                sortTs = sortTs ?: existing?.sortTs ?: 0L,
             )
         }!!
     }
@@ -276,14 +303,18 @@ object RoomMetadataStore {
                     $COL_AVATAR_MXC TEXT,
                     $COL_BRIDGE_AVATAR_MXC TEXT,
                     $COL_BRIDGE_DISPLAY_NAME TEXT,
-                    $COL_UPDATED_AT INTEGER NOT NULL
+                    $COL_UPDATED_AT INTEGER NOT NULL,
+                    $COL_SORT_TS INTEGER NOT NULL DEFAULT 0
                 )
                 """.trimIndent()
             )
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-            // Schema only at v1; nothing to migrate yet.
+            // v1 → v2: add sort_ts column for cached room list ordering.
+            if (oldVersion < 2) {
+                db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_SORT_TS INTEGER NOT NULL DEFAULT 0")
+            }
         }
     }
 }

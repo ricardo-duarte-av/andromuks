@@ -251,12 +251,12 @@ fun SettingsScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Use HTTP sidecar (battery saver)",
+                                text = "Battery saver mode",
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Medium
                             )
                             Text(
-                                text = "Closes the persistent WebSocket while the app is backgrounded. Notification reply and mark-as-read are sent through a small HTTP sidecar at <homeserver>/_gomuks/sidecar instead. Saves significant battery on cellular but requires the sidecar to be deployed alongside the gomuks backend. The WebSocket is automatically reconnected while a chat bubble is open and torn down again 60 s after the last bubble closes.",
+                                text = "When enabled, the app disconnects from the server while backgrounded and relies on push notifications, saving significant battery on cellular. Notification reply and mark-as-read are routed through a small HTTP sidecar at <homeserver>/_gomuks/sidecar, which must be deployed alongside the gomuks backend. The WebSocket is automatically reconnected while a chat bubble is open and torn down again 60 s after the last bubble closes. When disabled, a persistent foreground-service WebSocket stays connected for real-time delivery.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -327,7 +327,7 @@ fun SettingsScreen(
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
                     Text(
-                        text = "Disabled while \"Use HTTP sidecar\" is enabled. In sidecar mode the WebSocket is closed in the background, so there is no sync_complete stream to buffer.",
+                        text = "Disabled while \"Battery saver mode\" is enabled. In battery saver mode the WebSocket is closed in the background, so there is no sync_complete stream to buffer.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(16.dp)

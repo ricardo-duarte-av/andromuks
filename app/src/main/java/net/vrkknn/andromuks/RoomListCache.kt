@@ -60,8 +60,15 @@ object RoomListCache {
     private fun persistMetadata(room: RoomItem) {
         val name = room.name.takeIf { it.isNotBlank() && it != room.id }
         val avatar = room.avatarUrl
-        if (name == null && avatar == null) return
-        RoomMetadataStore.upsertNameAvatar(room.id, name, avatar)
+        if (name != null || avatar != null) {
+            RoomMetadataStore.upsertNameAvatar(room.id, name, avatar)
+        }
+        // Always try to persist the sorting timestamp — it lets the cached room list
+        // render in the correct order on cold start. upsertSortTs is a no-op for
+        // null/zero/older values, so this is safe to call unconditionally.
+        room.sortingTimestamp?.let { ts ->
+            if (ts > 0L) RoomMetadataStore.upsertSortTs(room.id, ts)
+        }
     }
     
     /**
@@ -145,7 +152,7 @@ object RoomListCache {
                     unreadCount = null,
                     highlightCount = null,
                     avatarUrl = row.avatarMxc?.takeIf { it.isNotEmpty() },
-                    sortingTimestamp = null,
+                    sortingTimestamp = row.sortTs.takeIf { it > 0L },
                     bridgeProtocolAvatarUrl = bridgeAvatar,
                 )
                 seeded++

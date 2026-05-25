@@ -477,10 +477,12 @@ internal class SyncRoomsCoordinator(
             val data = syncJson.optJSONObject("data")
             val isClearState = data?.optBoolean("clear_state") == true
             if (isClearState) {
+                // TEMPORARILY DISABLED: skipping the reset so cache-driven UI stays visible.
+                // Restore by uncommenting handleClearStateReset() below if stale data appears.
                 if (BuildConfig.DEBUG) {
-                    android.util.Log.w("Andromuks", "🟣 processSyncCompleteAtomic: clear_state=true - clearing state (request_id=$requestId)")
+                    android.util.Log.w("Andromuks", "🟣 processSyncCompleteAtomic: clear_state=true RECEIVED but RESET SKIPPED (debug) - request_id=$requestId")
                 }
-                handleClearStateReset()
+                // handleClearStateReset()
             }
 
             // Update last sync timestamp immediately (lightweight) and notify service

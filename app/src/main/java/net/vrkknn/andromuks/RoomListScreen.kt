@@ -253,6 +253,7 @@ fun RoomListScreen(
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null
 ) {
     val context = LocalContext.current
+    android.util.Log.d("StartupTrace", "RoomListScreen: compose entry @ ${System.currentTimeMillis()}")
     val hapticFeedback = LocalHapticFeedback.current
     val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
     val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
@@ -323,8 +324,13 @@ fun RoomListScreen(
     // Seed from in-memory snapshot to avoid empty UI after clear_state/cold start
     // CRITICAL FIX: Initialize synchronously with current data to avoid delay when returning from RoomTimelineScreen
     // This ensures rooms appear immediately instead of waiting for LaunchedEffect
-    var stableSection by remember { 
-        mutableStateOf(appViewModel.getCurrentRoomSection())
+    var stableSection by remember {
+        val seed = appViewModel.getCurrentRoomSection()
+        android.util.Log.d(
+            "StartupTrace",
+            "RoomListScreen: stableSection seeded with rooms=${seed.rooms.size}, spaces=${seed.spaces.size}, roomMap=${appViewModel.roomMap.size} @ ${System.currentTimeMillis()}"
+        )
+        mutableStateOf(seed)
     }
     
     // SAFETY NET: After initial sync completes, ensure stableSection is populated at least once.
@@ -376,9 +382,18 @@ fun RoomListScreen(
     // getCurrentRoomSection() per trigger, eliminating the race condition where
     // two LaunchedEffects would write stableSection concurrently.
     // ──────────────────────────────────────────────────────────────────────────
-    LaunchedEffect(roomListUpdateCounter, uiState.roomSummaryUpdateCounter, uiState.currentSpaceId, appViewModel.currentBridgeId) {
-        // During initial sync, keep existing content to avoid flicker.
-        if (!uiState.initialSyncComplete) {
+    LaunchedEffect(
+        roomListUpdateCounter,
+        uiState.roomSummaryUpdateCounter,
+        uiState.currentSpaceId,
+        appViewModel.currentBridgeId,
+        appViewModel.initialSyncProcessingComplete
+    ) {
+        // During initial sync processing, keep existing content to avoid the
+        // "hundreds of rooms re-sort live" flicker. Hold stableSection at its cached
+        // value until the entire init-payload processing loop has finished, then apply
+        // the final state in one shot.
+        if (!appViewModel.initialSyncProcessingComplete) {
             val hadContent = stableSection.rooms.isNotEmpty() || stableSection.spaces.isNotEmpty()
             if (hadContent) return@LaunchedEffect
         }
@@ -481,10 +496,13 @@ fun RoomListScreen(
     // and rooms are already loaded but spacesLoaded hasn't been set yet
     val hasRooms = stableSection.rooms.isNotEmpty()
     val shouldShowSpacesLoading = !effectiveSpacesLoaded && !hasRooms // Only show if we have no rooms
-    val inlineSyncInProgress = coldStartRefreshing || 
-        shouldBlockForPending || 
-        shouldShowSpacesLoading || 
-        !effectiveInitialSyncComplete
+    // Hide the "Finalizing sync..." inline overlay whenever we already have rooms on screen
+    // (from cache). The cached list is correct enough to use immediately; the init payload
+    // updates it in place once processing completes.
+    val inlineSyncInProgress = coldStartRefreshing ||
+        shouldBlockForPending ||
+        shouldShowSpacesLoading ||
+        (!effectiveInitialSyncComplete && !hasRooms)
     
     val inlineSyncMessage = when {
         shouldBlockForPending -> "Catching up on messages..."

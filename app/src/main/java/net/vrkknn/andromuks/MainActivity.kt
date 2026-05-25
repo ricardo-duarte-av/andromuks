@@ -1258,12 +1258,11 @@ fun AppNavigation(
         }
         composable(
             "auth_check",
-            // Explicit fade-out so auth_check stays in composition long enough
-            // for SharedTransitionLayout to fly the avatar to room_list.
-            // Without these, the composable may disappear instantly (zero-duration default),
-            // causing the shared element flight to never start.
-            exitTransition = { fadeOut(tween(600)) },
-            popExitTransition = { fadeOut(tween(600)) }
+            // Instant exit — AuthCheck is now a logic-only blank screen so there's no
+            // shared-element avatar flight to wait on. Letting it disappear immediately
+            // unblocks the room_list paint by ~600ms.
+            exitTransition = { androidx.compose.animation.ExitTransition.None },
+            popExitTransition = { androidx.compose.animation.ExitTransition.None }
         ) {
             AuthCheckScreen(
                 navController = navController,
@@ -1288,11 +1287,11 @@ fun AppNavigation(
         composable(
             route = "room_list",
             enterTransition = {
-                // Explicit fade-in so room_list enters over the same 600ms window that auth_check
-                // is fading out. Both composables are in composition for the full 600ms, giving
-                // SharedTransitionLayout enough time to fly the shared avatar.
+                // Instant entry from auth_check — AuthCheck is now a logic-only blank screen,
+                // there's no shared avatar to fly, so we want room_list visible the moment the
+                // route swaps. Other entry paths (from room_timeline etc.) keep the default.
                 if (initialState.destination.route == "auth_check") {
-                    fadeIn(tween(600))
+                    androidx.compose.animation.EnterTransition.None
                 } else {
                     null
                 }
@@ -1308,6 +1307,7 @@ fun AppNavigation(
             popExitTransition = { fadeOut(tween(500)) }
         ) { backStackEntry ->
             val navigationScope = this
+            android.util.Log.d("StartupTrace", "NavHost: room_list composable ENTERED @ ${System.currentTimeMillis()}")
             // CRITICAL FIX: Always show StartupLoadingScreen initially to prevent white flash during navigation
             // Use Box with background to ensure no white flash even during transition
             androidx.compose.foundation.layout.Box(
@@ -1432,12 +1432,22 @@ fun AppNavigation(
                 // hidden; the shared element tag lives on RoomListScreen's header instead.
                 // Because AnimatedVisibility makes the two mutually exclusive, only ONE
                 // instance of the key exists at any moment → no ambiguity.
+                // Fast-path dismissal: as soon as populateRoomMapFromCache flips
+                // spacesLoaded=true (which only happens when roomMap also has rooms — see
+                // SyncRoomsCoordinator.populateRoomMapFromCache), hide this overlay so the
+                // room_list route becomes visible. spacesLoaded is a Compose-observable
+                // MutableState, so this recomposes immediately when the cache populates —
+                // no need to also read the non-observable roomMap.
+                val cacheReady = spacesLoaded
                 AnimatedVisibility(
-                    visible = !isStartupComplete || !showRoomList,
-                    exit = fadeOut(animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing))
+                    visible = (!isStartupComplete || !showRoomList) && !cacheReady,
+                    // Instant exit when cacheReady flips — no fade so RoomListScreen becomes
+                    // visible immediately. The 300ms fade only matters when isStartupComplete
+                    // completes the normal way (no cache), keeping the original feel.
+                    exit = fadeOut(animationSpec = tween(durationMillis = 0))
                 ) {
                     net.vrkknn.andromuks.ui.components.StartupLoadingScreen(
-                        progressMessages = progressMessages,
+                        progressMessages = emptyList(),
                         modifier = Modifier.fillMaxSize(),
                         topContent = {
                             if (startupAvatarMxc != null) {
@@ -1496,9 +1506,12 @@ fun AppNavigation(
                 // Its header avatar carries the shared element tag so that
                 // pull-to-refresh (room_list → auth_check → room_list) gives a
                 // visible header↔center flight animation.
+                // Visible whenever the cache is populated (spacesLoaded via cacheReady) OR
+                // the normal startup gate has completed. The cache path lets the cached room
+                // list paint immediately on cold start without waiting for the WebSocket sync.
                 AnimatedVisibility(
-                    visible = isStartupComplete && showRoomList,
-                    enter = fadeIn(animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing))
+                    visible = cacheReady || (isStartupComplete && showRoomList),
+                    enter = fadeIn(animationSpec = tween(durationMillis = 0))
                 ) {
                     RoomListScreen(
                         navController = navController,

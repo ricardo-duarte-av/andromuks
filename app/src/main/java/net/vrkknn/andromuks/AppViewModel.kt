@@ -2972,10 +2972,17 @@ class AppViewModel : ViewModel() {
             val isClearState = data?.optBoolean("clear_state") == true
             if (isClearState) {
                 val requestId = syncJson.optInt("request_id", 0)
+                // TEMPORARILY DISABLED: clear_state=true normally purges the in-memory
+                // room/space derived state so the server can repopulate from scratch.
+                // We're testing whether honoring this is what wipes the cache-driven UI
+                // before the user sees it. Skipping the reset means the cached roomMap
+                // stays put and the subsequent sync_complete messages merge on top.
+                // If you see stale rooms that shouldn't exist (left rooms still showing,
+                // wrong space membership), this is the prime suspect — re-enable below.
                 if (BuildConfig.DEBUG) {
-                    android.util.Log.w("Andromuks", "🟣 processSyncCompleteMessage: clear_state=true - clearing state (request_id=$requestId)")
+                    android.util.Log.w("Andromuks", "🟣 processSyncCompleteMessage: clear_state=true RECEIVED but RESET SKIPPED (debug) - request_id=$requestId")
                 }
-                syncRoomsCoordinator.handleClearStateReset()
+                // syncRoomsCoordinator.handleClearStateReset()
             }
             
             // Update last sync timestamp immediately (this is lightweight)

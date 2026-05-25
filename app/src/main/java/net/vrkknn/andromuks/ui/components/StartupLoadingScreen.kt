@@ -100,19 +100,8 @@ fun StartupLoadingScreen(
                         }
                     }
                 } else {
-                    // Fallback message if no progress messages yet
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Starting...",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(top = 16.dp)
-                        )
-                    }
+                    // No fallback text — when displayMessages is empty we render nothing,
+                    // letting only the avatar/morph carry the loading affordance.
                 }
             }
         }

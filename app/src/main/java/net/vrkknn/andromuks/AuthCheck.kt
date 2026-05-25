@@ -16,6 +16,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -137,6 +138,7 @@ fun AuthCheckScreen(
     animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
     val context = LocalContext.current
+    android.util.Log.d("StartupTrace", "AuthCheckScreen: compose entry @ ${System.currentTimeMillis()}")
     val sharedPreferences = remember { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
     val client = remember { OkHttpClient.Builder().build() }
     val scope = rememberCoroutineScope()
@@ -199,6 +201,7 @@ fun AuthCheckScreen(
     var navigationHandled by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
+        android.util.Log.d("StartupTrace", "AuthCheck.LaunchedEffect(Unit): START @ ${System.currentTimeMillis()}")
         appViewModel.isLoading = true
         val token = sharedPreferences.getString("gomuks_auth_token", null)
         val homeserverUrl = sharedPreferences.getString("homeserver_url", null)
@@ -235,11 +238,38 @@ fun AuthCheckScreen(
             
             appViewModel.loadStateFromStorage(context)
 
-            // Initialize FCM with homeserver URL and auth token
-            appViewModel.initializeFCM(context, homeserverUrl, token)
-            // Set homeserver URL and auth token in ViewModel for avatar loading
+            // Hydrate disk caches off the main thread — these open SQLite and read row sets
+            // that can easily take 100–300ms and would otherwise block Compose from painting
+            // the cached room list.
+            withContext(kotlinx.coroutines.Dispatchers.IO) {
+                appViewModel.loadCachedProfiles(context)
+            }
+
+            // populateRoomMapFromCache MUST run on Main: it mutates roomMap and flips the
+            // Compose-observable spacesLoaded state. Cheap — just an in-memory copy.
+            appViewModel.populateRoomMapFromCache()
+            appViewModel.populateSpacesFromCache()
+
+            // Set homeserver URL and auth token in ViewModel for avatar loading. These are
+            // pure in-memory state writes and must happen before the navigation LaunchedEffect
+            // runs to avoid avatar fallback flicker.
             appViewModel.updateHomeserverUrl(homeserverUrl)
             appViewModel.updateAuthToken(token)
+
+            // Wait for at least one Compose frame to paint before kicking off heavy work.
+            // The cache-driven navigation LaunchedEffect (keyed on spacesLoaded) will fire on
+            // the next snapshot, swap the route, and paint RoomListScreen with cached rooms.
+            // We then proceed with FCM/WS init, which can compete with the main thread freely.
+            // 32ms = ~2 frames at 60Hz, enough slack even on slow devices.
+            android.util.Log.d("StartupTrace", "AuthCheck.LaunchedEffect(Unit): about to delay(32) @ ${System.currentTimeMillis()}")
+            kotlinx.coroutines.delay(32)
+            android.util.Log.d("StartupTrace", "AuthCheck.LaunchedEffect(Unit): delay(32) returned @ ${System.currentTimeMillis()}")
+
+            // Initialize FCM after the first paint — it does disk + network work that we
+            // don't want competing with the room list's first frame.
+            withContext(kotlinx.coroutines.Dispatchers.IO) {
+                appViewModel.initializeFCM(context, homeserverUrl, token)
+            }
             // forceIfOnTimeline=true: navigate to room_list even when the back stack already has
             // room_timeline (normal app-icon open after a previous session left a room open).
             // forceIfOnTimeline=false: skip navigation when room_timeline/chat_bubble is active
@@ -520,39 +550,13 @@ fun AuthCheckScreen(
     
     LaunchedEffect(appViewModel.spacesLoaded, appViewModel.isStartupComplete, hasCredentials) {
         if (hasCredentials && appViewModel.spacesLoaded && !navigationHandled) {
-            // Spaces loaded from cache - prefer to wait for WebSocket when network is available.
-            // On a normal cold start with WiFi/5G, WebSocket connection should be fast; showing
-            // room_list without a real connection leads to confusing “stuck connecting” states.
+            // Fast-path navigation from cache: as soon as we have spaces from persisted state,
+            // jump to room_list — we don't wait for the WebSocket or for isStartupComplete.
+            // The user sees their cached room list immediately. The init payload arriving later
+            // updates the list in place (RoomListScreen guards stableSection until
+            // initialSyncProcessingComplete=true to avoid live re-sort flicker).
             val isWebSocketConnected = WebSocketService.isWebSocketConnected()
             val currentNetworkType = WebSocketService.getCurrentNetworkType()
-            
-            if (!isWebSocketConnected && currentNetworkType != net.vrkknn.andromuks.WebSocketService.NetworkType.NONE) {
-                // Network is available but WebSocket is still disconnected — wait for the normal
-                // navigation callback (which fires after WebSocket + initial sync), instead of
-                // navigating early from cache and exposing a half‑offline UI.
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        "AuthCheckScreen",
-                        "Spaces loaded from cache but WebSocket not connected and network=$currentNetworkType; waiting for WebSocket before navigating"
-                    )
-                }
-                return@LaunchedEffect
-            }
-
-            if (isWebSocketConnected && !appViewModel.isStartupComplete) {
-                // WebSocket is live but startup isn't fully complete yet (bridge info still
-                // loading, profile not yet received, etc.).  The navigation callback will fire
-                // from checkStartupComplete() once all conditions are met, so don't navigate
-                // early here — that would land on room_list while isStartupComplete=false,
-                // causing the inner StartupLoadingScreen to show (visual "bounce").
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        "AuthCheckScreen",
-                        "Spaces loaded but startup not complete yet (isStartupComplete=false); waiting for checkStartupComplete to fire navigation"
-                    )
-                }
-                return@LaunchedEffect
-            }
 
             // Pinned shortcut / conversation widget / FCM: MainActivity stores direct room navigation.
             // Do not navigate to room_list here — that flashes RoomListScreen before the WebSocket
@@ -570,6 +574,7 @@ fun AuthCheckScreen(
             // Either WebSocket is connected, or we are offline — in both cases it’s safe to
             // proceed to room_list using cached data.
             if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Spaces loaded from cache - navigating to room_list (isWebSocketConnected=$isWebSocketConnected, network=$currentNetworkType)")
+            android.util.Log.d("StartupTrace", "cache-nav LaunchedEffect: about to navigate('room_list') @ ${System.currentTimeMillis()}")
             appViewModel.isLoading = false
             val currentRoute = navController.currentBackStackEntry?.destination?.route
             if (currentRoute != null && currentRoute != "room_list" &&
@@ -580,6 +585,7 @@ fun AuthCheckScreen(
                 navController.navigate("room_list") {
                     popUpTo("auth_check") { inclusive = true }
                 }
+                android.util.Log.d("StartupTrace", "cache-nav LaunchedEffect: navController.navigate('room_list') returned @ ${System.currentTimeMillis()}")
                 navigationHandled = true
             } else if (currentRoute == "room_list") {
                 // Navigation callback already navigated here; just mark handled.
@@ -623,19 +629,22 @@ fun AuthCheckScreen(
         }
 
     AndromuksTheme {
-        if (skipStartupScreenUi) {
-            Box(
-                modifier = modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background),
-            )
-        } else {
-        // auth_check is normally a loading screen with shared-element avatar.
-        // CRITICAL: Do NOT conditionally remove this based on the current nav route (see below).
-        // NOTE: showStartupMorphOverlay is declared at composable scope (above) so navigation
-        // functions can reset it to false before navigating, making the flight visible.
+        // AuthCheck is a logic-only screen: MainActivity owns the visible loading overlay
+        // (StartupLoadingScreen with the avatar/morph), so AuthCheck renders a blank Box and
+        // navigates to room_list as soon as the cache has populated. The shared-element
+        // avatar transition lives on MainActivity's overlay only.
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
+        )
+        if (false) {
+        // Dead code retained for reference — original AuthCheck UI with its own
+        // StartupLoadingScreen and shared-element avatar. Re-enable by changing the
+        // outer Box above to the previous conditional if MainActivity's overlay
+        // is removed.
         StartupLoadingScreen(
-                progressMessages = appViewModel.startupProgressMessages,
+                progressMessages = emptyList(),
                 modifier = modifier,
                 topContent = {
                     val displayName = appViewModel.currentUserProfile?.displayName ?: appViewModel.currentUserId
