@@ -1444,8 +1444,10 @@ private fun RoomMediaMessageContent(
         // Caption is only body if: 1) filename field exists, 2) body differs from filename, 3) body is not blank
         // If filename field is missing, body IS the filename, not a caption
         val caption = if (filename.isNotBlank() && body != filename && body.isNotBlank()) {
-            val localContent = event.localContent
-            val sanitizedHtml = localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
+            // Prefer the edit event's localContent so stale orig_local_content (e.g. from a
+            // failed-decryption notice that was later replaced by an m.image edit) is not used.
+            val effectiveLocalContent = editedBy?.localContent ?: event.localContent
+            val sanitizedHtml = effectiveLocalContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
             if (sanitizedHtml != null && sanitizedHtml != filename) {
                 sanitizedHtml
             } else {

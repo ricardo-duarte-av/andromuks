@@ -316,9 +316,12 @@ internal class EditVersionCoordinator(
             val mergedDecrypted = JSONObject(newContent.toString())
 
             val finalContent = if (originalEvent.type == "m.room.message") {
+                // Copy all fields from m.new_content so that a msgtype change (e.g. m.notice →
+                // m.image after a failed-decryption re-send) carries over url, info, filename,
+                // formatted_body, etc. — not just body/msgtype. Fields absent from m.new_content
+                // (e.g. m.relates_to) are preserved from the original event.
                 val updatedContent = JSONObject(originalEvent.content.toString())
-                updatedContent.put("body", newContent.optString("body", ""))
-                updatedContent.put("msgtype", newContent.optString("msgtype", "m.text"))
+                newContent.keys().forEach { key -> updatedContent.put(key, newContent.get(key)) }
                 updatedContent
             } else {
                 mergedContent
@@ -327,6 +330,7 @@ internal class EditVersionCoordinator(
             return originalEvent.copy(
                 content = finalContent,
                 decrypted = mergedDecrypted,
+                localContent = editEvent.localContent ?: originalEvent.localContent,
                 redactedBy = originalEvent.redactedBy
             )
         }
