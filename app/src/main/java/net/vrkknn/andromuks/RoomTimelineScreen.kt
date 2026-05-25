@@ -5291,7 +5291,7 @@ fun RoomTimelineScreen(
                                             if (mxcStart >= 0) {
                                                 val mxcEnd = baseReplacement.indexOf("\"", mxcStart)
                                                 if (mxcEnd > mxcStart) {
-                                                    baseReplacement.substring(mxcStart, mxcEnd)
+                                                    baseReplacement.substring(mxcStart, mxcEnd).trimEnd()
                                                 } else {
                                                     baseReplacement.substring(mxcStart)
                                                 }
@@ -5545,7 +5545,7 @@ fun RoomTimelineScreen(
                                 if (mxcStart >= 0) {
                                     val mxcEnd = emoji.indexOf("\"", mxcStart)
                                     if (mxcEnd > mxcStart) {
-                                        emoji.substring(mxcStart, mxcEnd)
+                                        emoji.substring(mxcStart, mxcEnd).trimEnd()
                                     } else {
                                         emoji.substring(mxcStart)
                                     }

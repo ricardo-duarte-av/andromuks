@@ -323,15 +323,28 @@ fun EmojiSelectionDialog(
                             modifier = Modifier
                                 .size(40.dp)
                                 .clip(RoundedCornerShape(8.dp))
-                                .clickable { 
+                                .clickable {
                                     when (emoji) {
                                         is String -> {
-                                            onEmojiSelected(emoji)
+                                            val trimmed = emoji.trim()
+                                            if (trimmed.startsWith("mxc://")) {
+                                                // Recent custom emoji stored as bare mxc URL — look up the
+                                                // name in any available pack so we emit the full inline markup
+                                                // ![:name:](mxc://... "Emoji: :name:") rather than raw mxc://.
+                                                val custom = customEmojiPacks
+                                                    .flatMap { it.emojis }
+                                                    .firstOrNull { it.mxcUrl == trimmed }
+                                                if (custom != null) {
+                                                    onEmojiSelected("![:${custom.name}:](${custom.mxcUrl} \"Emoji: :${custom.name}:\")")
+                                                } else {
+                                                    onEmojiSelected(trimmed)
+                                                }
+                                            } else {
+                                                onEmojiSelected(emoji)
+                                            }
                                         }
                                         is net.vrkknn.andromuks.AppViewModel.CustomEmoji -> {
-                                            // Format custom emoji as ![:name:](mxc://url "Emoji: :name:")
-                                            val formatted = "![:${emoji.name}:](${emoji.mxcUrl} \"Emoji: :${emoji.name}:\")"
-                                            onEmojiSelected(formatted)
+                                            onEmojiSelected("![:${emoji.name}:](${emoji.mxcUrl} \"Emoji: :${emoji.name}:\")")
                                         }
                                     }
                                     onDismiss()
