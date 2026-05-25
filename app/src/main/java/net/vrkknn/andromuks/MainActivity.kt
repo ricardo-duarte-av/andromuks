@@ -1200,7 +1200,18 @@ fun AppNavigation(
             }
 
             if (BuildConfig.DEBUG) {
-                Log.d("Andromuks", "AppNavigation: proceeding with navigation to $roomId (ws=${appViewModel.isWebSocketConnected()} spaces=${appViewModel.spacesLoaded})")
+                Log.d("Andromuks", "AppNavigation: poll done for $roomId (ws=${appViewModel.isWebSocketConnected()} spaces=${appViewModel.spacesLoaded} currentRoom=${appViewModel.currentRoomId})")
+            }
+
+            // Post-poll guard: for FCM cold-start, AuthCheck's navigation callback fires
+            // exactly when the WS connects — the same moment this polling loop exits.
+            // AuthCheck calls navigateToRoomWithCache synchronously (setting currentRoomId)
+            // before returning. If it won the race, skip executeRoomNavigation here to
+            // avoid a second navigateToRoomWithCache + popUpTo that re-composes the timeline
+            // and causes the "timeline renders then vanishes" symptom.
+            if (request.roomId == appViewModel.currentRoomId) {
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "AppNavigation: $roomId is already current after poll — AuthCheck handled it, bailing")
+                return@collectLatest
             }
 
             val clearFn: () -> Unit = when (request.source) {

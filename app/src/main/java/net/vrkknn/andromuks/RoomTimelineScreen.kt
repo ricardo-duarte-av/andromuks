@@ -3339,8 +3339,8 @@ fun RoomTimelineScreen(
                         roomState = currentRoomState,
                         fallbackName = displayRoomName,
                         fallbackAvatarUrl = displayAvatarUrl,
-                        homeserverUrl = appViewModel.homeserverUrl,
-                        authToken = appViewModel.authToken,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
                         roomId = roomId,
                         sharedTransitionScope = sharedTransitionScope,
                         animatedVisibilityScope = animatedVisibilityScope,
@@ -5406,7 +5406,7 @@ fun RoomTimelineScreen(
                                 showRoomSuggestionList = false
                                 roomQuery = ""
                             },
-                            homeserverUrl = appViewModel.homeserverUrl,
+                            homeserverUrl = homeserverUrl,
                             authToken = authToken,
                             modifier = Modifier.zIndex(10f)
                         )
@@ -5451,7 +5451,7 @@ fun RoomTimelineScreen(
                                 showMentionList = false
                                 mentionQuery = ""
                             },
-                            homeserverUrl = appViewModel.homeserverUrl,
+                            homeserverUrl = homeserverUrl,
                             authToken = authToken,
                             modifier = Modifier.zIndex(10f)
                         )

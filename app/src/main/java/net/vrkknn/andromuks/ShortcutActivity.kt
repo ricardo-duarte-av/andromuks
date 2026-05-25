@@ -180,7 +180,11 @@ fun ShortcutNavigation(roomId: String) {
     // Fast path: if the WebSocket is already connected (app was running in the background)
     // skip the loading spinner entirely and go straight to the room.
     val alreadyConnected = remember { WebSocketService.isWebSocketConnected() }
-    var hasNavigated by remember { mutableStateOf(false) }
+    // When alreadyConnected=true the NavHost renders immediately (showLoading=false) and
+    // RoomTimelineScreen.LaunchedEffect(roomId) owns loading — mark as already navigated so
+    // the slow-path effects don't issue a second navigateToRoomWithCache for the same room,
+    // which would clear timelineEvents mid-render for rooms with <50 cached events.
+    var hasNavigated by remember { mutableStateOf(alreadyConnected) }
     // Only show the loading screen when we actually need to wait for the connection.
     var showLoading by remember { mutableStateOf(!alreadyConnected) }
 
@@ -189,6 +193,15 @@ fun ShortcutNavigation(roomId: String) {
         val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
         val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
         val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+
+        // Expose homeserver URL and auth token on the ViewModel so that any composable
+        // using appViewModel.homeserverUrl / appViewModel.authToken directly (e.g.
+        // RoomHeader, mention/room-suggestion lists) gets a valid value rather than the
+        // empty-string default.  Most composables already fall back to SharedPreferences
+        // via the local `homeserverUrl` variable, but RoomHeader passes these fields
+        // through directly and would render a broken room-avatar without this call.
+        appViewModel.updateHomeserverUrl(homeserverUrl)
+        appViewModel.updateAuthToken(authToken)
 
         // Sidecar mode: the service may have been suspended in the background.
         // Clear the flag so ServiceStartWorker / startWebSocketService aren't blocked
@@ -207,15 +220,7 @@ fun ShortcutNavigation(roomId: String) {
             appViewModel.loadStateFromStorage(context)
         }
 
-        // Fast path: WebSocket was already up when the composable was first created —
-        // set up room state now (init above has finished) and mark navigation done so
-        // the slow-path LaunchedEffects below do nothing.
-        if (alreadyConnected && !hasNavigated) {
-            appViewModel.setCurrentRoomIdForTimeline(roomId)
-            appViewModel.navigateToRoomWithCache(roomId)
-            hasNavigated = true
-            showLoading = false
-        } else if (!alreadyConnected) {
+        if (!alreadyConnected) {
             // Cold-start path: nothing here was previously kicking off the WebSocket
             // when the service was dead (sidecar mode suspended, or process death after
             // a long background). The slow-path LaunchedEffect below polls
