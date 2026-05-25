@@ -373,25 +373,31 @@ class MainActivity : ComponentActivity() {
                             val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
                             val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
                             val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
-                            if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
-                                appViewModel.initializeFCM(this, homeserverUrl, authToken, skipCacheClear)
+
+                            // Pre-warm the singleton ImageLoader and OkHttp/SSL stack on IO so the first
+                            // AvatarImage render doesn't pay an ~800ms newSSLContext cost on Main.
+                            // Also runs initializeFCM (constructs another OkHttp client + opens SharedPrefs
+                            // ~168ms each), loadCachedProfiles (opens RoomMetadataStore + hydrates), and
+                            // loadSettings (more SharedPrefs reads) off the main thread.
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                net.vrkknn.andromuks.utils.ImageLoaderSingleton.initFromStorage(this@MainActivity)
+                                net.vrkknn.andromuks.utils.ImageLoaderSingleton.get(this@MainActivity)
+                                if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+                                    appViewModel.initializeFCM(this@MainActivity, homeserverUrl, authToken, skipCacheClear)
+                                }
+                                appViewModel.loadCachedProfiles(this@MainActivity)
+                                appViewModel.loadSettings(this@MainActivity)
                             }
-                            
+
                             // CRITICAL: Populate roomMap from singleton cache when opening from notification
                             // This ensures rooms have summaries before sync_complete messages can overwrite them
-                            // Do this BEFORE loading profiles so roomMap is populated early
+                            // Do this BEFORE loading profiles so roomMap is populated early. These are
+                            // in-memory state writes (Compose-observable), must stay on Main.
                             if (fromNotification || directNavigation) {
                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Opening from notification/shortcut - populating roomMap from singleton cache")
                                 appViewModel.populateRoomMapFromCache()
                                 appViewModel.populateSpacesFromCache()
                             }
-                            
-                            // Load cached user profiles on app startup
-                            // This restores previously saved user profile data from disk
-                            appViewModel.loadCachedProfiles(this)
-                            
-                            // Load app settings from SharedPreferences
-                            appViewModel.loadSettings(this)
                             
                             // CRITICAL FIX #2: Check for pending items on app startup and process them
                             // NOTE: This is called AFTER loadSettings to ensure syncIngestor can be initialized
@@ -1268,8 +1274,6 @@ fun AppNavigation(
                 navController = navController,
                 modifier = modifier,
                 appViewModel = appViewModel,
-                sharedTransitionScope = this@SharedTransitionLayout,
-                animatedVisibilityScope = this@composable
             )
         }
         composable("permissions") {
@@ -1307,7 +1311,6 @@ fun AppNavigation(
             popExitTransition = { fadeOut(tween(500)) }
         ) { backStackEntry ->
             val navigationScope = this
-            android.util.Log.d("StartupTrace", "NavHost: room_list composable ENTERED @ ${System.currentTimeMillis()}")
             // CRITICAL FIX: Always show StartupLoadingScreen initially to prevent white flash during navigation
             // Use Box with background to ensure no white flash even during transition
             androidx.compose.foundation.layout.Box(

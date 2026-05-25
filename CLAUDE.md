@@ -60,6 +60,23 @@ OkHttp WebSocket (Matrix protocol)
 - **Coordinator classes** (18+) — Each owns a specific feature domain (reactions, read receipts, typing, FCM, uploads, navigation, settings, etc.). They decompose AppViewModel complexity.
 - **Cache classes** (12+) — `RoomTimelineCache`, `RoomListCache`, `RoomMemberCache`, `ProfileCache`, `SpaceListCache`, `RoomAccountDataCache`, etc. Singleton in-memory stores shared across Activities. `IntelligentMediaCache` is used by `ConversationsApi` (shortcut icons) and `PersonsApi`/`EnhancedNotificationDisplay` (notification avatars) — **not** for timeline media or UI avatar display, both of which delegate entirely to Coil's built-in disk/memory cache. `RoomAccountDataCache` holds per-room account data (e.g. `fi.mau.gomuks.preferences`) populated from sync.
 
+### Cold-start cache-first rendering
+
+On cold start, the app paints `RoomListScreen` from the persisted room cache before the WebSocket even connects. The flow:
+
+1. **MainActivity.onCreate** calls `loadCachedProfiles(context)` which initializes `RoomMetadataStore` (SQLite) and runs `RoomListCache.hydrateFromDisk()` (read rows into the singleton).
+2. **AuthCheck.LaunchedEffect(Unit)** re-runs the hydrate on `Dispatchers.IO` (idempotent), then calls `populateRoomMapFromCache()` on Main — this copies the singleton into `roomMap` and flips `spacesLoaded = true` (via `SyncRoomsCoordinator.populateRoomMapFromCache`).
+3. A separate `LaunchedEffect(appViewModel.spacesLoaded, …)` in AuthCheck observes the flip and calls `navController.navigate("room_list")`. AuthCheck itself renders only a blank `Box` — it's logic-only; the visible loading overlay lives in MainActivity.
+4. **MainActivity** wraps `RoomListScreen` in `AnimatedVisibility(visible = cacheReady || (isStartupComplete && showRoomList))` where `cacheReady = spacesLoaded`. The `cacheReady` short-circuit is what allows RoomListScreen to compose before the WebSocket init completes. The `enter` transition is `tween(0)` (instant) for the same reason.
+5. AuthCheck's main effect then **`delay(32)`** (one frame) so Compose can paint, then continues with `initializeFCM(... )` on IO and the WebSocket connect. This keeps the heavy startup work from competing with the first paint.
+6. The `auth_check ↔ room_list` NavHost transitions are `EnterTransition.None / ExitTransition.None` — there is no shared-element avatar to fly any more, so the fade is dead weight.
+
+**`RoomMetadataStore` v2 schema** adds `sort_ts INTEGER NOT NULL DEFAULT 0`. `RoomListCache.persistMetadata` calls `RoomMetadataStore.upsertSortTs(roomId, ts)` for every `RoomItem` carrying a `sortingTimestamp`; `hydrateFromDisk` restores it. The cached room list therefore sorts by last activity even before the WS lands, and the user's most recently active room naturally floats to the top.
+
+**`clear_state` reset is currently disabled** in `SyncRoomsCoordinator.processSyncCompleteAtomic`. The first `sync_complete` after WS open arrives with `clear_state=true`, which previously called `handleClearStateReset()` and wiped the just-populated `roomMap`. Skipping the reset lets cached rooms survive the WS init; subsequent `sync_complete` messages merge on top. To restore the original behavior, uncomment the `handleClearStateReset()` call (single line). Risk: rooms the user has been removed from since last sync may linger until the next clear_state actually runs.
+
+**`RoomListScreen.stableSection` invariant**: holding the cached list visible during initial sync requires `appViewModel.initialSyncProcessingComplete` (NOT `initialSyncComplete`) — the latter flips earlier and exposes mid-merge state. The stableSection updater guards on `!initialSyncProcessingComplete && hadContent` and adds `initialSyncProcessingComplete` to its `LaunchedEffect` keys so the final apply fires once when processing ends.
+
 ### Entry Points
 
 - **`MainActivity`** — Primary entry, hosts Compose NavController, initializes AppViewModel and WebSocket.

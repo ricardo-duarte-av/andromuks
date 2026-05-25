@@ -253,7 +253,6 @@ fun RoomListScreen(
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null
 ) {
     val context = LocalContext.current
-    android.util.Log.d("StartupTrace", "RoomListScreen: compose entry @ ${System.currentTimeMillis()}")
     val hapticFeedback = LocalHapticFeedback.current
     val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
     val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
@@ -325,12 +324,7 @@ fun RoomListScreen(
     // CRITICAL FIX: Initialize synchronously with current data to avoid delay when returning from RoomTimelineScreen
     // This ensures rooms appear immediately instead of waiting for LaunchedEffect
     var stableSection by remember {
-        val seed = appViewModel.getCurrentRoomSection()
-        android.util.Log.d(
-            "StartupTrace",
-            "RoomListScreen: stableSection seeded with rooms=${seed.rooms.size}, spaces=${seed.spaces.size}, roomMap=${appViewModel.roomMap.size} @ ${System.currentTimeMillis()}"
-        )
-        mutableStateOf(seed)
+        mutableStateOf(appViewModel.getCurrentRoomSection())
     }
     
     // SAFETY NET: After initial sync completes, ensure stableSection is populated at least once.
