@@ -769,6 +769,27 @@ class SyncIngestor(private val context: Context) {
         // Extract relates_to for edits/reactions
         // For encrypted messages, check decrypted content if available
         val content = eventJson.optJSONObject("content")
+        // When hicli serves an edited E2EE reply via paginate, it pre-applies m.new_content into
+        // content but drops m.in_reply_to (since m.new_content doesn't carry it). Recover the
+        // reply relation from orig_content before we read m.relates_to below.
+        if (content != null) {
+            val origInReplyToId = eventJson.optJSONObject("orig_content")
+                ?.optJSONObject("m.relates_to")
+                ?.optJSONObject("m.in_reply_to")
+                ?.optString("event_id")
+                ?.takeIf { it.isNotBlank() }
+            if (origInReplyToId != null) {
+                val existingRelatesTo = content.optJSONObject("m.relates_to")
+                val hasInReplyTo = existingRelatesTo
+                    ?.optJSONObject("m.in_reply_to")
+                    ?.optString("event_id")
+                    ?.isNotBlank() == true
+                if (!hasInReplyTo) {
+                    val relatesToObj = existingRelatesTo ?: JSONObject().also { content.put("m.relates_to", it) }
+                    relatesToObj.put("m.in_reply_to", JSONObject().put("event_id", origInReplyToId))
+                }
+            }
+        }
         val messageContent = when {
             type == "m.room.message" -> content
             type == "m.room.encrypted" && decryptedType == "m.room.message" -> {

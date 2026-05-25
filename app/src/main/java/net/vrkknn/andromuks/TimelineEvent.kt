@@ -81,6 +81,27 @@ data class TimelineEvent(
             if (aggregatedReactions != null && content != null && !content.has("reactions")) {
                 content.put("reactions", aggregatedReactions)
             }
+            // When hicli paginates an edited E2EE reply, it pre-applies the edit (m.new_content
+            // → content) but m.new_content doesn't carry m.in_reply_to, so the reply relation is
+            // dropped. Recover it from orig_content, which holds the pre-edit content.
+            if (content != null) {
+                val origInReplyToId = json.optJSONObject("orig_content")
+                    ?.optJSONObject("m.relates_to")
+                    ?.optJSONObject("m.in_reply_to")
+                    ?.optString("event_id")
+                    ?.takeIf { it.isNotBlank() }
+                if (origInReplyToId != null) {
+                    val existingRelatesTo = content.optJSONObject("m.relates_to")
+                    val hasInReplyTo = existingRelatesTo
+                        ?.optJSONObject("m.in_reply_to")
+                        ?.optString("event_id")
+                        ?.isNotBlank() == true
+                    if (!hasInReplyTo) {
+                        val relatesToObj = existingRelatesTo ?: JSONObject().also { content.put("m.relates_to", it) }
+                        relatesToObj.put("m.in_reply_to", JSONObject().put("event_id", origInReplyToId))
+                    }
+                }
+            }
             val transactionId = json.optString("transaction_id").takeIf { it.isNotBlank() }
             
             return TimelineEvent(
