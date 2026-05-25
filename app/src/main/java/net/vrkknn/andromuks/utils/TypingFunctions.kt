@@ -80,8 +80,8 @@ fun TypingNotificationArea(
                     // Prioritize AppViewModel profile over cache
                     val profile = appViewModel?.getUserProfile(user, roomId) ?: userProfileCache[user]
                     val avatarUrl = profile?.avatarUrl
-                    val displayName = profile?.displayName
-                    
+                    val displayName = profile?.displayName?.takeIf { it.isNotBlank() }
+
                     AvatarImage(
                         mxcUrl = avatarUrl,
                         homeserverUrl = homeserverUrl,
@@ -106,7 +106,10 @@ fun TypingNotificationArea(
                         typingUsers.size == 1 -> {
                             val user = typingUsers.first()
                             val profile = appViewModel?.getUserProfile(user, roomId) ?: userProfileCache[user]
-                            val displayName = profile?.displayName
+                            // Treat empty/blank display names as "unset" — same convention as
+                            // RoomListItem and UserInfo, where ?: nullish-coalesce alone would
+                            // accept "" and produce " is typing".
+                            val displayName = profile?.displayName?.takeIf { it.isNotBlank() }
                             val userName = displayName ?: user.substringAfter("@").substringBefore(":")
                             "$userName is typing..."
                         }
@@ -114,7 +117,8 @@ fun TypingNotificationArea(
                             // Build comma-separated list of user names
                             val userNames = typingUsers.map { user ->
                                 val profile = appViewModel?.getUserProfile(user, roomId) ?: userProfileCache[user]
-                                profile?.displayName ?: user.substringAfter("@").substringBefore(":")
+                                profile?.displayName?.takeIf { it.isNotBlank() }
+                                    ?: user.substringAfter("@").substringBefore(":")
                             }
                             
                             when (userNames.size) {
