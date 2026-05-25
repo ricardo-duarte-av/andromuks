@@ -33,11 +33,17 @@ class AutoRestartWorker(
         if (BuildConfig.DEBUG) Log.d(TAG, "AutoRestartWorker started")
         
         try {
+            // Sidecar mode: user intentionally disconnected — do not restart.
+            if (WebSocketService.isSidecarUserDisconnected(applicationContext)) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "sidecar user-disconnected — skipping auto-restart check")
+                return@withContext Result.success()
+            }
+
             // Check if we have credentials (user is logged in)
             val prefs = applicationContext.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
             val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
-            
+
             if (homeserverUrl.isEmpty() || authToken.isEmpty()) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "No credentials found - user not logged in, skipping auto-restart check")
                 return@withContext Result.success()

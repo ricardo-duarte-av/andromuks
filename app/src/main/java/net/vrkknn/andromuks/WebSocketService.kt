@@ -609,6 +609,10 @@ class WebSocketService : Service() {
                     RoomTimelineCache.clearAll()
                 }
                 setSidecarUserDisconnected(ctx, true)
+                // Suspend the periodic health-check worker so it doesn't wake the app
+                // every 15 minutes while the user is intentionally disconnected.
+                // It is rescheduled when the app returns to the foreground.
+                WebSocketHealthCheckWorker.cancel(ctx)
                 svc.stopService()
             }
             if (BuildConfig.DEBUG) android.util.Log.d(
@@ -3225,6 +3229,11 @@ class WebSocketService : Service() {
             // Reset connection state
             updateConnectionState(ConnectionState.Disconnected)
             
+            // Cancel the heartbeat alarm before stopSelf() so it cannot fire in the brief
+            // window between stopSelf() and onDestroy() and restart the service via
+            // PendingIntent.getService().
+            cancelHeartbeatAlarm()
+
             // Stop foreground service immediately
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 stopForeground(Service.STOP_FOREGROUND_REMOVE)
@@ -3232,7 +3241,7 @@ class WebSocketService : Service() {
                 @Suppress("DEPRECATION")
                 stopForeground(true)
             }
-            
+
             // Stop self immediately
             stopSelf()
             
@@ -3813,8 +3822,13 @@ class WebSocketService : Service() {
             android.util.Log.w("WebSocketService", "Service started without login credentials - notification will show 'Waiting for app...'")
         }
         
-        // CRITICAL FIX: Return START_STICKY to ensure service restarts if killed by system
-        // This is essential for reliability, especially without battery optimization exemption
+        // In sidecar mode with the user-disconnected flag set, don't ask Android to auto-restart
+        // the service if it's killed under memory pressure — the user deliberately suspended it.
+        // In all other cases keep START_STICKY so the service survives transient kills.
+        if (isSidecarUserDisconnected(this)) {
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "onStartCommand: sidecar user-disconnected — returning START_NOT_STICKY")
+            return START_NOT_STICKY
+        }
         return START_STICKY
     }
 
@@ -3865,12 +3879,15 @@ class WebSocketService : Service() {
             // Clear instance reference
             instance = null
             
-            // Trigger auto-restart via WorkManager (unless this was an intentional stop)
-            // Check if this was an intentional stop by checking if stopService() was called
-            // We can't easily detect this, so we'll always schedule a restart and let
-            // ServiceStartWorker check if credentials exist (if user logged out, it won't start)
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Scheduling auto-restart via WorkManager")
-            scheduleAutoRestart("Service destroyed")
+            // Skip auto-restart when the user intentionally disconnected in sidecar mode.
+            // ServiceStartWorker would block it anyway, but skipping here avoids wasting
+            // WorkManager quota and briefly waking the app process.
+            if (isSidecarUserDisconnected(applicationContext)) {
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "onDestroy: sidecar user-disconnected — skipping auto-restart")
+            } else {
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Scheduling auto-restart via WorkManager")
+                scheduleAutoRestart("Service destroyed")
+            }
             
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service cleanup completed")
         } catch (e: Exception) {
@@ -3880,10 +3897,21 @@ class WebSocketService : Service() {
     
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
+
+        // In sidecar mode the linger timer owns teardown. Scheduling a 1-second restart alarm
+        // here would race the 15-second linger: the alarm fires before sidecar_user_disconnected
+        // is set, ServiceStartWorker sees the flag clear, and the service restarts — bypassing
+        // the whole sidecar disconnect contract. Skip the alarm whenever the linger is counting
+        // down OR the flag is already set (service was previously disconnected this session).
+        if (sidecarLingerJob?.isActive == true || isSidecarUserDisconnected(applicationContext)) {
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "WebSocketService",
+                "onTaskRemoved: sidecar mode — skipping restart alarm",
+            )
+            return
+        }
+
         android.util.Log.w("WebSocketService", "onTaskRemoved() called - app removed from recent apps, scheduling AlarmManager restart")
-        
-        // Schedule AlarmManager restart (1 second delay) to restart service
-        // This ensures service restarts even if app is swiped away from recents
         scheduleAlarmManagerRestart("App removed from recent apps")
     }
 

@@ -73,11 +73,18 @@ class WebSocketHealthCheckWorker(
         if (BuildConfig.DEBUG) Log.d(TAG, "WebSocket health check worker started")
         
         try {
+            // Sidecar mode: user intentionally disconnected while backgrounded — do nothing.
+            // Attempting a reconnect here would defeat the whole point of sidecar mode.
+            if (WebSocketService.isSidecarUserDisconnected(applicationContext)) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "sidecar user-disconnected — skipping health check")
+                return@withContext Result.success()
+            }
+
             // Check if we have credentials (user is logged in)
             val prefs = applicationContext.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
             val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
-            
+
             if (homeserverUrl.isEmpty() || authToken.isEmpty()) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "No credentials found - user not logged in, skipping health check")
                 return@withContext Result.success()

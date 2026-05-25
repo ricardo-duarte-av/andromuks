@@ -227,6 +227,10 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
             appContext?.applicationContext?.let { ctx ->
                 if (useSidecarMode && WebSocketService.isSidecarUserDisconnected(ctx)) {
                     WebSocketService.setSidecarUserDisconnected(ctx, false)
+                    // Reschedule the health-check worker that was suspended when the sidecar
+                    // linger fired. Without this, persistent-WS mode gets no periodic watchdog
+                    // after the first sidecar session ends.
+                    WebSocketHealthCheckWorker.schedule(ctx)
                 }
 
                 val pingFired = WebSocketService.pingNowWithWatchdog()
