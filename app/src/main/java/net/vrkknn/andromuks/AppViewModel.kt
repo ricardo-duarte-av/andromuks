@@ -4657,6 +4657,12 @@ class AppViewModel : ViewModel() {
     internal val eventChainMap: MutableMap<String, EventChainEntry> = ConcurrentHashMap()
     internal val editEventsMap: MutableMap<String, TimelineEvent> = ConcurrentHashMap()
     internal val eventChainMapLock = Any()
+    // Monotonically increasing counter bumped each time buildTimelineFromChain is dispatched.
+    // executeTimelineRebuild captures the value at launch time and discards its result if a newer
+    // rebuild has been dispatched by the time it tries to write timelineEvents on Main — this
+    // prevents a stale pre-flush rebuild from overwriting a fresher post-flush result.
+    // Only ever read/written on the Main thread (inside viewModelScope.launch(Dispatchers.Main)).
+    internal var timelineRebuildGeneration: Int = 0
     internal val roomsPaginatedOnce = Collections.synchronizedSet(mutableSetOf<String>())
     // Track rooms that need timeline rebuild during batch processing (defer rebuild until batch completes)
     internal val roomsNeedingRebuildDuringBatch = Collections.synchronizedSet(mutableSetOf<String>())
@@ -9366,8 +9372,12 @@ class AppViewModel : ViewModel() {
                 rebuildComplete?.complete(Unit)
                 return@launch
             }
+            // Capture the current generation on Main before dispatching to Default. If another
+            // rebuild is dispatched (e.g. post-flush) while this one is running, the generation
+            // will have advanced and executeTimelineRebuild will discard the stale result.
+            val capturedGeneration = ++timelineRebuildGeneration
             viewModelScope.launch(Dispatchers.Default) {
-                executeTimelineRebuild(rebuildComplete, expectedRoomId)
+                executeTimelineRebuild(rebuildComplete, expectedRoomId, capturedGeneration)
             }
         }
     }
@@ -9377,7 +9387,7 @@ class AppViewModel : ViewModel() {
      * Separated from buildTimelineFromChain() to allow debouncing.
      * @param rebuildComplete If non-null, completed on Main after state is updated (so callers can run post-rebuild steps).
      */
-    private suspend fun executeTimelineRebuild(rebuildComplete: CompletableDeferred<Unit>? = null, expectedRoomId: String? = null) {
+    private suspend fun executeTimelineRebuild(rebuildComplete: CompletableDeferred<Unit>? = null, expectedRoomId: String? = null, capturedGeneration: Int = 0) {
         if (BuildConfig.DEBUG) {
             val callStack = Thread.currentThread().stackTrace.take(5).joinToString(" -> ") { it.methodName }
             android.util.Log.d(
@@ -9548,6 +9558,16 @@ class AppViewModel : ViewModel() {
                 // has since navigated to a different room, discard the result entirely.
                 if (expectedRoomId != null && currentRoomId != expectedRoomId) {
                     if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "executeTimelineRebuild: Discarding stale rebuild for $expectedRoomId (currentRoomId=$currentRoomId)")
+                    isTimelineLoading = false
+                    rebuildComplete?.complete(Unit)
+                    return@withContext
+                }
+                // Guard against concurrent-rebuild races: if a newer rebuild was dispatched
+                // (e.g. a post-flush rebuild superseding a pre-flush one), discard this stale result.
+                // capturedGeneration == 0 only when called without the new plumbing (shouldn't happen
+                // in production, but keeps old call-sites safe).
+                if (capturedGeneration != 0 && capturedGeneration != timelineRebuildGeneration) {
+                    if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "executeTimelineRebuild: Discarding stale rebuild gen=$capturedGeneration (current=$timelineRebuildGeneration)")
                     isTimelineLoading = false
                     rebuildComplete?.complete(Unit)
                     return@withContext

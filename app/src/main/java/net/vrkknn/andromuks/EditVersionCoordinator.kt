@@ -222,15 +222,52 @@ internal class EditVersionCoordinator(
 
     fun buildEditChainsFromEvents(timelineList: List<TimelineEvent>, clearExisting: Boolean = true) {
         if (clearExisting) {
-            // Lock so a concurrent buildTimelineFromChain on Dispatchers.Default cannot
-            // snapshot a half-cleared pair (eventChainMap empty but editEventsMap still
-            // populated, or vice versa).
+            // Hold the lock for the entire clear+rebuild so executeTimelineRebuild's snapshot
+            // (also under eventChainMapLock) cannot observe an empty map between the clear and
+            // the rebuild — which would produce an empty timelineEvents write on the UI thread.
             synchronized(vm.eventChainMapLock) {
                 vm.eventChainMap.clear()
                 vm.editEventsMap.clear()
+                for (event in timelineList) {
+                    val isEditEvt = isEditEvent(event)
+                    if (isEditEvt) {
+                        vm.editEventsMap[event.eventId] = event
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d(
+                                "Andromuks",
+                                "AppViewModel: Added edit event ${event.eventId} to edit events map"
+                            )
+                        }
+                    } else {
+                        val existingEntry = vm.eventChainMap[event.eventId]
+                        if (existingEntry == null || event.timestamp > existingEntry.originalTimestamp) {
+                            vm.eventChainMap[event.eventId] = AppViewModel.EventChainEntry(
+                                eventId = event.eventId,
+                                ourBubble = event,
+                                replacedBy = existingEntry?.replacedBy,
+                                originalTimestamp = event.timestamp
+                            )
+                            if (BuildConfig.DEBUG && existingEntry != null) {
+                                android.util.Log.d(
+                                    "Andromuks",
+                                    "AppViewModel: Updated existing event ${event.eventId} in chain mapping (newer timestamp)"
+                                )
+                            } else if (BuildConfig.DEBUG) {
+                                android.util.Log.d(
+                                    "Andromuks",
+                                    "AppViewModel: Added regular event ${event.eventId} to chain mapping"
+                                )
+                            }
+                        }
+                    }
+                }
             }
+            return
         }
 
+        // Non-clearing path: append entries without holding the lock. Callers that pass
+        // clearExisting=false are adding incremental events to an already-populated map;
+        // there is no empty-map window to guard against here.
         for (event in timelineList) {
             val isEditEvt = isEditEvent(event)
 
