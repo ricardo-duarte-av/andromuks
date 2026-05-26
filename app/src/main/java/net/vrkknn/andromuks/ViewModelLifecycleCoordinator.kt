@@ -225,7 +225,9 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
             //      reconnect on no-traffic via clearWebSocket + scheduleReconnection.
             // If the connection is actually healthy, the cost is one ping round-trip.
             appContext?.applicationContext?.let { ctx ->
+                WebSocketService.consumeForceFreshTimelinePaginatePending(ctx, vm)
                 if (useSidecarMode && WebSocketService.isSidecarUserDisconnected(ctx)) {
+                    markForceFreshPaginateAfterWsDown()
                     WebSocketService.setSidecarUserDisconnected(ctx, false)
                     // Reschedule the health-check worker that was suspended when the sidecar
                     // linger fired. Without this, persistent-WS mode gets no periodic watchdog

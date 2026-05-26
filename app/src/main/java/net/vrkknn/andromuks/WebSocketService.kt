@@ -548,6 +548,7 @@ class WebSocketService : Service() {
         // (process death + tap on FCM notification), MainActivity clears it on
         // onCreate so the service can run again immediately.
         private const val PREF_SIDECAR_USER_DISCONNECTED = "sidecar_user_disconnected"
+        private const val PREF_FORCE_FRESH_TIMELINE_PAGINATE = "force_fresh_timeline_paginate"
 
         fun isSidecarUserDisconnected(context: Context): Boolean =
             context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
@@ -560,6 +561,23 @@ class WebSocketService : Service() {
                 "WebSocketService",
                 "sidecar_user_disconnected set to: $value"
             )
+        }
+
+        fun isForceFreshTimelinePaginatePending(context: Context): Boolean =
+            context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                .getBoolean(PREF_FORCE_FRESH_TIMELINE_PAGINATE, false)
+
+        fun setForceFreshTimelinePaginatePending(context: Context, value: Boolean) {
+            context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                .edit().putBoolean(PREF_FORCE_FRESH_TIMELINE_PAGINATE, value).apply()
+        }
+
+        /** Consume the process-survival flag into [vm] if set (sidecar linger with no attached VM). */
+        fun consumeForceFreshTimelinePaginatePending(context: Context, vm: AppViewModel) {
+            if (isForceFreshTimelinePaginatePending(context)) {
+                vm.markForceFreshPaginateAfterWsDown()
+                setForceFreshTimelinePaginatePending(context, false)
+            }
         }
 
         /**
@@ -594,19 +612,16 @@ class WebSocketService : Service() {
                     "WebSocketService",
                     "Sidecar linger expired — stopping service",
                 )
-                // Drop the in-memory timeline cache + paginate cursors before tearing down
-                // the WS. On reconnect the server sends clear_state=true and re-hydrates
-                // everything, so keeping these around only risks a stale pagination merge
-                // if the user reopens a room before the new sync lands. Prefer routing
-                // through the live AppViewModel (so its instance maps are wiped too); fall
-                // back to the singleton wipe if no VM is attached.
+                // Flag the next room open to paginate fresh instead of trusting a cache that
+                // may predate this disconnect. The cache itself is kept — paginate on open
+                // will merge/replace via the normal response handlers.
                 val primaryVm = SyncRepository.getPrimaryViewModelId()
                     ?.let { SyncRepository.getViewModel(it) }
                     ?: SyncRepository.getAttachedViewModels().firstOrNull()
                 if (primaryVm != null) {
-                    primaryVm.clearTimelineCachesForServerResync()
+                    primaryVm.markForceFreshPaginateAfterWsDown()
                 } else {
-                    RoomTimelineCache.clearAll()
+                    setForceFreshTimelinePaginatePending(ctx, true)
                 }
                 setSidecarUserDisconnected(ctx, true)
                 // Suspend the periodic health-check worker so it doesn't wake the app

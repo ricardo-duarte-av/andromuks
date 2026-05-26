@@ -17,6 +17,29 @@ import org.json.JSONObject
  * [with] on the ViewModel so internal timeline APIs stay on [AppViewModel].
  */
 internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
+    /** Drop stale in-flight paginate tracking so a fresh max_timeline_id=0 fetch can proceed. */
+    private fun clearPendingPaginateStateForRoom(roomId: String) {
+        with(vm) {
+            roomsWithPendingPaginate.remove(roomId)
+            val paginateIdsToRemove =
+                paginateRequests.filterValues { it == roomId }.keys.toList()
+            paginateIdsToRemove.forEach { id ->
+                paginateRequests.remove(id)
+                paginateRequestMaxTimelineIds.remove(id)
+            }
+            timelineRequests.filterValues { it == roomId }.keys.toList()
+                .forEach { timelineRequests.remove(it) }
+            backgroundPrefetchRequests.filterValues { it == roomId }.keys.toList()
+                .forEach { backgroundPrefetchRequests.remove(it) }
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                    "Andromuks",
+                    "TimelineCacheCoordinator: Cleared pending paginate state for $roomId",
+                )
+            }
+        }
+    }
+
     fun clearTimelineCache() {
         with(vm) {
             if (BuildConfig.DEBUG)
@@ -716,14 +739,23 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 "🟢 requestRoomTimeline: START - roomId=$roomId, useLruCache=$useLruCache, currentRoomId=$currentRoomId, isTimelineLoading=$isTimelineLoading, isPaginating=$isPaginating",
             )
 
+            val forceFreshPaginate = needsFreshTimelinePaginate()
+
+            if (forceFreshPaginate) {
+                clearPendingPaginateStateForRoom(roomId)
+                isPaginating = false
+            }
+
             // Check if we're refreshing the same room before updating currentRoomId.
             // "Same room" requires a meaningfully loaded timeline — not just any events.
             // A handful of rowId=-1 sync-bootstrap events leaks past .isNotEmpty() and was making
             // the post-init_complete retry skip its paginate (both the line ~896 path and the
             // line ~1001 "cache insufficient" path are gated on !isRefreshingSameRoom), leaving
             // the screen stuck on "Room loading..." because no real fetch ever fired.
+            // Also skip when the WS was down at open — stale VM events must not block paginate.
             val refreshThreshold = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT / 2
-            val isRefreshingSameRoom = currentRoomId == roomId && timelineEvents.size >= refreshThreshold
+            val isRefreshingSameRoom = !forceFreshPaginate &&
+                currentRoomId == roomId && timelineEvents.size >= refreshThreshold
 
             // LRU CACHE: Try to restore from cache first (instant room switch)
             // LRU restore requires at least INITIAL_ROOM_PAGINATE_LIMIT/2 cached events. A handful
@@ -734,6 +766,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // arrive.
             val lruThreshold = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT / 2
             val lruRestoreEligible = useLruCache &&
+                !forceFreshPaginate &&
                 !isRefreshingSameRoom &&
                 (RoomTimelineCache.getCachedEventCount(roomId) >= lruThreshold)
             if (lruRestoreEligible && restoreFromLruCache(roomId)) {
@@ -888,7 +921,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // CRITICAL FIX: Removed isActivelyCached requirement from instant cache hit
             // If we have events in RAM, we should ALWAYS show them immediately.
             // If not actively cached, we will activate it and paginate in the background.
-            if (cachedEvents != null && cachedEvents.isNotEmpty()) {
+            if (cachedEvents != null && cachedEvents.isNotEmpty() && !forceFreshPaginate) {
                 if (BuildConfig.DEBUG)
                     android.util.Log.d(
                         "Andromuks",
@@ -991,6 +1024,10 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     roomsWithPendingPaginate.remove(roomId)
                 }
 
+                if (!isWebSocketConnected()) {
+                    roomsAwaitingInitCompletePaginate.add(roomId)
+                }
+
                 return
             }
 
@@ -1042,27 +1079,40 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             val cacheInsufficientThreshold = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT / 2
             val cacheInsufficient = currentCachedCount < cacheInsufficientThreshold
 
-            if (cacheInsufficient && !isRefreshingSameRoom) {
+            if ((cacheInsufficient || forceFreshPaginate) && !isRefreshingSameRoom) {
                 // Cache is insufficient - send paginate request to populate it
                 // GUARD: Check if a paginate request is already pending for this room (atomic
                 // check-and-set)
                 val wasAdded = roomsWithPendingPaginate.add(roomId)
                 if (!wasAdded) {
-                    // Room already has a pending paginate request
-                    android.util.Log.d(
-                        "Andromuks",
-                        "🟢 requestRoomTimeline: Paginate already pending - roomId=$roomId",
-                    )
-                    timelineEvents = emptyList()
-                    isTimelineLoading = true
-                    return
+                    if (forceFreshPaginate) {
+                        // Stale slot from a previous session — already cleared above; retry once.
+                        clearPendingPaginateStateForRoom(roomId)
+                        if (!roomsWithPendingPaginate.add(roomId)) {
+                            android.util.Log.w(
+                                "Andromuks",
+                                "🟢 requestRoomTimeline: Paginate still pending after force-fresh reset - roomId=$roomId",
+                            )
+                            timelineEvents = emptyList()
+                            isTimelineLoading = true
+                            return
+                        }
+                    } else {
+                        android.util.Log.d(
+                            "Andromuks",
+                            "🟢 requestRoomTimeline: Paginate already pending - roomId=$roomId",
+                        )
+                        timelineEvents = emptyList()
+                        isTimelineLoading = true
+                        return
+                    }
                 }
 
                 val paginateRequestId = requestIdCounter++
                 timelineRequests[paginateRequestId] = roomId
                 android.util.Log.d(
                     "Andromuks",
-                    "🟢 requestRoomTimeline: Cache insufficient ($currentCachedCount < $cacheInsufficientThreshold) - sending paginate - roomId=$roomId, requestId=$paginateRequestId, limit=$AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT",
+                    "🟢 requestRoomTimeline: ${if (forceFreshPaginate) "Force-fresh" else "Cache insufficient"} paginate ($currentCachedCount events cached) - roomId=$roomId, requestId=$paginateRequestId, limit=$AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT",
                 )
 
                 // Set loading state BEFORE sending command
@@ -2465,6 +2515,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 }
                 smallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
                 roomsWithPendingPaginate.remove(roomId)
+                clearForceFreshPaginateAfterWsDown()
                 if (BuildConfig.DEBUG)
                     android.util.Log.d(
                         "Andromuks",
@@ -2899,6 +2950,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             "🟡 handleInitialTimelineBuild: Cleared isPendingNavigationFromNotification for $roomId",
                         )
                 }
+                clearForceFreshPaginateAfterWsDown()
                 val timelineSizeAfter = timelineEvents.size
                 if (BuildConfig.DEBUG)
                     android.util.Log.d(

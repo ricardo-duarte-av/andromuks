@@ -2454,6 +2454,8 @@ fun RoomTimelineScreen(
                     && hasInitialSnapCompleted
                     && !pendingScrollRestoration
                     && !isPaginating
+                    && !appViewModel.isTimelineLoading
+                    && timelineItems.isNotEmpty()
                     && appViewModel.hasMoreMessages
                     // Guard against stale composition during navigation crossfade: the previous
                     // room's screen is briefly still composed and its timelineItems may transiently
@@ -2821,6 +2823,13 @@ fun RoomTimelineScreen(
             highlightRequestId = 0
         }
         appViewModel.promoteToPrimaryIfNeeded("room_timeline_$roomId")
+
+        // Sidecar resume / linger: if the WS was down, bypass cache fast paths and paginate fresh.
+        appViewModel.consumePendingForceFreshPaginate()
+        if (!appViewModel.isWebSocketConnected()) {
+            appViewModel.markForceFreshPaginateAfterWsDown()
+        }
+        val mustFetchFreshTimeline = appViewModel.needsFreshTimelinePaginate()
         
         // PERFORMANCE FIX: Only call navigateToRoomWithCache if room isn't already loaded.
         // RoomListScreen already calls it when user clicks, so we skip duplicate processing.
@@ -2832,11 +2841,15 @@ fun RoomTimelineScreen(
         // "already loading" — AuthCheck's navigation callback has already kicked off the load;
         // firing a second call would race with the in-flight flush and may clobber the timeline.
         val isAlreadyLoaded = appViewModel.currentRoomId == roomId &&
+            !mustFetchFreshTimeline &&
             (appViewModel.timelineEvents.isNotEmpty() || appViewModel.isTimelineLoading
                 || appViewModel.isPendingNavigationFromNotification)
         if (!isAlreadyLoaded) {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room $roomId not yet loaded, calling navigateToRoomWithCache")
             appViewModel.navigateToRoomWithCache(roomId)
+        } else if (mustFetchFreshTimeline) {
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: WS was down — forcing requestRoomTimeline for $roomId")
+            appViewModel.requestRoomTimeline(roomId)
         } else {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room $roomId already loaded/loading (${appViewModel.timelineEvents.size} events, isTimelineLoading=${appViewModel.isTimelineLoading}, isPendingNavFromNotif=${appViewModel.isPendingNavigationFromNotification}), skipping navigateToRoomWithCache")
         }

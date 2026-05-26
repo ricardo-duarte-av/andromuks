@@ -3203,6 +3203,31 @@ class AppViewModel : ViewModel() {
         roomsWithPendingPaginate.clear()
     }
 
+    /**
+     * Set when the WebSocket was down at room-open time (sidecar linger, cold resume, etc.).
+     * While true, cache fast paths are bypassed and an initial paginate is issued once the
+     * socket is back.
+     */
+    internal var forceFreshPaginateAfterWsDown = false
+
+    fun markForceFreshPaginateAfterWsDown() {
+        forceFreshPaginateAfterWsDown = true
+    }
+
+    fun needsFreshTimelinePaginate(): Boolean =
+        forceFreshPaginateAfterWsDown || !WebSocketService.isWebSocketConnected()
+
+    internal fun clearForceFreshPaginateAfterWsDown() {
+        forceFreshPaginateAfterWsDown = false
+    }
+
+    /** Pick up a sidecar-linger flag stored in prefs when no VM was attached at linger time. */
+    fun consumePendingForceFreshPaginate() {
+        appContext?.applicationContext?.let { ctx ->
+            WebSocketService.consumeForceFreshTimelinePaginatePending(ctx, this)
+        }
+    }
+
     fun onInitComplete() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 onInitComplete: START - initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded, initialSyncCompleteQueue.size=${initialSyncCompleteQueue.size}")
         addStartupProgressMessage("Initialization complete - processing ${initialSyncCompleteQueue.size} sync messages")
@@ -9645,6 +9670,14 @@ class AppViewModel : ViewModel() {
      * @param limit Number of events to fetch (default INITIAL_ROOM_PAGINATE_LIMIT)
      */
     fun requestPaginationWithSmallestRowId(roomId: String, limit: Int = INITIAL_ROOM_PAGINATE_LIMIT) {
+        if (needsFreshTimelinePaginate()) {
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: WS-down fresh paginate pending — routing to requestRoomTimeline for $roomId",
+            )
+            requestRoomTimeline(roomId)
+            return
+        }
         if (isPaginating) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Already paginating, skipping request for $roomId")
             return

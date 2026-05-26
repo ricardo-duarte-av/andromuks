@@ -1,0 +1,33 @@
+1. Spaces are still being cleares by clear_state:
+
+05-25 22:52:55.714 21776 22080 W Andromuks: SpaceRoomParser: clear_state=true - clearing 45 spaces (will be repopulated by subsequent sync_complete messages)
+05-25 22:52:55.714 21776 22080 D Andromuks: AppViewModel: updateAllSpaces called - setting allSpaces from 45 to 0 spaces
+05-25 22:52:55.714 21776 22080 W Andromuks: AppViewModel: ⚠ WARNING - updateAllSpaces clearing spaces from 45 to 0! Stack trace:
+05-25 22:52:55.714 21776 22080 W System.err: java.lang.Exception: Stack trace
+05-25 22:52:55.714 21776 22080 W System.err:    at java.lang.Thread.dumpStack(Thread.java:2348)
+05-25 22:52:55.714 21776 22080 W System.err:    at net.vrkknn.andromuks.AppViewModel.updateAllSpaces(AppViewModel.kt:1467)
+05-25 22:52:55.714 21776 22080 W System.err:    at net.vrkknn.andromuks.utils.SpaceRoomParser.parseSyncUpdate(SpaceRoomParser.kt:345)
+05-25 22:52:55.714 21776 22080 W System.err:    at net.vrkknn.andromuks.SyncRoomsCoordinator$processSyncCompleteAtomic$2.invokeSuspend(SyncRoomsCoordinator.kt:527)
+05-25 22:52:55.714 21776 22080 W System.err:    at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+05-25 22:52:55.714 21776 22080 W System.err:    at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:101)
+05-25 22:52:55.714 21776 22080 W System.err:    at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:589)
+05-25 22:52:55.715 21776 22080 W System.err:    at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:832)
+05-25 22:52:55.715 21776 22080 W System.err:    at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:720)
+05-25 22:52:55.715 21776 22080 W System.err:    at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:707)
+05-25 22:52:55.715 21776 22080 D SpaceListCache: SpaceListCache: Updated 0 spaces in cache (order preserved)
+05-25 22:52:55.715 21776 22080 D Andromuks: AppViewModel: allSpaces set to 0 spaces (was 45), cache updated
+05-25 22:52:55.715 21776 22080 D Andromuks: SpaceRoomParser: top_level_spaces found with 45 items (clear_state=true)
+05-25 22:52:55.715 21776 22080 D Andromuks: SpaceRoomParser: Parsed 45 spaces from sync data (clear_state=true)
+05-25 22:52:55.715 21776 22080 D Andromuks: SpaceRoomParser: Space names: Home, WhatsApp (+351912271966), Instagram (Ricardo Duarte), 🔞 NSFW, Root, Matrix, Homelab, Continuwuity (old, space), Matrix Admins, Unredacted Space, Selfhosted, /r/Roms, Muninn Hall Private Space, Chats, RoomDir, Offtopic Space, SchildiChat, Linux Gamers Group, abuse-fighters, espaço cplp, MultiplayerGamers, Debian, >
+05-25 22:52:55.715 21776 22080 D Andromuks: SpaceRoomParser: Calling updateAllSpaces with 45 spaces (current: 0, clear_state=true)
+05-25 22:52:55.715 21776 22080 D Andromuks: AppViewModel: updateAllSpaces called - setting allSpaces from 0 to 45 spaces
+05-25 22:52:55.715 21776 22080 D Andromuks: AppViewModel: updateAllSpaces - space names: Home, WhatsApp (+351912271966), Instagram (Ricardo Duarte), 🔞 NSFW, Root, Matrix, Homelab, Continuwuity (old, space), Matrix Admins, Unredacted Space, Selfhosted, /r/Roms, Muninn Hall Private Space, Chats, RoomDir, Offtopic Space, SchildiChat, Linux Gamers Group, abuse-fighters, espaço cplp, MultiplayerG>
+05-25 22:52:55.715 21776 22080 D SpaceListCache: SpaceListCache: Updated 45 spaces in cache (order preserved)
+05-25 22:52:55.715 21776 22080 D Andromuks: AppViewModel: allSpaces set to 45 spaces (was 0), cache updated
+05-25 22:52:55.716 21776 22080 D Andromuks: SpaceRoomParser: Storing space_edges (current spaces: 45, top_level_spaces was present)
+05-25 22:52:55.716 21776 22080 D Andromuks: AppViewModel: Storing space edges for later processing
+05-25 22:52:55.725 21776 22080 D SpaceListCache: SpaceListCache: Updated space_edges (present)
+
+That error is also troublesome.
+
+

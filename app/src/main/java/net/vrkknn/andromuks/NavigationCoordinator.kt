@@ -218,11 +218,19 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                     "🔵 navigateToRoomWithCache: Cache check - roomId=$roomId, cachedEventCount=$cachedEventCount, isActivelyCached=${RoomTimelineCache.isRoomActivelyCached(roomId)}",
                 )
 
+                val mustFetchFreshTimeline = needsFreshTimelinePaginate()
+                if (mustFetchFreshTimeline) {
+                    android.util.Log.d(
+                        "Andromuks",
+                        "🔵 navigateToRoomWithCache: Forcing fresh paginate - roomId=$roomId, forceAfterWsDown=$forceFreshPaginateAfterWsDown, wsConnected=${isWebSocketConnected()}",
+                    )
+                }
+
                 // Require a full page of cached events before bypassing requestRoomTimeline.
                 // Rooms with fewer than INITIAL_ROOM_PAGINATE_LIMIT events must go through
                 // requestRoomTimeline so a background paginate is issued for the missing history.
                 val cacheSufficientThreshold = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT
-                if (cachedEventCount >= cacheSufficientThreshold) {
+                if (cachedEventCount >= cacheSufficientThreshold && !mustFetchFreshTimeline) {
                     android.util.Log.d(
                         "Andromuks",
                         "🔵 navigateToRoomWithCache: Using cache (>=${cacheSufficientThreshold} events) - roomId=$roomId, cachedEventCount=$cachedEventCount",
@@ -257,6 +265,10 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
 
                         roomOpenTimestamps[roomId] = System.currentTimeMillis()
 
+                        if (!isWebSocketConnected()) {
+                            roomsAwaitingInitCompletePaginate.add(roomId)
+                        }
+
                         // No defensive paginate here. The backend's resume contract guarantees the
                         // cache is current for any opened room: unintentional WS drops reconnect
                         // with last_received_event (delta replay, never clear_state), so
@@ -275,7 +287,7 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                             "🔵 navigateToRoomWithCache: Cache miss - roomId=$roomId, cachedEventCount=$cachedEventCount but getCachedEvents returned null",
                         )
                     }
-                } else if (notificationTimestamp != null && cachedEventCount > 0) {
+                } else if (notificationTimestamp != null && cachedEventCount > 0 && !mustFetchFreshTimeline) {
                     android.util.Log.d(
                         "Andromuks",
                         "🔵 navigateToRoomWithCache: Notification with partial cache ($cachedEventCount events) - showing immediately, will merge paginate in background",
