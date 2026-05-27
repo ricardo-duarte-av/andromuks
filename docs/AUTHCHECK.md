@@ -212,3 +212,26 @@ A composable-local `var navigationHandled by remember { mutableStateOf(false) }`
 **Root cause:** Two handlers compete for the share-navigation handshake. `MainActivity`'s `LaunchedEffect(pendingShareNavigationRequested)` fires first on warm start — it navigates to `simple_room_list` and calls `markPendingShareNavigationHandled()`, which sets `pendingShareNavigationRequested = false`. When AuthCheck's navigation callback fires later (WebSocket startup complete), it checks `pendingShare != null && pendingShareNavigationRequested` and finds the second condition `false`, so it skips the share guard entirely and falls through to `navigateToRoomListIfNeeded("default flow")`. That function has `shouldForceNavigation = true` for "default flow" but its existing `simple_room_list` exemption is only in the `!shouldForceNavigation` branch, so it force-navigates to `room_list`.
 
 **Fix:** The navigation callback now returns early whenever `pendingShare != null`, regardless of `pendingShareNavigationRequested`. `navigateToRoomListIfNeeded` also has a `pendingShare != null` guard at the top as defence-in-depth.
+
+---
+
+## Cold-start cache-first rendering
+
+On cold start, the app paints `RoomListScreen` from the persisted room cache **before** the WebSocket connects. The full flow:
+
+1. **`MainActivity.onCreate`** calls `loadCachedProfiles(context)`, which initialises `RoomMetadataStore` (SQLite) and runs `RoomListCache.hydrateFromDisk()` (reads rows into the singleton).
+2. **`AuthCheck.LaunchedEffect(Unit)`** re-runs the hydrate on `Dispatchers.IO` (idempotent), then calls `populateRoomMapFromCache()` on Main — this copies the singleton into `roomMap` and flips `spacesLoaded = true` (via `SyncRoomsCoordinator.populateRoomMapFromCache`).
+3. A separate `LaunchedEffect(appViewModel.spacesLoaded, …)` in `AuthCheck` observes the flip and calls `navController.navigate("room_list")`. `AuthCheck` itself renders only a blank `Box` — it's logic-only; the visible loading overlay lives in `MainActivity`.
+4. **`MainActivity`** wraps `RoomListScreen` in `AnimatedVisibility(visible = cacheReady || (isStartupComplete && showRoomList))` where `cacheReady = spacesLoaded`. The `cacheReady` short-circuit is what allows `RoomListScreen` to compose before the WebSocket init completes. The `enter` transition is `tween(0)` (instant) for the same reason.
+5. `AuthCheck`'s main effect then **`delay(32)`** (one frame) so Compose can paint, then continues with `initializeFCM(...)` on IO and the WebSocket connect. This keeps the heavy startup work from competing with the first paint.
+6. The `auth_check ↔ room_list` `NavHost` transitions are `EnterTransition.None / ExitTransition.None` — there is no shared-element avatar to fly any more, so the fade is dead weight.
+
+### `RoomMetadataStore` v2 schema
+
+Adds `sort_ts INTEGER NOT NULL DEFAULT 0`. `RoomListCache.persistMetadata` calls `RoomMetadataStore.upsertSortTs(roomId, ts)` for every `RoomItem` carrying a `sortingTimestamp`; `hydrateFromDisk` restores it. The cached room list therefore sorts by last activity even before the WS lands, and the user's most recently active room naturally floats to the top.
+
+### `clear_state` reset is currently disabled
+
+In `SyncRoomsCoordinator.processSyncCompleteAtomic`. The first `sync_complete` after WS open arrives with `clear_state=true`, which previously called `handleClearStateReset()` and wiped the just-populated `roomMap`. Skipping the reset lets cached rooms survive the WS init; subsequent `sync_complete` messages merge on top.
+
+To restore the original behaviour, uncomment the `handleClearStateReset()` call (single line). Risk: rooms the user has been removed from since last sync may linger until the next `clear_state` actually runs.

@@ -237,3 +237,13 @@ Pull-to-refresh is enabled only when `listState.firstVisibleItemIndex == 0` (use
 | `usernameFromMatrixId(userId)` | Extracts the local part from `@username:server` Matrix IDs. |
 | `LeaveRoomDialog` | `AlertDialog` with an optional free-text reason field. Calls `appViewModel.leaveRoom(roomId, reason)` on confirm. |
 | FOREGROUND_REFRESH receiver | A `BroadcastReceiver` registered for `"net.vrkknn.andromuks.FOREGROUND_REFRESH"`. Refreshes the UI from cache when the app returns to the foreground (e.g., after being resumed from a notification). |
+
+---
+
+## `stableSection` invariant — holding the cached list during initial sync
+
+`RoomListScreen` paints the persisted cache immediately on cold start (see `docs/AUTHCHECK.md` "Cold-start cache-first rendering"). While the WebSocket finishes its initial sync, the list visible to the user is the snapshot from disk — it must not flicker through partial mid-merge states.
+
+The `stableSection` updater guards on `!appViewModel.initialSyncProcessingComplete && hadContent` and adds `initialSyncProcessingComplete` to its `LaunchedEffect` keys so the final apply fires exactly once when processing ends.
+
+**Use `initialSyncProcessingComplete`, not `initialSyncComplete`.** The latter flips earlier and exposes mid-merge state to the UI; only `initialSyncProcessingComplete` marks the point at which all queued `sync_complete` messages have been folded into `roomMap` / `RoomListCache`.

@@ -61,6 +61,27 @@ Helper extensions live in `ConnectionState.kt`: `isReady()`, `isDisconnected()`,
 
 To know exactly when the pipeline has finished dispatching all in-transit messages, `attachToExistingWebSocketIfAvailable` enqueues a `DRAIN_SENTINEL` into `syncCompleteChannel` immediately after registering the VM. Because the channel is FIFO and the pipeline is single-threaded, when the sentinel is processed all prior messages have been dispatched and are sitting in `initialSyncCompleteQueue`. The sentinel callback (on IO thread) dispatches to Main, takes a snapshot of the queue, batch-processes it on `Dispatchers.Default`, sets `initialSyncPhase = true`, and then calls `populateFromCacheAndNavigateAfterAttach()`. This guarantees the room list is fully populated before the user sees `RoomListScreen`.
 
+## Global `request_id` Allocator
+
+The Matrix backend tracks `request_id` per WebSocket connection, not per client process. When multiple `AppViewModel` instances (one per `ComponentActivity`: `MainActivity`, `ShortcutActivity`, `ChatBubbleActivity`) all attach to the same socket, they must share a single ID space. Otherwise a freshly-created secondary VM allocates `request_id=1, 2, 3, …` while the long-running primary VM is already deep into the hundreds, the server sees colliding IDs, and responses route to the wrong VM — manifesting as shortcut/widget opens stuck on "Room loading…" or rendering an empty timeline.
+
+**Implementation:**
+
+- A single `AtomicInteger globalRequestIdCounter` lives in `WebSocketService`'s companion object.
+- `WebSocketService.allocateRequestId()` is the only writer; `peekNextRequestId()` reads without incrementing (used by the Settings diagnostics screen).
+- `WebSocketService.setWebSocket` calls `resetRequestIdCounter()` on every new connection so IDs restart at 1 per socket — that's the only reset site. Per-VM `setWebSocket` callbacks must **not** reset (each attached VM would clobber IDs the others have already issued on the same socket).
+- All ~75 call sites across `AppViewModel`, `NavigationCoordinator`, `TimelineCacheCoordinator`, `FcmPushCoordinator`, etc. call `WebSocketService.allocateRequestId()`. `AppViewModel.getAndIncrementRequestId()` / `getNextRequestId()` / `getCurrentRequestId()` are thin pass-throughs.
+
+`utils/RoomJoiner.kt`'s `RoomJoinerWebSocket` class keeps a separate `AtomicInteger` parameter, but that class is currently dead code (never constructed) — the actual join-room flow routes through `AppViewModel` and uses the shared allocator.
+
+## Secondary VM timeline refresh
+
+When `SyncEvent.RoomListSingletonReplicated` fires on a non-primary `AppViewModel` (e.g., a `ShortcutActivity` / `ChatBubbleActivity` VM attached as `SECONDARY`/`BUBBLE`), the handler refreshes `timelineEvents` / `eventChainMap` for `currentRoomId` **only**, via `restoreFromLruCache(currentRoomId)`.
+
+**Do not** iterate any larger "rooms ever opened in this VM" set: only one room's data is bound to `timelineEvents` at a time, so multiple `restoreFromLruCache` calls would clobber each other (last write wins) and could leave the screen rendering a non-current room's timeline.
+
+Other rooms' singleton caches stay fresh on their own via `appendEventsToCachedRoom` in the sync ingestor — they just don't need to touch this VM's `timelineEvents` until the user navigates to them. Bubble VMs only ever host a single room, so the same single-room refresh is correct for them too without needing a role-specific guard.
+
 ## `setWebSocket` Ordering Invariant
 
 In `setWebSocket` (the OkHttp `onOpen` handler), `serviceInstance.webSocket` must be assigned **before** calling `updateConnectionState(ConnectionState.Ready)`.
