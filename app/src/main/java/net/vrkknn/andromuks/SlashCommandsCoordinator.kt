@@ -41,7 +41,7 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                 if (args.isNotEmpty()) {
                     val userId = args[0]
                     val reason = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() }
-                    val requestId = requestIdCounter++
+                    val requestId = WebSocketService.allocateRequestId()
                     sendWebSocketCommand("set_membership", requestId, mapOf(
                         "room_id" to roomId,
                         "user_id" to userId,
@@ -55,7 +55,7 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                 if (args.isNotEmpty()) {
                     val userId = args[0]
                     val reason = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() }
-                    val requestId = requestIdCounter++
+                    val requestId = WebSocketService.allocateRequestId()
                     sendWebSocketCommand("set_membership", requestId, mapOf(
                         "room_id" to roomId,
                         "user_id" to userId,
@@ -69,7 +69,7 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                 if (args.isNotEmpty()) {
                     val userId = args[0]
                     val reason = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() }
-                    val requestId = requestIdCounter++
+                    val requestId = WebSocketService.allocateRequestId()
                     sendWebSocketCommand("set_membership", requestId, mapOf(
                         "room_id" to roomId,
                         "user_id" to userId,
@@ -82,7 +82,7 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
             command == "/myroomnick" || command == "/roomnick" -> {
                 if (args.isNotEmpty()) {
                     val name = args.joinToString(" ")
-                    val requestId = requestIdCounter++
+                    val requestId = WebSocketService.allocateRequestId()
                     sendWebSocketCommand("set_state", requestId, mapOf(
                         "room_id" to roomId,
                         "type" to "m.room.member",
@@ -101,7 +101,7 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
             command == "/globalnick" || command == "/globalname" -> {
                 if (args.isNotEmpty()) {
                     val name = args.joinToString(" ")
-                    val requestId = requestIdCounter++
+                    val requestId = WebSocketService.allocateRequestId()
                     sendWebSocketCommand("set_profile_field", requestId, mapOf(
                         "field" to "displayname",
                         "value" to name
@@ -115,7 +115,7 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
             command == "/roomname" -> {
                 if (args.isNotEmpty()) {
                     val name = args.joinToString(" ")
-                    val requestId = requestIdCounter++
+                    val requestId = WebSocketService.allocateRequestId()
                     sendWebSocketCommand("set_state", requestId, mapOf(
                         "room_id" to roomId,
                         "type" to "m.room.name",
@@ -132,7 +132,7 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                 if (args.isNotEmpty()) {
                     val eventId = args[0]
                     val reason = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() }
-                    val requestId = requestIdCounter++
+                    val requestId = WebSocketService.allocateRequestId()
                     sendWebSocketCommand("redact_event", requestId, mapOf(
                         "room_id" to roomId,
                         "event_id" to eventId,
@@ -145,7 +145,7 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                 if (args.isNotEmpty()) {
                     val eventType = args[0]
                     val jsonStr = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() } ?: "{}"
-                    val requestId = requestIdCounter++
+                    val requestId = WebSocketService.allocateRequestId()
                     try {
                         val content = org.json.JSONObject(jsonStr)
                         val contentMap = mutableMapOf<String, Any>()
@@ -170,7 +170,7 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                 if (args.isNotEmpty()) {
                     val eventType = args[0]
                     val jsonStr = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() } ?: "{}"
-                    val requestId = requestIdCounter++
+                    val requestId = WebSocketService.allocateRequestId()
                     try {
                         val content = org.json.JSONObject(jsonStr)
                         val contentMap = mutableMapOf<String, Any>()
@@ -196,7 +196,7 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                     val eventType = args[0]
                     val stateKey = args[1]
                     val jsonStr = args.drop(2).joinToString(" ").takeIf { it.isNotBlank() } ?: "{}"
-                    val requestId = requestIdCounter++
+                    val requestId = WebSocketService.allocateRequestId()
                     try {
                         val content = org.json.JSONObject(jsonStr)
                         val contentMap = mutableMapOf<String, Any>()
@@ -221,7 +221,7 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                 if (args.size >= 2) {
                     val action = args[0].lowercase()
                     val alias = args[1]
-                    val requestId = requestIdCounter++
+                    val requestId = WebSocketService.allocateRequestId()
                     when (action) {
                         "add", "create" -> {
                             sendWebSocketCommand("set_state", requestId, mapOf(

@@ -52,7 +52,7 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
             return@with
         }
 
-        val accountDataRequestId = requestIdCounter++
+        val accountDataRequestId = WebSocketService.allocateRequestId()
 
         val recentEmojiArray = frequencies.map { listOf(it.first, it.second) }
 
@@ -116,7 +116,7 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
                 contentMap[userId] = ArrayList(rooms)
             }
         }
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
@@ -159,7 +159,7 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
             }
         }
 
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         val commandData = mapOf(
             "type" to "m.ignored_user_list",
             "content" to mapOf(
@@ -182,7 +182,7 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
             android.util.Log.d("Andromuks", "AppViewModel: Setting room tag - roomId: $roomId, tagType: $tagType, enabled: $enabled")
         }
 
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
 
         val existingRoom = roomMap[roomId]
         val existingTags = mutableMapOf<String, Map<String, Any>>()
@@ -244,7 +244,7 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
             }
         }
         if (value != null) contentMap[key] = value else contentMap.remove(key)
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand("set_account_data", requestId, mapOf(
             "type" to "fi.mau.gomuks.preferences",
             "content" to contentMap
@@ -264,7 +264,7 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
             }
         }
         if (value != null) contentMap[key] = value else contentMap.remove(key)
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand("set_account_data", requestId, mapOf(
             "type" to "fi.mau.gomuks.preferences",
             "content" to contentMap,

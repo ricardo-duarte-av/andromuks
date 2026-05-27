@@ -1527,7 +1527,7 @@ class AppViewModel : ViewModel() {
      * Steps:
      * 1. Drop WebSocket connection
      * 2. Clear all room data
-     * 3. Reset requestIdCounter to 1
+     * 3. Reset the WebSocket request_id counter to 1
      * 4. Reset last_received_sync_id to 0
      * 5. Reconnect with run_id but WITHOUT last_received_id (full payload)
      */
@@ -1560,7 +1560,7 @@ class AppViewModel : ViewModel() {
      * Steps:
      * 1. Drop WebSocket connection
      * 2. Clear all room data
-     * 3. Reset requestIdCounter to 1
+     * 3. Reset the WebSocket request_id counter to 1
      * 4. Reset last_received_sync_id to 0
      * 5. Reconnect cold (no run_id/last_received_id) for full sync
      */
@@ -1602,9 +1602,9 @@ class AppViewModel : ViewModel() {
         bridgeStatusEventToMessageId.clear()
         readReceiptsUpdateCounter++
         
-        // 3. Reset requestIdCounter to 1
-        requestIdCounter = 1
-        
+        // 3. Reset the shared request_id allocator so IDs restart at 1 for the next connection.
+        WebSocketService.resetRequestIdCounter()
+
         // 4. Clear timeline caches on full refresh (all caches are stale)
         RoomTimelineCache.clearAll()
         // Processed timeline state is cleared by RoomTimelineCache.clearAll()
@@ -4708,13 +4708,13 @@ class AppViewModel : ViewModel() {
         timelineCacheCoordinator.logSkippedPaginate(roomId, reason)
     private val roomSnapshotAwaiters = ConcurrentHashMap<String, MutableList<CompletableDeferred<Unit>>>()
     
-    // Made public to allow access for RoomJoiner WebSocket operations
-    var requestIdCounter = 1
-        internal set
-    
+    // Request IDs are allocated from a single per-WebSocket counter in WebSocketService.
+    // Previously this was a per-VM `var requestIdCounter = 1`, which collided when a fresh
+    // secondary VM (ShortcutActivity, ChatBubbleActivity) issued requests on the same socket
+    // as the long-running primary VM.
     fun getAndIncrementRequestId(): Int {
-        val id = requestIdCounter++
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Generated request ID: $id (counter now: $requestIdCounter)")
+        val id = WebSocketService.allocateRequestId()
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Generated request ID: $id")
         return id
     }
     
@@ -4980,10 +4980,10 @@ class AppViewModel : ViewModel() {
         // REFACTORING: Service now owns WebSocket - no need to store locally
         // The service already has the reference, we just need to set up callbacks
         
-        // Reset requestIdCounter on WebSocket (re)connect to keep IDs manageable
-        requestIdCounter = 1
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reset requestIdCounter to 1 on WebSocket (re)connect")
-        
+        // Request_id counter reset is handled centrally in WebSocketService.setWebSocket on each
+        // new connection — no per-VM reset here. Resetting from every attached VM would clobber
+        // request IDs that another VM has already allocated on the same socket.
+
         // CRITICAL FIX: Initialize initial sync phase when WebSocket connects (both initial connection and reconnection)
         // Set initialSyncPhase = false to start tracking sync_complete messages before init_complete
         // This ensures we queue all initial sync_complete messages and process them after init_complete
@@ -5475,7 +5475,7 @@ class AppViewModel : ViewModel() {
     /**
      * Gets the current request ID counter (next ID to be used)
      */
-    fun getCurrentRequestId(): Int = requestIdCounter
+    fun getCurrentRequestId(): Int = WebSocketService.peekNextRequestId()
     
     /**
      * Gets the last received request ID from the server (for reconnection and Settings).
@@ -5960,7 +5960,7 @@ class AppViewModel : ViewModel() {
         }
         
         withContext(Dispatchers.Main) {
-            val paginateRequestId = requestIdCounter++
+            val paginateRequestId = WebSocketService.allocateRequestId()
             // CRITICAL FIX: Use backgroundPrefetchRequests for background pagination to prevent timeline rebuild
             // Background pagination should only update cache, not rebuild the timeline for the currently open room
             if (isBackground) {
@@ -6118,7 +6118,7 @@ class AppViewModel : ViewModel() {
         requestRoomState(roomId)
         
         // 5. Request up to INITIAL_ROOM_PAGINATE_LIMIT events from the backend; ingest path will update the cache
-        val paginateRequestId = requestIdCounter++
+        val paginateRequestId = WebSocketService.allocateRequestId()
         timelineRequests[paginateRequestId] = roomId
         val result = sendWebSocketCommand(
             "paginate",
@@ -6160,7 +6160,7 @@ class AppViewModel : ViewModel() {
         val deferred = CompletableDeferred<Unit>()
         registerRoomSnapshotAwaiter(roomId, deferred)
         
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         backgroundPrefetchRequests[requestId] = roomId
         if (BuildConfig.DEBUG) android.util.Log.d(
             "Andromuks",
@@ -6241,7 +6241,7 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        val stateRequestId = requestIdCounter++
+        val stateRequestId = WebSocketService.allocateRequestId()
         
         // Track this request to prevent duplicates
         pendingRoomStateRequests.add(roomId)
@@ -6269,7 +6269,7 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        val stateRequestId = requestIdCounter++
+        val stateRequestId = WebSocketService.allocateRequestId()
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Generated request_id for get_room_state with members: $stateRequestId")
         
         // Store the callback to handle the response
@@ -6394,7 +6394,7 @@ class AppViewModel : ViewModel() {
                     "state_key" to userId
                 )
             }
-            val requestId = requestIdCounter++
+            val requestId = WebSocketService.allocateRequestId()
             roomSpecificStateRequests[requestId] = roomId
             batchProfileRequestKeys[requestId] = userIds.map { "$roomId:$it" }
             sendWebSocketCommand("get_specific_room_state", requestId, mapOf("keys" to keysList))
@@ -6431,7 +6431,7 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         
         // Track this request to prevent duplicates
         pendingProfileRequests.add(requestKey)
@@ -6475,7 +6475,7 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         roomSpecificStateRequests[requestId] = roomId
         roomSpecificProfileCallbacks[requestId] = callback
         
@@ -6534,7 +6534,7 @@ class AppViewModel : ViewModel() {
                 "state_key" to userId
             )
         }
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         roomSpecificStateRequests[requestId] = roomId
         val batchKeys = userIdList.map { "$roomId:$it" }
         batchProfileRequestKeys[requestId] = batchKeys
@@ -6589,7 +6589,7 @@ class AppViewModel : ViewModel() {
 
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: requestRoomProfilesForRender - fetching ${missing.size} missing profiles for room $roomId before render")
 
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         roomSpecificStateRequests[requestId] = roomId
 
         // Store the render callback — fired by handleRoomSpecificStateResponse on response or timeout
@@ -6636,7 +6636,7 @@ class AppViewModel : ViewModel() {
             return
         }
 
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         emojiPackRequests[requestId] = Pair(roomId, packName)
         roomSpecificStateRequests[requestId] = roomId
 
@@ -6667,7 +6667,7 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         
         // Track this request to prevent duplicates
         pendingFullMemberListRequests.add(roomId)
@@ -7590,7 +7590,7 @@ class AppViewModel : ViewModel() {
                     
                     if (isWebSocketConnected()) {
                         // Trigger full paginate with max_timeline_id = our latest rowId
-                        val paginateRequestId = requestIdCounter++
+                        val paginateRequestId = WebSocketService.allocateRequestId()
                         backgroundPrefetchRequests[paginateRequestId] = roomId
                         
                         val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
@@ -8343,7 +8343,7 @@ class AppViewModel : ViewModel() {
             callback(emptyList(), false, 0L)
             return
         }
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         galleryPaginateRequests[requestId] = callback
         val result = sendWebSocketCommand(
             "paginate", requestId,
@@ -9737,7 +9737,7 @@ class AppViewModel : ViewModel() {
                     "AppViewModel: Requesting pagination for $roomId with oldest timelineRowId=$oldestRowId, max_timeline_id=$maxTimelineId, limit=$limit"
                 )
                 
-                val paginateRequestId = requestIdCounter++
+                val paginateRequestId = WebSocketService.allocateRequestId()
                 paginateRequests[paginateRequestId] = roomId
                 paginateRequestMaxTimelineIds[paginateRequestId] = maxTimelineId // Track max_timeline_id used for progress detection
                 
@@ -9801,7 +9801,7 @@ class AppViewModel : ViewModel() {
     fun getRoomSummary(roomId: String) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Getting room summary for invite: $roomId")
         
-        val summaryRequestId = requestIdCounter++
+        val summaryRequestId = WebSocketService.allocateRequestId()
         roomSummaryRequests[summaryRequestId] = roomId
         val via = roomId.substringAfter(":").substringBefore(".") // Extract server from room ID
         sendWebSocketCommand("get_room_summary", summaryRequestId, mapOf(
@@ -9875,7 +9875,7 @@ class AppViewModel : ViewModel() {
         originServerTs: Long? = null,
         callback: (String?, String?) -> Unit
     ) {
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         createRoomRequests[requestId] = callback
         val data = mutableMapOf<String, Any>()
         name?.let { data["name"] = it }
@@ -9909,7 +9909,7 @@ class AppViewModel : ViewModel() {
         slashCommandsCoordinator.executeCommand(roomId, text, context, navController)
 
     fun setAccountDataContent(type: String, content: Map<String, Any>) {
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand("set_account_data", requestId, mapOf("type" to type, "content" to content))
     }
 
@@ -9918,7 +9918,7 @@ class AppViewModel : ViewModel() {
      * Called after image is uploaded
      */
     fun setRoomMemberAvatar(roomId: String, mxcUrl: String) {
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand("set_state", requestId, mapOf(
             "room_id" to roomId,
             "type" to "m.room.member",
@@ -9935,7 +9935,7 @@ class AppViewModel : ViewModel() {
      * Ban a user from a room with optional redaction
      */
     fun banUser(roomId: String, userId: String, reason: String, redactSystemMessages: Boolean = false) {
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand("set_membership", requestId, mapOf(
             "room_id" to roomId,
             "user_id" to userId,
@@ -9950,7 +9950,7 @@ class AppViewModel : ViewModel() {
      * Redact an event
      */
     fun redactEvent(roomId: String, eventId: String, reason: String) {
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand("redact_event", requestId, mapOf(
             "room_id" to roomId,
             "event_id" to eventId,
@@ -9972,7 +9972,7 @@ class AppViewModel : ViewModel() {
      * Get next request ID (for operations that need multiple requests)
      */
     fun getNextRequestId(): Int {
-        return requestIdCounter++
+        return WebSocketService.allocateRequestId()
     }
     
     /**
@@ -10000,7 +10000,7 @@ class AppViewModel : ViewModel() {
             currentPinned.remove(eventId)
         }
         
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand("set_state", requestId, mapOf(
             "room_id" to roomId,
             "type" to "m.room.pinned_events",
@@ -10012,7 +10012,7 @@ class AppViewModel : ViewModel() {
         
         // Request updated room state to refresh m.pinned_events and other room info
         if (isWebSocketConnected() && !pendingRoomStateRequests.contains(roomId)) {
-            val stateRequestId = requestIdCounter++
+            val stateRequestId = WebSocketService.allocateRequestId()
             synchronized(roomStateRequests) {
                 roomStateRequests[stateRequestId] = roomId
             }
@@ -10035,7 +10035,7 @@ class AppViewModel : ViewModel() {
      * Called after image is uploaded
      */
     fun setRoomAvatar(roomId: String, mxcUrl: String) {
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand("set_state", requestId, mapOf(
             "room_id" to roomId,
             "type" to "m.room.avatar",
@@ -10050,7 +10050,7 @@ class AppViewModel : ViewModel() {
      * Called after image is uploaded
      */
     fun setGlobalAvatar(mxcUrl: String) {
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand("set_profile_field", requestId, mapOf(
             "field" to "avatar",
             "value" to mxcUrl
@@ -10063,7 +10063,7 @@ class AppViewModel : ViewModel() {
      * This is used for MSC profile fields such as m.status.
      */
     fun setCustomProfileField(field: String, value: Any) {
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand(
             "set_profile_field",
             requestId,
@@ -10309,7 +10309,7 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        val eventRequestId = requestIdCounter++
+        val eventRequestId = WebSocketService.allocateRequestId()
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Generated request_id for get_event: $eventRequestId")
         
         // Store the callback to handle the response
@@ -10367,7 +10367,7 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        val eventContextRequestId = requestIdCounter++
+        val eventContextRequestId = WebSocketService.allocateRequestId()
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Generated request_id for get_event_context: $eventContextRequestId")
         
         // Store the callback to handle the response
@@ -10417,7 +10417,7 @@ class AppViewModel : ViewModel() {
             return
         }
 
-        val mentionsRequestId = requestIdCounter++
+        val mentionsRequestId = WebSocketService.allocateRequestId()
         mentionsRequests[mentionsRequestId] = Unit
 
         isMentionsLoading = true
@@ -10998,7 +10998,7 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         mutualRoomsRequests[requestId] = callback
         
         sendWebSocketCommand("get_mutual_rooms", requestId, mapOf(
@@ -11122,7 +11122,7 @@ class AppViewModel : ViewModel() {
         }
         
         // Request 1: Profile (always request fresh from backend - get_profile always fetches latest data)
-        val profileRequestId = requestIdCounter++
+        val profileRequestId = WebSocketService.allocateRequestId()
         profileRequests[profileRequestId] = userId
         sendWebSocketCommand("get_profile", profileRequestId, mapOf(
             "user_id" to userId
@@ -11331,7 +11331,7 @@ class AppViewModel : ViewModel() {
      * Resolve room alias to room ID with callback
      */
     fun resolveRoomAlias(alias: String, callback: (Pair<String, List<String>>?) -> Unit) {
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         resolveAliasRequests[requestId] = callback
         
         // REFACTORING: Use sendWebSocketCommand() instead of direct send()
@@ -11342,7 +11342,7 @@ class AppViewModel : ViewModel() {
      * Get room summary with callback
      */
     fun getRoomSummary(roomIdOrAlias: String, viaServers: List<String>, callback: (Pair<net.vrkknn.andromuks.utils.RoomSummary?, String?>?) -> Unit) {
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         getRoomSummaryRequests[requestId] = callback
         
         // Always include "matrix.org" as default server, plus any additional servers

@@ -157,7 +157,7 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
                 )
 
             if (token != null && deviceId != null && encryptionKey != null) {
-                val registrationRequestId = requestIdCounter++
+                val registrationRequestId = WebSocketService.allocateRequestId()
                 fcmRegistrationRequests[registrationRequestId] = "fcm_registration"
 
                 if (BuildConfig.DEBUG)

@@ -550,6 +550,22 @@ class WebSocketService : Service() {
         private const val PREF_SIDECAR_USER_DISCONNECTED = "sidecar_user_disconnected"
         private const val PREF_FORCE_FRESH_TIMELINE_PAGINATE = "force_fresh_timeline_paginate"
 
+        // Global per-WebSocket request_id allocator. Previously each AppViewModel kept its own
+        // counter starting at 1, so a fresh secondary VM (ShortcutActivity, ChatBubbleActivity)
+        // would collide on request_ids with the primary VM that had already issued many requests.
+        // The backend is per-connection, so both VMs sharing the same socket need a single ID
+        // space. Reset by setWebSocket on each new connection so IDs stay manageable.
+        private val globalRequestIdCounter = java.util.concurrent.atomic.AtomicInteger(0)
+
+        fun allocateRequestId(): Int = globalRequestIdCounter.incrementAndGet()
+
+        /** Next ID that would be allocated. Read-only; does not increment. */
+        fun peekNextRequestId(): Int = globalRequestIdCounter.get() + 1
+
+        fun resetRequestIdCounter() {
+            globalRequestIdCounter.set(0)
+        }
+
         fun isSidecarUserDisconnected(context: Context): Boolean =
             context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
                 .getBoolean(PREF_SIDECAR_USER_DISCONNECTED, false)
@@ -1021,6 +1037,9 @@ class WebSocketService : Service() {
             // state to Disconnected, and leave the notification stuck at "Connecting..." even
             // though the socket is alive and delivering messages.
             serviceInstance.webSocket = webSocket
+            // Reset the shared request_id allocator on each new socket so IDs stay manageable
+            // and start at 1 for the new connection (mirrors prior per-VM behaviour).
+            resetRequestIdCounter()
             serviceInstance.connectionStartTime = System.currentTimeMillis()
             serviceInstance.lastMessageReceivedTimestamp = System.currentTimeMillis()
             serviceInstance.lastPongTimestamp = SystemClock.elapsedRealtime()

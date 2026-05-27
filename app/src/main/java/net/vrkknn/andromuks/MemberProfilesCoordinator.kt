@@ -315,7 +315,7 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
 
             if (!isWebSocketConnected()) return
 
-            val reqId = requestIdCounter++
+            val reqId = WebSocketService.allocateRequestId()
             pendingProfileRequests.add(userId)
             profileRequests[reqId] = userId
             sendWebSocketCommand("get_profile", reqId, mapOf("user_id" to userId))
@@ -337,7 +337,7 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                 return
             }
 
-            val reqId = requestIdCounter++
+            val reqId = WebSocketService.allocateRequestId()
             pendingProfileRequests.add(userId)
             profileRequests[reqId] = userId
             basicProfileCallbacks[reqId] = callback

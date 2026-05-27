@@ -313,7 +313,7 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                         roomOpenTimestamps[roomId] = System.currentTimeMillis()
 
                         if (isWebSocketConnected() && AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT > 0) {
-                            val paginateRequestId = requestIdCounter++
+                            val paginateRequestId = WebSocketService.allocateRequestId()
                             backgroundPrefetchRequests[paginateRequestId] = roomId
                             roomsWithPendingPaginate.add(roomId)
                             markInitialPaginate(roomId, "notification_background_merge")

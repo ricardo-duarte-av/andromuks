@@ -254,7 +254,7 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
 
                                 if (command != null && requestId != null && data != null) {
                                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Retrying offline command: $command (attempt ${operation.retryCount + 1})")
-                                    val newRequestId = requestIdCounter++
+                                    val newRequestId = WebSocketService.allocateRequestId()
                                     val result = sendWebSocketCommand(command, newRequestId, data)
                                     if (result != WebSocketResult.SUCCESS && operation.retryCount < maxRetryAttempts) {
                                         this@PersistenceCoordinator.addPendingOperation(operation.copy(retryCount = operation.retryCount + 1), saveToStorage = true)
@@ -282,7 +282,7 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                                             lastMarkReadSent[roomId] = eventId
                                         }
                                     }
-                                    val newRequestId = requestIdCounter++
+                                    val newRequestId = WebSocketService.allocateRequestId()
                                     android.util.Log.w("Andromuks", "AppViewModel: Retrying command '$command' with new request_id: $newRequestId (was: $requestId, attempt ${operation.retryCount + 1})")
                                     sendWebSocketCommand(command, newRequestId, data)
                                 }
@@ -378,7 +378,7 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
 
                         if (command != null && requestId != null && data != null) {
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Retrying offline command: $command (attempt ${operation.retryCount + 1})")
-                            val newRequestId = requestIdCounter++
+                            val newRequestId = WebSocketService.allocateRequestId()
                             val result = sendWebSocketCommand(command, newRequestId, data)
                             if (result != WebSocketResult.SUCCESS && operation.retryCount < maxRetryAttempts) {
                                 this@PersistenceCoordinator.addPendingOperation(operation, saveToStorage = true)
@@ -408,7 +408,7 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                                     lastMarkReadSent[roomId] = eventId
                                 }
                             }
-                            val newRequestId = requestIdCounter++
+                            val newRequestId = WebSocketService.allocateRequestId()
                             android.util.Log.w("Andromuks", "AppViewModel: Retrying command '$command' with new request_id: $newRequestId (was: $requestId)")
                             sendWebSocketCommand(command, newRequestId, data)
                         }

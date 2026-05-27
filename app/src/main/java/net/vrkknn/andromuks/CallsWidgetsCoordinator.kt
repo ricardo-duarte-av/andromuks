@@ -152,7 +152,7 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
     }
 
     fun sendWidgetCommand(command: String, data: Any?, onResult: (Result<Any?>) -> Unit) = with(vm) {
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         val deferred = CompletableDeferred<Any?>()
         widgetCommandRequests[requestId] = deferred
 

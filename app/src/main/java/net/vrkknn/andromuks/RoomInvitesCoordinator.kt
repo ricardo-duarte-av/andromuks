@@ -17,7 +17,7 @@ internal class RoomInvitesCoordinator(private val vm: AppViewModel) {
                     "AppViewModel: Preemptively marked room $roomId as newly joined"
                 )
 
-            val acceptRequestId = requestIdCounter++
+            val acceptRequestId = WebSocketService.allocateRequestId()
             joinRoomRequests[acceptRequestId] = roomId
             val via = roomId.substringAfter(":").substringBefore(".")
             sendWebSocketCommand(
@@ -42,7 +42,7 @@ internal class RoomInvitesCoordinator(private val vm: AppViewModel) {
             if (BuildConfig.DEBUG)
                 android.util.Log.d("Andromuks", "AppViewModel: Refusing room invite: $roomId")
 
-            val refuseRequestId = requestIdCounter++
+            val refuseRequestId = WebSocketService.allocateRequestId()
             leaveRoomRequests[refuseRequestId] = roomId
             sendWebSocketCommand("leave_room", refuseRequestId, mapOf("room_id" to roomId))
 
@@ -62,7 +62,7 @@ internal class RoomInvitesCoordinator(private val vm: AppViewModel) {
                     "AppViewModel: Leaving room: $roomId${if (reason != null) " with reason: $reason" else ""}"
                 )
 
-            val leaveRequestId = requestIdCounter++
+            val leaveRequestId = WebSocketService.allocateRequestId()
             leaveRoomRequests[leaveRequestId] = roomId
 
             val commandData = mutableMapOf<String, Any>("room_id" to roomId)
@@ -86,7 +86,7 @@ internal class RoomInvitesCoordinator(private val vm: AppViewModel) {
         callback: (Pair<String?, String?>?) -> Unit
     ) {
         with(vm) {
-            val requestId = requestIdCounter++
+            val requestId = WebSocketService.allocateRequestId()
             joinRoomCallbacks[requestId] = callback
 
             val finalViaServers = (viaServers + "matrix.org").distinct()

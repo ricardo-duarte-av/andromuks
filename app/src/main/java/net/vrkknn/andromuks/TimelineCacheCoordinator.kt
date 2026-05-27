@@ -804,7 +804,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
                 // Still request room state in background for any updates
                 if (isWebSocketConnected() && !pendingRoomStateRequests.contains(roomId)) {
-                    val stateRequestId = requestIdCounter++
+                    val stateRequestId = WebSocketService.allocateRequestId()
                     synchronized(roomStateRequests) { roomStateRequests[stateRequestId] = roomId }
                     pendingRoomStateRequests.add(roomId)
                     sendWebSocketCommand(
@@ -837,7 +837,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 // Background paginate to pull any events the LRU restore may have missed.
                 val wasAdded = roomsWithPendingPaginate.add(roomId)
                 if (wasAdded && isWebSocketConnected()) {
-                    val paginateRequestId = requestIdCounter++
+                    val paginateRequestId = WebSocketService.allocateRequestId()
                     backgroundPrefetchRequests[paginateRequestId] = roomId
                     val result = sendWebSocketCommand(
                         "paginate",
@@ -877,7 +877,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // OPPORTUNISTIC PROFILE LOADING: Only request room state without members to prevent OOM
             // Member profiles will be loaded on-demand when actually needed for rendering
             if (isWebSocketConnected() && !pendingRoomStateRequests.contains(roomId)) {
-                val stateRequestId = requestIdCounter++
+                val stateRequestId = WebSocketService.allocateRequestId()
                 roomStateRequests[stateRequestId] = roomId
                 pendingRoomStateRequests.add(roomId)
                 if (BuildConfig.DEBUG)
@@ -976,7 +976,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT > 0 &&
                         wasAdded
                 ) {
-                    val paginateRequestId = requestIdCounter++
+                    val paginateRequestId = WebSocketService.allocateRequestId()
                     backgroundPrefetchRequests[paginateRequestId] = roomId
                     if (BuildConfig.DEBUG)
                         android.util.Log.d(
@@ -1108,7 +1108,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     }
                 }
 
-                val paginateRequestId = requestIdCounter++
+                val paginateRequestId = WebSocketService.allocateRequestId()
                 timelineRequests[paginateRequestId] = roomId
                 android.util.Log.d(
                     "Andromuks",

@@ -211,7 +211,7 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
                     "Andromuks",
                     "AppViewModel: Marking room as read from notification (WebSocket maintained by service)"
                 )
-            val markReadRequestId = requestIdCounter++
+            val markReadRequestId = WebSocketService.allocateRequestId()
 
             markReadRequests[markReadRequestId] = roomId
             beginNotificationAction()
@@ -272,7 +272,7 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
         with(vm) {
             if (BuildConfig.DEBUG)
                 android.util.Log.d("Andromuks", "AppViewModel: markRoomAsReadInternal called")
-            val markReadRequestId = requestIdCounter++
+            val markReadRequestId = WebSocketService.allocateRequestId()
 
             val commandData =
                 mapOf(

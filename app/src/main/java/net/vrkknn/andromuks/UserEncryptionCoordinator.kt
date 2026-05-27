@@ -19,7 +19,7 @@ internal class UserEncryptionCoordinator(private val vm: AppViewModel) {
             return@with
         }
 
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         userEncryptionInfoRequests[requestId] = callback
 
         sendWebSocketCommand(
@@ -41,7 +41,7 @@ internal class UserEncryptionCoordinator(private val vm: AppViewModel) {
             return@with
         }
 
-        val requestId = requestIdCounter++
+        val requestId = WebSocketService.allocateRequestId()
         trackDevicesRequests[requestId] = callback
 
         sendWebSocketCommand(
