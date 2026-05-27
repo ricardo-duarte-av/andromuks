@@ -66,6 +66,13 @@ class ShortcutActivity : ComponentActivity() {
         }
         currentRoomId = roomId
 
+        // Mirror the FCM-open behaviour (commit 5080874): the shortcut/widget tap may land while
+        // the WS was down, idle, or mid-reconnect, so the cache snapshot for this room can lag
+        // the server. Flag a fresh paginate; RoomTimelineScreen.LaunchedEffect(roomId) consumes
+        // this via appViewModel.consumePendingForceFreshPaginate() and bypasses the cache fast
+        // path in navigateToRoomWithCache, issuing a paginate that merges authoritative state.
+        WebSocketService.setForceFreshTimelinePaginatePending(this, true)
+
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Direct shortcut navigation to room: $roomId")
 
         setContent {
