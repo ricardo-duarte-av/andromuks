@@ -50,6 +50,12 @@ val processedInBatch = _processedInBatch.asStateFlow()
     // ── Configurable knobs (updated from AppViewModel.loadSettings) ──────────
     @Volatile var batchIntervalMs: Long = DEFAULT_BATCH_INTERVAL_MS
     @Volatile var maxBatchSize: Int = DEFAULT_MAX_BATCH_SIZE
+
+    // In sidecar mode the WebSocket is torn down ~15s after backgrounding, so there is no
+    // ongoing sync stream to batch and the periodic flush would only fire a wasted wakeup
+    // against a dead socket. When true, [processSyncComplete] always processes immediately
+    // (even while backgrounded) and never schedules a batchJob.
+    @Volatile var sidecarModeEnabled: Boolean = false
     
 
     companion object {
@@ -108,9 +114,11 @@ val processedInBatch = _processedInBatch.asStateFlow()
     
     /**
      * Process a sync_complete message.
-     * - If app is visible AND no batch is processing: process immediately + flush any pending batch
-     * - If app is visible BUT batch is processing: add to batch queue (defer until batch completes)
-     * - If app is backgrounded: add to batch queue
+     * - If (app is visible OR sidecar mode is on) AND no batch is processing: process immediately
+     *   + flush any pending batch.
+     * - If app is visible / sidecar mode is on BUT a batch is processing: add to batch queue
+     *   (defer until batch completes).
+     * - If app is backgrounded and sidecar mode is off: add to batch queue.
      */
     suspend fun processSyncComplete(syncJson: JSONObject, requestId: Int, runId: String) {
         batchLock.withLock {
@@ -118,13 +126,18 @@ val processedInBatch = _processedInBatch.asStateFlow()
             // even if app is visible. This prevents messages from appearing one-by-one during batch flush.
             val isCurrentlyProcessingBatch = _isProcessingBatch.value
             
-            if (appVisible.get() && !isCurrentlyProcessingBatch) {
-                // FOREGROUND: Process immediately (only if not currently processing a batch)
+            // Sidecar bypass: with sidecar mode on, the WS dies 15s after backgrounding, so
+            // there is no point batching during that window — process immediately and skip
+            // the batchJob entirely. Anything the user misses while disconnected is fetched
+            // fresh on the next reconnect (clear_state + resync), not replayed from a queue.
+            val sidecarBypass = sidecarModeEnabled
+            if ((appVisible.get() || sidecarBypass) && !isCurrentlyProcessingBatch) {
+                // FOREGROUND or SIDECAR: Process immediately (only if not currently processing a batch)
                 processSyncImmediately(syncJson, requestId, runId, true)
-                
-                // RUSH: Also flush any pending batch
+
+                // RUSH: Also flush any pending batch (carry-over from before sidecar mode was enabled)
                 if (batchQueue.isNotEmpty()) {
-                    Log.i(TAG, "App foregrounded - flushing ${batchQueue.size} batched messages")
+                    Log.i(TAG, "App foregrounded / sidecar mode - flushing ${batchQueue.size} batched messages")
                     flushBatchLocked()
                 }
             } else {

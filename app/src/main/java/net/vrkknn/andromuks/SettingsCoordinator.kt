@@ -89,6 +89,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
 
     fun toggleUseSidecarMode() = with(vm) {
         useSidecarMode = !useSidecarMode
+        syncBatchProcessor.sidecarModeEnabled = useSidecarMode
         appContext?.let { context ->
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit().putBoolean("use_sidecar_mode", useSidecarMode).apply()
@@ -448,6 +449,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             backgroundPurgeMessageThreshold = prefs.getInt("background_purge_message_threshold", SyncBatchProcessor.DEFAULT_MAX_BATCH_SIZE)
             syncBatchProcessor.batchIntervalMs = backgroundPurgeIntervalMinutes.toLong() * 60_000L
             syncBatchProcessor.maxBatchSize = backgroundPurgeMessageThreshold
+            syncBatchProcessor.sidecarModeEnabled = useSidecarMode
 
             if (BuildConfig.DEBUG) {
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded enableCompression setting: $enableCompression")
