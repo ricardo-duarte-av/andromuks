@@ -98,6 +98,28 @@ Ignores transient validation blips on the same network. Uses `NET_CAPABILITY_VAL
 
 The `onNetworkAvailable` callback is debounced by `NETWORK_CHANGE_DEBOUNCE_MS` and waits for `NET_CAPABILITY_VALIDATED` before scheduling reconnection.
 
+## Work Modes: Always-On vs Sidecar (Battery Saver)
+
+The app supports two connection modes, controlled by the `useSidecarMode` setting (Settings → "Battery saver mode"). They differ in how the WebSocket is maintained when the app is backgrounded and how incoming `sync_complete` traffic is processed.
+
+### Always-On (persistent foreground service)
+
+- WebSocket stays connected at all times once the service is up; `WebSocketService` runs as a foreground service with a persistent notification.
+- While backgrounded, incoming `sync_complete` messages are **batched** by `SyncBatchProcessor`: queued in `batchQueue` and flushed on either (a) the configurable interval (default 5 min, `backgroundPurgeIntervalMinutes`), (b) the configurable size threshold (default 500, `backgroundPurgeMessageThreshold`), or (c) immediately when the app returns to the foreground or an FCM tap arrives.
+- During a flush, `_shouldSkipTimelineRebuild = true` defers per-event timeline rebuilds; `triggerDeferredRebuild()` issues a single rebuild for `currentRoomId` once the batch completes.
+- On foreground resume, `ViewModelLifecycleCoordinator.onAppBecameVisible` runs the universal health check (`pingNowWithWatchdog`) and re-dials if the socket is unhealthy.
+
+### Sidecar (battery saver)
+
+- WebSocket is closed ~15 s after the last UI surface backgrounds (`scheduleSidecarLinger(SIDECAR_LINGER_MS_DEFAULT = 15_000L)`). The 15 s linger gives the user a grace window to switch back without paying for a fresh handshake.
+- A chat bubble being open extends the lifetime: `scheduleSidecarLinger` re-checks `BubbleTracker.anyBubbleOpen()` at expiry and skips teardown if any bubble is alive. `cancelSidecarLinger` is called whenever a surface (main activity or bubble) becomes visible.
+- Notifications and mark-as-read while disconnected are routed through a small HTTP sidecar at `<homeserver>/_gomuks/sidecar` (`SidecarApi`); FCM provides push delivery, so no socket is needed in steady-state.
+- **No batching:** `SyncBatchProcessor.sidecarModeEnabled = true` makes `processSyncComplete` always take the immediate path, even while backgrounded. Within the 15 s linger window every arriving `sync_complete` is applied straight to the caches; no `batchJob` is ever scheduled, so there is no future wakeup queued against a socket that is about to die. Any sync the user missed while disconnected is re-delivered on the next connect — the backend sends `clear_state=true` followed by a fresh sync (or a resume via `last_received_event` if eligible), not a replay of the missed stream.
+- At linger expiry the service flips `PREF_SIDECAR_USER_DISCONNECTED` and either calls `primaryVm.markForceFreshPaginateAfterWsDown()` (if a VM is attached) or sets `PREF_FORCE_FRESH_TIMELINE_PAGINATE` (consumed by the next VM open via `consumeForceFreshTimelinePaginatePending`). The next room open then bypasses the timeline cache fast path and paginates fresh, so a stale snapshot from before the disconnect cannot leak into the UI.
+- On foreground resume, `onAppBecameVisible` clears `PREF_SIDECAR_USER_DISCONNECTED`, reschedules `WebSocketHealthCheckWorker`, and runs the same `pingNowWithWatchdog` re-dial that the always-on path uses.
+
+The setting can be toggled at runtime. The lifecycle change takes effect on the next background/foreground transition; no service restart is forced. Enabling sidecar mode probes `<homeserver>/_gomuks/sidecar/healthz` first (see `SidecarApi.probeHealth`) and refuses to flip on if the reverse proxy is not routing the sidecar correctly — that error is surfaced inline in the Settings card.
+
 ## Service Lifetime & Auto-Restart
 
 - `START_STICKY` — Android re-creates the service after process kill with a null intent.
