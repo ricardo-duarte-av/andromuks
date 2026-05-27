@@ -21,17 +21,22 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
             appContext = appCtx
             RoomTimelineCache.setAppContext(appCtx)
 
-            if (!skipCacheClear) {
-                clearCurrentRoomId()
-                if (BuildConfig.DEBUG)
-                    android.util.Log.d("Andromuks", "AppViewModel: Cleared current room ID on app startup")
-            } else {
-                if (BuildConfig.DEBUG)
-                    android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Skipping cache clear on app startup (opening from notification)"
-                    )
-            }
+            // Historically this called clearCurrentRoomId() (gated on !skipCacheClear) on the
+            // assumption that "FCM init = app startup, no room is open yet". That assumption
+            // breaks for every direct-to-room entry path. Most of those callers dispatch
+            // initializeFCM onto Dispatchers.IO (AuthCheck, MainActivity, ChatBubbleActivity) so
+            // by the time the IO worker actually runs, the screen's LaunchedEffect(roomId) has
+            // already set currentRoomId to the target room and processCachedEvents has scheduled
+            // a Default-thread timeline rebuild. The clear then races the rebuild's stale-write
+            // guard, the rebuild is discarded, timelineEvents and eventChainMap end up empty,
+            // and the screen renders "Room loading…" forever. Confirmed via stack-trace logging
+            // (🔴 clearCurrentRoomId caller stack) on a release build repro 2026-05-27.
+            //
+            // FCM init has no business mutating the open-room state — those are orthogonal
+            // concerns. Any caller that legitimately needs to clear currentRoomId can do it
+            // explicitly; nothing in the current call graph relies on this side-effect.
+            // The skipCacheClear parameter is preserved on the signature for now to avoid a
+            // churny rename across all call sites.
 
             loadPendingOperationsFromStorage()
 
