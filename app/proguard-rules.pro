@@ -48,6 +48,26 @@
 # WebSocket / JSON
 -keep class org.json.** { *; }
 
+# Strip android.util.Log debug/verbose calls in release builds.
+#
+# `-assumenosideeffects` tells R8 that these methods have no observable side effects,
+# so it can eliminate the calls AND the argument-construction code feeding them
+# (string templates, joinToString, etc.) as dead code. This is the standard,
+# documented way to remove debug logging from release APKs.
+#
+# Log.i is kept — info-level messages (e.g. "WebSocket connected", "FCM token ready")
+# are intentionally release-visible and useful in user-supplied logcat dumps.
+# Log.w and Log.e are obviously kept — warnings and errors must always log.
+#
+# Note: arguments with real side effects (e.g. `Log.d("t", computeAndMutate())`) will
+# still have the side-effecting call preserved by R8; only pure argument construction
+# is eliminated. None of our current Log.d call sites embed side effects in arguments.
+-assumenosideeffects class android.util.Log {
+    public static *** d(...);
+    public static *** v(...);
+    public static int isLoggable(java.lang.String, int);
+}
+
 # App data classes used in notifications and caches
 -keep class net.vrkknn.andromuks.NotificationData { *; }
 -keep class net.vrkknn.andromuks.RoomItem { *; }
