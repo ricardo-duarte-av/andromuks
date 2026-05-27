@@ -1948,14 +1948,11 @@ fun RoomTimelineScreen(
                 "RoomTimelineScreen: Processing timelineEvents update - size=${timelineEvents.size}, roomId=$roomId"
             )
         }
-        Log.w("Andromuks", "🟠 LE(timelineEvents): ENTER roomId=$roomId, timelineEvents.size=${timelineEvents.size}, showHiddenEvents=$showHiddenEvents")
-        val processed = processTimelineEvents(
+        sortedEvents = processTimelineEvents(
             timelineEvents = timelineEvents,
             allowedEventTypes = allowedEventTypes,
             showHiddenEvents = showHiddenEvents
         )
-        sortedEvents = processed
-        Log.w("Andromuks", "🟠 LE(timelineEvents): EXIT roomId=$roomId, sortedEvents.size=${processed.size} (from ${timelineEvents.size} raw events)")
     }
 
     // Get base member map that observes memberUpdateCounter.
@@ -2003,7 +2000,6 @@ fun RoomTimelineScreen(
     // Use produceState to offload this heavy computation (iterating thousands of events) to a background thread.
     // The main thread should NEVER iterate the full event list.
     val timelineItems by produceState<List<TimelineItem>>(initialValue = emptyList(), sortedEvents) {
-        Log.w("Andromuks", "🟠 produceState(timelineItems): ENTER roomId=$roomId, sortedEvents.size=${sortedEvents.size}")
         value = withContext(Dispatchers.Default) {
             val items = mutableListOf<TimelineItem>()
             var lastDate: String? = null
@@ -2049,7 +2045,6 @@ fun RoomTimelineScreen(
             }
             items
         }
-        Log.w("Andromuks", "🟠 produceState(timelineItems): EXIT roomId=$roomId, items.size=${value.size}")
     }
     var lastInitialScrollSize by remember(roomId) { mutableStateOf(0) }
 

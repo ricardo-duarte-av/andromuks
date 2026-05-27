@@ -4506,9 +4506,6 @@ class AppViewModel : ViewModel() {
     internal fun updateCurrentRoomIdInPrefs(roomId: String) {
         // Update typing users for the new room when switching
         val previousRoomId = currentRoomId
-        if (previousRoomId != roomId) {
-            android.util.Log.w("Andromuks", "🔴 updateCurrentRoomIdInPrefs: '$previousRoomId' → '$roomId'")
-        }
         currentRoomId = roomId
 
         // Clear stale room state when switching to a different room.
@@ -4605,11 +4602,6 @@ class AppViewModel : ViewModel() {
      */
     fun clearCurrentRoomId(saveToCacheForRoomTimeline: Boolean = true) {
         val previousRoomId = currentRoomId
-        // Release-visible breadcrumb: who called clearCurrentRoomId? Capture top stack frames
-        // so the empty-timeline race investigation can pinpoint the caller without grepping
-        // every clearCurrentRoomId site.
-        val stack = Throwable().stackTrace.take(6).joinToString(" ← ") { "${it.className.substringAfterLast('.')}.${it.methodName}:${it.lineNumber}" }
-        android.util.Log.w("Andromuks", "🔴 clearCurrentRoomId: previousRoomId='$previousRoomId' caller=$stack")
         // LRU CACHE: Save current room to cache before clearing (for RoomTimelineScreen quick-switch)
         // BubbleTimelineScreen passes saveToCacheForRoomTimeline=false since it manages its own cache
         if (saveToCacheForRoomTimeline && currentRoomId.isNotEmpty()) {
@@ -9597,7 +9589,7 @@ class AppViewModel : ViewModel() {
                 // (e.g. from processCachedEvents launched on Dispatchers.Default) but the user
                 // has since navigated to a different room, discard the result entirely.
                 if (expectedRoomId != null && currentRoomId != expectedRoomId) {
-                    android.util.Log.w("Andromuks", "🟠 executeTimelineRebuild: DISCARD stale rebuild for $expectedRoomId (currentRoomId='$currentRoomId') — isTimelineLoading→false, timelineEvents NOT published")
+                    if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "executeTimelineRebuild: Discarding stale rebuild for $expectedRoomId (currentRoomId=$currentRoomId)")
                     isTimelineLoading = false
                     rebuildComplete?.complete(Unit)
                     return@withContext
@@ -9607,7 +9599,7 @@ class AppViewModel : ViewModel() {
                 // capturedGeneration == 0 only when called without the new plumbing (shouldn't happen
                 // in production, but keeps old call-sites safe).
                 if (capturedGeneration != 0 && capturedGeneration != timelineRebuildGeneration) {
-                    android.util.Log.w("Andromuks", "🟠 executeTimelineRebuild: DISCARD stale rebuild gen=$capturedGeneration (current=$timelineRebuildGeneration) — isTimelineLoading→false, timelineEvents NOT published")
+                    if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "executeTimelineRebuild: Discarding stale rebuild gen=$capturedGeneration (current=$timelineRebuildGeneration)")
                     isTimelineLoading = false
                     rebuildComplete?.complete(Unit)
                     return@withContext

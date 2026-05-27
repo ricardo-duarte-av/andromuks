@@ -90,7 +90,6 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
             // Restore events
             timelineEvents = cachedEvents
-            android.util.Log.w("Andromuks", "🟡 restoreFromLruCache: roomId=$roomId, timelineEvents.size=${timelineEvents.size}, eventChainMap.size=${eventChainMap.size}, processedState=${processedState != null}")
 
             // Restore processed state if available
             if (processedState != null) {
@@ -123,7 +122,6 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     )
             }
 
-            android.util.Log.w("Andromuks", "🟡 restoreFromLruCache: EXIT - roomId=$roomId, final timelineEvents.size=${timelineEvents.size}, eventChainMap.size=${eventChainMap.size}, editEventsMap.size=${editEventsMap.size}")
             return true
         }
     }
