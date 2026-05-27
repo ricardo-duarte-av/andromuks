@@ -9589,7 +9589,7 @@ class AppViewModel : ViewModel() {
                 // (e.g. from processCachedEvents launched on Dispatchers.Default) but the user
                 // has since navigated to a different room, discard the result entirely.
                 if (expectedRoomId != null && currentRoomId != expectedRoomId) {
-                    if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "executeTimelineRebuild: Discarding stale rebuild for $expectedRoomId (currentRoomId=$currentRoomId)")
+                    android.util.Log.w("Andromuks", "🟠 executeTimelineRebuild: DISCARD stale rebuild for $expectedRoomId (currentRoomId='$currentRoomId') — isTimelineLoading→false, timelineEvents NOT published")
                     isTimelineLoading = false
                     rebuildComplete?.complete(Unit)
                     return@withContext
@@ -9599,7 +9599,7 @@ class AppViewModel : ViewModel() {
                 // capturedGeneration == 0 only when called without the new plumbing (shouldn't happen
                 // in production, but keeps old call-sites safe).
                 if (capturedGeneration != 0 && capturedGeneration != timelineRebuildGeneration) {
-                    if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "executeTimelineRebuild: Discarding stale rebuild gen=$capturedGeneration (current=$timelineRebuildGeneration)")
+                    android.util.Log.w("Andromuks", "🟠 executeTimelineRebuild: DISCARD stale rebuild gen=$capturedGeneration (current=$timelineRebuildGeneration) — isTimelineLoading→false, timelineEvents NOT published")
                     isTimelineLoading = false
                     rebuildComplete?.complete(Unit)
                     return@withContext

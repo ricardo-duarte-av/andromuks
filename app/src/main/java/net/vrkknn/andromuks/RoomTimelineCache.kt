@@ -18,7 +18,7 @@ import net.vrkknn.andromuks.BuildConfig
  * Cache Management:
  * - Opened rooms (RoomTimelineScreen current room + any BubbleTimelineScreen bubbles):
  *   unlimited events, exempt from trim and from LRU eviction.
- * - Other rooms: trimmed to MAX_EVENTS_PER_ROOM (50) newest events after each add/merge.
+ * - Other rooms: trimmed to MAX_EVENTS_PER_ROOM (100) newest events after each add/merge.
  *   Sync_complete and paginate both go through addEventsToCache, which trims when over limit.
  * - LRU eviction removes entire rooms when RAM usage exceeds MAX_CACHE_MEMORY_MB.
  */
@@ -34,10 +34,14 @@ object RoomTimelineCache {
     // Default: 100MB (conservative to prevent OOM, can be adjusted)
     private var MAX_CACHE_MEMORY_MB = 100L // Configurable variable
     
-    // Event-level cache management: Maximum events per room (except currently opened rooms)
-    // Matches initial paginate limit (AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT = 50).
+    // Event-level cache management: Maximum events per room (except currently opened rooms).
+    // Must match AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT so that a freshly-paginated cache for
+    // a closed room is not immediately trimmed below the cache-fast-path threshold in
+    // navigateToRoomWithCache (which gates on >= INITIAL_ROOM_PAGINATE_LIMIT). Previously this
+    // was 50 while the paginate limit was 100, so any closed room got trimmed to half a page
+    // and the next open had to fall back through requestRoomTimeline/LRU-restore.
     // Opened rooms (RoomTimelineScreen + BubbleTimelineScreen bubbles) have no limit.
-    private const val MAX_EVENTS_PER_ROOM = 50
+    private const val MAX_EVENTS_PER_ROOM = 100
     
     // Application context for debug-only toasts and diagnostics (optional)
     private var appContext: Context? = null
