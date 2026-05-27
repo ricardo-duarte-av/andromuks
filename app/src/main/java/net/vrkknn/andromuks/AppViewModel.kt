@@ -4506,6 +4506,9 @@ class AppViewModel : ViewModel() {
     internal fun updateCurrentRoomIdInPrefs(roomId: String) {
         // Update typing users for the new room when switching
         val previousRoomId = currentRoomId
+        if (previousRoomId != roomId) {
+            android.util.Log.w("Andromuks", "🔴 updateCurrentRoomIdInPrefs: '$previousRoomId' → '$roomId'")
+        }
         currentRoomId = roomId
 
         // Clear stale room state when switching to a different room.
@@ -4602,6 +4605,11 @@ class AppViewModel : ViewModel() {
      */
     fun clearCurrentRoomId(saveToCacheForRoomTimeline: Boolean = true) {
         val previousRoomId = currentRoomId
+        // Release-visible breadcrumb: who called clearCurrentRoomId? Capture top stack frames
+        // so the empty-timeline race investigation can pinpoint the caller without grepping
+        // every clearCurrentRoomId site.
+        val stack = Throwable().stackTrace.take(6).joinToString(" ← ") { "${it.className.substringAfterLast('.')}.${it.methodName}:${it.lineNumber}" }
+        android.util.Log.w("Andromuks", "🔴 clearCurrentRoomId: previousRoomId='$previousRoomId' caller=$stack")
         // LRU CACHE: Save current room to cache before clearing (for RoomTimelineScreen quick-switch)
         // BubbleTimelineScreen passes saveToCacheForRoomTimeline=false since it manages its own cache
         if (saveToCacheForRoomTimeline && currentRoomId.isNotEmpty()) {
