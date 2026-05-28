@@ -1612,6 +1612,8 @@ class WebSocketService : Service() {
                     // CRITICAL FIX: Wait for service instance to be ready (with timeout)
                     // This prevents race condition where connectWebSocket() is called before onCreate()
                     val serviceInstance = waitForServiceInstance(5_000L) ?: run {
+                        // DIAG-WS-START: see docs/DEBUG_WS_REVIVAL.md
+                        android.util.Log.i("Andromuks", "WebSocketService: connectWebSocket SKIPPED - service instance never appeared after 5s (startForegroundService likely silently dropped)")
                         android.util.Log.e("WebSocketService", "connectWebSocket() called but service instance is null after waiting 5 seconds")
                         return@launch
                     }
@@ -1624,13 +1626,15 @@ class WebSocketService : Service() {
                     
                     // Check if already connected
                     if (isWebSocketConnected()) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "connectWebSocket() called but already connected - skipping")
+                        // DIAG-WS-START: see docs/DEBUG_WS_REVIVAL.md
+                        android.util.Log.i("Andromuks", "WebSocketService: connectWebSocket SKIPPED - isWebSocketConnected()=true")
                         logActivity(withReconnectTrace(traceId, "connectWebSocket skipped: already connected"), serviceInstance.currentNetworkType.name)
                         return@launch
                     }
-                    
+
                     if (serviceInstance.connectionState is ConnectionState.Connecting) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "connectWebSocket() called but dial already in progress - skipping")
+                        // DIAG-WS-START: see docs/DEBUG_WS_REVIVAL.md
+                        android.util.Log.i("Andromuks", "WebSocketService: connectWebSocket SKIPPED - dial already in progress (state=Connecting)")
                         logActivity(withReconnectTrace(traceId, "connectWebSocket skipped: already connecting"), serviceInstance.currentNetworkType.name)
                         return@launch
                     }

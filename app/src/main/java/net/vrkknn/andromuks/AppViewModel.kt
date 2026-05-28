@@ -10897,30 +10897,35 @@ class AppViewModel : ViewModel() {
      * is managed by NetworkUtils and AppViewModel.
      */
     fun startWebSocketService() {
-        appContext?.let { context ->
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Starting WebSocket foreground service")
-            logActivity("Starting WebSocket Service", null)
-            val intent = android.content.Intent(context, WebSocketService::class.java)
-            try {
-                if (Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
-                    WebSocketService.shouldUseForegroundService()
-                ) {
-                    // Normal path on Android O+: request a foreground service start
-                    context.startForegroundService(intent)
-                } else {
-                    // Either pre-O, or we've previously been denied FGS for this process.
-                    // In that case, fall back to a regular service start to avoid
-                    // ForegroundServiceDidNotStartInTimeException.
-                    context.startService(intent)
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Failed to start WebSocketService", e)
-            }
-            
-            // Service will manage connection lifecycle once started
+        val context = appContext
+        if (context == null) {
+            // DIAG-WS-START: see docs/DEBUG_WS_REVIVAL.md
+            android.util.Log.i("Andromuks", "AppViewModel: startWebSocketService SKIPPED - appContext is null")
+            return
         }
+        // DIAG-WS-START: see docs/DEBUG_WS_REVIVAL.md
+        android.util.Log.i("Andromuks", "AppViewModel: startWebSocketService - shouldUseForegroundService=${WebSocketService.shouldUseForegroundService()}, sdk=${Build.VERSION.SDK_INT}")
+        logActivity("Starting WebSocket Service", null)
+        val intent = android.content.Intent(context, WebSocketService::class.java)
+        try {
+            if (Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+                WebSocketService.shouldUseForegroundService()
+            ) {
+                // Normal path on Android O+: request a foreground service start
+                context.startForegroundService(intent)
+            } else {
+                // Either pre-O, or we've previously been denied FGS for this process.
+                // In that case, fall back to a regular service start to avoid
+                // ForegroundServiceDidNotStartInTimeException.
+                android.util.Log.i("Andromuks", "AppViewModel: startWebSocketService - FALLBACK to startService (no FGS)")
+                context.startService(intent)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to start WebSocketService", e)
+        }
+        // Service will manage connection lifecycle once started
     }
-    
+
     /**
      * PHASE 1.4 FIX: Initialize WebSocket connection using viewModelScope
      * This ensures the connection attempt survives activity recreation
@@ -10931,18 +10936,21 @@ class AppViewModel : ViewModel() {
     fun initializeWebSocketConnection(homeserverUrl: String, token: String, isReconnection: Boolean? = null) {
         // Only primary instance should connect
         if (instanceRole != InstanceRole.PRIMARY) {
-            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: initializeWebSocketConnection called on non-primary instance ($viewModelId), ignoring")
+            // DIAG-WS-START: see docs/DEBUG_WS_REVIVAL.md
+            android.util.Log.i("Andromuks", "AppViewModel: initializeWebSocketConnection SKIPPED - non-primary instance ($viewModelId, role=$instanceRole)")
             return
         }
-        
+
         // Check if already connected
         if (WebSocketService.isWebSocketConnected()) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket already connected, skipping initialization")
+            // DIAG-WS-START: see docs/DEBUG_WS_REVIVAL.md
+            android.util.Log.i("Andromuks", "AppViewModel: initializeWebSocketConnection SKIPPED - isWebSocketConnected()=true (attaching to existing)")
             attachToExistingWebSocketIfAvailable()
             return
         }
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Delegating WebSocket connection to WebSocketService")
+
+        // DIAG-WS-START: see docs/DEBUG_WS_REVIVAL.md
+        android.util.Log.i("Andromuks", "AppViewModel: initializeWebSocketConnection - delegating to WebSocketService")
         
         // Start WebSocket service BEFORE connecting websocket
         startWebSocketService()
