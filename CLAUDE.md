@@ -35,6 +35,12 @@ Andromuks is a Matrix protocol chat client for Android, built with Jetpack Compo
 
 Build produces arm64-v8a only (ABI splits enabled). JVM heap is configured at 4GB (`-Xmx4096m`).
 
+### Logging in release builds
+
+`app/proguard-rules.pro` declares `android.util.Log.d`, `Log.v`, and `Log.isLoggable` as having no side effects, so R8 strips them (and their argument-construction expressions) from release APKs. `Log.i`, `Log.w`, and `Log.e` survive — use them when a message should be visible in a user-supplied logcat dump (info), or signals an actual problem (warn/error). `Log.d` is for chatty diagnostics that are debug-only.
+
+This means `if (BuildConfig.DEBUG) Log.d(...)` gates are redundant in release (R8 strips them either way), but they're still valuable in *debug* to avoid the per-call string-formatting cost — see the "Logging in release builds" note above and the empty-timeline race postmortem in [docs/STATE_INVARIANTS.md](docs/STATE_INVARIANTS.md#dont-mutate-currentroomid-from-background-init-paths) for why that cost matters.
+
 ## Architecture Overview
 
 ### Layered Architecture

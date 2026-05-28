@@ -64,3 +64,13 @@ buildTimelineFromChain()  // outside lock — async, manages its own synchronize
 ```
 
 This is necessary because `buildTimelineFromChain` (also on `Dispatchers.Default`) takes its own `synchronized(eventChainMap)` snapshot when it runs. Without the write-side lock, it could snapshot a half-rebuilt map. `buildTimelineFromChain` is called **outside** the lock because it is async — it fires a new coroutine and returns immediately.
+
+## Cache Trim Threshold Invariant
+
+`RoomTimelineCache.MAX_EVENTS_PER_ROOM` (the per-room cap applied to *closed* rooms on every `addEventsToCache` / `mergePaginatedEvents`) **must equal `AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT`** (currently 100).
+
+**Why they must match:** `navigateToRoomWithCache`'s cache-fast-path gate is `cachedEventCount >= INITIAL_ROOM_PAGINATE_LIMIT`. If `MAX_EVENTS_PER_ROOM` is smaller than the paginate limit, every closed room's cache gets trimmed below the gate as soon as a non-current room is touched by a sync_complete. The next visit then has to fall through to `requestRoomTimeline` and re-paginate — even though the events it would re-fetch are still in the (now half-page) cache.
+
+**Historical bug:** A previous commit raised `INITIAL_ROOM_PAGINATE_LIMIT` from 50 → 100 but left `MAX_EVENTS_PER_ROOM` at 50, with a stale "matches initial paginate limit (= 50)" comment. Closed rooms were silently truncated to half a page, all room-reopens missed the cache-fast-path, and every reopen issued a full paginate-then-merge that returned 100% duplicates. Raised to 100 to match; comment now explicitly tells future readers to keep the two in sync.
+
+**Opened rooms are exempt:** `isRoomOpened(roomId)` (RoomTimelineScreen current room + any BubbleTimelineScreen bubbles) bypasses the trim entirely — their caches grow unboundedly within the room session and are saved to LRU on navigation away.

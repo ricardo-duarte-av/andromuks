@@ -51,6 +51,18 @@
 | `processSyncEventsArray` | `AppViewModel.kt` | `roomId` ✓ |
 | batch-completion rebuild | `AppViewModel.kt` | captured `currentRoomId` ✓ |
 
+## Don't Mutate `currentRoomId` from Background Init Paths
+
+`currentRoomId` is meant to be mutated only by *foreground navigation* (`navigateToRoomWithCache`, `setCurrentRoomIdForTimeline`, `RoomTimelineScreen.DisposableEffect.onDispose`, the back-button handler). Any other path that calls `clearCurrentRoomId()` will race with a concurrent timeline rebuild and trigger the stale-write guard above for the wrong reason — discarding events that the rebuild had every right to publish.
+
+**Historical bug:** `FcmPushCoordinator.initializeFCM` used to call `clearCurrentRoomId()` on the assumption "FCM init only runs at app startup, so no room is open yet." Most callers of `initializeFCM` (AuthCheck, MainActivity, ChatBubbleActivity) dispatch it onto `Dispatchers.IO`. On a direct-to-room entry (widget tap, FCM notification, shortcut), the screen's `LaunchedEffect(roomId)` calls `navigateToRoomWithCache` synchronously on Main, which sets `currentRoomId = roomId` and schedules a `Dispatchers.Default` timeline rebuild via `processCachedEvents`. The IO-worker `initializeFCM` then ran `clearCurrentRoomId()` at an arbitrary time relative to the rebuild's Main continuation; if it landed first, the guard `currentRoomId != expectedRoomId` evaluated true (with `currentRoomId = ""`), the rebuild was discarded with `isTimelineLoading=false`, and `timelineEvents` ended up empty. The screen rendered "Room loading…" forever.
+
+Only reproduced on release builds — the per-`Log.d` overhead in debug widened the race window enough that the two Main-thread tasks no longer overlapped.
+
+**Fix:** `FcmPushCoordinator.initializeFCM` no longer calls `clearCurrentRoomId`. The `skipCacheClear` parameter is kept on the signature as a no-op to avoid renaming all five call sites. FCM initialization is orthogonal to which room is currently open — those should not have been coupled.
+
+**Invariant for new code:** Background coordinators (FCM, settings, state-storage loaders, etc.) must not touch `currentRoomId`. If a code path genuinely needs to clear the open-room state on app startup, it must do so explicitly from a Main-thread, pre-navigation site (e.g. `MainActivity.onCreate` *before* any LaunchedEffect that could trigger navigation), not from a coroutine that races with the screen's LaunchedEffect.
+
 ## `openedViaDirectNotification` Never-Reset
 
 `AppViewModel.openedViaDirectNotification` is set to `true` whenever a room is opened via FCM notification or shortcut (in `AuthCheck`, `RoomListScreen.executeRoomNavigation`, and `RoomTimelineScreen.LaunchedEffect(navTrigger)`). It is **never reset to `false`**.
