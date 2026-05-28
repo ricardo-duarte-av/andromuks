@@ -1,6 +1,8 @@
 # Debugging: WebSocketService never revives after FCM-tap from long background
 
-**Status:** open. Diagnostic logs landed; awaiting next repro.
+**Status:** open. Diagnostic logs landed. **New lead (2026-05-28): likely a spurious-401
+auto-logout, not a service-revival failure.** See "New lead" section below — verify against a
+captured logcat next session.
 
 ## The bug
 
@@ -40,6 +42,71 @@ deliver, but the moment the handler hits its first coroutine suspension point (t
 refrozen and the continuation never resumes. That is why FCMs stop rendering.
 
 So the bug to fix is: **why does WebSocketService never come back?**
+
+## New lead (2026-05-28): credentials were wiped — spurious-401 auto-logout
+
+**New fact from the user:** after rebuilding and relaunching the app, they were greeted by
+the **login screen** — i.e. the stored credentials were gone. A plain `adb install` (what
+`debug-build.sh` does — no uninstall) does **not** clear SharedPreferences, so the app must
+have wiped its own credentials *while running, before the relaunch*.
+
+### Only one path wipes the login-gating token
+
+The login gate is `AndromuksAppPrefs` → `gomuks_auth_token` (+ `homeserver_url`), read at
+`AuthCheck.kt:41` / `:365`. A grep of every `.remove(...)` / `.clear()` against the real
+prefs file found exactly one writer that removes it:
+
+- `AppViewModel.handleUnauthorizedError()` — `AppViewModel.kt:5500`
+  - removes `gomuks_auth_token`, `homeserver_url`, `ws_run_id`, then `editor.commit()`
+    (synchronous, permanent).
+  - Called from exactly one place: `NetworkUtils.kt:717`, inside the WebSocket
+    `onFailure` handler, **whenever the handshake response is HTTP 401**
+    (`response?.code == 401 || (t is ProtocolException && msg contains "401")`,
+    `NetworkUtils.kt:709`).
+
+The other two `clearCredentials()` are red herrings — they operate on *separate* prefs
+files and never touch `gomuks_auth_token`:
+
+- `FCMNotificationManager.clearCredentials()` (`:291`) → `fcm_prefs`
+- `WebClientPushIntegration.clearCredentials()` (`:302`) → `web_client_prefs`
+
+### The unified theory (fits every symptom)
+
+```
+long background → reconnect → WS handshake → response.code == 401
+  → NetworkUtils.kt:711   "401 Unauthorized detected"            (Log.e, survives R8)
+  → handleUnauthorizedError()  AppViewModel.kt:5500
+       "Handling 401 Unauthorized error"                         (Log.e, survives R8)
+       remove gomuks_auth_token / homeserver_url / ws_run_id; commit()
+```
+
+After the wipe: WS revival can never succeed (no token → the bails downstream fire), so no
+FGS → cached → compacted → frozen → FCM handler dies at its first `Dispatchers.IO` suspend.
+That is the documented "never revives" symptom. Then the next real app open / rebuild reads
+a null token at `AuthCheck.kt:365` → **login screen**. Matches the new fact exactly.
+
+So the real bug is probably **not** "why doesn't the service revive" but **"why did a 401
+log us out, and was that 401 even legitimate?"** The 401 wipe is unconditional, immediate,
+and permanent — a *single* handshake 401 (genuine expiry **or** a spurious one: reconnect
+after Doze dialing with a stale/empty cookie, `run_id` mismatch, or the gomuks backend
+transiently 401ing during its own startup) bricks the install. No retry, no confirmation, no
+transient-vs-real distinction.
+
+### Next session — verify, then decide
+
+1. Confirm the 401 actually fired. Both lines are `Log.e` (survive R8). In a captured log:
+   ```bash
+   grep -E "401 Unauthorized detected|Handling 401 Unauthorized error" /tmp/andromuks-wedged-*.log
+   ```
+   - **Present** → confirmed; pivot the fix to the 401 path. Capture the accompanying
+     `response.code` / `t.message` from `NetworkUtils.kt:706` ("Failure reason: ...") to learn
+     whether the 401 was genuine or spurious.
+   - **Absent** (and the log is complete, not a post-`logcat -c` fragment) → 401 was not the
+     trigger; fall back to the bail-elimination work below.
+2. If confirmed spurious: candidate fixes — don't wipe on the *first* 401 (require N
+   consecutive, or a confirming re-auth attempt); never drop `homeserver_url`/`ws_run_id` on a
+   transient failure; gate the wipe on the backend actually rejecting a *well-formed* auth
+   (verify the reconnect even sent the cookie/token).
 
 ## Why we can't tell yet which bail killed it
 
