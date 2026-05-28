@@ -646,11 +646,12 @@ class FCMService : FirebaseMessagingService() {
                         if (BuildConfig.DEBUG) Log.d(TAG, "No notification found for room: $roomId but bubble is open - not cancelling")
                     } else {
                         if (BuildConfig.DEBUG) Log.d(TAG, "No notification found for room: $roomId in activeNotifications - attempting cancel anyway (may be stale)")
+                        EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
                         notificationManagerCompat.cancel(notifID)
                     }
                     continue
                 }
-                
+
                 // If notification is pending, cancel it before it's shown
                 if (isPending && existingNotification == null) {
                     if (BuildConfig.DEBUG) Log.d(TAG, "Notification for room $roomId is pending - cancelling before it's shown")
@@ -658,6 +659,7 @@ class FCMService : FirebaseMessagingService() {
                         pendingNotifications.remove(roomId)
                     }
                     // Also cancel the notification ID in case it gets posted before we finish
+                    EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
                     notificationManagerCompat.cancel(notifID)
                     if (BuildConfig.DEBUG) Log.d(TAG, "Successfully cancelled pending notification for room: $roomId")
                     continue
@@ -708,8 +710,12 @@ class FCMService : FirebaseMessagingService() {
                     if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId - NOT dismissing notification (bubble is actually open)")
                     if (BuildConfig.DEBUG) Log.d(TAG, "This prevents the bubble from disappearing when conversation is marked as read")
                 } else {
-                    // Safe to dismiss - no active bubble
+                    // Safe to dismiss - no active bubble. Conversation has been marked read
+                    // (or remote-dismissed); drop the cached MessagingStyle history so the
+                    // next notification for this room starts fresh and does not re-display
+                    // messages the user has already acknowledged.
                     if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId - Dismissing notification (no active bubble)")
+                    EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
                     notificationManagerCompat.cancel(notifID)
                     if (BuildConfig.DEBUG) Log.d(TAG, "Successfully dismissed notification for room: $roomId")
                 }

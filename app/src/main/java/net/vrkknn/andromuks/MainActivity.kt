@@ -416,6 +416,13 @@ class MainActivity : ComponentActivity() {
                                 // CRITICAL FIX #2: Store room navigation and wait for WebSocket connection
                                 // This ensures proper state (spacesLoaded, WebSocket connected) before navigating
                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - Storing direct room navigation to: $extractedRoomId (will wait for WebSocket)")
+                                // Notification tap means the user has acknowledged the cached
+                                // MessagingStyle history for this room — drop it so the next
+                                // notification starts fresh, instead of replaying messages the
+                                // user has already seen.
+                                if (fromNotification) {
+                                    EnhancedNotificationDisplay.clearRoomMessageCache(extractedRoomId)
+                                }
                                 // Extract notification timestamp if present
                                 val notificationTimestamp = intent.getLongExtra("notification_timestamp", 0L).takeIf { it > 0 }
                                 // Store for navigation once WebSocket is connected and spacesLoaded = true
@@ -927,6 +934,13 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 
+                // Notification tap means the user has acknowledged the cached
+                // MessagingStyle history for this room — drop it so the next
+                // notification starts fresh, instead of replaying messages the
+                // user has already seen.
+                if (fromNotification) {
+                    EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
+                }
                 // OPTIMIZATION #1: Direct navigation instead of pending state
                 val notificationTimestamp = intent.getLongExtra("notification_timestamp", 0L).takeIf { it > 0 }
                 appViewModel.setDirectRoomNavigation(

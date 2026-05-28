@@ -74,6 +74,44 @@ Note: there is **no** `PowerManager.isDeviceIdleMode` guard in the current imple
 
 Fallback avatars (generated lettermarks from room/sender name) are used whenever the real avatar is unavailable.
 
+### MessagingStyle message history cache
+
+`EnhancedNotificationDisplay.roomMessageCache` (companion object) is a per-room
+`ConcurrentHashMap<String, ArrayDeque<MessagingStyle.Message>>` capped at
+`MAX_CACHED_MESSAGES_PER_ROOM = 5`. Every incoming message is appended with
+`addLast` then trimmed FIFO. On every `notify()` call the cached messages are
+re-added to a freshly-built `MessagingStyle`, so the shade renders up to the
+last 5 messages for the conversation.
+
+**Why this is needed:** Android's `MessagingStyle` does not preserve history
+across `notify()` calls. If we built a `MessagingStyle` containing only the
+latest message, the shade would show only that one. The cache is the application
+side of the contract.
+
+**Lifetime:** in-memory, tied to process lifetime. No SharedPreferences backing.
+A true cold start posts a notification with only the new message until 5 more
+arrive.
+
+**Clear sites — the cache must be cleared whenever the user (or the backend
+on behalf of the user) acknowledges the conversation, so the next notification
+does not replay messages the user has already seen:**
+
+| Where | Why |
+|---|---|
+| `EnhancedNotificationDisplay.updateNotificationAsRead` / `clearNotificationForRoom` | Inline reply / mark-read action button — user explicitly engaged with the notification from the shade. |
+| `FCMService.handleDismissNotification` (all three cancel branches) | Backend pushed a dismiss because the conversation was marked read server-side (e.g. the user read it in another client, or the read-receipt for an in-app read round-tripped). |
+| `MainActivity.onCreate` / `onNewIntent` on the `fromNotification == true && roomId != null` branch | User tapped the notification body. Closes the window between tap and the eventual backend-dismiss FCM, and covers "tap but immediately switch away" where the read-receipt never gets sent. |
+
+**Do NOT clear when:**
+- A bubble is open for the room — the bubble's UI continuity depends on the
+  cached MessagingStyle, and the dismiss FCM's bubble-open branch already
+  skips the system cancel for the same reason.
+- The dismiss arrives within the 5-second reply-protection window — that
+  dismiss is the backend's echo of our own reply's mark-read; the cache was
+  already cleared by the reply path.
+
+The single public entry point is `EnhancedNotificationDisplay.clearRoomMessageCache(roomId)`.
+
 ### Notification body formatting
 
 FCM push payloads carry only the plain-text `body` field — the `sanitized_html` / `htmlBody` field is not present. `showEnhancedNotification` therefore cannot call `htmlToNotificationText`. Instead it calls `formatNotificationBody(text)`, a private single-pass parser defined in `EnhancedNotificationDisplay`, which returns a `SpannableStringBuilder` with Android text spans applied:

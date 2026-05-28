@@ -74,6 +74,18 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         internal const val MAX_CACHED_MESSAGES_PER_ROOM = 5
 
         /**
+         * Drop the in-memory MessagingStyle history for a room. The next notification posted
+         * for this room will start with a fresh queue, so the user does not see messages they
+         * have already acknowledged (by tapping the notification or by the conversation being
+         * marked read by the backend).
+         *
+         * Safe to call from any thread and when no cache entry exists.
+         */
+        fun clearRoomMessageCache(roomId: String) {
+            roomMessageCache.remove(roomId)
+        }
+
+        /**
          * Called by NotificationImageWorker after a successful Phase 2 image update.
          * Replaces the text-only placeholder in the cache with an image-bearing message
          * so that any subsequent showEnhancedNotification call rebuilds from the correct state.
