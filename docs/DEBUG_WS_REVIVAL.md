@@ -1,8 +1,13 @@
 # Debugging: WebSocketService never revives after FCM-tap from long background
 
-**Status:** open. Diagnostic logs landed. **New lead (2026-05-28): likely a spurious-401
-auto-logout, not a service-revival failure.** See "New lead" section below — verify against a
-captured logcat next session.
+**Status:** candidate fix landed 2026-05-28 — `FCMService` PendingIntent flags changed from
+`FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TASK` to `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_SINGLE_TOP`
+(`FCMService.kt:785`). See "Current theory" below. **Verify on device** with the test plan
+at the bottom of this doc before closing.
+
+The older "spurious 401 auto-logout" theory is **down-weighted** — see "Why the 401 theory
+was wrong" below. The diagnostic `DIAG-WS-START` Log.i breadcrumbs remain in place and are
+still useful if this fix doesn't pan out.
 
 ## The bug
 
@@ -43,7 +48,84 @@ refrozen and the continuation never resumes. That is why FCMs stop rendering.
 
 So the bug to fix is: **why does WebSocketService never come back?**
 
-## New lead (2026-05-28): credentials were wiped — spurious-401 auto-logout
+## Current theory (2026-05-28): FCM PendingIntent used `CLEAR_TASK`
+
+**Decisive observation from the user:** the wedge is recovered by **tapping the launcher
+icon** — no process kill required, no login screen, credentials intact. Whatever broke the
+FCM-tap path leaves the existing process recoverable from the normal warm-resume entry.
+
+### What differs between FCM tap and launcher tap
+
+| | FCM tap (old) | Launcher tap |
+|---|---|---|
+| Intent flags | `FLAG_ACTIVITY_NEW_TASK \| FLAG_ACTIVITY_CLEAR_TASK` (`FCMService.kt:785`) | default launcher flags |
+| Effect on existing task | wipes the back stack, **destroys & recreates MainActivity** | brings existing MainActivity to front via `onNewIntent` |
+| Activity-scoped state | new ViewModelStore → **new AppViewModel** | preserved |
+| Lifecycle | `onCreate` from scratch | `onNewIntent` + `onResume` only |
+
+So when the process is frozen and an FCM is tapped, AMS thaws, then `CLEAR_TASK` destroys
+the old MainActivity (and its AppViewModel), and constructs a fresh MainActivity /
+AppViewModel — while sharing the process with stale singletons (`WebSocketService` class
+statics, `RoomTimelineCache`, `RoomMetadataStore`, etc.). This **"fresh VM + stale process
+singletons"** hybrid is the suspected wedge: one or more of the silent bails in
+`AppViewModel.initializeWebSocketConnection` (`:10938`, `:10944`, `:10954`, `:10900`) and
+`WebSocketService.connectWebSocket` (`:1614`, `:1626`, `:1632`) fires from inherited stale
+state on the brand-new VM.
+
+The launcher tap doesn't recreate anything — same MainActivity, same VM, same singleton
+state — so the bad hybrid never materialises, and the in-memory revival path runs cleanly.
+
+### The fix
+
+Change `FCMService.kt:785` from
+
+```kotlin
+flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+```
+
+to
+
+```kotlin
+flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+```
+
+Rationale:
+
+- MainActivity has no `launchMode` (default `standard`) and the app effectively has one
+  Activity — Compose owns all internal navigation. So MainActivity is always at the top of
+  its task when it exists. `SINGLE_TOP` on that = `onNewIntent`, deterministically.
+- `onNewIntent` is the documented warm-start FCM-tap path
+  (`NOTIFICATIONS.md:124-173`) — it already has all the right invariants
+  (`setDirectRoomNavigation` not `navigateToRoomWithCache`, same-room guard,
+  `launchSingleTop` defence-in-depth).
+- `CLEAR_TASK` was the **only** site in the codebase using it on a MainActivity
+  PendingIntent. Every other PendingIntent into MainActivity (4 sites in
+  `WebSocketService.kt`, 1 in `EnhancedNotificationDisplay.kt`) already uses
+  `NEW_TASK | SINGLE_TOP`. The FCM site was an inconsistency, present since
+  `ae3aea71 Add Firebase Cloud Messaging support to the app` with no follow-up commits
+  tying it to a specific defect.
+- Back-stack hygiene (System Back exits the app for FCM-opened rooms) is preserved by
+  the existing Compose-nav layer: `popUpTo("auth_check") { inclusive = true }` in
+  `navigateToRoomTimelineForExternalEntry` (`NOTIFICATIONS.md:160-173`) and the
+  `openedViaDirectNotification` flag (`STATE_INVARIANTS.md:70-80`). Neither depends on
+  Activity flags.
+
+### Why the 401 theory was wrong
+
+The earlier theory (a handshake 401 wipes `gomuks_auth_token` via
+`AppViewModel.handleUnauthorizedError`) is incompatible with the launcher-tap recovery:
+if credentials had been wiped, the launcher tap would land on `LoginScreen`
+(`AuthCheck.kt:41/365` reads null token → login route), not on a working app. The
+"rebuild → login screen" observation that originally seeded the theory was probably a
+separate event (a real expiry, or rebuild-specific behaviour) and got over-fit.
+
+### Test plan
+
+See "How to verify the fix on device" at the bottom of this doc.
+
+---
+
+## Older lead (2026-05-28, down-weighted): credentials were wiped — spurious-401 auto-logout
 
 **New fact from the user:** after rebuilding and relaunching the app, they were greeted by
 the **login screen** — i.e. the stored credentials were gone. A plain `adb install` (what
@@ -160,8 +242,28 @@ Sites instrumented:
 
 ## How to capture a clean repro
 
-The 20-hour-old buffer is now gone (logcat -c clobbered it). Next time the bug is
-reproducible, capture **before** clearing:
+The 20-hour-old buffer is now gone (logcat -c clobbered it). Two capture modes —
+prefer the **live tail** so the next repro is caught automatically without
+remembering to dump before clearing.
+
+### Live tail (set up before backgrounding)
+
+Filter by **UID**, not PID or tag. UID is stable for the install, so the tail
+survives the process being reaped and restarted (exactly what may happen here),
+and it picks up system-side messages tagged differently — `ActivityManager`
+killing the service, `ForegroundServiceDidNotStartInTimeException`,
+`ForegroundServiceStartNotAllowed`, OkHttp WebSocket failures, native crashes —
+all of which a tag filter (`Andromuks:*`) would drop.
+
+```bash
+PKG=pt.aguiarvieira.andromuks
+UID=$(adb shell cmd package list packages -U $PKG | sed 's/.*uid://')
+adb logcat -b all -v threadtime --uid=$UID | tee /tmp/andromuks-live-$(date +%s).log
+```
+
+### Post-hoc dump (if the bug is already wedged)
+
+Do this **before** any `logcat -c` or rebuild:
 
 ```bash
 adb logcat -b all -d > /tmp/andromuks-wedged-$(date +%s).log
@@ -169,8 +271,132 @@ adb shell dumpsys activity processes pt.aguiarvieira.andromuks > /tmp/andromuks-
 adb shell dumpsys activity services pt.aguiarvieira.andromuks  > /tmp/andromuks-svcs-$(date +%s).txt
 ```
 
-Then `grep -E "DIAG-WS-START|pingNowWithWatchdog|re-dialling|connectWebSocket|startWebSocketService|state="`
-on the captured log will show exactly which bail fired.
+### Decisive grep
+
+```bash
+grep -nE "401 Unauthorized detected|Handling 401 Unauthorized error|Failure reason|DIAG-WS-START|pingNowWithWatchdog|re-dialling|connectWebSocket|startWebSocketService|ForegroundServiceStartNotAllowed|ForegroundServiceDidNotStartInTime" \
+  /tmp/andromuks-*.log
+```
+
+- Hits on the 401 lines → confirmed; grab the `Failure reason: ...` line above
+  (`NetworkUtils.kt:706`) for the underlying `response.code` / exception to tell
+  genuine vs spurious.
+- No 401 hits but `DIAG-WS-START` lines present → it's a bail in the revival
+  chain, not 401.
+
+## How to verify the fix on device
+
+The wedge is hard to reproduce on demand because it requires long-background Doze. The
+plan below has two parts: a **fast structural test** that proves the new flag actually
+routes through `onNewIntent` (catches the change if it broke something obvious), and a
+**slow real-world test** that confirms the wedge no longer happens.
+
+### Part 1 — fast structural test (5 minutes, do this first)
+
+Build and install debug:
+
+```bash
+./debug-build.sh
+```
+
+We need to confirm that an FCM-style tap delivers via `onNewIntent` on the existing
+MainActivity, not by recreating it. Simulate the PendingIntent without waiting for a real
+FCM:
+
+```bash
+# Open the app via launcher first, navigate to any room, leave it foregrounded.
+adb shell am start -n pt.aguiarvieira.andromuks/.MainActivity \
+  -a android.intent.action.VIEW \
+  --activity-single-top --activity-new-task \
+  --es room_id "!some-room-id:server" \
+  --ez direct_navigation true \
+  --ez from_notification true
+```
+
+Watch logcat while you fire it:
+
+```bash
+adb logcat -v threadtime Andromuks:* AndroidRuntime:E *:S
+```
+
+You should see `MainActivity: onNewIntent - …` lines (`MainActivity.kt:885`), **not**
+`MainActivity: onCreate - …` lines. If you see `onCreate`, the flag isn't doing what we
+expect — stop and investigate.
+
+Repeat with a real notification: send yourself a Matrix message from another client, tap
+the notification. Same expectation: `onNewIntent`, room opens, timeline paints.
+
+### Part 2 — real-world long-background test
+
+This is the actual bug. Two approaches:
+
+**Natural reproduction** (slow, what users hit): leave the device idle overnight or
+across a workday (≥ 8 h, ideally with the screen off and the device unplugged so Doze
+kicks in). Don't touch Andromuks. When you come back, before tapping anything, capture
+state in case it's wedged:
+
+```bash
+APP_UID=$(adb shell dumpsys package pt.aguiarvieira.andromuks | grep -oE 'userId=[0-9]+' | head -1 | cut -d= -f2)
+adb logcat -b all -v uid,threadtime -d > /tmp/andromuks-pre-tap-$(date +%s).log
+adb shell dumpsys activity processes pt.aguiarvieira.andromuks > /tmp/andromuks-procs-$(date +%s).txt
+adb shell dumpsys activity services  pt.aguiarvieira.andromuks > /tmp/andromuks-svcs-$(date +%s).txt
+```
+
+Then tap an FCM notification. Expectations:
+
+- Timeline paints (room name, avatar, messages) from cache within ~1 s.
+- WS reconnects within a few seconds; the FGS notification ("WebSocket connected")
+  reappears.
+- Subsequent FCMs render normally.
+
+If any of those fail, capture another log dump immediately and grep for `DIAG-WS-START`
+markers to see which bail fired.
+
+**Forced reproduction** (faster, less realistic): force Doze on a connected device:
+
+```bash
+# Put device in Doze idle state without waiting hours
+adb shell dumpsys deviceidle force-idle deep
+# Confirm
+adb shell dumpsys deviceidle | grep "mState="
+# (should print mState=IDLE)
+
+# Wait ~5-10 minutes for the app's WS to drop and the process to be frozen.
+# Verify:
+adb shell dumpsys activity processes pt.aguiarvieira.andromuks | grep -E "isFrozen|oom adj|cached"
+# (expect isFrozen=true and cached=true; WebSocketService missing from the service list)
+
+# Now trigger an FCM by sending yourself a message from another client.
+# Wait for the notification to arrive (Doze allows high-priority FCM).
+# Tap it.
+```
+
+Same expectations as the natural test. Reset Doze afterwards:
+
+```bash
+adb shell dumpsys deviceidle unforce
+```
+
+Note: the forced-Doze path doesn't exercise the full freezer/cached pipeline identically
+to a real overnight idle — the kernel cgroup freeze and TRIM_MEMORY_COMPLETE pressure
+arrive in a different order — so a green forced-Doze run is necessary but not sufficient.
+Plan to also run the natural test at least once.
+
+### What "fixed" looks like
+
+- After the long-background tap, the room paints (cached events visible immediately,
+  WS reconnect fills the gap).
+- The "WebSocket connected" FGS notification reappears.
+- `dumpsys activity services pt.aguiarvieira.andromuks` lists `WebSocketService`.
+- Subsequent FCMs render notifications normally (no silent drops after
+  `"Showing notification for room: …"`).
+
+### What "still broken" looks like
+
+Symptoms identical to before: blank timeline, persistent "no connection" indicator, no
+FGS notification, subsequent FCMs decrypt but never display. If this is what you see,
+the `CLEAR_TASK` flag was a red herring — fall back to the `DIAG-WS-START` breadcrumbs
+to determine which bail in the revival chain fired.
 
 ## When this is solved
 
