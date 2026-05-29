@@ -3,6 +3,7 @@ package net.vrkknn.andromuks.utils
 
 import android.content.Context
 import android.util.Log
+import java.net.URLEncoder
 
 object AvatarUtils {
     private const val FALLBACK_COLOR_COUNT = 10
