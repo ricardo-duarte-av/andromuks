@@ -374,6 +374,16 @@ class MainActivity : ComponentActivity() {
                             val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
                             val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
 
+                            // Canonical fix for empty appViewModel.homeserverUrl during cold-start
+                            // rendering: populate it (and the auth token) from SharedPreferences on the
+                            // main thread before any composable renders, mirroring ShortcutActivity. Without
+                            // this, the timeline composes while appViewModel.homeserverUrl is still "" on
+                            // FCM/notification cold starts, producing schemeless media/avatar URLs. Guarded
+                            // so we never clobber an already-populated value with an empty one. These are
+                            // in-memory mutableStateOf writes — cheap and safe on Main.
+                            if (homeserverUrl.isNotEmpty()) appViewModel.updateHomeserverUrl(homeserverUrl)
+                            if (authToken.isNotEmpty()) appViewModel.updateAuthToken(authToken)
+
                             // Pre-warm the singleton ImageLoader and OkHttp/SSL stack on IO so the first
                             // AvatarImage render doesn't pay an ~800ms newSSLContext cost on Main.
                             // Also runs initializeFCM (constructs another OkHttp client + opens SharedPrefs
