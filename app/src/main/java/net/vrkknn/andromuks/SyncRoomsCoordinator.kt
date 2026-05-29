@@ -663,10 +663,9 @@ internal class SyncRoomsCoordinator(
                     val name = roomMap[roomId]?.name ?: "(unknown)"
                     android.util.Log.i("Andromuks", "clear_state diff-prune: removing room $roomId \"$name\"")
                     roomMap.remove(roomId)
+                    // removeRoom also drops the persisted RoomMetadataStore row (else it would
+                    // resurrect on the next cold-start hydrateFromDisk).
                     RoomListCache.removeRoom(roomId)
-                    // Critical: also drop the persisted row, or the room resurrects on the
-                    // next cold-start hydrateFromDisk (RoomListCache.removeRoom is in-memory only).
-                    net.vrkknn.andromuks.utils.RoomMetadataStore.remove(roomId)
                     RoomTimelineCache.clearRoomCache(roomId)
                     oldestRowIdPerRoom.remove(roomId)
                     roomsWithPendingPaginate.remove(roomId)
