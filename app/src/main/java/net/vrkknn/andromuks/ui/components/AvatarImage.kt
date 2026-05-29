@@ -12,7 +12,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,10 +34,8 @@ import coil.decode.ImageDecoderDecoder
 import coil.decode.SvgDecoder
 import coil.request.CachePolicy
 import coil.request.ImageRequest
-import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
-import net.vrkknn.andromuks.utils.CircleAvatarCache
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -58,7 +55,6 @@ fun AvatarImage(
     isScrollingFast: Boolean = false // PERFORMANCE: Suspend avatar loading during fast scrolling
 ) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
 
     // Use shared ImageLoader singleton with optimized memory cache
@@ -68,44 +64,19 @@ fun AvatarImage(
     val effectiveUserId = userId ?: fallbackText
     val effectiveDisplayName = displayName ?: fallbackText
 
-    // Get avatar URL - use CircleAvatarCache if useCircleCache is true (for RoomListScreen)
-    // PERFORMANCE: For room list, try the synchronous in-memory cache first to avoid the
-    // null → LaunchedEffect → recompose cycle.  Only fall back to the suspend path on cache miss.
-    // When mxcUrl is null we leave the URL null and render the native Text fallback (colored
-    // circle + initial). That is lighter than decoding an SVG data URI that looks identical:
-    // no CPU rasterization and no per-avatar bitmap in the image cache, while the Text glyph
-    // renders from the framework's shared GPU atlas over a solid-fill background.
-    var avatarUrl by remember(mxcUrl, useCircleCache, effectiveUserId) {
+    // Resolve to the http(s) MXC URL and let Coil's general disk/memory cache serve it, keyed by
+    // the immutable "${mxc}@${size}". The former CircleAvatarCache file:// path was removed: it
+    // stored a redundant 128px square copy and needed a synchronous-miss → IO-resolve → recompose
+    // flip on cold start, for no graphics-memory benefit over requesting the general cache at the
+    // same size. `useCircleCache` is retained for source compatibility but no longer branches here.
+    // When mxcUrl is null we leave the URL null and render the native Text fallback (colored circle
+    // + initial) — lighter than decoding an identical-looking SVG (no CPU raster, no per-avatar
+    // bitmap), while the glyph renders from the framework's shared GPU atlas over a solid fill.
+    var avatarUrl by remember(mxcUrl, effectiveUserId) {
         if (mxcUrl == null) {
             mutableStateOf(null as String?)
-        } else if (useCircleCache) {
-            val cached = AvatarUtils.getAvatarUrlForRoomListCached(mxcUrl, homeserverUrl, effectiveUserId, effectiveDisplayName)
-            mutableStateOf(cached)
         } else {
             mutableStateOf(AvatarUtils.getAvatarUrl(context, mxcUrl, homeserverUrl, effectiveUserId, effectiveDisplayName))
-        }
-    }
-
-    // For RoomListScreen, resolve via the suspend/IO path ONLY when the synchronous cache
-    // missed — i.e. avatarUrl is still null or an http URL. A file:// value means
-    // resolvedUrlCache already hit, so the IO re-resolve would be a no-op; skipping it avoids a
-    // redundant coroutine + disk-index lookup per row on every scroll. If the cached file turns
-    // out to be stale (evicted), AsyncImage's onError self-heals by retrying the http URL, so
-    // correctness is preserved without re-validating here.
-    LaunchedEffect(mxcUrl, useCircleCache) {
-        if (useCircleCache && mxcUrl != null) {
-            val current = avatarUrl
-            val needsResolve = current == null || current.startsWith("http", ignoreCase = true)
-            if (needsResolve) {
-                val resolved = AvatarUtils.getAvatarUrlForRoomList(context, mxcUrl, homeserverUrl, effectiveUserId, effectiveDisplayName)
-                if (resolved != null && resolved != avatarUrl) {
-                    if (BuildConfig.DEBUG) Log.d(
-                        "Andromuks",
-                        "AvatarImage[$effectiveUserId]: LaunchedEffect override mxc=$mxcUrl prev=$current → resolved=$resolved"
-                    )
-                    avatarUrl = resolved
-                }
-            }
         }
     }
     
@@ -277,49 +248,14 @@ fun AvatarImage(
                             )
                             imageLoadFailed = false
                             imageHasLoaded = true
-                            if (useCircleCache && mxcUrl != null) {
-                                AvatarUtils.updateResolvedUrl(mxcUrl, currentAvatarUrl)
-                            }
-                            if (useCircleCache && mxcUrl != null) {
-                                coroutineScope.launch {
-                                    val circleCached = CircleAvatarCache.getCachedFile(context, mxcUrl)
-                                    if (circleCached == null && !currentAvatarUrl.contains("circle_avatar_cache")) {
-                                        CircleAvatarCache.cacheCircularAvatar(
-                                            context = context,
-                                            mxcUrl = mxcUrl,
-                                            sourceImageUrl = currentAvatarUrl,
-                                            imageLoader = imageLoader,
-                                        )
-                                    }
-                                }
-                            }
                         },
                         onError = {
                             if (BuildConfig.DEBUG) Log.d(
                                 "Andromuks",
                                 "AvatarImage[$effectiveUserId]: onError mxc=$mxcUrl url=$currentAvatarUrl result=${it.result.throwable.javaClass.simpleName}: ${it.result.throwable.message}"
                             )
-                            // First failure on a non-http (file://) URL: the cached file is stale or
-                            // unreadable. Drop the stale resolution and retry once with the http URL.
-                            if (mxcUrl != null && !currentAvatarUrl.startsWith("http", ignoreCase = true)) {
-                                AvatarUtils.removeResolvedUrl(mxcUrl)
-                                val httpUrl = AvatarUtils.mxcToHttpUrl(mxcUrl, homeserverUrl, effectiveUserId, effectiveDisplayName)
-                                if (httpUrl != null) {
-                                    if (BuildConfig.DEBUG) Log.d(
-                                        "Andromuks",
-                                        "AvatarImage[$effectiveUserId]: onError → retrying with http url=$httpUrl (was non-http)"
-                                    )
-                                    avatarUrl = httpUrl
-                                    shouldLoadImage = true
-                                    return@AsyncImage
-                                }
-                            }
-                            // No (further) retry path: show the native Text fallback (colored circle +
-                            // initial) instead of decoding an identical-looking SVG.
-                            if (BuildConfig.DEBUG) Log.d(
-                                "Andromuks",
-                                "AvatarImage[$effectiveUserId]: onError → Text fallback (no http retry path)"
-                            )
+                            // avatarUrl is always the http(s) MXC URL now; a failure means the media
+                            // is genuinely unavailable (404/network). Show the native Text fallback.
                             imageLoadFailed = true
                         }
                     )

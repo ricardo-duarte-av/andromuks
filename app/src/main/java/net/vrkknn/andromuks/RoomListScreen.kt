@@ -526,9 +526,9 @@ fun RoomListScreen(
     //   1. Size mismatch: preload used .size(256) but AvatarImage computes
     //      targetPx = max(48dp*density, 64).coerceAtMost(256) which is ~144 on a
     //      typical xxhdpi phone.
-    //   2. URL mismatch: preload used mxcToHttpUrl (always https://) but AvatarImage
-    //      uses getAvatarUrlForRoomList which prefers a file://...circle_avatar_cache
-    //      path when one exists. https vs file:// are different cache keys.
+    //   2. URL mismatch (historical): both preload and AvatarImage now resolve to the same
+    //      http(s) MXC URL via AvatarUtils.getAvatarUrl, so the cache keys match. (Previously
+    //      AvatarImage used a file:// CircleAvatarCache path that diverged from the preload URL.)
     // Result: avatars visibly pop in despite the preload firing.
     val density = LocalDensity.current
     val avatarPreloadPx = remember(density) {
@@ -550,10 +550,9 @@ fun RoomListScreen(
             roomsToPreload.forEach { room ->
                 val mxc = room.avatarUrl ?: return@forEach
                 try {
-                    // Use the SAME resolution AvatarImage uses, so the resulting URL
-                    // (file:// when CircleAvatarCache hits, else https://) matches
-                    // exactly. Same URL + same size = same memory-cache slot.
-                    val url = AvatarUtils.getAvatarUrlForRoomList(
+                    // Use the SAME resolution AvatarImage uses (the http(s) MXC URL), so
+                    // the URL + size + cache key match exactly = same memory-cache slot.
+                    val url = AvatarUtils.getAvatarUrl(
                         context, mxc, appViewModel.homeserverUrl, room.id, room.name
                     ) ?: return@forEach
                     // Use the same explicit cache key as AvatarImage so this preload
