@@ -78,6 +78,11 @@ object RoomListCache {
         synchronized(cacheLock) {
             roomCache.remove(roomId)
         }
+        // Symmetric with updateRoom -> persistMetadata: a removed room must also drop its
+        // persisted row, or hydrateFromDisk resurrects it on the next cold start. Without this,
+        // a room left while the app is open reappears (briefly) in the cached list on next launch
+        // until the clear_state diff-prune catches it.
+        RoomMetadataStore.remove(roomId)
     }
     
     /**
