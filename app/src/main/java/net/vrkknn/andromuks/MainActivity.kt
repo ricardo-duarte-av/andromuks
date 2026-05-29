@@ -423,12 +423,17 @@ class MainActivity : ComponentActivity() {
                                 if (fromNotification) {
                                     EnhancedNotificationDisplay.clearRoomMessageCache(extractedRoomId)
                                 }
-                                // Extract notification timestamp if present
-                                val notificationTimestamp = intent.getLongExtra("notification_timestamp", 0L).takeIf { it > 0 }
+                                // UNIFIED OPEN PATH: a notification/shortcut open now behaves like an
+                                // in-app room open — land at the bottom with a force-fresh paginate, and
+                                // treat the notification's event purely as a passive highlight. We no
+                                // longer thread notification_timestamp into navigation; that used to force
+                                // a separate flush + scroll-to-event branch (the "exception" path that made
+                                // FCM opens flicker relative to shortcuts). Mirrors ShortcutActivity.
+                                WebSocketService.setForceFreshTimelinePaginatePending(this@MainActivity, true)
                                 // Store for navigation once WebSocket is connected and spacesLoaded = true
                                 appViewModel.setDirectRoomNavigation(
                                     roomId = extractedRoomId,
-                                    notificationTimestamp = notificationTimestamp,
+                                    notificationTimestamp = null,
                                     targetEventId = notificationEventId
                                 )
                                 if (!shortcutUserId.isNullOrBlank()) {
@@ -941,11 +946,13 @@ class MainActivity : ComponentActivity() {
                 if (fromNotification) {
                     EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
                 }
-                // OPTIMIZATION #1: Direct navigation instead of pending state
-                val notificationTimestamp = intent.getLongExtra("notification_timestamp", 0L).takeIf { it > 0 }
+                // UNIFIED OPEN PATH (see onCreate): land at bottom + force-fresh paginate; the
+                // notification event is a passive highlight only — no notification_timestamp
+                // scroll/flush branch.
+                WebSocketService.setForceFreshTimelinePaginatePending(this@MainActivity, true)
                 appViewModel.setDirectRoomNavigation(
                     roomId = roomId,
-                    notificationTimestamp = notificationTimestamp,
+                    notificationTimestamp = null,
                     targetEventId = notificationEventId
                 )
                 if (!shortcutUserId.isNullOrBlank()) {

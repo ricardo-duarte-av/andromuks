@@ -2667,17 +2667,16 @@ fun RoomTimelineScreen(
     LaunchedEffect(
         timelineItems,
         isLoading,
-        appViewModel.isPaginating,
-        pendingNotificationJumpEventId
+        appViewModel.isPaginating
     ) {
         if (BuildConfig.DEBUG) Log.d(
             "Andromuks",
             "RoomTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isPaginating: ${appViewModel.isPaginating}, hasInitialSnapCompleted: $hasInitialSnapCompleted"
         )
 
-        if (pendingNotificationJumpEventId != null) {
-            return@LaunchedEffect
-        }
+        // UNIFIED OPEN PATH: a notification's target event no longer hijacks the initial scroll.
+        // We always land at the bottom (like an in-app / shortcut open); the event is highlighted
+        // in place by the highlight-only effect below if it happens to be in the loaded window.
 
         if (isLoading || timelineItems.isEmpty()) {
             return@LaunchedEffect
@@ -3144,70 +3143,37 @@ fun RoomTimelineScreen(
     var scrollPositionBeforeKeyboard by remember { mutableStateOf<Pair<Int, Int>?>(null) } // (firstVisibleIndex, scrollOffset)
     var wasAttachedBeforeKeyboard by remember { mutableStateOf(false) }
     
+    // UNIFIED OPEN PATH: the notification's target event is a passive highlight, NOT a scroll
+    // target. We never scroll here and never touch the initial-snap state — the normal
+    // bottom-scroll effect owns landing at the bottom for every open (in-app, shortcut, FCM).
+    // If the event is in the loaded window we highlight it in place; if it's too old to be in
+    // the paginate, it simply isn't highlighted (not a failure). Keying on `timelineItems`
+    // (reference) re-checks on each rebuild, so a later force-fresh paginate merge that brings
+    // the event into the window will still highlight it.
     LaunchedEffect(
         pendingNotificationJumpEventId,
         timelineItems,
-        readinessCheckComplete,
-        pendingScrollRestoration
+        readinessCheckComplete
     ) {
         val targetEventId = pendingNotificationJumpEventId ?: return@LaunchedEffect
-        if (!readinessCheckComplete || timelineItems.isEmpty() || pendingScrollRestoration) {
+        if (!readinessCheckComplete || timelineItems.isEmpty()) {
             return@LaunchedEffect
         }
-        // Retry loop handles the case where navigateToRoomWithCache is still async when this
-        // effect first fires — timelineItems may hold the previous room's events until
-        // buildTimelineFromChain completes. Keying on `timelineItems` (reference) means this
-        // re-fires on each rebuild, so retries naturally shorten as events arrive.
-        val maxRetries = 8  // Up to ~2 seconds total (8 × 250ms)
-        var foundIndex = -1
-        for (attempt in 0..maxRetries) {
-            foundIndex = timelineItems.indexOfFirst { item ->
-                (item as? TimelineItem.Event)?.event?.eventId == targetEventId
-            }
-            if (foundIndex >= 0) break
-            if (attempt < maxRetries) {
-                if (BuildConfig.DEBUG) Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Notification target $targetEventId not found (attempt ${attempt + 1}/$maxRetries, timelineItems.size=${timelineItems.size}), retrying in 250ms"
-                )
-                kotlinx.coroutines.delay(250)
-            }
+        val isLoaded = timelineItems.any { item ->
+            (item as? TimelineItem.Event)?.event?.eventId == targetEventId
         }
-        if (foundIndex >= 0) {
-            // Convert to reversed index: if item is at index N in original, it's at (lastIndex - N) in reversed
-            val lastIndex = timelineItems.lastIndex
-            val reversedIndex = lastIndex - foundIndex
-            listState.scrollToItem(reversedIndex)
-            // With reverseLayout, index 0 means at bottom (newest)
-            isAttachedToBottom = reversedIndex == 0
-            wasAttachedBeforeKeyboard = isAttachedToBottom
-            hasInitialSnapCompleted = true
-            hasLoadedInitialBatch = true
-            pendingInitialScroll = false
+        if (isLoaded) {
             highlightedEventId = targetEventId
             highlightRequestId++
             pendingNotificationJumpEventId = null
             if (BuildConfig.DEBUG) Log.d(
                 "Andromuks",
-                "RoomTimelineScreen: Jumped to notification target event=$targetEventId at original index=$foundIndex, reversed index=$reversedIndex"
+                "RoomTimelineScreen: Highlighting notification target event=$targetEventId in place (no scroll)"
             )
-        } else {
-            // Event truly not found after retries — likely filtered out (reaction, edit,
-            // redaction, etc.) or the room was rebuilt with different events.
-            // Fall back to scrolling to bottom so the user sees the latest messages.
-            if (BuildConfig.DEBUG) Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Notification target $targetEventId not found after $maxRetries retries (timelineItems.size=${timelineItems.size}), falling back to scroll-to-bottom"
-            )
-            // With reverseLayout, index 0 is bottom
-            listState.scrollToItem(0)
-            isAttachedToBottom = true
-            wasAttachedBeforeKeyboard = true
-            hasInitialSnapCompleted = true
-            hasLoadedInitialBatch = true
-            pendingInitialScroll = false
-            pendingNotificationJumpEventId = null
         }
+        // Not (yet) loaded: leave pendingNotificationJumpEventId set so a subsequent timeline
+        // rebuild can still highlight it. It is reset by remember(roomId) on room change, so it
+        // cannot leak across rooms.
     }
     
     // CRITICAL FIX: Handle keyboard state changes without losing scroll position
