@@ -29,9 +29,6 @@ import android.os.Build
 import android.util.Log
 import coil.compose.AsyncImage
 import net.vrkknn.andromuks.BuildConfig
-import coil.decode.GifDecoder
-import coil.decode.ImageDecoderDecoder
-import coil.decode.SvgDecoder
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import net.vrkknn.andromuks.utils.AvatarUtils
@@ -51,7 +48,7 @@ fun AvatarImage(
     userId: String? = null,
     displayName: String? = null,
     isVisible: Boolean = true, // AVATAR LOADING OPTIMIZATION: Lazy loading control
-    useCircleCache: Boolean = false, // CIRCLE AVATAR CACHE: Use CircleAvatarCache for RoomListScreen
+    useCircleCache: Boolean = false, // Caps the requested pixel size at 256px for list/timeline avatars (formerly also selected the now-removed CircleAvatarCache file:// path)
     isScrollingFast: Boolean = false // PERFORMANCE: Suspend avatar loading during fast scrolling
 ) {
     val context = LocalContext.current

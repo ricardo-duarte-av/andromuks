@@ -1785,7 +1785,7 @@ fun RoomListItem(
                                 displayName = room.name,
                                 // AVATAR LOADING OPTIMIZATION: Load avatars for visible items and items below viewport
                                 isVisible = shouldLoadAvatar, // Load for visible items + 25 items below viewport
-                                // CIRCLE AVATAR CACHE: Use CircleAvatarCache for room avatars to avoid repeated clipping
+                                // Cap requested avatar size at the room-list size (see AvatarImage.useCircleCache)
                                 useCircleCache = true,
                                 // PERFORMANCE: Suspend avatar loading during fast scrolling
                                 isScrollingFast = isScrollingFast,
@@ -1825,7 +1825,7 @@ fun RoomListItem(
                     // Bridge protocol avatar badge (bottom-right corner)
                     // PERFORMANCE: Use lightweight AsyncImage directly instead of full AvatarImage.
                     // Protocol icons are small static images — they don't need BlurHash, fallback
-                    // letters, CircleAvatarCache, or scroll-awareness.
+                    // letters, or scroll-awareness.
                     // SHARED TRANSITION: keyed by room.id (not by protocol URL) so that each room's
                     // badge gets a unique key even when multiple rooms share the same bridge protocol.
                     room.bridgeProtocolAvatarUrl?.let { protocolAvatarUrl ->

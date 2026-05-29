@@ -222,7 +222,7 @@ fun RoomInfoScreen(
             // Heroes fallback for nameless / avatarless rooms (typically DMs). Mirrors the
             // displayRoomName / displayAvatarUrl logic in RoomTimelineScreen so the room header's
             // avatar and the RoomInfo avatar stay in sync — without this, opening RoomInfo for a
-            // DM hands AvatarImage a null mxcUrl and Coil chokes on the data: SVG fallback.
+            // DM hands AvatarImage a null mxcUrl, which now renders the native Text fallback.
             // See docs/ROOM_DISPLAY.md for the rule.
             val needsHeroesFallback = roomStateInfo!!.name.isNullOrBlank() &&
                 roomStateInfo!!.canonicalAlias.isNullOrBlank()

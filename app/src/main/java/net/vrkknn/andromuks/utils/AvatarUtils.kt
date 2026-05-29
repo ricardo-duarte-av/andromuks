@@ -3,23 +3,8 @@ package net.vrkknn.andromuks.utils
 
 import android.content.Context
 import android.util.Log
-import coil.ImageLoader
-import coil.request.ImageRequest
-import coil.request.ErrorResult
-import coil.request.SuccessResult
-import java.io.File
-import java.net.URLEncoder
-import java.util.concurrent.ConcurrentHashMap
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import net.vrkknn.andromuks.utils.CircleAvatarCache
 
 object AvatarUtils {
-    // PERFORMANCE: In-memory cache of mxcUrl -> resolved local/HTTP URL.
-    // Eliminates Mutex contention, SHA-256 hashing, and file I/O on repeated lookups.
-    // Only used for the room-list path (useCircleCache = true).
-    private val resolvedUrlCache = ConcurrentHashMap<String, String>(256)
-    private const val MAX_RESOLVED_URL_CACHE_SIZE = 1000
     private const val FALLBACK_COLOR_COUNT = 10
     
     // Fallback colors matching the web client (hex codes converted to Color objects)
@@ -157,103 +142,6 @@ object AvatarUtils {
     }
     
     /**
-     * Clear the in-memory mxc → resolved path/URL map.
-     * Call from onTrimMemory alongside other cache clears so we don't keep pointing at
-     * evicted/deleted files after IntelligentMediaCache or CircleAvatarCache trims.
-     */
-    fun clearResolvedUrlCache() {
-        resolvedUrlCache.clear()
-    }
-
-    /**
-     * Remove a single resolved entry so the next load falls back to HTTP / re-resolves.
-     * Use when a cached file path fails to load (file deleted after eviction).
-     */
-    fun removeResolvedUrl(mxcUrl: String) {
-        resolvedUrlCache.remove(mxcUrl)
-    }
-
-    /**
-     * PERFORMANCE: Synchronous, lock-free lookup for the room list.
-     * Returns a previously resolved URL from the in-memory cache, or null on miss.
-     * This avoids launching a coroutine, acquiring Mutexes, SHA-256 hashing, and file I/O
-     * for the vast majority of items during scroll.
-     *
-     * If the cached value is a local file path and the file no longer exists (eviction),
-     * the entry is removed and the HTTP URL is returned so Coil can refetch.
-     */
-    fun getAvatarUrlForRoomListCached(
-        mxcUrl: String?,
-        homeserverUrl: String,
-        userId: String? = null,
-        displayName: String? = null
-    ): String? {
-        if (mxcUrl == null) return null
-        val cached = resolvedUrlCache[mxcUrl]
-        if (cached != null) {
-            // Trust the in-memory cache. Previously we did File(cached).exists() here as a
-            // defensive check against eviction, but that fires on Main during every
-            // RoomListItem composition (StrictMode catches it). Coil's load-failure path
-            // calls removeResolvedUrl() to invalidate stale entries, and onTrimMemory
-            // clears the whole map on memory pressure — both keep this map honest without
-            // a per-row stat() on Main.
-            return cached
-        }
-        return mxcToHttpUrl(mxcUrl, homeserverUrl, userId, displayName)
-    }
-
-    /**
-     * Gets the avatar URL for RoomListScreen with CircleAvatarCache priority.
-     * Checks in order: in-memory cache -> CircleAvatarCache -> MediaCache -> Coil cache -> Network
-     * 
-     * @param context Android context
-     * @param mxcUrl The MXC URL from the room/user data
-     * @param homeserverUrl The homeserver URL
-     * @return A URL (file:// or http://) that can be used with Coil's AsyncImage, or null for fallback
-     */
-    suspend fun getAvatarUrlForRoomList(
-        context: Context,
-        mxcUrl: String?,
-        homeserverUrl: String,
-        userId: String? = null,
-        displayName: String? = null
-    ): String? {
-        if (mxcUrl == null) return null
-
-        // The File(...).exists() check and the CircleAvatarCache lookup both do disk I/O.
-        // This is a suspend function called from a Main-scope LaunchedEffect, so wrap in
-        // IO to avoid StrictMode hits.
-        return withContext(Dispatchers.IO) {
-            resolvedUrlCache[mxcUrl]?.let { cached ->
-                if (cached.startsWith("http", ignoreCase = true)) return@withContext cached
-                if (File(cached).exists()) return@withContext cached
-                resolvedUrlCache.remove(mxcUrl)
-            }
-
-            val circleCachedFile = CircleAvatarCache.getCachedFile(context, mxcUrl)
-            if (circleCachedFile != null) {
-                val path = circleCachedFile.absolutePath
-                if (resolvedUrlCache.size < MAX_RESOLVED_URL_CACHE_SIZE) resolvedUrlCache[mxcUrl] = path
-                return@withContext path
-            }
-
-            mxcToHttpUrl(mxcUrl, homeserverUrl, userId, displayName)
-        }
-    }
-
-    /**
-     * Called after Coil successfully loads and caches an avatar from the network.
-     * Updates the in-memory resolution cache with the local file path so future lookups
-     * are instant.
-     */
-    fun updateResolvedUrl(mxcUrl: String, localPath: String) {
-        if (resolvedUrlCache.size < MAX_RESOLVED_URL_CACHE_SIZE) resolvedUrlCache[mxcUrl] = localPath
-    }
-
-    // MXC URLs are immutable for content; use removeResolvedUrl when a cached file path
-    // is stale (evicted/deleted) so the next load refetches via HTTP.
-
-    /**
      * Converts an MXC URL to the original media URL without thumbnail parameters.
      * Useful for full-width backgrounds where we want the source image instead of a downsized avatar.
      */
@@ -266,55 +154,6 @@ object AvatarUtils {
         return buildMediaUrl(mxcUrl, homeserverUrl, includeAvatarParams = false)
     }
     
-    /**
-     * Generate a local SVG fallback avatar as a data URI
-     * This can be used if the server request fails
-     * @param displayName The display name to extract the letter from
-     * @param userId The Matrix user ID for color generation
-     * @return A data URI containing an SVG fallback avatar
-     */
-    fun generateLocalFallbackAvatar(displayName: String?, userId: String): String {
-        val colorInt = getUserColor(userId)
-        val colorHex = String.format("%06X", (0xFFFFFF and colorInt))
-        val letter = getFallbackCharacter(displayName, userId)
-        
-        return makeFallbackAvatarDataUri(colorHex, letter)
-    }
-    
-    /**
-     * Creates an SVG data URI for a fallback avatar
-     * Note: This should stay in sync with fallbackAvatarTemplate in cmd/gomuks/media.go
-     */
-    private fun makeFallbackAvatarDataUri(backgroundColor: String, fallbackCharacter: String): String {
-        val escapedChar = escapeXmlChar(fallbackCharacter)
-        val svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
-  <rect x="0" y="0" width="1000" height="1000" fill="#$backgroundColor"/>
-  <text x="500" y="750" text-anchor="middle" fill="#fff" font-weight="bold" font-size="666"
-    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
-  >$escapedChar</text>
-</svg>"""
-        
-        // URL encode the SVG for data URI
-        val encoded = URLEncoder.encode(svg, "UTF-8")
-            .replace("+", "%20") // Space should be %20 in URIs, not +
-        
-        return "data:image/svg+xml,$encoded"
-    }
-    
-    /**
-     * Escape special XML characters
-     */
-    private fun escapeXmlChar(char: String): String {
-        return when (char) {
-            "&" -> "&amp;"
-            "<" -> "&lt;"
-            ">" -> "&gt;"
-            "\"" -> "&quot;"
-            "'" -> "&apos;"
-            else -> char
-        }
-    }
-
     private fun buildMediaUrl(
         mxcUrl: String?,
         homeserverUrl: String,

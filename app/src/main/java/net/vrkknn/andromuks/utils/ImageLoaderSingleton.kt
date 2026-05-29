@@ -8,7 +8,6 @@ import net.vrkknn.andromuks.utils.getUserAgent
 import coil.ImageLoader
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
-import coil.decode.SvgDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
@@ -115,7 +114,6 @@ object ImageLoaderSingleton {
                 } else {
                     add(GifDecoder.Factory())
                 }
-                add(SvgDecoder.Factory())
             }
             .memoryCache {
                 MemoryCache.Builder(context)
