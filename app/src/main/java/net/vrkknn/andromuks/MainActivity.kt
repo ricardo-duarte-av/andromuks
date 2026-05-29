@@ -1024,13 +1024,10 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onStart called (hasBeenStopped=$hasBeenStopped)")
-        if (hasBeenStopped && ::appViewModel.isInitialized && appViewModel.openedViaDirectNotification) {
-            // The app was foregrounded from the background (app-icon or recents) while showing
-            // a room opened directly from a notification with no room_list in the Compose back
-            // stack.  Signal AppNavigation to navigate to room_list so the user lands on the
-            // expected screen rather than the notification room.
-            appViewModel.returnToRoomListOnResume = true
-        }
+        // FCM opens now synthesize a [room_list, room_timeline] back stack, so returning from
+        // background (recents / app-icon) should leave the user on the room they were viewing —
+        // exactly like a normal in-app session. We deliberately no longer force a jump to
+        // room_list on resume; Back still returns to room_list via the synthesized stack.
         hasBeenStopped = false
     }
 
