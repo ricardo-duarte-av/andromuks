@@ -9,7 +9,7 @@ Covers how inline media (images, videos, stickers, audio, files) is loaded in `M
 | Path | Cache |
 |---|---|
 | Timeline media (inline images/videos in messages) | **Coil only** — memory + disk cache |
-| Avatars (room list, chat headers) | **Coil only** — `CircleAvatarCache` for pre-clipped 48dp PNGs, `AvatarUtils.resolvedUrlCache` for O(1) URL lookup |
+| Avatars (room list, chat headers, timeline, room info) | **Coil only** — general memory + disk cache, keyed by the immutable `"${mxc}@${size}"`. See [Avatar loading](#avatar-loading) below. |
 | Android Launcher shortcuts / conversation icons | `IntelligentMediaCache` via `ConversationsApi` |
 | Notification avatars (FCM, offline) | `IntelligentMediaCache` via `EnhancedNotificationDisplay` / `NotificationImageWorker` |
 
@@ -81,3 +81,19 @@ The file is still the authoritative disk store for **avatar images** (used by th
 - All public mutating methods hold `cacheMutex`. `getCachedFile()` also holds the lock for the in-memory index lookup and disk fallback check. This is intentional for avatar loads (which are fewer and from background coroutines), but would be a bottleneck for concurrent timeline loads — which is why timeline media no longer uses this class.
 
 See [docs/NOTIFICATIONS.md](NOTIFICATIONS.md) for the full notification avatar load order. `IntelligentMediaCache` is populated by `ConversationsApi` (shortcut icons) and `PersonsApi` (contacts sync) — **not** by `AvatarImage.kt`, which uses Coil exclusively for UI avatar display.
+
+---
+
+## Avatar loading
+
+`AvatarImage.kt` renders every UI avatar (room list, chat headers, timeline senders, room info) through Coil's **general** memory + disk cache. There is no separate avatar cache.
+
+- **URL:** `AvatarUtils.getAvatarUrl` returns the http(s) MXC URL (`mxcToHttpUrl`). The request sets an explicit `memoryCacheKey`/`diskCacheKey` of `"${mxc}@${targetPixelSize}"` — MXC content is immutable, so this is stable and bypasses Coil's `FileKeyer` (which would otherwise do a `File.lastModified()` disk read on Main during composition).
+- **Display:** hardware bitmaps (no `allowHardware(false)` on the display path) → textures live in GPU memory; the circle is a render-time `.clip(CircleShape)` (convex outline clip, no offscreen layer).
+- **Size:** `targetPixelSize` is display-driven, min 64px; `useCircleCache = true` caps it at 256px (list/timeline). `useCircleCache` no longer selects any cache — it only gates that cap (full-size avatars pass `false` and stay uncapped).
+- **Fallback:** null `mxcUrl` or a load failure renders a native Compose `Text` initial over a solid-fill `Box` (color from `getUserColor`, letter from `getFallbackCharacter`). No SVG: `SvgDecoder` was removed, as avatar fallbacks were its only consumer. The backend also renders a colored-initial image for missing media via the `&fallback=color:letter` param on the http URL, so a 404 usually returns a server-drawn avatar before the local `Text` path is reached.
+- **Preload:** `RoomListScreen` warms the first ~100 rooms' avatars after `initialSyncComplete`, using the same http URL + `"${mxc}@${px}"` key so the warmed slot is the one each row later hits.
+
+### Why `CircleAvatarCache` was removed
+
+A former `CircleAvatarCache` stored a redundant 128px square WebP per avatar (the name was misleading — it wasn't circular; the circle was always a render-time clip) and required a synchronous-miss → IO-resolve → recompose `file://` flip on cold start. Its only RAM rationale was decoding at 128px vs the display size — but its generation pass issued a **second** `imageLoader.execute()` per avatar (software `ARGB_8888`, no explicit cache key) that Coil cached under its default key: a second strong-referenced bitmap per avatar in a memory cache budgeted at 35% of heap. Removing it (and pointing avatars at the general cache) measured **−17 MB graphics / −158 MB total PSS** after a full room-list scroll on a ~620-room account, plus eliminated the second disk copy and the CPU thumbnail-generation. The `useCircleCache` parameter is retained only for the size cap described above.

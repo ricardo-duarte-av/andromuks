@@ -230,8 +230,18 @@ On cold start, the app paints `RoomListScreen` from the persisted room cache **b
 
 Adds `sort_ts INTEGER NOT NULL DEFAULT 0`. `RoomListCache.persistMetadata` calls `RoomMetadataStore.upsertSortTs(roomId, ts)` for every `RoomItem` carrying a `sortingTimestamp`; `hydrateFromDisk` restores it. The cached room list therefore sorts by last activity even before the WS lands, and the user's most recently active room naturally floats to the top.
 
-### `clear_state` reset is currently disabled
+### `clear_state` staleness handled by diff-prune (not purge)
 
-In `SyncRoomsCoordinator.processSyncCompleteAtomic`. The first `sync_complete` after WS open arrives with `clear_state=true`, which previously called `handleClearStateReset()` and wiped the just-populated `roomMap`. Skipping the reset lets cached rooms survive the WS init; subsequent `sync_complete` messages merge on top.
+On WS open the first `sync_complete` arrives with `clear_state=true`. Historically this called `handleClearStateReset()` to wipe `roomMap`/caches and rebuild from the batch — but that wipe blanks the just-painted cache-first list (a flash), so it is **not** wired into the sync path. `handleClearStateReset()` survives only as a reusable hard-reset utility (e.g. logout); `processSyncCompleteAtomic` no longer calls it.
 
-To restore the original behaviour, uncomment the `handleClearStateReset()` call (single line). Risk: rooms the user has been removed from since last sync may linger until the next `clear_state` actually runs.
+Instead, staleness is reconciled **non-destructively** at the end of the init batch. A `clear_state` batch carries the backend's *complete authoritative room set* — every joined room appears under `data.rooms` across the batch (each with its last-message sender `m.room.member` + last message). So:
+
+1. `AppViewModel.onInitComplete()` harvests every room id seen under `data.rooms` across the whole init batch into `seenRoomIds`, and records whether the batch began with `clear_state` (`isClearStateBatch`).
+2. After all queued messages are processed, if it was a `clear_state` batch, `SyncRoomsCoordinator.pruneStaleRoomsAfterClearState(seenRoomIds)` removes any cached room **not** in `seenRoomIds` — rooms the user left while the app wasn't running/watching. Pending invites are excluded (they live in `PendingInvitesCache`, not `data.rooms`).
+3. Removal routes through `RoomListCache.removeRoom`, which also deletes the persisted `RoomMetadataStore` row (else the room resurrects on the next cold-start `hydrateFromDisk`), plus `RoomTimelineCache.clearRoomCache` and per-room tracking.
+
+**Gated strictly on `clear_state`.** Incremental reconnect/resume batches are deltas, not the full set, so they never trigger pruning. Rooms left **while the app is open** are handled live by the `left_rooms` delta path in `processParsedSyncResult` (which now also persists the removal via `removeRoom`), so diff-prune is purely the safety net for leaves the app didn't witness.
+
+**Depends on a complete `seenRoomIds`.** Because `init_complete` (via `_events`) can overtake `sync_complete` (via `syncCompleteChannel`), `onInitComplete()` is deferred behind a drain sentinel so the harvest sees every initial message — otherwise it would prune rooms still in flight. See [WEBSOCKET_LIFECYCLE.md](WEBSOCKET_LIFECYCLE.md#cold-start-init_complete-drain-sentinel-cross-pipeline-ordering).
+
+**Spaces are unaffected:** `SpaceRoomParser.parseSyncUpdate` clears-and-rebuilds spaces on `isClearState` independently, and `SpaceListCache` is in-memory only (not persisted), so spaces never carry staleness across restarts. Diff-prune is rooms-only.
