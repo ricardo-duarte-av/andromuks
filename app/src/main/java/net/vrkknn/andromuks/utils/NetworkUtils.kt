@@ -165,8 +165,24 @@ fun applyIncomingWebSocketMessageForViewModel(
         }
         "init_complete" -> {
             if (hint == IncomingWebSocketHint.INIT_COMPLETE) {
-                viewModel.viewModelScope.launch(Dispatchers.Main) {
-                    viewModel.onInitComplete()
+                // sync_complete and init_complete travel different pipelines: sync_complete goes
+                // through SyncRepository.syncCompleteChannel (single-threaded FIFO), init_complete
+                // arrives here via the _events SharedFlow. With no cross-pipeline ordering, calling
+                // onInitComplete() directly lets it overtake sync_completes still draining through the
+                // channel — onInitComplete would then capture a PARTIAL initialSyncCompleteQueue
+                // (late messages get reprocessed one-by-one as "real-time" updates, and the
+                // clear_state diff-prune harvests an incomplete seenRoomIds, wrongly pruning rooms
+                // that were in the initial payload).
+                //
+                // The dispatcher enqueues messages in receipt order, so all initial sync_completes
+                // were trySend() into the channel BEFORE this init_complete was emitted. Enqueue a
+                // drain sentinel at the channel tail: its callback fires only once every initial
+                // sync_complete has been dispatched into the queue, so onInitComplete() then sees the
+                // COMPLETE initial payload.
+                SyncRepository.enqueueDrainSentinel {
+                    viewModel.viewModelScope.launch(Dispatchers.Main) {
+                        viewModel.onInitComplete()
+                    }
                 }
             }
         }

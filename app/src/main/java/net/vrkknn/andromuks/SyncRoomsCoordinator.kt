@@ -660,6 +660,8 @@ internal class SyncRoomsCoordinator(
                 }
                 android.util.Log.i("Andromuks", "clear_state diff-prune: removing ${staleRoomIds.size} stale room(s) absent from authoritative batch (roomMap=${roomMap.size}, seen=${seenRoomIds.size})")
                 staleRoomIds.forEach { roomId ->
+                    val name = roomMap[roomId]?.name ?: "(unknown)"
+                    android.util.Log.i("Andromuks", "clear_state diff-prune: removing room $roomId \"$name\"")
                     roomMap.remove(roomId)
                     RoomListCache.removeRoom(roomId)
                     // Critical: also drop the persisted row, or the room resurrects on the
