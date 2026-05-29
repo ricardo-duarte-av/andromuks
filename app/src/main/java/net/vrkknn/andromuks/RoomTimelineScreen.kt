@@ -952,12 +952,14 @@ fun RoomTimelineScreen(
                 )
 
                 appViewModel.openedViaDirectNotification = true
-                // Clear the entire back stack before navigating to the new room so that
-                // pressing Back exits the app rather than returning to room_list.
-                // auth_check is already gone (popped during AuthCheck's own startup navigation),
-                // and room_list may or may not be present — popUpTo(navController.graph.id) handles both cases.
-                navController.navigate("room_timeline/$targetRoomId") {
+                // Synthesize a [room_list, room_timeline] back stack so Back returns to the room
+                // list (FCM can be tapped from anywhere; see navigateToRoomTimelineForExternalEntry).
+                // Clear the prior graph, push room_list as the single base, then the new timeline.
+                navController.navigate("room_list") {
                     popUpTo(navController.graph.id) { inclusive = true }
+                    launchSingleTop = true
+                }
+                navController.navigate("room_timeline/$targetRoomId") {
                     launchSingleTop = true
                 }
             }
@@ -3108,8 +3110,14 @@ fun RoomTimelineScreen(
     // Root-destination check: in ShortcutActivity room_timeline is the startDestination with
     // nothing below it. Without this, the system would show a predictive back preview of the
     // home screen / previous app, which looks erratic. We handle it ourselves with finish().
+    // Root destination = genuinely nothing beneath in the Compose back stack (ShortcutActivity,
+    // where room_timeline is the start destination). FCM opens now synthesize a room_list base
+    // beneath the timeline, so they are NOT root: Back pops to room_list natively and predictive
+    // back animates the transition. (We intentionally no longer treat openedViaDirectNotification
+    // as root — that used to force a manual finish() that both exited to the launcher and
+    // suppressed predictive back.)
     val isBackStackEmpty = remember { navController.previousBackStackEntry == null }
-    val isRootDestination = isBackStackEmpty || appViewModel.openedViaDirectNotification
+    val isRootDestination = isBackStackEmpty
     BackHandler(
         enabled = messageMenuConfig != null || showCameraOverlay || showVideoOverlay ||
                 showAttachmentMenu || jumpBackStack.isNotEmpty() || isRootDestination

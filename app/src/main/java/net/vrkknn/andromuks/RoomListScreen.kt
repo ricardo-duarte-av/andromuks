@@ -187,15 +187,24 @@ private fun usernameFromMatrixId(userId: String): String =
     userId.removePrefix("@").substringBefore(":")
 
 /**
- * Opens a room while [RoomListScreen] is already shown (shortcut, notification, pending room, etc.).
- * Clears the entire back stack so Back leaves the task instead of returning to the list.
- * auth_check is already gone by the time this fires (popped during AuthCheck's own navigation),
- * so popUpTo(navController.graph.id) is used instead of popUpTo("auth_check") to reliably clear room_list too.
- * User-initiated opens from the list use plain [NavController.navigate] to keep room_list under the timeline.
+ * Opens a room while [RoomListScreen] is already shown (notification, pending room, etc.).
+ *
+ * Synthesizes a [room_list, room_timeline] back stack so that pressing Back returns to the room
+ * list — matching an in-app open and Android's deep-link convention. An FCM notification can be
+ * tapped from anywhere (not just the launcher), so the room list is the natural parent. This is
+ * intentionally different from ShortcutActivity, which runs in its own task and exits to the
+ * launcher on Back.
+ *
+ * The whole prior graph (including auth_check) is cleared first, then room_list is pushed as the
+ * single base, then the timeline on top. room_list is not composed while it sits beneath the
+ * timeline, so this adds no visible flash or extra work.
  */
 internal fun NavController.navigateToRoomTimelineForExternalEntry(roomId: String) {
-    navigate("room_timeline/$roomId") {
+    navigate("room_list") {
         popUpTo(graph.id) { inclusive = true }
+        launchSingleTop = true
+    }
+    navigate("room_timeline/$roomId") {
         launchSingleTop = true
     }
 }
