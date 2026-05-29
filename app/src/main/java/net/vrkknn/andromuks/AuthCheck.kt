@@ -231,12 +231,16 @@ fun AuthCheckScreen(
                         )
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Readiness check completed (isReady=$isReady) for $directRoomId")
 
-                        // Remove auth_check from the stack so Back returns to the previous app screen
-                        // (or finishes) instead of landing on a synthetic room_list.
+                        // Synthesize a [room_list, room_timeline] back stack so Back returns to the
+                        // room list. An FCM tap can come from anywhere (not just the launcher), so the
+                        // room list is the natural parent — unlike ShortcutActivity, which exits to the
+                        // launcher. auth_check is removed; room_list becomes the single base, then the
+                        // timeline on top (room_list is not composed while covered).
                         appViewModel.clearDirectRoomNavigation()
-                        navController.navigate("room_timeline/$encodedRoomId") {
+                        navController.navigate("room_list") {
                             popUpTo("auth_check") { inclusive = true }
                         }
+                        navController.navigate("room_timeline/$encodedRoomId")
                         appViewModel.openedViaDirectNotification = true
                     }
                     return@setNavigationCallback

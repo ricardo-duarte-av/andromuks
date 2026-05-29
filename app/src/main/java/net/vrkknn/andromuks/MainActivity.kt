@@ -374,6 +374,16 @@ class MainActivity : ComponentActivity() {
                             val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
                             val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
 
+                            // Canonical fix for empty appViewModel.homeserverUrl during cold-start
+                            // rendering: populate it (and the auth token) from SharedPreferences on the
+                            // main thread before any composable renders, mirroring ShortcutActivity. Without
+                            // this, the timeline composes while appViewModel.homeserverUrl is still "" on
+                            // FCM/notification cold starts, producing schemeless media/avatar URLs. Guarded
+                            // so we never clobber an already-populated value with an empty one. These are
+                            // in-memory mutableStateOf writes — cheap and safe on Main.
+                            if (homeserverUrl.isNotEmpty()) appViewModel.updateHomeserverUrl(homeserverUrl)
+                            if (authToken.isNotEmpty()) appViewModel.updateAuthToken(authToken)
+
                             // Pre-warm the singleton ImageLoader and OkHttp/SSL stack on IO so the first
                             // AvatarImage render doesn't pay an ~800ms newSSLContext cost on Main.
                             // Also runs initializeFCM (constructs another OkHttp client + opens SharedPrefs
@@ -423,12 +433,17 @@ class MainActivity : ComponentActivity() {
                                 if (fromNotification) {
                                     EnhancedNotificationDisplay.clearRoomMessageCache(extractedRoomId)
                                 }
-                                // Extract notification timestamp if present
-                                val notificationTimestamp = intent.getLongExtra("notification_timestamp", 0L).takeIf { it > 0 }
+                                // UNIFIED OPEN PATH: a notification/shortcut open now behaves like an
+                                // in-app room open — land at the bottom with a force-fresh paginate, and
+                                // treat the notification's event purely as a passive highlight. We no
+                                // longer thread notification_timestamp into navigation; that used to force
+                                // a separate flush + scroll-to-event branch (the "exception" path that made
+                                // FCM opens flicker relative to shortcuts). Mirrors ShortcutActivity.
+                                WebSocketService.setForceFreshTimelinePaginatePending(this@MainActivity, true)
                                 // Store for navigation once WebSocket is connected and spacesLoaded = true
                                 appViewModel.setDirectRoomNavigation(
                                     roomId = extractedRoomId,
-                                    notificationTimestamp = notificationTimestamp,
+                                    notificationTimestamp = null,
                                     targetEventId = notificationEventId
                                 )
                                 if (!shortcutUserId.isNullOrBlank()) {
@@ -941,11 +956,13 @@ class MainActivity : ComponentActivity() {
                 if (fromNotification) {
                     EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
                 }
-                // OPTIMIZATION #1: Direct navigation instead of pending state
-                val notificationTimestamp = intent.getLongExtra("notification_timestamp", 0L).takeIf { it > 0 }
+                // UNIFIED OPEN PATH (see onCreate): land at bottom + force-fresh paginate; the
+                // notification event is a passive highlight only — no notification_timestamp
+                // scroll/flush branch.
+                WebSocketService.setForceFreshTimelinePaginatePending(this@MainActivity, true)
                 appViewModel.setDirectRoomNavigation(
                     roomId = roomId,
-                    notificationTimestamp = notificationTimestamp,
+                    notificationTimestamp = null,
                     targetEventId = notificationEventId
                 )
                 if (!shortcutUserId.isNullOrBlank()) {
@@ -1017,13 +1034,10 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onStart called (hasBeenStopped=$hasBeenStopped)")
-        if (hasBeenStopped && ::appViewModel.isInitialized && appViewModel.openedViaDirectNotification) {
-            // The app was foregrounded from the background (app-icon or recents) while showing
-            // a room opened directly from a notification with no room_list in the Compose back
-            // stack.  Signal AppNavigation to navigate to room_list so the user lands on the
-            // expected screen rather than the notification room.
-            appViewModel.returnToRoomListOnResume = true
-        }
+        // FCM opens now synthesize a [room_list, room_timeline] back stack, so returning from
+        // background (recents / app-icon) should leave the user on the room they were viewing —
+        // exactly like a normal in-app session. We deliberately no longer force a jump to
+        // room_list on resume; Back still returns to room_list via the synthesized stack.
         hasBeenStopped = false
     }
 

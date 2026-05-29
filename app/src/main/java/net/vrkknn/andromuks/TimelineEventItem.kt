@@ -1496,7 +1496,7 @@ private fun RoomMediaMessageContent(
             replyInfo = replyInfo,
             originalEvent = originalEvent,
             userProfileCache = userProfileCache,
-            homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+            homeserverUrl = appViewModel?.homeserverUrl?.takeIf { it.isNotEmpty() } ?: homeserverUrl,
             authToken = authToken,
             isMine = actualIsMine,
             hasEncryptedFile = hasEncryptedFile,
@@ -2573,7 +2573,7 @@ private fun EncryptedMessageContent(
                     replyInfo = replyInfo,
                     originalEvent = originalEvent,
                     userProfileCache = userProfileCache,
-                    homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                    homeserverUrl = appViewModel?.homeserverUrl?.takeIf { it.isNotEmpty() } ?: homeserverUrl,
                     authToken = authToken,
                     isMine = actualIsMine,
                     hasEncryptedFile = hasEncryptedFile,
@@ -3234,7 +3234,7 @@ private fun StickerMessageContent(
 
             StickerMessage(
                 stickerMessage = stickerMessage,
-                homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                homeserverUrl = appViewModel?.homeserverUrl?.takeIf { it.isNotEmpty() } ?: homeserverUrl,
                 authToken = authToken,
                 isMine = actualIsMine,
                 isEncrypted = stickerMessage.hasEncryptedFile,
@@ -3728,7 +3728,7 @@ fun TimelineEventItem(
                         with(sharedTransitionScope) {
                             AvatarImage(
                                 mxcUrl = avatarUrl,
-                                homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                                homeserverUrl = appViewModel?.homeserverUrl?.takeIf { it.isNotEmpty() } ?: homeserverUrl,
                                 authToken = authToken,
                                 fallbackText = (displayName ?: event.sender).take(1),
                                 size = 24.dp,
@@ -3750,7 +3750,7 @@ fun TimelineEventItem(
                         // Fallback without shared element
                         AvatarImage(
                             mxcUrl = avatarUrl,
-                            homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                            homeserverUrl = appViewModel?.homeserverUrl?.takeIf { it.isNotEmpty() } ?: homeserverUrl,
                             authToken = authToken,
                             fallbackText = (displayName ?: event.sender).take(1),
                             size = 24.dp,
@@ -4034,7 +4034,7 @@ fun TimelineEventItem(
                         with(sharedTransitionScope) {
                             AvatarImage(
                                 mxcUrl = avatarUrl,
-                                homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                                homeserverUrl = appViewModel?.homeserverUrl?.takeIf { it.isNotEmpty() } ?: homeserverUrl,
                                 authToken = authToken,
                                 fallbackText = (displayName ?: event.sender).take(1),
                                 size = 24.dp,
@@ -4056,7 +4056,7 @@ fun TimelineEventItem(
                         // Fallback without shared element
                         AvatarImage(
                             mxcUrl = avatarUrl,
-                            homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                            homeserverUrl = appViewModel?.homeserverUrl?.takeIf { it.isNotEmpty() } ?: homeserverUrl,
                             authToken = authToken,
                             fallbackText = (displayName ?: event.sender).take(1),
                             size = 24.dp,
