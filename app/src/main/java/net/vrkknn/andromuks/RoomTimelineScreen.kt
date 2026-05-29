@@ -6109,7 +6109,7 @@ fun RoomHeader(
                             userId = roomId,
                             displayName = roomState?.name ?: fallbackName,
                             isVisible = true,
-                            useCircleCache = true, // CRITICAL: Match RoomListScreen's cache path for smooth shared element transitions
+                            capAvatarSize = true, // CRITICAL: Match RoomListScreen's avatar size so shared-element transitions hit the same Coil cache key
                             modifier = Modifier
                                 .sharedElement(
                                     rememberSharedContentState(key = sharedKey),
@@ -6137,7 +6137,7 @@ fun RoomHeader(
                         userId = roomId ?: roomState?.roomId,
                         displayName = roomState?.name ?: fallbackName,
                         isVisible = true,
-                        useCircleCache = true, // CRITICAL: Match RoomListScreen's cache path for consistent avatar loading
+                        capAvatarSize = true, // CRITICAL: Match RoomListScreen's avatar size so shared-element transitions hit the same Coil cache key
                         modifier = Modifier.clip(CircleShape)
                     )
                 }

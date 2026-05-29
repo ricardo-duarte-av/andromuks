@@ -1794,8 +1794,8 @@ fun RoomListItem(
                                 displayName = room.name,
                                 // AVATAR LOADING OPTIMIZATION: Load avatars for visible items and items below viewport
                                 isVisible = shouldLoadAvatar, // Load for visible items + 25 items below viewport
-                                // Cap requested avatar size at the room-list size (see AvatarImage.useCircleCache)
-                                useCircleCache = true,
+                                // Cap requested avatar size at the room-list size (see AvatarImage.capAvatarSize)
+                                capAvatarSize = true,
                                 // PERFORMANCE: Suspend avatar loading during fast scrolling
                                 isScrollingFast = isScrollingFast,
                                 modifier = Modifier
@@ -1825,7 +1825,7 @@ fun RoomListItem(
                             userId = room.id,
                             displayName = room.name,
                             isVisible = shouldLoadAvatar,
-                            useCircleCache = true,
+                            capAvatarSize = true,
                             isScrollingFast = isScrollingFast,
                             modifier = Modifier.clip(CircleShape)
                         )

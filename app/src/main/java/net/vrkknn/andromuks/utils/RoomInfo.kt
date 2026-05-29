@@ -337,7 +337,7 @@ fun RoomInfoScreen(
                                     size = 120.dp,
                                     userId = roomId,
                                     displayName = effectiveName,
-                                    useCircleCache = true, // Match RoomListScreen's cache path for smooth shared element transitions
+                                    capAvatarSize = true, // Match RoomListScreen's avatar size so shared-element transitions hit the same Coil cache key
                                     modifier = Modifier
                                         .sharedElement(
                                             rememberSharedContentState(key = sharedKey),
@@ -363,7 +363,7 @@ fun RoomInfoScreen(
                                 size = 120.dp,
                                 userId = roomId,
                                 displayName = effectiveName,
-                                useCircleCache = true, // Match RoomListScreen's cache path for consistent avatar loading
+                                capAvatarSize = true, // Match RoomListScreen's avatar size so shared-element transitions hit the same Coil cache key
                                 modifier = Modifier.clip(CircleShape)
                             )
                         }
@@ -415,7 +415,7 @@ fun RoomInfoScreen(
                                     size = 36.dp,
                                     userId = selfProfile.userId,
                                     displayName = selfProfile.displayName,
-                                    useCircleCache = true,
+                                    capAvatarSize = true,
                                     modifier = Modifier.clip(CircleShape)
                                 )
                             }

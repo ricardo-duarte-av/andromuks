@@ -48,7 +48,7 @@ fun AvatarImage(
     userId: String? = null,
     displayName: String? = null,
     isVisible: Boolean = true, // AVATAR LOADING OPTIMIZATION: Lazy loading control
-    useCircleCache: Boolean = false, // Caps the requested pixel size at 256px for list/timeline avatars (formerly also selected the now-removed CircleAvatarCache file:// path)
+    capAvatarSize: Boolean = false, // Caps the requested pixel size at 256px for list/timeline avatars (formerly also selected the now-removed CircleAvatarCache file:// path)
     isScrollingFast: Boolean = false // PERFORMANCE: Suspend avatar loading during fast scrolling
 ) {
     val context = LocalContext.current
@@ -65,7 +65,7 @@ fun AvatarImage(
     // the immutable "${mxc}@${size}". The former CircleAvatarCache file:// path was removed: it
     // stored a redundant 128px square copy and needed a synchronous-miss → IO-resolve → recompose
     // flip on cold start, for no graphics-memory benefit over requesting the general cache at the
-    // same size. `useCircleCache` is retained for source compatibility but no longer branches here.
+    // same size. `capAvatarSize` is retained for source compatibility but no longer branches here.
     // When mxcUrl is null we leave the URL null and render the native Text fallback (colored circle
     // + initial) — lighter than decoding an identical-looking SVG (no CPU raster, no per-avatar
     // bitmap), while the glyph renders from the framework's shared GPU atlas over a solid fill.
@@ -121,11 +121,11 @@ fun AvatarImage(
     }
     
     
-    val targetPixelSize = remember(size, density, useCircleCache) {
+    val targetPixelSize = remember(size, density, capAvatarSize) {
         val rawPx = with(density) { size.toPx() }.roundToInt()
         // PERFORMANCE FIX: For RoomListScreen, request smaller images to reduce decoding overhead
         // We only need 48dp = ~144px, not 512px. This reduces memory and decoding time.
-        if (useCircleCache) {
+        if (capAvatarSize) {
             // Request exactly what we need (48dp = ~144px on most devices)
             max(rawPx, 64).coerceAtMost(256) // Cap at 256px max for room list
         } else {
