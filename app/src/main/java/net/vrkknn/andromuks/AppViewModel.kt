@@ -3247,6 +3247,11 @@ class AppViewModel : ViewModel() {
 
         // Process all queued initial sync_complete messages
         viewModelScope.launch(Dispatchers.Default) {
+                    // Accumulated across the whole init batch for clear_state diff-prune (see finally).
+                    // A clear_state batch is the backend's complete authoritative room set, so any
+                    // cached room NOT seen here has been left since last sync and must be pruned.
+                    val seenRoomIds = HashSet<String>()
+                    var isClearStateBatch = false
                     try {
                         initialSyncProcessingMutex.withLock {
                             val queuedMessages = synchronized(initialSyncCompleteQueue) {
@@ -3256,6 +3261,21 @@ class AppViewModel : ViewModel() {
                                 pendingSyncCompleteCount = totalCount // Set total pending count
                                 processedSyncCompleteCount = 0 // Reset processed count
                                 messages
+                            }
+
+                            // Harvest every room id under data.rooms across the entire batch, plus
+                            // whether the batch began with clear_state. Reading the JSON directly is
+                            // robust to the parallel processing path (msg 1's parsed result isn't
+                            // returned when applyRoomListNow=true) and does not mutate the messages.
+                            queuedMessages.forEachIndexed { index, msg ->
+                                val msgData = msg.optJSONObject("data")
+                                if (index == 0 && msgData?.optBoolean("clear_state") == true) {
+                                    isClearStateBatch = true
+                                }
+                                msgData?.optJSONObject("rooms")?.let { roomsObj ->
+                                    val keys = roomsObj.keys()
+                                    while (keys.hasNext()) seenRoomIds.add(keys.next())
+                                }
                             }
                             
                             // CRITICAL FIX: Update WebSocketService state with actual queued count
@@ -3489,8 +3509,16 @@ class AppViewModel : ViewModel() {
                         checkStartupComplete()
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "🟣 Initial sync processing: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null}, isStartupComplete=$isStartupComplete - Room list can now be shown")
                         }
+
+                        // clear_state diff-prune: the cache-first room list was kept (not purged) on
+                        // clear_state, so reconcile it now against the complete batch — drop any cached
+                        // room absent from the authoritative set. Only safe on a clear_state batch; an
+                        // incremental batch's room set is a delta, not the full membership.
+                        if (isClearStateBatch) {
+                            syncRoomsCoordinator.pruneStaleRoomsAfterClearState(seenRoomIds)
+                        }
                     }
-                    
+
                     // CRITICAL FIX: Load all room states AFTER all sync processing is complete
                     // Runs in this coroutine after try/catch/finally so roomMap is populated
                     // Request get_room_state for ALL rooms after sync_complete processing

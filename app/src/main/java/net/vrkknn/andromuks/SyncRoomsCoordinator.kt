@@ -477,12 +477,14 @@ internal class SyncRoomsCoordinator(
             val data = syncJson.optJSONObject("data")
             val isClearState = data?.optBoolean("clear_state") == true
             if (isClearState) {
-                // TEMPORARILY DISABLED: skipping the reset so cache-driven UI stays visible.
-                // Restore by uncommenting handleClearStateReset() below if stale data appears.
+                // We intentionally do NOT purge here (handleClearStateReset) — that would wipe the
+                // cache-first room list and cause a cold-start flash. Staleness is instead reconciled
+                // non-destructively once the whole init batch is processed: AppViewModel.onInitComplete
+                // accumulates every room id seen across the batch and calls pruneStaleRoomsAfterClearState,
+                // removing only rooms absent from the authoritative set.
                 if (BuildConfig.DEBUG) {
-                    android.util.Log.w("Andromuks", "🟣 processSyncCompleteAtomic: clear_state=true RECEIVED but RESET SKIPPED (debug) - request_id=$requestId")
+                    android.util.Log.d("Andromuks", "🟣 processSyncCompleteAtomic: clear_state=true RECEIVED - cache kept, staleness handled by diff-prune at end of init batch (request_id=$requestId)")
                 }
-                // handleClearStateReset()
             }
 
             // Update last sync timestamp immediately (lightweight) and notify service
@@ -613,12 +615,67 @@ internal class SyncRoomsCoordinator(
         }
     }
 
+    /**
+     * Full in-memory + cache purge. No longer wired into the sync path — `clear_state=true`
+     * is now reconciled non-destructively by [pruneStaleRoomsAfterClearState] so the
+     * cache-first room list stays painted across reconnects. Retained as a reusable
+     * hard-reset utility (e.g. logout). See [pruneStaleRoomsAfterClearState] for the
+     * rationale on why the wipe was replaced by a diff.
+     */
     fun handleClearStateReset() {
         with(vm) {
             if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: clear_state=true received - purging all room/space state including currently opened rooms (backend is authoritative)")
             clearDerivedStateInMemory()
             // SyncIngestor.handleClearStateSignal() is a no-op stub and is also called
             // from within SyncIngestor.ingestSyncComplete() — no need to invoke it here.
+        }
+    }
+
+    /**
+     * Reconcile the cached room list against a completed `clear_state` init batch.
+     *
+     * A `clear_state=true` sync_complete batch carries the backend's COMPLETE authoritative
+     * room set — every joined room appears under `data.rooms` across the batch (each with its
+     * last-message sender `m.room.member` + last message). We deliberately do NOT purge the
+     * cache on clear_state (that would defeat cold-start cache-first rendering and cause a
+     * flash — see [handleClearStateReset], now unwired). Instead, once the whole batch is
+     * processed, any room still in [AppViewModel.roomMap] that did NOT appear anywhere in the
+     * batch is a room we've been removed from since the last sync, and is pruned here.
+     *
+     * MUST only be called for a batch that began with `clear_state=true`. On an incremental
+     * (non-clear_state) batch the room set is a delta, and the complement would wrongly delete
+     * every untouched room. Pending invites are excluded — they live in [PendingInvitesCache],
+     * not in `data.rooms`.
+     *
+     * @param seenRoomIds every room id observed under `data.rooms` across the entire init batch.
+     */
+    suspend fun pruneStaleRoomsAfterClearState(seenRoomIds: Set<String>) {
+        withContext(Dispatchers.Main) {
+            with(vm) {
+                val inviteIds = PendingInvitesCache.getAllInvites().keys
+                val staleRoomIds = roomMap.keys.filter { it !in seenRoomIds && it !in inviteIds }
+                if (staleRoomIds.isEmpty()) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "clear_state diff-prune: no stale rooms (roomMap=${roomMap.size}, seen=${seenRoomIds.size})")
+                    return@with
+                }
+                android.util.Log.i("Andromuks", "clear_state diff-prune: removing ${staleRoomIds.size} stale room(s) absent from authoritative batch (roomMap=${roomMap.size}, seen=${seenRoomIds.size})")
+                staleRoomIds.forEach { roomId ->
+                    roomMap.remove(roomId)
+                    RoomListCache.removeRoom(roomId)
+                    // Critical: also drop the persisted row, or the room resurrects on the
+                    // next cold-start hydrateFromDisk (RoomListCache.removeRoom is in-memory only).
+                    net.vrkknn.andromuks.utils.RoomMetadataStore.remove(roomId)
+                    RoomTimelineCache.clearRoomCache(roomId)
+                    oldestRowIdPerRoom.remove(roomId)
+                    roomsWithPendingPaginate.remove(roomId)
+                    newlyJoinedRoomIds.remove(roomId)
+                }
+                val staleSet = staleRoomIds.toSet()
+                allRooms = allRooms.filter { it.id !in staleSet }
+                invalidateRoomSectionCache()
+                needsRoomListUpdate = true
+                roomListUpdateCounter++
+            }
         }
     }
 
