@@ -955,7 +955,15 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // CRITICAL FIX: Removed isActivelyCached requirement from instant cache hit
             // If we have events in RAM, we should ALWAYS show them immediately.
             // If not actively cached, we will activate it and paginate in the background.
-            if (cachedEvents != null && cachedEvents.isNotEmpty() && !forceFreshPaginate) {
+            //
+            // forceFreshPaginate (WS was down at open) no longer gates this out: when we have a
+            // cached window we render it immediately and fire a *background* reset=false paginate
+            // (backgroundPrefetchRequests). handleBackgroundPrefetch then merges (contiguous) or
+            // drops+replaces (gap) without ever clearing the on-screen timeline. This is what keeps
+            // a warm re-open from flashing "Room loading…" while it refetches. Only a genuinely
+            // empty cache (sidecar linger wiped it, or never opened) falls through to the
+            // foreground paginate below, where the loading indicator is the correct state.
+            if (cachedEvents != null && cachedEvents.isNotEmpty()) {
                 if (BuildConfig.DEBUG)
                     android.util.Log.d(
                         "Andromuks",
@@ -2507,7 +2515,27 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     "Andromuks",
                     "AppViewModel: Processing background prefetch request, silently adding ${timelineList.size} events to cache (roomId: $roomId)",
                 )
-            RoomTimelineCache.mergePaginatedEvents(roomId, timelineList)
+            // GAP DETECTION: this paginate fetched the latest events (max_timeline_id=0). If the
+            // response shares at least one event id with the cache, the two windows touch and we
+            // can safely merge — the shared event stitches them with no hole. If they share
+            // nothing while the cache is non-empty, more than a full page arrived while we were
+            // away: there is an unbridgeable gap between cache-newest and response-oldest. Merging
+            // would splice a silent hole (rowid sort hides missing events with no gap marker, and
+            // backward-paginate keys off the oldest rowid so it could never refetch the middle).
+            // Drop the stale window and replace it with the fresh one instead.
+            val existingIds = RoomTimelineCache.getCachedEventIds(roomId)
+            val contiguous = existingIds.isEmpty() || timelineList.any { it.eventId in existingIds }
+            if (contiguous) {
+                RoomTimelineCache.mergePaginatedEvents(roomId, timelineList)
+            } else {
+                android.util.Log.i(
+                    "Andromuks",
+                    "AppViewModel: Background prefetch for $roomId is non-contiguous with cache " +
+                        "(${existingIds.size} cached ids, ${timelineList.size} fetched, 0 shared) — " +
+                        "dropping stale cache and replacing with fresh window to avoid a timeline gap",
+                )
+                RoomTimelineCache.seedCacheWithPaginatedEvents(roomId, timelineList)
+            }
 
             // No local persistence - using cache only
             signalRoomSnapshotReady(roomId)

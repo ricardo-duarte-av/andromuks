@@ -21,6 +21,34 @@ The two "catch-up" paginates sent at room-open time in `requestRoomTimeline` mus
 
 **Visible symptom in bridge rooms:** The bridge delivers messages with a delay relative to when the server processes the paginate. Messages from the other party vanish after the user sends a new message. Reopening the room restores them (because `processCachedEvents` reads from the full cache).
 
+## Critical Invariant: Catch-Up Merge Is Contiguity-Gated (Merge vs Drop-and-Replace)
+
+`handleBackgroundPrefetch` fetches the **latest** events (`max_timeline_id = 0`). Before folding them into the cache it must decide whether the fetched window is *contiguous* with the cached window — and the decision is made by **shared event id**, not by rowid:
+
+```kotlin
+val existingIds = RoomTimelineCache.getCachedEventIds(roomId)   // regular events only
+val contiguous = existingIds.isEmpty() || timelineList.any { it.eventId in existingIds }
+if (contiguous) RoomTimelineCache.mergePaginatedEvents(roomId, timelineList)   // append, keep history
+else            RoomTimelineCache.seedCacheWithPaginatedEvents(roomId, timelineList) // drop stale, replace
+```
+
+- **Shares ≥1 id (or cache empty) → merge.** Fewer than a page of new events arrived while we were away, so the latest window reaches back far enough to re-include the cache's newest event(s). The shared event stitches the two windows with no hole; append and keep the older history.
+- **Shares nothing while cache is non-empty → gap → drop and replace.** More than a full page (`INITIAL_ROOM_PAGINATE_LIMIT`) arrived while backgrounded, so the fetched window sits entirely above the cached one with unfetched events in between.
+
+**Why a blind `mergePaginatedEvents` is wrong here (do not "simplify" back to it):** `addEventsToCache` dedupes by id and sorts by `timelineRowid`. Appending a non-contiguous window therefore produces a timeline that *looks* continuous but has a silent hole — e.g. cache `1–100` + response `300–350` renders as one list with `101–299` missing and **no gap marker**. Worse, backward-paginate keys off the *oldest* cached rowid, so scrolling up fetches below `#1` and can never refetch `101–299`. Dropping the stale window (Option 1) keeps the timeline honest; the user re-paginates upward to refetch history on demand. The gap branch logs at `Log.i` ("non-contiguous … dropping stale cache") because it is rare and worth seeing in a logcat dump.
+
+Why id-overlap rather than a rowid-range compare: rowids are not consecutive (state events, redactions, reactions consume them too), so a `responseOldestRowid > cacheNewestRowid` test is fiddly and error-prone. A shared id is exact.
+
+**Note:** the same gate also covers the notification-open background merge — it routes through `handleBackgroundPrefetch` too.
+
+## Warm Re-open Must Not Wipe the Timeline (`forceFreshPaginate`)
+
+When the WebSocket was down at room-open time (`needsFreshTimelinePaginate()` true — sidecar linger, cold resume), the room still re-opens with a populated cache via delta-replay reconnect. The cache-render branch in `requestRoomTimeline` is therefore **not** gated on `!forceFreshPaginate`: a non-empty cache renders immediately and a `backgroundPrefetchRequests` paginate merges newer events on top (see the contiguity gate above). Only a genuinely empty cache falls through to the foreground `timelineRequests` paginate, where the full-screen loader is the correct state.
+
+Two companion guards keep this flash-free:
+- `navigateToRoomWithCache` only does `timelineEvents = emptyList()` when `getCachedEventCount(roomId) == 0`. Clearing with a cache present would produce a one-frame "empty room" flash before the async rebuild swaps the events back.
+- `RoomTimelineScreen`'s loader gate is `!readinessCheckComplete || (timelineItems.isEmpty() && (isLoading || !hasInitialSnapCompleted))` — a bare `isTimelineLoading=true` (briefly true during the async rebuild) must never paint the spinner over an already-populated list. Room *switches* clear `timelineEvents` synchronously, so `timelineItems.isEmpty()` still gates the loader correctly on a true room change.
+
 ## Thread Safety of Request Maps
 
 The four request-tracking maps (`timelineRequests`, `paginateRequests`, `paginateRequestMaxTimelineIds`, `backgroundPrefetchRequests`) are declared as `ConcurrentHashMap` in `AppViewModel`. This is required because `handleResponse` runs on `Dispatchers.Default` (see below), so these maps are written from a background thread while potentially being read from other coroutines.

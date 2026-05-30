@@ -722,6 +722,17 @@ object RoomTimelineCache {
     }
 
     /**
+     * Snapshot of the regular-event ids currently cached for a room (excludes the separately
+     * stored reaction/redaction events). Used to test whether an incoming "fetch latest" paginate
+     * response is contiguous with the cache (any shared id) or separated by a gap (no shared id).
+     */
+    fun getCachedEventIds(roomId: String): Set<String> {
+        synchronized(cacheLock) {
+            return roomEventsCache[roomId]?.eventIds?.toSet() ?: emptySet()
+        }
+    }
+
+    /**
      * Get metadata for the most recent cached event in a room
      */
     fun getLatestCachedEventMetadata(roomId: String): CachedEventMetadata? {

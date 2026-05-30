@@ -398,10 +398,17 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                     return@launch
                 }
 
-                timelineEvents = emptyList()
+                // Only blank the on-screen timeline when there is nothing cached to keep showing.
+                // If a cached window exists, requestRoomTimeline renders it immediately and merges
+                // a background paginate on top (handleBackgroundPrefetch), so clearing here would
+                // just produce a one-frame "empty room" flash before the async rebuild swaps it
+                // back in. The rebuild owns the swap; we leave the existing events visible.
+                if (RoomTimelineCache.getCachedEventCount(roomId) == 0) {
+                    timelineEvents = emptyList()
+                }
                 android.util.Log.d(
                     "Andromuks",
-                    "🔵 navigateToRoomWithCache: Calling requestRoomTimeline (cleared timelineEvents to force fresh paginate) - roomId=$roomId, isTimelineLoading=$isTimelineLoading",
+                    "🔵 navigateToRoomWithCache: Calling requestRoomTimeline - roomId=$roomId, cachedEvents=${RoomTimelineCache.getCachedEventCount(roomId)}, isTimelineLoading=$isTimelineLoading",
                 )
                 requestRoomTimeline(roomId)
                 android.util.Log.d(

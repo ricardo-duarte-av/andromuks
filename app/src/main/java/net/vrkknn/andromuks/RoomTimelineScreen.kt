@@ -3370,8 +3370,14 @@ fun RoomTimelineScreen(
                     ) {
                         // CRITICAL FIX: Show "Room loading..." while room is being loaded/processed
                         // This ensures the UI doesn't show incomplete state when navigating to a room
-                        // Show loading when: isLoading is true OR timeline is empty and we're waiting for initial load
-        val shouldShowLoading = !readinessCheckComplete || isLoading || (timelineItems.isEmpty() && !hasInitialSnapCompleted)
+                        // Show the full-screen loader only when there's nothing to render yet. A bare
+                        // isLoading=true must NOT wipe an already-populated timeline: on a warm re-open
+                        // (e.g. WS was down while backgrounded) the cached events stay on screen while a
+                        // background paginate merges newer ones, and isTimelineLoading is briefly true
+                        // during that async rebuild. Room *switches* clear timelineEvents synchronously,
+                        // so timelineItems.isEmpty() still gates the loader correctly there.
+        val shouldShowLoading = !readinessCheckComplete ||
+            (timelineItems.isEmpty() && (isLoading || !hasInitialSnapCompleted))
                         
                         if (shouldShowLoading) {
                             Box(
