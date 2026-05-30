@@ -94,6 +94,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.filled.Mood
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.input.TextFieldValue
@@ -374,9 +375,9 @@ fun ThreadViewerScreen(
     var pendingAvatarCommand by remember { mutableStateOf<String?>(null) } // "myroomavatar", "globalavatar", or "roomavatar"
 
     // Media pickers
-    // Avatar image picker launcher (for avatar commands)
+    // Avatar image picker launcher (for avatar commands). Android Photo Picker — no permission needed.
     val avatarImagePickerLauncher =
-        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: android.net.Uri? ->
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.PickVisualMedia()) { uri: android.net.Uri? ->
             uri?.let {
                 val mimeType = context.contentResolver.getType(it)
                 if (mimeType?.startsWith("image/") == true) {
@@ -453,8 +454,9 @@ fun ThreadViewerScreen(
             }
         }
     
+    // Image/video attach via the Android Photo Picker — no permission, consistent Photo/Album sheet.
     val mediaPickerLauncher =
-        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: android.net.Uri? ->
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.PickVisualMedia()) { uri: android.net.Uri? ->
             uri?.let {
                 val mime = context.contentResolver.getType(it) ?: ""
                 selectedMediaIsVideo = mime.startsWith("video/")
@@ -1983,21 +1985,21 @@ fun ThreadViewerScreen(
                                                         when {
                                                             command == "/myroomavatar" || command == "/myroomavatar " -> {
                                                                 pendingAvatarCommand = "myroomavatar"
-                                                                avatarImagePickerLauncher.launch("image/*")
+                                                                avatarImagePickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                                                                 draft = ""
                                                                 textFieldValue = TextFieldValue("")
                                                                 return@KeyboardActions
                                                             }
                                                             command == "/globalavatar" || command == "/globalavatar " -> {
                                                                 pendingAvatarCommand = "globalavatar"
-                                                                avatarImagePickerLauncher.launch("image/*")
+                                                                avatarImagePickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                                                                 draft = ""
                                                                 textFieldValue = TextFieldValue("")
                                                                 return@KeyboardActions
                                                             }
                                                             command == "/roomavatar" || command == "/roomavatar " -> {
                                                                 pendingAvatarCommand = "roomavatar"
-                                                                avatarImagePickerLauncher.launch("image/*")
+                                                                avatarImagePickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                                                                 draft = ""
                                                                 textFieldValue = TextFieldValue("")
                                                                 return@KeyboardActions
@@ -2060,21 +2062,21 @@ fun ThreadViewerScreen(
                                             when {
                                                 command == "/myroomavatar" || command == "/myroomavatar " -> {
                                                     pendingAvatarCommand = "myroomavatar"
-                                                    avatarImagePickerLauncher.launch("image/*")
+                                                    avatarImagePickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                                                     draft = ""
                                                     textFieldValue = TextFieldValue("")
                                                     return@Button
                                                 }
                                                 command == "/globalavatar" || command == "/globalavatar " -> {
                                                     pendingAvatarCommand = "globalavatar"
-                                                    avatarImagePickerLauncher.launch("image/*")
+                                                    avatarImagePickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                                                     draft = ""
                                                     textFieldValue = TextFieldValue("")
                                                     return@Button
                                                 }
                                                 command == "/roomavatar" || command == "/roomavatar " -> {
                                                     pendingAvatarCommand = "roomavatar"
-                                                    avatarImagePickerLauncher.launch("image/*")
+                                                    avatarImagePickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                                                     draft = ""
                                                     textFieldValue = TextFieldValue("")
                                                     return@Button
@@ -2263,7 +2265,7 @@ fun ThreadViewerScreen(
                             IconButton(
                                 onClick = {
                                     showAttachmentMenu = false
-                                    mediaPickerLauncher.launch("*/*")
+                                    mediaPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
                                 },
                                 modifier = Modifier.size(56.dp)
                             ) {
