@@ -9,7 +9,7 @@ import android.util.Log
 import androidx.core.app.RemoteInput
 import android.os.Bundle
 import kotlin.concurrent.thread
-import net.vrkknn.andromuks.utils.SidecarApi
+import net.vrkknn.andromuks.utils.ExecApi
 
 /**
  * Global broadcast receiver for handling notification reply actions
@@ -74,21 +74,21 @@ class NotificationReplyReceiver : BroadcastReceiver() {
         recentProcessedReplies.entries.removeAll { it.value < cutoffTime }
         
         val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-        val useSidecar = prefs.getBoolean("use_sidecar_mode", false)
+        val useBatterySaver = prefs.getBoolean("use_battery_saver_mode", false)
 
-        if (useSidecar) {
-            // Sidecar mode: POST to the HTTP sidecar. Works while the WebSocket is closed.
+        if (useBatterySaver) {
+            // Battery-saver mode: POST to the HTTP batterySaver. Works while the WebSocket is closed.
             val pendingResult = goAsync()
             val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
             val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
-            thread(name = "sidecar-reply") {
+            thread(name = "batterySaver-reply") {
                 try {
-                    val ok = SidecarApi.sendMessage(
-                        SidecarApi.Credentials(homeserverUrl, authToken),
+                    val ok = ExecApi.sendMessage(
+                        ExecApi.Credentials(homeserverUrl, authToken),
                         roomId,
                         replyText
                     )
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Sidecar sendMessage result: $ok")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "BatterySaver sendMessage result: $ok")
                     if (ok) {
                         EnhancedNotificationDisplay(context, homeserverUrl, authToken)
                             .updateNotificationWithReply(roomId, replyText)

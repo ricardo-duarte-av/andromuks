@@ -87,15 +87,15 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         }
     }
 
-    fun toggleUseSidecarMode() = with(vm) {
-        useSidecarMode = !useSidecarMode
-        syncBatchProcessor.sidecarModeEnabled = useSidecarMode
+    fun toggleUseBatterySaverMode() = with(vm) {
+        useBatterySaverMode = !useBatterySaverMode
+        syncBatchProcessor.batterySaverModeEnabled = useBatterySaverMode
         appContext?.let { context ->
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            prefs.edit().putBoolean("use_sidecar_mode", useSidecarMode).apply()
+            prefs.edit().putBoolean("use_battery_saver_mode", useBatterySaverMode).apply()
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Saved useSidecarMode setting: $useSidecarMode"
+                "AppViewModel: Saved useBatterySaverMode setting: $useBatterySaverMode"
             )
         }
         // The lifecycle change (close-on-background / cold-start-on-FCM-open) is handled
@@ -435,7 +435,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             showLinkPreviews = prefs.getBoolean("show_link_previews", true)
             sendLinkPreviews = prefs.getBoolean("send_link_previews", true)
             elementCallBaseUrl = prefs.getString("element_call_base_url", "") ?: ""
-            useSidecarMode = prefs.getBoolean("use_sidecar_mode", false)
+            useBatterySaverMode = prefs.getBoolean("use_battery_saver_mode", false)
             deviceGlobalShowMediaPreviews = booleanPrefOrNull(prefs, "gomuks_device_show_media_previews")
             deviceGlobalRenderUrlPreviews = booleanPrefOrNull(prefs, "gomuks_device_render_url_previews")
             deviceGlobalSendBundledUrlPreviews = booleanPrefOrNull(prefs, "gomuks_device_send_bundled_url_previews")
@@ -449,7 +449,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             backgroundPurgeMessageThreshold = prefs.getInt("background_purge_message_threshold", SyncBatchProcessor.DEFAULT_MAX_BATCH_SIZE)
             syncBatchProcessor.batchIntervalMs = backgroundPurgeIntervalMinutes.toLong() * 60_000L
             syncBatchProcessor.maxBatchSize = backgroundPurgeMessageThreshold
-            syncBatchProcessor.sidecarModeEnabled = useSidecarMode
+            syncBatchProcessor.batterySaverModeEnabled = useBatterySaverMode
 
             if (BuildConfig.DEBUG) {
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded enableCompression setting: $enableCompression")

@@ -961,7 +961,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // (backgroundPrefetchRequests). handleBackgroundPrefetch then merges (contiguous) or
             // drops+replaces (gap) without ever clearing the on-screen timeline. This is what keeps
             // a warm re-open from flashing "Room loading…" while it refetches. Only a genuinely
-            // empty cache (sidecar linger wiped it, or never opened) falls through to the
+            // empty cache (batterySaver linger wiped it, or never opened) falls through to the
             // foreground paginate below, where the loading indicator is the correct state.
             if (cachedEvents != null && cachedEvents.isNotEmpty()) {
                 if (BuildConfig.DEBUG)
@@ -2779,11 +2779,15 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 )
 
                 // CRITICAL DEBUG: Check if response contains events NEWER than max_timeline_id
-                // (shouldn't
-                // happen!)
+                // (shouldn't happen!). Skip when max_timeline_id is 0 (or absent): 0 is the
+                // "fetch most recent" sentinel, so every event legitimately has rowId >= 0 — the
+                // check is meaningless there and would log a false-positive bug (matches the
+                // maxTimelineIdUsed != 0L guard on the filtering check above).
                 val eventsNewerThanMax =
-                    timelineList.filter {
-                        it.timelineRowid >= (maxTimelineIdUsed ?: Long.MAX_VALUE)
+                    if (maxTimelineIdUsed != null && maxTimelineIdUsed != 0L) {
+                        timelineList.filter { it.timelineRowid >= maxTimelineIdUsed }
+                    } else {
+                        emptyList()
                     }
                 if (eventsNewerThanMax.isNotEmpty()) {
                     android.util.Log.e(

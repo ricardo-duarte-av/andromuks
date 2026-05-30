@@ -77,12 +77,12 @@ class ServiceStartWorker(
                 return@withContext Result.success()
             }
 
-            // Sidecar mode: the user intentionally suspended the service while
+            // Battery-saver mode: the user intentionally suspended the service while
             // backgrounded. Skip every auto-restart path until the foreground UI
             // clears the flag in ViewModelLifecycleCoordinator.onAppBecameVisible
             // or MainActivity.onCreate.
-            if (WebSocketService.isSidecarUserDisconnected(applicationContext)) {
-                if (BuildConfig.DEBUG) Log.d(TAG, "sidecar mode: user-disconnected, skipping service start (reason=$reason)")
+            if (WebSocketService.isBatterySaverUserDisconnected(applicationContext)) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "battery-saver mode: user-disconnected, skipping service start (reason=$reason)")
                 return@withContext Result.success()
             }
 

@@ -415,9 +415,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // This ensures the room timeline is cached before the user taps the notification.
             //
             // Gate: only paginate when the WebSocket is currently connected — regardless of why
-            // (foreground app, open/minimized bubble, persistent-mode service). In sidecar mode
+            // (foreground app, open/minimized bubble, persistent-mode service). In battery-saver mode
             // with the WS torn down there's no channel to paginate over, and forcing a wake-up
-            // here would defeat sidecar's battery aim. The user will paginate on demand when
+            // here would defeat batterySaver's battery aim. The user will paginate on demand when
             // they tap the notification and the bubble/Activity launch path brings WS back up.
             try {
                 if (!WebSocketService.isWebSocketConnected()) {

@@ -954,7 +954,7 @@ fun RoomTimelineScreen(
 
                 // RACE CONDITION FIX: Wait for room data to be ready before navigating
                 // so the new RoomTimelineScreen composes with data already available.
-                // 15s timeout because sidecar-resume cold-starts the WebSocket; the
+                // 15s timeout because batterySaver-resume cold-starts the WebSocket; the
                 // dial + initial sync + per-room state load can legitimately exceed 5s.
                 val isReady = appViewModel.awaitRoomDataReadiness(
                     timeoutMs = 15_000L,
@@ -2774,7 +2774,7 @@ fun RoomTimelineScreen(
         }
         appViewModel.promoteToPrimaryIfNeeded("room_timeline_$roomId")
 
-        // Sidecar resume / linger: if the WS was down, bypass cache fast paths and paginate fresh.
+        // BatterySaver resume / linger: if the WS was down, bypass cache fast paths and paginate fresh.
         appViewModel.consumePendingForceFreshPaginate()
         if (!appViewModel.isWebSocketConnected()) {
             appViewModel.markForceFreshPaginateAfterWsDown()

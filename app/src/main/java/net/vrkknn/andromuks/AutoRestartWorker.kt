@@ -33,9 +33,9 @@ class AutoRestartWorker(
         if (BuildConfig.DEBUG) Log.d(TAG, "AutoRestartWorker started")
         
         try {
-            // Sidecar mode: user intentionally disconnected — do not restart.
-            if (WebSocketService.isSidecarUserDisconnected(applicationContext)) {
-                if (BuildConfig.DEBUG) Log.d(TAG, "sidecar user-disconnected — skipping auto-restart check")
+            // Battery-saver mode: user intentionally disconnected — do not restart.
+            if (WebSocketService.isBatterySaverUserDisconnected(applicationContext)) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "batterySaver user-disconnected — skipping auto-restart check")
                 return@withContext Result.success()
             }
 

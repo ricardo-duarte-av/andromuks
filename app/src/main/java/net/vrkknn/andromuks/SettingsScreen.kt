@@ -17,7 +17,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
@@ -27,7 +26,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
-import net.vrkknn.andromuks.utils.SidecarApi
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -231,11 +229,6 @@ fun SettingsScreen(
                 modifier = Modifier.padding(top = 16.dp)
             )
 
-            val sidecarProbeContext = LocalContext.current
-            val sidecarProbeScope = rememberCoroutineScope()
-            var sidecarProbing by remember { mutableStateOf(false) }
-            var sidecarProbeError by remember { mutableStateOf<String?>(null) }
-
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -256,54 +249,14 @@ fun SettingsScreen(
                                 fontWeight = FontWeight.Medium
                             )
                             Text(
-                                text = "When enabled, the app disconnects from the server while backgrounded and relies on push notifications, saving significant battery on cellular. Notification reply and mark-as-read are routed through a small HTTP sidecar at <homeserver>/_gomuks/sidecar, which must be deployed alongside the gomuks backend. The WebSocket is automatically reconnected while a chat bubble is open and torn down again 60 s after the last bubble closes. When disabled, a persistent foreground-service WebSocket stays connected for real-time delivery.",
+                                text = "When enabled, the app disconnects from the server while backgrounded and relies on push notifications, saving significant battery on cellular. Notification reply and mark-as-read are routed through the gomuks backend's HTTP command endpoint (<homeserver>/_gomuks/exec). The WebSocket is automatically reconnected while a chat bubble is open and torn down again 60 s after the last bubble closes. When disabled, a persistent foreground-service WebSocket stays connected for real-time delivery.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        if (sidecarProbing) {
-                            ExpressiveLoadingIndicator(modifier = Modifier.size(28.dp))
-                        } else {
-                            Switch(
-                                checked = appViewModel.useSidecarMode,
-                                onCheckedChange = { wantOn ->
-                                    if (!wantOn) {
-                                        // Turning OFF — always allowed, no probe.
-                                        sidecarProbeError = null
-                                        appViewModel.toggleUseSidecarMode()
-                                        return@Switch
-                                    }
-                                    // Turning ON — probe healthz first.
-                                    sidecarProbing = true
-                                    sidecarProbeError = null
-                                    sidecarProbeScope.launch {
-                                        val result = withContext(Dispatchers.IO) {
-                                            SidecarApi.probeHealth(SidecarApi.readCredentials(sidecarProbeContext))
-                                        }
-                                        sidecarProbing = false
-                                        when (result) {
-                                            is SidecarApi.HealthResult.Ok -> {
-                                                appViewModel.toggleUseSidecarMode()
-                                            }
-                                            is SidecarApi.HealthResult.SidecarUnhealthy ->
-                                                sidecarProbeError = "Sidecar reachable but reports it cannot talk to gomuks (HTTP 503). Check the sidecar logs."
-                                            is SidecarApi.HealthResult.HttpError ->
-                                                sidecarProbeError = "Sidecar responded with HTTP ${result.code} ${result.message}. Is /_gomuks/sidecar routed to the sidecar in your reverse proxy?"
-                                            is SidecarApi.HealthResult.NetworkError ->
-                                                sidecarProbeError = "Could not reach sidecar: ${result.message}. Check that the sidecar binary is running and your reverse proxy routes /_gomuks/sidecar/* to it."
-                                            SidecarApi.HealthResult.NotConfigured ->
-                                                sidecarProbeError = "Log in first — no homeserver URL stored yet."
-                                        }
-                                    }
-                                }
-                            )
-                        }
-                    }
-                    sidecarProbeError?.let { msg ->
-                        Text(
-                            text = msg,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error
+                        Switch(
+                            checked = appViewModel.useBatterySaverMode,
+                            onCheckedChange = { appViewModel.toggleUseBatterySaverMode() }
                         )
                     }
                 }
@@ -318,8 +271,8 @@ fun SettingsScreen(
                 modifier = Modifier.padding(top = 16.dp)
             )
 
-            if (appViewModel.useSidecarMode) {
-                // Sidecar mode closes the WebSocket while backgrounded, so the batched
+            if (appViewModel.useBatterySaverMode) {
+                // Battery-saver mode closes the WebSocket while backgrounded, so the batched
                 // sync_complete plumbing this section configures never runs. Replace
                 // with a notice instead of hiding outright so the user understands why.
                 Card(

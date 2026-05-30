@@ -85,7 +85,7 @@ class ChatBubbleActivity : ComponentActivity() {
                         // Copy hydrated stub rooms from the singleton RoomListCache into this
                         // bubble VM's local roomMap so awaitRoomDataReadiness's getRoomById gate
                         // can close without waiting for a full-state sync that may never arrive
-                        // for a sidecar-only room.
+                        // for a batterySaver-only room.
                         appViewModel.populateRoomMapFromCache()
                         appViewModel.attachToExistingWebSocketIfAvailable()
                         
@@ -314,7 +314,7 @@ class ChatBubbleActivity : ComponentActivity() {
         }
 
         // After the BubbleTracker bookkeeping is done, give the ViewModel a chance
-        // to (re-)schedule the sidecar linger: this is the only A/B→C transition
+        // to (re-)schedule the batterySaver linger: this is the only A/B→C transition
         // path, and it's the trigger that ultimately drops the WebSocket once the
         // last bubble has been swiped away.
         if (::appViewModel.isInitialized) {

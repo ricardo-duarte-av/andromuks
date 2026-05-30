@@ -507,9 +507,9 @@ class AppViewModel : ViewModel() {
         internal set
     var elementCallBaseUrl by mutableStateOf("")
         internal set
-    // Connection mode: false = persistent always-on WebSocket (default), true = use HTTP sidecar
+    // Connection mode: false = persistent always-on WebSocket (default), true = use HTTP batterySaver
     // for reply/mark_read from notifications and close the WebSocket while backgrounded.
-    var useSidecarMode by mutableStateOf(false)
+    var useBatterySaverMode by mutableStateOf(false)
         internal set
 
     // ── Gomuks preferences ────────────────────────────────────────────────────
@@ -1336,6 +1336,9 @@ class AppViewModel : ViewModel() {
 
     /** Element Call + widget commands — see [CallsWidgetsCoordinator]. */
     private val callsWidgetsCoordinator by lazy { CallsWidgetsCoordinator(this) }
+
+    /** HTTP /exec commands plumbed through the WS dispatcher (battery-saver mode) — see [ExecCommandCoordinator]. */
+    internal val execCommandCoordinator by lazy { ExecCommandCoordinator(this) }
 
     // CRASH FIX: Expose batch processing state to UI to prevent animations during flush
     val isProcessingSyncBatch = syncBatchProcessor.isProcessingBatch
@@ -3187,7 +3190,7 @@ class AppViewModel : ViewModel() {
 
     /**
      * Drops the in-memory timeline cache and its paginate cursors. Used when the
-     * sidecar-mode linger expires and the persistent WebSocket is about to be torn down:
+     * batterySaver-mode linger expires and the persistent WebSocket is about to be torn down:
      * on the next reconnect the server sends `clear_state=true` and we re-hydrate from
      * scratch anyway, so retaining the cache only risks a stale-merge on pagination if
      * the user reopens a room before the new sync lands. Media (mxc:// is immutable) is
@@ -3204,7 +3207,7 @@ class AppViewModel : ViewModel() {
     }
 
     /**
-     * Set when the WebSocket was down at room-open time (sidecar linger, cold resume, etc.).
+     * Set when the WebSocket was down at room-open time (batterySaver linger, cold resume, etc.).
      * While true, cache fast paths are bypassed and an initial paginate is issued once the
      * socket is back.
      */
@@ -3221,7 +3224,7 @@ class AppViewModel : ViewModel() {
         forceFreshPaginateAfterWsDown = false
     }
 
-    /** Pick up a sidecar-linger flag stored in prefs when no VM was attached at linger time. */
+    /** Pick up a batterySaver-linger flag stored in prefs when no VM was attached at linger time. */
     fun consumePendingForceFreshPaginate() {
         appContext?.applicationContext?.let { ctx ->
             WebSocketService.consumeForceFreshTimelinePaginatePending(ctx, this)
@@ -3588,7 +3591,7 @@ class AppViewModel : ViewModel() {
         flushPendingQueueAfterReconnection()
 
         // Drain rooms whose initial paginate was deferred because the WS was down at navigate
-        // time (cold resume via notification in sidecar mode is the common case). We do this
+        // time (cold resume via notification in battery-saver mode is the common case). We do this
         // explicitly here instead of relying on RT screen's timelineRefreshTrigger LaunchedEffect,
         // which is gated by a 500ms isInitialLoadComplete delay and can miss the retry signal.
         val toRetry = synchronized(roomsAwaitingInitCompletePaginate) {
@@ -3854,7 +3857,7 @@ class AppViewModel : ViewModel() {
 
     // True once MainActivity.onResume has ever fired in this process. Used to
     // disambiguate the default-true [isAppVisible] from "main UI has actually
-    // become visible at least once" — needed for the sidecar-mode bubble path,
+    // become visible at least once" — needed for the batterySaver-mode bubble path,
     // where a bubble can launch cold from a notification with MainActivity
     // never having existed in this process. Without this, the bubble-close
     // linger reschedule reads [isAppVisible] == true (its default) and
@@ -4072,20 +4075,20 @@ class AppViewModel : ViewModel() {
             appInvisibleJob?.cancel()
             appInvisibleJob = null
 
-            // Cancel any in-flight sidecar linger — the bubble is now on screen
+            // Cancel any in-flight batterySaver linger — the bubble is now on screen
             // and needs the WebSocket alive. Safe to call unconditionally; it
             // no-ops when no linger is pending.
-            WebSocketService.cancelSidecarLinger()
+            WebSocketService.cancelBatterySaverLinger()
 
-            // Also clear sidecar_user_disconnected so the auto-restart machinery
+            // Also clear battery_saver_user_disconnected so the auto-restart machinery
             // (AutoRestartReceiver, ServiceStartWorker) doesn't refuse to bring
             // the WebSocket back up if it flaps while the bubble is open. The
             // linger reschedules on notifyBubbleClosed (last bubble swiped away)
             // and will re-set the flag when it fires, restoring battery-saver
             // behaviour.
             appContext?.let { ctx ->
-                if (useSidecarMode && WebSocketService.isSidecarUserDisconnected(ctx)) {
-                    WebSocketService.setSidecarUserDisconnected(ctx, false)
+                if (useBatterySaverMode && WebSocketService.isBatterySaverUserDisconnected(ctx)) {
+                    WebSocketService.setBatterySaverUserDisconnected(ctx, false)
                 }
             }
 
@@ -4109,7 +4112,7 @@ class AppViewModel : ViewModel() {
 
             // A→B transition: bubble is still on screen as a minimized icon. The
             // user expects live updates to keep flowing so the next expand shows
-            // fresh content. Sidecar linger is only scheduled when the last
+            // fresh content. BatterySaver linger is only scheduled when the last
             // bubble is actually swiped away (notifyBubbleClosed), not when one
             // is merely collapsed.
         }
@@ -4164,18 +4167,18 @@ class AppViewModel : ViewModel() {
     /**
      * Called by [ChatBubbleActivity.onDestroy] after the bubble's row is removed
      * from [BubbleTracker]. When the *last* bubble closes and the main UI is also
-     * not foreground, schedule the sidecar linger here — we deliberately do NOT
+     * not foreground, schedule the batterySaver linger here — we deliberately do NOT
      * schedule on A→B (collapse), only on A/B→C (dismiss), because a minimized
      * bubble icon still represents active user interest in live updates.
      */
     fun notifyBubbleClosed() {
         val mainUiForeground = isAppVisible && mainActivityEverResumed
-        if (useSidecarMode && !mainUiForeground && !BubbleTracker.anyBubbleOpen()) {
+        if (useBatterySaverMode && !mainUiForeground && !BubbleTracker.anyBubbleOpen()) {
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Last bubble closed while app invisible — scheduling sidecar linger",
+                "AppViewModel: Last bubble closed while app invisible — scheduling batterySaver linger",
             )
-            WebSocketService.scheduleSidecarLinger()
+            WebSocketService.scheduleBatterySaverLinger()
         }
     }
 
@@ -4780,7 +4783,7 @@ class AppViewModel : ViewModel() {
     // Track rooms with pending initial paginate requests to prevent duplicates
     internal val roomsWithPendingPaginate = Collections.synchronizedSet(mutableSetOf<String>())
     // Track rooms whose initial paginate was attempted while the WebSocket was down (e.g. cold
-    // resume via notification in sidecar mode). Drained in onInitComplete after the WS reconnect.
+    // resume via notification in battery-saver mode). Drained in onInitComplete after the WS reconnect.
     // The previously-relied-upon timelineRefreshTrigger retry can race with RT screen's
     // 500ms isInitialLoadComplete delay and lose the bump.
     internal val roomsAwaitingInitCompletePaginate = Collections.synchronizedSet(mutableSetOf<String>())
@@ -6033,11 +6036,11 @@ class AppViewModel : ViewModel() {
         viewModelScope.launch {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: triggerPreemptivePagination called for room: $roomId")
 
-            // Sidecar mode is no longer a hard bail-out: when the WS is up *for any
+            // Battery-saver mode is no longer a hard bail-out: when the WS is up *for any
             // reason* (foreground app, open/minimized bubble, transient persistent
             // window) we want to seed the cache so the next room open is instant.
             // The WS-connected check below is the only gate that matters — when WS
-            // is down (sidecar idle, network gap), paginate has nowhere to go and
+            // is down (batterySaver idle, network gap), paginate has nowhere to go and
             // we silently defer to the user-open path.
 
             // If the WebSocket is not connected, paginate would fail anyway. Bail out
@@ -9689,6 +9692,13 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: loadOlderMessages($roomId) - using backend pagination")
         requestPaginationWithSmallestRowId(roomId, limit = INITIAL_ROOM_PAGINATE_LIMIT)
     }
+
+    /**
+     * Paginate [roomId] over the HTTP /exec endpoint (battery-saver mode, WebSocket down) and route
+     * the result through the normal timeline-response path. See [ExecCommandCoordinator.paginate].
+     */
+    fun paginateViaExec(roomId: String, maxTimelineId: Long, limit: Int = INITIAL_ROOM_PAGINATE_LIMIT) =
+        execCommandCoordinator.paginate(roomId, maxTimelineId, limit)
     
     /**
      * Request pagination from backend using the smallest row ID from cache only (no DB).
@@ -10617,7 +10627,7 @@ class AppViewModel : ViewModel() {
 
     fun updateElementCallBaseUrl(url: String) = settingsCoordinator.updateElementCallBaseUrl(url)
 
-    fun toggleUseSidecarMode() = settingsCoordinator.toggleUseSidecarMode()
+    fun toggleUseBatterySaverMode() = settingsCoordinator.toggleUseBatterySaverMode()
 
     fun updateBackgroundPurgeInterval(minutes: Int) = settingsCoordinator.updateBackgroundPurgeInterval(minutes)
 

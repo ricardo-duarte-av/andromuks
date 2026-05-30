@@ -276,6 +276,7 @@ class FCMService : FirebaseMessagingService() {
                                                 synchronized(pendingNotificationsLock) {
                                                     pendingNotifications.remove(notificationData.roomId)
                                                 }
+                                                hydrateTimelineCacheFromNotification(notificationData.roomId)
                                             }
                                         } else {
                                             if (BuildConfig.DEBUG) Log.d(TAG, "Notification for room ${notificationData.roomId} was cancelled before showing (legacy path) - skipping")
@@ -525,6 +526,7 @@ class FCMService : FirebaseMessagingService() {
                             synchronized(pendingNotificationsLock) {
                                 pendingNotifications.remove(roomId)
                             }
+                            hydrateTimelineCacheFromNotification(roomId)
                         }
                     } else {
                         if (BuildConfig.DEBUG) Log.d(TAG, "Notification for room $roomId was cancelled before showing - skipping")
@@ -540,7 +542,30 @@ class FCMService : FirebaseMessagingService() {
             Log.e(TAG, "Error handling message notification", e)
         }
     }
-    
+
+    /**
+     * Battery-saver warm-up: while the WebSocket is closed, paginate the most recent events for
+     * [roomId] over the HTTP /exec endpoint and merge them into the shared RoomTimelineCache, so
+     * opening the room from this notification renders warm instead of empty.
+     *
+     * Routed through the registered [AppViewModel] so it reuses the normal paginate-response path
+     * (`handleTimelineResponse`): merge-if-present / add-if-new, related_events, reactions, etc.
+     *
+     * No-op when:
+     *  - always-on mode (`use_battery_saver_mode` off) — the live WebSocket sync keeps the cache warm;
+     *  - no AppViewModel is attached — RoomTimelineCache is in-memory, so a throwaway FCM-only process
+     *    has nothing durable to hydrate (the next app open repopulates from disk anyway).
+     */
+    private fun hydrateTimelineCacheFromNotification(roomId: String) {
+        if (roomId.isEmpty()) return
+        val prefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+        if (!prefs.getBoolean("use_battery_saver_mode", false)) return
+        val viewModel = WebSocketService.getRegisteredViewModels().firstOrNull() ?: return
+        if (BuildConfig.DEBUG) Log.d(TAG, "Hydrating timeline cache via /exec paginate for $roomId")
+        // max_timeline_id=0 → fetch the most recent events.
+        viewModel.paginateViaExec(roomId, maxTimelineId = 0L)
+    }
+
     /**
      * Normalize any avatar URL form to a canonical mxc:// URL.
      *

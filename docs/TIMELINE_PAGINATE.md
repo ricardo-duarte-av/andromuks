@@ -43,7 +43,7 @@ Why id-overlap rather than a rowid-range compare: rowids are not consecutive (st
 
 ## Warm Re-open Must Not Wipe the Timeline (`forceFreshPaginate`)
 
-When the WebSocket was down at room-open time (`needsFreshTimelinePaginate()` true — sidecar linger, cold resume), the room still re-opens with a populated cache via delta-replay reconnect. The cache-render branch in `requestRoomTimeline` is therefore **not** gated on `!forceFreshPaginate`: a non-empty cache renders immediately and a `backgroundPrefetchRequests` paginate merges newer events on top (see the contiguity gate above). Only a genuinely empty cache falls through to the foreground `timelineRequests` paginate, where the full-screen loader is the correct state.
+When the WebSocket was down at room-open time (`needsFreshTimelinePaginate()` true — batterySaver linger, cold resume), the room still re-opens with a populated cache via delta-replay reconnect. The cache-render branch in `requestRoomTimeline` is therefore **not** gated on `!forceFreshPaginate`: a non-empty cache renders immediately and a `backgroundPrefetchRequests` paginate merges newer events on top (see the contiguity gate above). Only a genuinely empty cache falls through to the foreground `timelineRequests` paginate, where the full-screen loader is the correct state.
 
 Two companion guards keep this flash-free:
 - `navigateToRoomWithCache` only does `timelineEvents = emptyList()` when `getCachedEventCount(roomId) == 0`. Clearing with a cache present would produce a one-frame "empty room" flash before the async rebuild swaps the events back.

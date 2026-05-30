@@ -176,14 +176,14 @@ class MainActivity : ComponentActivity() {
         // Initialize crash handler
         CrashHandler.initialize(this)
         
-        // Sidecar mode: if the service was suspended in the background, clear the
+        // Battery-saver mode: if the service was suspended in the background, clear the
         // user-disconnected flag now that the user is actively opening the app.
         // AuthCheck downstream will handle the cold-start dial of the WebSocket and
         // gate room navigation until init_complete arrives. This covers FCM-open
         // after process death (where ViewModelLifecycleCoordinator.onAppBecameVisible
         // is not reached until after AuthCheck has already started).
-        if (net.vrkknn.andromuks.WebSocketService.isSidecarUserDisconnected(this)) {
-            net.vrkknn.andromuks.WebSocketService.setSidecarUserDisconnected(this, false)
+        if (net.vrkknn.andromuks.WebSocketService.isBatterySaverUserDisconnected(this)) {
+            net.vrkknn.andromuks.WebSocketService.setBatterySaverUserDisconnected(this, false)
         }
 
         // Only clear last_received_request_id when the service has never run in this process

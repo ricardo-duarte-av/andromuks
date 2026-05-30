@@ -8,14 +8,14 @@ import android.content.Intent
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import kotlin.concurrent.thread
-import net.vrkknn.andromuks.utils.SidecarApi
+import net.vrkknn.andromuks.utils.ExecApi
 
 /**
  * Global broadcast receiver for handling notification mark read actions
  * Sends websocket command to mark room as read and dismisses the notification.
  *
- * In sidecar mode (use_sidecar_mode pref enabled), routes the mark_read through
- * the HTTP sidecar instead of the WebSocket so it works while the persistent
+ * In battery-saver mode (use_battery_saver_mode pref enabled), routes the mark_read through
+ * the HTTP batterySaver instead of the WebSocket so it works while the persistent
  * connection is closed.
  */
 class NotificationMarkReadReceiver : BroadcastReceiver() {
@@ -35,18 +35,18 @@ class NotificationMarkReadReceiver : BroadcastReceiver() {
         if (roomId == null) return
 
         val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-        val useSidecar = prefs.getBoolean("use_sidecar_mode", false)
+        val useBatterySaver = prefs.getBoolean("use_battery_saver_mode", false)
 
-        if (useSidecar) {
-            // Sidecar mode: bypass the ViewModel/WebSocket entirely and POST to the sidecar.
-            // BroadcastReceiver onReceive runs on the main thread; SidecarApi is blocking,
+        if (useBatterySaver) {
+            // Battery-saver mode: bypass the ViewModel/WebSocket entirely and POST to the batterySaver.
+            // BroadcastReceiver onReceive runs on the main thread; ExecApi is blocking,
             // so it must run on a worker thread. goAsync() extends the receiver lifetime.
             val pendingResult = goAsync()
-            thread(name = "sidecar-markread") {
+            thread(name = "batterySaver-markread") {
                 try {
-                    val creds = SidecarApi.readCredentials(context)
-                    val ok = SidecarApi.markRead(creds, roomId, eventId ?: "")
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Sidecar mark_read result: $ok")
+                    val creds = ExecApi.readCredentials(context)
+                    val ok = ExecApi.markRead(creds, roomId, eventId ?: "")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "BatterySaver mark_read result: $ok")
                 } finally {
                     pendingResult.finish()
                 }

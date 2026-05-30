@@ -210,12 +210,12 @@ fun ShortcutNavigation(roomId: String) {
         appViewModel.updateHomeserverUrl(homeserverUrl)
         appViewModel.updateAuthToken(authToken)
 
-        // Sidecar mode: the service may have been suspended in the background.
+        // Battery-saver mode: the service may have been suspended in the background.
         // Clear the flag so ServiceStartWorker / startWebSocketService aren't blocked
         // by the auto-restart guard. Without this, the cold-start path below would
         // wait forever for a WebSocket that never connects.
-        if (WebSocketService.isSidecarUserDisconnected(context)) {
-            WebSocketService.setSidecarUserDisconnected(context, false)
+        if (WebSocketService.isBatterySaverUserDisconnected(context)) {
+            WebSocketService.setBatterySaverUserDisconnected(context, false)
         }
 
         appViewModel.initializeFCM(context, homeserverUrl, authToken)
@@ -229,7 +229,7 @@ fun ShortcutNavigation(roomId: String) {
 
         if (!alreadyConnected) {
             // Cold-start path: nothing here was previously kicking off the WebSocket
-            // when the service was dead (sidecar mode suspended, or process death after
+            // when the service was dead (battery-saver mode suspended, or process death after
             // a long background). The slow-path LaunchedEffect below polls
             // isWebSocketConnected forever in that case. Trigger a connection now.
             if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {

@@ -73,10 +73,10 @@ class WebSocketHealthCheckWorker(
         if (BuildConfig.DEBUG) Log.d(TAG, "WebSocket health check worker started")
         
         try {
-            // Sidecar mode: user intentionally disconnected while backgrounded — do nothing.
-            // Attempting a reconnect here would defeat the whole point of sidecar mode.
-            if (WebSocketService.isSidecarUserDisconnected(applicationContext)) {
-                if (BuildConfig.DEBUG) Log.d(TAG, "sidecar user-disconnected — skipping health check")
+            // Battery-saver mode: user intentionally disconnected while backgrounded — do nothing.
+            // Attempting a reconnect here would defeat the whole point of battery-saver mode.
+            if (WebSocketService.isBatterySaverUserDisconnected(applicationContext)) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "batterySaver user-disconnected — skipping health check")
                 return@withContext Result.success()
             }
 

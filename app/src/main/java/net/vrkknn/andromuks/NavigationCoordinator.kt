@@ -272,7 +272,7 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                         // No defensive paginate here. The backend's resume contract guarantees the
                         // cache is current for any opened room: unintentional WS drops reconnect
                         // with last_received_event (delta replay, never clear_state), so
-                        // SyncIngestor keeps the cache in sync; intentional sidecar standby wipes
+                        // SyncIngestor keeps the cache in sync; intentional batterySaver standby wipes
                         // the timeline cache at linger expiry, so a stale-but-non-empty cache
                         // cannot reach this branch. A cache hit at this threshold is fresh.
 

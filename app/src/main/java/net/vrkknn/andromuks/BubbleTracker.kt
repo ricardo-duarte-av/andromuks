@@ -121,7 +121,7 @@ object BubbleTracker {
 
     /**
      * Whether any bubble window is currently expanded on screen (state A only).
-     * Use [anyBubbleOpen] for sidecar-linger gating — a minimized bubble icon
+     * Use [anyBubbleOpen] for batterySaver-linger gating — a minimized bubble icon
      * (state B) still represents active user interest in live updates.
      */
     fun anyBubbleVisible(): Boolean {
@@ -133,10 +133,10 @@ object BubbleTracker {
     /**
      * Whether any chat bubble Activity exists, expanded or minimized (state A or B).
      *
-     * This is the correct gate for the sidecar-mode linger: as long as a bubble
+     * This is the correct gate for the batterySaver-mode linger: as long as a bubble
      * icon is on screen the user can tap to expand it at any moment and expects
      * live updates. Only when every bubble has been swiped away (state C) is it
-     * safe to drop the WebSocket in sidecar mode.
+     * safe to drop the WebSocket in battery-saver mode.
      */
     fun anyBubbleOpen(): Boolean {
         synchronized(openBubbles) {

@@ -211,12 +211,12 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 }
             }
 
-            // Cancel any pending shutdown (sidecar-mode linger timer or otherwise)
+            // Cancel any pending shutdown (batterySaver-mode linger timer or otherwise)
             appInvisibleJob?.cancel()
             appInvisibleJob = null
-            WebSocketService.cancelSidecarLinger()
+            WebSocketService.cancelBatterySaverLinger()
 
-            // Universal resume health check. Runs in both sidecar and persistent-WebSocket
+            // Universal resume health check. Runs in both batterySaver and persistent-WebSocket
             // modes — the ping/pong cycle is the only honest signal (connectionState and
             // isServiceRunning can both lie: zombie sockets, transient post-stopSelf state,
             // kernel idle reaping). Two outcomes only:
@@ -226,12 +226,12 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
             // If the connection is actually healthy, the cost is one ping round-trip.
             appContext?.applicationContext?.let { ctx ->
                 WebSocketService.consumeForceFreshTimelinePaginatePending(ctx, vm)
-                if (useSidecarMode && WebSocketService.isSidecarUserDisconnected(ctx)) {
+                if (useBatterySaverMode && WebSocketService.isBatterySaverUserDisconnected(ctx)) {
                     markForceFreshPaginateAfterWsDown()
-                    WebSocketService.setSidecarUserDisconnected(ctx, false)
-                    // Reschedule the health-check worker that was suspended when the sidecar
+                    WebSocketService.setBatterySaverUserDisconnected(ctx, false)
+                    // Reschedule the health-check worker that was suspended when the batterySaver
                     // linger fired. Without this, persistent-WS mode gets no periodic watchdog
-                    // after the first sidecar session ends.
+                    // after the first batterySaver session ends.
                     WebSocketHealthCheckWorker.schedule(ctx)
                 }
 
@@ -350,10 +350,10 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
             appInvisibleJob?.cancel()
             appInvisibleJob = null
 
-            if (useSidecarMode) {
-                // Sidecar mode: linger 60s after going invisible, then stop the
+            if (useBatterySaverMode) {
+                // Battery-saver mode: linger 60s after going invisible, then stop the
                 // foreground service entirely. All notification actions are
-                // routed through the HTTP sidecar while the service is down.
+                // routed through the HTTP batterySaver while the service is down.
                 //
                 // The timer MUST live on the service's own scope, not viewModelScope:
                 // the user swiping the task away destroys MainActivity and clears
@@ -369,13 +369,13 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 if (BubbleTracker.anyBubbleOpen()) {
                     if (BuildConfig.DEBUG) android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Sidecar linger skipped — bubble open",
+                        "AppViewModel: BatterySaver linger skipped — bubble open",
                     )
                 } else {
-                    WebSocketService.scheduleSidecarLinger()
+                    WebSocketService.scheduleBatterySaverLinger()
                     if (BuildConfig.DEBUG) android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Sidecar mode active — service will stop after linger",
+                        "AppViewModel: Battery-saver mode active — service will stop after linger",
                     )
                 }
             } else {

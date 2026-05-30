@@ -537,17 +537,17 @@ class WebSocketService : Service() {
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "App visibility changed to: $visible")
         }
 
-        // ── Sidecar mode: user-requested suspend ─────────────────────────────────
-        // When the app is backgrounded in sidecar mode for longer than the linger
+        // ── Battery-saver mode: user-requested suspend ─────────────────────────────────
+        // When the app is backgrounded in battery-saver mode for longer than the linger
         // window, the lifecycle coordinator stops this service AND sets the
-        // sidecar_user_disconnected pref. All auto-restart paths (AutoRestartReceiver,
+        // battery_saver_user_disconnected pref. All auto-restart paths (AutoRestartReceiver,
         // BootStartReceiver, AutoRestartWorker, WebSocketHealthCheckWorker) funnel
         // through ServiceStartWorker, which checks this flag and skips the start.
         // The flag is cleared when the app comes back to the foreground (via
         // ViewModelLifecycleCoordinator.onAppBecameVisible). On a true cold start
         // (process death + tap on FCM notification), MainActivity clears it on
         // onCreate so the service can run again immediately.
-        private const val PREF_SIDECAR_USER_DISCONNECTED = "sidecar_user_disconnected"
+        private const val PREF_BATTERY_SAVER_USER_DISCONNECTED = "battery_saver_user_disconnected"
         private const val PREF_FORCE_FRESH_TIMELINE_PAGINATE = "force_fresh_timeline_paginate"
 
         // Global per-WebSocket request_id allocator. Previously each AppViewModel kept its own
@@ -566,16 +566,16 @@ class WebSocketService : Service() {
             globalRequestIdCounter.set(0)
         }
 
-        fun isSidecarUserDisconnected(context: Context): Boolean =
+        fun isBatterySaverUserDisconnected(context: Context): Boolean =
             context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                .getBoolean(PREF_SIDECAR_USER_DISCONNECTED, false)
+                .getBoolean(PREF_BATTERY_SAVER_USER_DISCONNECTED, false)
 
-        fun setSidecarUserDisconnected(context: Context, value: Boolean) {
+        fun setBatterySaverUserDisconnected(context: Context, value: Boolean) {
             context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                .edit().putBoolean(PREF_SIDECAR_USER_DISCONNECTED, value).apply()
+                .edit().putBoolean(PREF_BATTERY_SAVER_USER_DISCONNECTED, value).apply()
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "WebSocketService",
-                "sidecar_user_disconnected set to: $value"
+                "battery_saver_user_disconnected set to: $value"
             )
         }
 
@@ -588,7 +588,7 @@ class WebSocketService : Service() {
                 .edit().putBoolean(PREF_FORCE_FRESH_TIMELINE_PAGINATE, value).apply()
         }
 
-        /** Consume the process-survival flag into [vm] if set (sidecar linger with no attached VM). */
+        /** Consume the process-survival flag into [vm] if set (batterySaver linger with no attached VM). */
         fun consumeForceFreshTimelinePaginatePending(context: Context, vm: AppViewModel) {
             if (isForceFreshTimelinePaginatePending(context)) {
                 vm.markForceFreshPaginateAfterWsDown()
@@ -597,7 +597,7 @@ class WebSocketService : Service() {
         }
 
         /**
-         * Schedule the sidecar-mode background-linger timer. After [lingerMs] the
+         * Schedule the batterySaver-mode background-linger timer. After [lingerMs] the
          * service flips the user-disconnected flag and stops itself.
          *
          * Runs on [serviceScope] (not the caller's ViewModelScope) so the timer
@@ -606,27 +606,27 @@ class WebSocketService : Service() {
          * viewModelScope, so a swipe-to-close within ~1s cancelled the linger and
          * the service stayed up forever.
          */
-        fun scheduleSidecarLinger(lingerMs: Long = SIDECAR_LINGER_MS_DEFAULT) {
+        fun scheduleBatterySaverLinger(lingerMs: Long = BATTERY_SAVER_LINGER_MS_DEFAULT) {
             val svc = instance ?: return
-            svc.sidecarLingerJob?.cancel()
-            svc.sidecarLingerJob = svc.serviceScope.launch {
+            svc.batterySaverLingerJob?.cancel()
+            svc.batterySaverLingerJob = svc.serviceScope.launch {
                 kotlinx.coroutines.delay(lingerMs)
                 // Re-check after the delay: a chat bubble may have been opened during
                 // the linger window (state C → A/B). Without this guard, the linger
-                // races cancelSidecarLinger and can still tear down the WebSocket out
+                // races cancelBatterySaverLinger and can still tear down the WebSocket out
                 // from under a bubble that's currently rendering — leaving the user
                 // staring at a frozen UI with no live updates.
                 if (BubbleTracker.anyBubbleOpen()) {
                     if (BuildConfig.DEBUG) android.util.Log.i(
                         "WebSocketService",
-                        "Sidecar linger fired but bubble is open — keeping service alive",
+                        "BatterySaver linger fired but bubble is open — keeping service alive",
                     )
                     return@launch
                 }
                 val ctx = svc.applicationContext
                 if (BuildConfig.DEBUG) android.util.Log.i(
                     "WebSocketService",
-                    "Sidecar linger expired — stopping service",
+                    "BatterySaver linger expired — stopping service",
                 )
                 // Flag the next room open to paginate fresh instead of trusting a cache that
                 // may predate this disconnect. The cache itself is kept — paginate on open
@@ -639,7 +639,7 @@ class WebSocketService : Service() {
                 } else {
                     setForceFreshTimelinePaginatePending(ctx, true)
                 }
-                setSidecarUserDisconnected(ctx, true)
+                setBatterySaverUserDisconnected(ctx, true)
                 // Suspend the periodic health-check worker so it doesn't wake the app
                 // every 15 minutes while the user is intentionally disconnected.
                 // It is rescheduled when the app returns to the foreground.
@@ -648,23 +648,23 @@ class WebSocketService : Service() {
             }
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "WebSocketService",
-                "Sidecar linger scheduled (${lingerMs}ms)",
+                "BatterySaver linger scheduled (${lingerMs}ms)",
             )
         }
 
-        fun cancelSidecarLinger() {
+        fun cancelBatterySaverLinger() {
             val svc = instance ?: return
-            if (svc.sidecarLingerJob != null) {
-                svc.sidecarLingerJob?.cancel()
-                svc.sidecarLingerJob = null
+            if (svc.batterySaverLingerJob != null) {
+                svc.batterySaverLingerJob?.cancel()
+                svc.batterySaverLingerJob = null
                 if (BuildConfig.DEBUG) android.util.Log.d(
                     "WebSocketService",
-                    "Sidecar linger cancelled",
+                    "BatterySaver linger cancelled",
                 )
             }
         }
 
-        private const val SIDECAR_LINGER_MS_DEFAULT = 15_000L
+        private const val BATTERY_SAVER_LINGER_MS_DEFAULT = 15_000L
         
         
         /**
@@ -2335,8 +2335,8 @@ class WebSocketService : Service() {
     private var pingInFlight: Boolean = false // Guard to prevent concurrent pings
     private var isAppVisible = false
     private var isScreenOn = true
-    // Sidecar mode linger timer — see scheduleSidecarLinger / cancelSidecarLinger.
-    private var sidecarLingerJob: kotlinx.coroutines.Job? = null
+    // Battery-saver mode linger timer — see scheduleBatterySaverLinger / cancelBatterySaverLinger.
+    private var batterySaverLingerJob: kotlinx.coroutines.Job? = null
     
     // Receiver for screen state changes
     private val screenStateReceiver = object : android.content.BroadcastReceiver() {
@@ -3860,11 +3860,11 @@ class WebSocketService : Service() {
             android.util.Log.w("WebSocketService", "Service started without login credentials - notification will show 'Waiting for app...'")
         }
         
-        // In sidecar mode with the user-disconnected flag set, don't ask Android to auto-restart
+        // In battery-saver mode with the user-disconnected flag set, don't ask Android to auto-restart
         // the service if it's killed under memory pressure — the user deliberately suspended it.
         // In all other cases keep START_STICKY so the service survives transient kills.
-        if (isSidecarUserDisconnected(this)) {
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "onStartCommand: sidecar user-disconnected — returning START_NOT_STICKY")
+        if (isBatterySaverUserDisconnected(this)) {
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "onStartCommand: batterySaver user-disconnected — returning START_NOT_STICKY")
             return START_NOT_STICKY
         }
         return START_STICKY
@@ -3917,11 +3917,11 @@ class WebSocketService : Service() {
             // Clear instance reference
             instance = null
             
-            // Skip auto-restart when the user intentionally disconnected in sidecar mode.
+            // Skip auto-restart when the user intentionally disconnected in battery-saver mode.
             // ServiceStartWorker would block it anyway, but skipping here avoids wasting
             // WorkManager quota and briefly waking the app process.
-            if (isSidecarUserDisconnected(applicationContext)) {
-                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "onDestroy: sidecar user-disconnected — skipping auto-restart")
+            if (isBatterySaverUserDisconnected(applicationContext)) {
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "onDestroy: batterySaver user-disconnected — skipping auto-restart")
             } else {
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Scheduling auto-restart via WorkManager")
                 scheduleAutoRestart("Service destroyed")
@@ -3936,15 +3936,15 @@ class WebSocketService : Service() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
 
-        // In sidecar mode the linger timer owns teardown. Scheduling a 1-second restart alarm
-        // here would race the 15-second linger: the alarm fires before sidecar_user_disconnected
+        // In battery-saver mode the linger timer owns teardown. Scheduling a 1-second restart alarm
+        // here would race the 15-second linger: the alarm fires before battery_saver_user_disconnected
         // is set, ServiceStartWorker sees the flag clear, and the service restarts — bypassing
-        // the whole sidecar disconnect contract. Skip the alarm whenever the linger is counting
+        // the whole batterySaver disconnect contract. Skip the alarm whenever the linger is counting
         // down OR the flag is already set (service was previously disconnected this session).
-        if (sidecarLingerJob?.isActive == true || isSidecarUserDisconnected(applicationContext)) {
+        if (batterySaverLingerJob?.isActive == true || isBatterySaverUserDisconnected(applicationContext)) {
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "WebSocketService",
-                "onTaskRemoved: sidecar mode — skipping restart alarm",
+                "onTaskRemoved: battery-saver mode — skipping restart alarm",
             )
             return
         }
@@ -3973,7 +3973,7 @@ class WebSocketService : Service() {
         }
         // Indicate to the user when the WebSocket is being kept up specifically
         // because a chat bubble is on screen — otherwise the notification looks
-        // identical between "battery-saver sidecar mode honoured" and "we're in
+        // identical between "battery-saver battery-saver mode honoured" and "we're in
         // permanent-WS-because-of-bubble override."
         return if (BubbleTracker.anyBubbleVisible()) "$base 💬" else base
     }
