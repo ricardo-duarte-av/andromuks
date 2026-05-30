@@ -202,6 +202,40 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
             if (trulyNewEvents.isEmpty()) return true
 
+            // Bridge delivery-confirmation events (com.beeper.message_send_status) are side-effect-only
+            // posts the bridge bot makes about OUR OWN outgoing messages. They never render in the
+            // timeline, but they still occupy a real timeline rowid, so other Matrix clients count the
+            // room as unread until a read receipt advances past them. The open-room live path already
+            // handles this (processSyncEventsArray marks read with the newest event of the batch); this
+            // covers rooms that are NOT currently open — i.e. the user sent a message and navigated away
+            // (or backgrounded the app) before the bridge confirmed delivery.
+            if (roomId != currentRoomId) {
+                val newestStatus = trulyNewEvents
+                    .filter { it.type == "com.beeper.message_send_status" }
+                    .maxByOrNull { it.timestamp }
+                if (newestStatus != null) {
+                    val cached = RoomTimelineCache.getCachedEvents(roomId) ?: emptyList()
+                    val newestReal = cached
+                        .filter { it.type != "com.beeper.message_send_status" }
+                        .maxByOrNull { it.timestamp }
+                    // Only advance the receipt when our own message is the latest real content — i.e.
+                    // nobody else has sent anything we haven't seen. Read receipts are monotonic, so we
+                    // must not mark the status event read while a genuinely-unread earlier message would
+                    // be skipped over.
+                    if (newestReal != null && newestReal.sender == currentUserId) {
+                        val target = cached.maxByOrNull { it.timestamp } ?: newestStatus
+                        if (target.eventId.isNotBlank()) {
+                            if (BuildConfig.DEBUG)
+                                android.util.Log.d(
+                                    "Andromuks",
+                                    "AppViewModel: Marking non-open room $roomId read up to ${target.eventId} to clear bridge send-status unread",
+                                )
+                            markRoomAsRead(roomId, target.eventId)
+                        }
+                    }
+                }
+            }
+
             // CRITICAL FIX: Also add events to eventChainMap if this is the currently open room
             // This ensures events aren't lost when handlePaginationMerge rebuilds from
             // eventChainMap

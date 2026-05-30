@@ -108,4 +108,12 @@ Bridge rooms contain service accounts (bridge bots, virtual users) that are not 
 - **UI (Delivery Info dialog):** `utils/BridgeDeliveryInfoDialog.kt` — floating dialog (animated scale/fade, matching `ReactionDetailsDialog` style). Shows sent-to-network timestamp with status icon, then a "Received by" `LazyColumn` with avatar, display name, and per-user reception timestamp. Opened from the **More** submenu of the message long-press menu (`MessageMenuBar.kt`, `onShowBridgeDeliveryInfo` callback in `MessageMenuConfig`) — only shown when the message has a bridge status. Integrated in `RoomTimelineScreen`, `BubbleTimelineScreen`, and `ThreadViewerScreen`.
 - **State cleared** on full reset and on per-room cache clear alongside `messageReactions`.
 - These events are **not** added to `allowedEventTypes` and do not appear in the timeline — they are side-effect-only.
+
+### Read receipts for status events
+
+A `com.beeper.message_send_status` event is invisible in the timeline but still holds a real timeline rowid, so **other Matrix clients count the room as unread** until a read receipt advances past it. Two paths cover this:
+
+- **Open room:** `processSyncEventsArray()` already marks the room read with the newest event of each sync batch (which includes the status event).
+- **Non-open room:** `TimelineCacheCoordinator.appendEventsToCachedRoom()` (which runs for every actively-cached room, not just the open one) detects a newly-arrived status event and calls `markRoomAsRead(roomId, newestEventId)` **only when the latest *real* event in the room was sent by us** (`newestReal.sender == currentUserId`). This guard prevents clobbering a genuinely-unread message from someone else — read receipts are monotonic, so we can't mark the status event read while skipping an earlier unread message. This handles the common case: the user sends a message in a bridged room, then navigates away (or backgrounds the app) before the bridge confirms delivery.
+
 - They are also excluded from the **Notifications screen** (`MentionsScreen`): `processMentionEvents()` skips any event whose `type == "com.beeper.message_send_status"` before building the mention list.
