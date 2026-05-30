@@ -234,6 +234,10 @@ class NotificationImageWorker(
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setSilent(true)
+            // Keep this child in the shared group; otherwise the Phase 2 image re-post would
+            // eject the notification from the bundle. GROUP_ALERT_CHILDREN matches the Phase 1 post.
+            .setGroup(EnhancedNotificationDisplay.NOTIFICATION_GROUP_KEY)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .setShortcutId(roomId)
             .apply {
                 // Preserve event_id for any action handlers that need it.
@@ -269,6 +273,7 @@ class NotificationImageWorker(
             .build()
 
         NotificationManagerCompat.from(applicationContext).notify(notifId, updatedNotification)
+        EnhancedNotificationDisplay.refreshGroupSummary(applicationContext, justPostedChild = true)
 
         // Keep the in-memory cache consistent with what the notification now shows.
         // Without this, the next showEnhancedNotification call for the same room would

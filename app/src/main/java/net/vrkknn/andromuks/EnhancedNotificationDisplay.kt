@@ -60,6 +60,14 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         // Remote input key
         private const val KEY_REPLY_TEXT = "key_reply_text"
 
+        // Single app-wide group key. Every per-room conversation notification shares it
+        // so the system bundles them under one summary (the canonical messaging pattern,
+        // since each room is exactly one notification — notifID = roomId.hashCode()).
+        // Auto/Wear ignore the summary and bridge the children; GROUP_ALERT_CHILDREN keeps
+        // alerts on the children so Wear still picks up new messages and the summary never buzzes.
+        internal const val NOTIFICATION_GROUP_KEY = "matrix_messages"
+        private val SUMMARY_NOTIF_ID = "matrix_summary".hashCode()
+
         // Reply processing window to prevent race conditions when updating notifications
         private const val REPLY_PROCESSING_WINDOW_MS = 500L // 500ms window to let Android finish processing
 
@@ -83,6 +91,61 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
          */
         fun clearRoomMessageCache(roomId: String) {
             roomMessageCache.remove(roomId)
+        }
+
+        /**
+         * Recompute the single group summary that bundles all per-room conversation
+         * notifications under [NOTIFICATION_GROUP_KEY], posting or removing it as needed.
+         *
+         * The summary is deliberately plain (no MessagingStyle, no reply actions) so Android
+         * Auto and Wear OS ignore it and bridge the child notifications instead.
+         * GROUP_ALERT_CHILDREN keeps alerts on the children, so the summary never buzzes and
+         * Wear still picks up new messages.
+         *
+         * activeNotifications has a propagation delay, so callers pass [justPostedChild] right
+         * after posting a child (count is then at least 1) and [justCancelledId] right after a
+         * cancel (that id is excluded from the count). Safe to call from any thread.
+         */
+        fun refreshGroupSummary(
+            context: Context,
+            justPostedChild: Boolean = false,
+            justCancelledId: Int? = null
+        ) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
+            val systemNm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val nmc = NotificationManagerCompat.from(context)
+            var childCount = try {
+                systemNm.activeNotifications.count {
+                    it.id != SUMMARY_NOTIF_ID &&
+                        it.id != justCancelledId &&
+                        it.notification.group == NOTIFICATION_GROUP_KEY
+                }
+            } catch (e: Exception) {
+                if (justPostedChild) 1 else 0
+            }
+            // Cover the post-side propagation race: we just posted a child, so there is at
+            // least one even if activeNotifications hasn't caught up yet.
+            if (justPostedChild && childCount == 0) childCount = 1
+
+            if (childCount == 0) {
+                nmc.cancel(SUMMARY_NOTIF_ID)
+                return
+            }
+            val summary = NotificationCompat.Builder(context, DM_CHANNEL_ID)
+                .setSmallIcon(R.drawable.matrix)
+                .setContentTitle("Matrix Messages")
+                .setContentText(
+                    if (childCount == 1) "1 conversation" else "$childCount conversations"
+                )
+                .setGroup(NOTIFICATION_GROUP_KEY)
+                .setGroupSummary(true)
+                .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setAutoCancel(true)
+                .setOnlyAlertOnce(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build()
+            nmc.notify(SUMMARY_NOTIF_ID, summary)
         }
 
         /**
@@ -743,6 +806,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     .setAutoCancel(true)
                     .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                     .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                    // Bundle all room notifications under one summary. GROUP_ALERT_CHILDREN
+                    // keeps alerts (and Wear/Auto bridging) on this child, not the muted summary.
+                    .setGroup(NOTIFICATION_GROUP_KEY)
+                    .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
                     .apply {
                         if (existingNotification != null) {
                             setWhen(existingNotification.notification.`when`)
@@ -881,6 +948,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "✓ Notification posted successfully for room: ${notificationData.roomId}")
                 }
+                refreshGroupSummary(context, justPostedChild = true)
                 // Push room to top of the active-rooms tracker only after a notification was actually posted
                 conversationsApi?.onRoomActivity(roomItem)
             } // End synchronized block
@@ -1492,27 +1560,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         // Shortcut updates are handled automatically by the regular update flow
         // No action needed here
     }
-    
-    
-    /**
-     * Show group summary notification
-     */
-    fun showGroupSummaryNotification(roomCount: Int) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            val summaryNotification = NotificationCompat.Builder(context, DM_CHANNEL_ID)
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("Matrix Messages")
-                .setContentText("$roomCount unread conversations")
-                .setGroupSummary(true)
-                .setGroup("matrix_messages")
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .build()
-            
-            val notificationManager = NotificationManagerCompat.from(context)
-            notificationManager.notify("matrix_summary".hashCode(), summaryNotification)
-        }
-    }
-    
+
     /**
      * Mark that a reply is being processed for a room
      * This prevents notification updates during Android's reply processing window
@@ -1666,8 +1714,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 .setAutoCancel(true)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setGroup(roomId)
+                .setGroup(NOTIFICATION_GROUP_KEY)
                 .setGroupSummary(false)
+                .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
                 .setShortcutId(shortcutId)
                 .setLargeIcon(existingNotification.notification.getLargeIcon()?.let { 
                     // Convert Icon to Bitmap if possible
@@ -1730,7 +1779,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Re-issue the notification with the updated content
             val notificationManagerCompat = NotificationManagerCompat.from(context)
             notificationManagerCompat.notify(notifID, updatedNotification)
-            
+            refreshGroupSummary(context, justPostedChild = true)
+
             if (BuildConfig.DEBUG) Log.d(TAG, "Updated notification with reply for room: $roomId")
             
         } catch (e: Exception) {
@@ -1784,6 +1834,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Dismiss the notification now that it's been marked as read (only if no bubble)
             val notificationManagerCompat = NotificationManagerCompat.from(context)
             notificationManagerCompat.cancel(notifID)
+            refreshGroupSummary(context, justCancelledId = notifID)
 
             if (BuildConfig.DEBUG) Log.d(TAG, "Dismissed notification and cleared unread count for room: $roomId")
             
@@ -1808,10 +1859,14 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         // Clear message cache — next notification for this room starts fresh
         roomMessageCache.remove(roomId)
 
+        // Must match the posting id (roomId.hashCode(), no abs); abs() missed the real
+        // notification whenever the hash was negative, so it was never actually cleared.
+        val notifID = roomId.hashCode()
         val notificationManager = NotificationManagerCompat.from(context)
-        notificationManager.cancel(roomId.hashCode().let { kotlin.math.abs(it) })
+        notificationManager.cancel(notifID)
+        refreshGroupSummary(context, justCancelledId = notifID)
     }
-    
+
     /**
      * Clear all notifications
      */

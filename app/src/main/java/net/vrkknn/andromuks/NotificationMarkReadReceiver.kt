@@ -78,7 +78,10 @@ class NotificationMarkReadReceiver : BroadcastReceiver() {
         }
 
         try {
-            NotificationManagerCompat.from(context).cancel(roomId.hashCode())
+            val notifID = roomId.hashCode()
+            NotificationManagerCompat.from(context).cancel(notifID)
+            // Keep the group summary in sync (and remove it once this was the last child).
+            EnhancedNotificationDisplay.refreshGroupSummary(context, justCancelledId = notifID)
             if (BuildConfig.DEBUG) Log.d(TAG, "Dismissed notification for room: $roomId")
         } catch (e: Exception) {
             Log.e(TAG, "Error dismissing notification", e)
