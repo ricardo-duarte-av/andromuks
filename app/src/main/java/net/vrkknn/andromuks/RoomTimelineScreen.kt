@@ -17,7 +17,8 @@ import androidx.core.content.ContextCompat
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.AspectRatio
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.core.ImageCapture
@@ -86,9 +87,9 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Folder
@@ -280,13 +281,21 @@ private fun InAppCameraPreview(
                     val cameraProvider = cameraProviderFuture.get()
                     val preview = Preview.Builder()
                         // Hint that we want a 4:3 stream to match common photo sensors
-                        .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+                        .setResolutionSelector(
+                            ResolutionSelector.Builder()
+                                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                                .build()
+                        )
                         .build()
                         .also { p ->
                             p.setSurfaceProvider(previewView.surfaceProvider)
                         }
                     val imageCapture = ImageCapture.Builder()
-                        .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+                        .setResolutionSelector(
+                            ResolutionSelector.Builder()
+                                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                                .build()
+                        )
                         .build()
                     val cameraSelector =
                         if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA
@@ -334,7 +343,11 @@ private fun InAppVideoPreview(
                 {
                     val cameraProvider = cameraProviderFuture.get()
                     val preview = Preview.Builder()
-                        .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+                        .setResolutionSelector(
+                            ResolutionSelector.Builder()
+                                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                                .build()
+                        )
                         .build()
                         .also { p -> p.setSurfaceProvider(previewView.surfaceProvider) }
                     val recorder = Recorder.Builder().build()
@@ -4429,7 +4442,7 @@ fun RoomTimelineScreen(
                             } else {
                                 @Suppress("DEPRECATION")
                                 Icon(
-                                    imageVector = Icons.Filled.Send,
+                                    imageVector = Icons.AutoMirrored.Filled.Send,
                                     contentDescription = "Send",
                                     tint =
                                         if (draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary
@@ -6086,7 +6099,7 @@ fun RoomHeader(
             // Back button
             IconButton(onClick = onBackClick) {
                 Icon(
-                    imageVector = Icons.Filled.ArrowBack,
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )

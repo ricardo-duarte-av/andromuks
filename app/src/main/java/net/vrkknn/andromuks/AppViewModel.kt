@@ -9423,7 +9423,7 @@ class AppViewModel : ViewModel() {
             val shouldSkip = shouldSkipTimelineRebuild.value
             if (shouldSkip) {
                 val currentRoom = currentRoomId
-                if (currentRoom != null) {
+                if (currentRoom.isNotEmpty()) {
                     roomsNeedingRebuildDuringBatch.add(currentRoom)
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d("Andromuks", "buildTimelineFromChain: Batch processing active (shouldSkipTimelineRebuild=true) - deferring rebuild for $currentRoom (will rebuild after batch completes)")
@@ -11524,7 +11524,7 @@ class AppViewModel : ViewModel() {
             
             // Rebuild timeline for currently open room if it needs rebuilding
             val currentRoom = currentRoomId
-            if (currentRoom != null && currentRoom in roomsToRebuild) {
+            if (currentRoom.isNotEmpty() && currentRoom in roomsToRebuild) {
                 val eventsForChain = RoomTimelineCache.getCachedEventsForTimeline(currentRoom)
                 if (eventsForChain.isNotEmpty()) {
                     buildEditChainsFromEvents(eventsForChain, clearExisting = true)

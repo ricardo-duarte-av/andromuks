@@ -44,11 +44,12 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material.icons.automirrored.filled.RotateLeft
 import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.ui.layout.ContentScale
@@ -984,7 +985,7 @@ fun UserInfoScreen(
                         }
                     }) {
                         Icon(
-                            imageVector = Icons.Filled.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back"
                         )
                     }
@@ -1985,7 +1986,7 @@ fun UserInfoScreen(
                     ) {
                         Button(
                             onClick = {
-                                if (isDmAvailable && joinedDmRoomId != null) {
+                                if (isDmAvailable) {
                                     val encodedRoomId = java.net.URLEncoder.encode(joinedDmRoomId, "UTF-8")
                                     navController.navigate("room_timeline/$encodedRoomId")
                                 } else {
@@ -2544,7 +2545,7 @@ fun UserInfoScreen(
                             ExposedDropdownMenuDefaults.TrailingIcon(expanded = timezoneDropdownExpanded)
                         },
                         modifier = Modifier
-                            .menuAnchor()
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                             .fillMaxWidth()
                     )
                     ExposedDropdownMenu(

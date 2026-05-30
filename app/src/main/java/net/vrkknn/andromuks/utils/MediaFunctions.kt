@@ -1803,7 +1803,7 @@ private fun InlineVideoPlayer(
                 setAudioAttributes(
                     androidx.media3.common.AudioAttributes.Builder()
                         .setUsage(androidx.media3.common.C.USAGE_MEDIA)
-                        .setContentType(androidx.media3.common.C.CONTENT_TYPE_MOVIE)
+                        .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
                         .build(),
                     true
                 )

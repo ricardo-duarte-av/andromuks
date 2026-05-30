@@ -116,7 +116,7 @@ import kotlin.math.roundToInt
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.withResumed
 import androidx.navigation.NavController
 import androidx.activity.compose.BackHandler
@@ -137,16 +137,16 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Done
-import androidx.compose.material.icons.filled.AddToHomeScreen
+import androidx.compose.material.icons.automirrored.filled.AddToHomeScreen
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -2291,7 +2291,7 @@ fun RoomListItem(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Filled.AddToHomeScreen,
+                                            imageVector = Icons.AutoMirrored.Filled.AddToHomeScreen,
                                             contentDescription = "Add room shortcut",
                                             tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(24.dp)
@@ -2402,7 +2402,7 @@ fun RoomListItem(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Filled.ExitToApp,
+                                            imageVector = Icons.AutoMirrored.Filled.ExitToApp,
                                             contentDescription = "Leave",
                                             tint = MaterialTheme.colorScheme.error,
                                             modifier = Modifier.size(24.dp)

@@ -125,9 +125,15 @@ class AndromuksApplication : Application() {
      * This method proactively clears caches when memory pressure is detected,
      * preventing corruption by ensuring caches are cleared before bitmaps are killed.
      */
+    // TRIM_MEMORY_RUNNING_*, TRIM_MEMORY_MODERATE and TRIM_MEMORY_COMPLETE were deprecated in
+    // API 35 and are no longer delivered on Android 15+. We intentionally keep handling them:
+    // on API < 35 (the bulk of the install base, minSdk 24) they are still delivered and drive
+    // the proactive cache-clearing below. On API 35+ they simply never fire and the LRU
+    // eviction in the cache layer is the backstop. Hence @Suppress rather than removal.
+    @Suppress("DEPRECATION")
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        
+
         if (BuildConfig.DEBUG) {
             val levelName = when (level) {
                 ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> "TRIM_MEMORY_UI_HIDDEN"

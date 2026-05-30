@@ -11,7 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -134,7 +134,7 @@ fun EventContextScreen(
         val enhancedMap = baseMemberMap.toMutableMap()
         
         // If current user is not in member map but we have currentUserProfile, add it
-        if (myUserId != null && myUserId.isNotBlank() && !enhancedMap.containsKey(myUserId)) {
+        if (myUserId.isNotBlank() && !enhancedMap.containsKey(myUserId)) {
             val currentProfile = appViewModel.currentUserProfile
             if (currentProfile != null) {
                 enhancedMap[myUserId] = MemberProfile(
@@ -198,7 +198,7 @@ fun EventContextScreen(
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(
-                            imageVector = Icons.Filled.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back"
                         )
                     }
@@ -380,7 +380,7 @@ fun EventContextScreen(
                                     homeserverUrl = homeserverUrl,
                                     authToken = authToken,
                                     userProfileCache = memberMap,
-                                    isMine = myUserId != null && event.sender == myUserId,
+                                    isMine = event.sender == myUserId,
                                     myUserId = myUserId,
                                     appViewModel = appViewModel,
                                     onScrollToMessage = { replyEventId ->

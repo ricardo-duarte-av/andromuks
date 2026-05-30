@@ -51,7 +51,7 @@ class MatrixContactsProvider : ContentProvider() {
                 // Return empty cursor - actual data is in ContactsContract
                 // This provider exists to register the custom MIME type
                 MatrixCursor(arrayOf("_id", "data1", "data2", "data3")).apply {
-                    addRow(arrayOf(0, "", "", ""))
+                    addRow(arrayOf<Any?>(0, "", "", ""))
                 }
             }
             else -> null

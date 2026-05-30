@@ -82,7 +82,6 @@ private fun kotlinxJsonElementToOrgJson(element: JsonElement): Any? {
             }
         }
         is JsonNull -> null
-        else -> null
     }
 }
 

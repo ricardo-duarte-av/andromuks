@@ -60,7 +60,7 @@ import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import net.vrkknn.andromuks.AdaptiveMessageText
 import net.vrkknn.andromuks.utils.ReplyPreview
 import net.vrkknn.andromuks.utils.BubbleColors
@@ -200,7 +200,7 @@ fun MentionsScreen(
                         ) {
                             IconButton(onClick = { navController.popBackStack() }) {
                                 Icon(
-                                    imageVector = Icons.Filled.ArrowBack,
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                     contentDescription = "Back"
                                 )
                             }

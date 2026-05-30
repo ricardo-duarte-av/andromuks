@@ -857,6 +857,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 if (BuildConfig.DEBUG) {
                     // On Android 8.0+, defaults may be 0 even if channel has sound - channel controls it
                     // Check channel directly to see if it has sound enabled
+                    @Suppress("DEPRECATION") // legacy pre-O fields read intentionally for diagnostics
                     val channelHasSound = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                         val ch = nm.getNotificationChannel(channelId)
@@ -864,7 +865,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     } else {
                         (notification.defaults and Notification.DEFAULT_SOUND) != 0
                     }
+                    @Suppress("DEPRECATION") // notification.priority/defaults: legacy fields, diagnostic logging only
                     Log.d(TAG, "Posting notification - ID: $notifID, channel: $channelId, priority: ${notification.priority}, channelHasSound: $channelHasSound, visibility: ${notification.visibility}")
+                    @Suppress("DEPRECATION") // notification.defaults: legacy field, diagnostic logging only
                     Log.d(TAG, "Notification category: ${notification.category}, flags: ${notification.flags}, defaults: ${notification.defaults}")
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

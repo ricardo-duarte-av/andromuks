@@ -7,7 +7,6 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
-import android.os.Build
 import android.util.Log
 import net.vrkknn.andromuks.BuildConfig
 
@@ -318,12 +317,14 @@ class NetworkMonitor(
         if (wifiManager == null) return null
         
         return try {
-            val wifiInfo: WifiInfo? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                wifiManager.connectionInfo
-            } else {
-                wifiManager.connectionInfo
-            }
-            
+            // WifiManager.connectionInfo was soft-deprecated in API 31 in favour of
+            // NetworkCapabilities.transportInfo. We intentionally keep using it: transportInfo is
+            // only populated inside a NetworkCallback (and needs setIncludeLocationInfo), whereas
+            // this works in every call context. The SSID is used only as a network-identity string
+            // for change detection, not anything security-sensitive, so the simpler API is fine.
+            @Suppress("DEPRECATION")
+            val wifiInfo: WifiInfo? = wifiManager.connectionInfo
+
             val ssid = wifiInfo?.ssid
             if (ssid != null && ssid != "<unknown ssid>" && ssid.isNotBlank()) {
                 ssid.removeSurrounding("\"")
