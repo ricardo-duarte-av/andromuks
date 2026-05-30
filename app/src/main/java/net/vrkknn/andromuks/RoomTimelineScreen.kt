@@ -16,6 +16,7 @@ import java.io.File
 import androidx.core.content.ContextCompat
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
@@ -1219,40 +1220,10 @@ fun RoomTimelineScreen(
         }
     }
 
-    // Helper function to check if we need to request media permissions
-    fun needsMediaPermissions(): Boolean {
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-    }
-
-    // Helper function to check if we have the necessary permissions for a specific picker type
-    fun hasRequiredMediaPermissions(pickerType: String): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            when (pickerType) {
-                "image" -> {
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                }
-                "audio" -> {
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                }
-                "file" -> {
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                }
-                else -> false
-            }
-        } else {
-            true // No need for these permissions on older Android versions
-        }
-    }
-
-    // State to track which picker we're trying to launch after permission request
-    var pendingMediaPickerType by remember { mutableStateOf("") }
-
-    // Avatar image picker launcher (for avatar commands)
+    // Avatar image picker launcher (for avatar commands). Uses the Android Photo Picker
+    // (PickVisualMedia), which needs no storage permission and returns a temporary read grant.
     val avatarImagePickerLauncher =
-        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
             uri?.let {
                 val mimeType = context.contentResolver.getType(it)
                 if (mimeType?.startsWith("image/") == true) {
@@ -1329,9 +1300,10 @@ fun RoomTimelineScreen(
             }
         }
     
-    // Media picker launcher - accepts both images and videos
+    // Media picker launcher - accepts both images and videos via the Android Photo Picker
+    // (PickVisualMedia). No storage permission required; shows the consistent Photo/Album sheet.
     val mediaPickerLauncher =
-        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) {
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.PickVisualMedia()) {
             uri: Uri? ->
             uri?.let {
                 // Check if this is an image or video file
@@ -1479,7 +1451,40 @@ fun RoomTimelineScreen(
             ).show()
         }
     }
-    
+
+    // Camera permission launcher for the in-app PHOTO overlay (CameraX preview). The overlay binds
+    // the camera via bindToLifecycle the moment it becomes visible; if CAMERA isn't granted yet that
+    // bind fails with a Permission Denial and CameraX shows a black frame while it retries for 10s.
+    // So we only flip the overlay on once permission is confirmed.
+    val cameraPhotoOverlayPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            showCameraOverlay = true
+        } else {
+            android.widget.Toast.makeText(
+                context,
+                "Camera permission is required to take photos",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    // Camera permission launcher for the in-app VIDEO overlay (CameraX preview). Same rationale.
+    val cameraVideoOverlayPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            showVideoOverlay = true
+        } else {
+            android.widget.Toast.makeText(
+                context,
+                "Camera permission is required to record videos",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
     // Helper function to launch camera
     fun launchCamera(isVideo: Boolean) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
@@ -1505,75 +1510,6 @@ fun RoomTimelineScreen(
                 cameraVideoPermissionLauncher.launch(Manifest.permission.CAMERA)
             } else {
                 cameraPhotoPermissionLauncher.launch(Manifest.permission.CAMERA)
-            }
-        }
-    }
-
-    // Permission request launcher for media permissions
-    val mediaPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val hasImagesPermission = permissions[Manifest.permission.READ_MEDIA_IMAGES] ?: false
-        val hasVideoPermission = permissions[Manifest.permission.READ_MEDIA_VIDEO] ?: false
-        val hasAudioPermission = permissions[Manifest.permission.READ_MEDIA_AUDIO] ?: false
-        
-        // Check if we have the necessary permissions for the requested picker type
-        val hasRequiredPermissions = when (pendingMediaPickerType) {
-            "image" -> hasImagesPermission && hasVideoPermission
-            "audio" -> hasAudioPermission
-            "file" -> hasImagesPermission && hasVideoPermission && hasAudioPermission
-            else -> false
-        }
-        
-        // If permissions are granted, launch the appropriate picker
-        if (hasRequiredPermissions) {
-            when (pendingMediaPickerType) {
-                "image" -> {
-                    if (pendingAvatarCommand != null) {
-                        avatarImagePickerLauncher.launch("image/*")
-                    } else {
-                        mediaPickerLauncher.launch("image/*,video/*")
-                    }
-                }
-                "audio" -> audioPickerLauncher.launch("audio/*")
-                "file" -> filePickerLauncher.launch("*/*")
-            }
-        }
-    }
-
-    // Helper function to launch picker with permission check
-    fun launchPickerWithPermission(pickerType: String, mimeType: String) {
-        if (needsMediaPermissions() && !hasRequiredMediaPermissions(pickerType)) {
-            // Need to request permissions first
-            pendingMediaPickerType = pickerType
-            when (pickerType) {
-                "image" -> {
-                    mediaPermissionLauncher.launch(arrayOf(
-                        Manifest.permission.READ_MEDIA_IMAGES,
-                        Manifest.permission.READ_MEDIA_VIDEO
-                    ))
-                }
-                "audio" -> {
-                    // For audio, we only need to request audio permission
-                    mediaPermissionLauncher.launch(arrayOf(
-                        Manifest.permission.READ_MEDIA_AUDIO
-                    ))
-                }
-                "file" -> {
-                    // For files, request all media permissions as files can be anything
-                    mediaPermissionLauncher.launch(arrayOf(
-                        Manifest.permission.READ_MEDIA_IMAGES,
-                        Manifest.permission.READ_MEDIA_VIDEO,
-                        Manifest.permission.READ_MEDIA_AUDIO
-                    ))
-                }
-            }
-        } else {
-            // Permissions already granted, launch directly
-            when (pickerType) {
-                "image" -> mediaPickerLauncher.launch(mimeType)
-                "audio" -> audioPickerLauncher.launch(mimeType)
-                "file" -> filePickerLauncher.launch(mimeType)
             }
         }
     }
@@ -4219,45 +4155,27 @@ fun RoomTimelineScreen(
                                                     when {
                                                         command == "/myroomavatar" || command == "/myroomavatar " -> {
                                                             pendingAvatarCommand = "myroomavatar"
-                                                            if (needsMediaPermissions() && !hasRequiredMediaPermissions("image")) {
-                                                                pendingMediaPickerType = "image"
-                                                                mediaPermissionLauncher.launch(arrayOf(
-                                                                    Manifest.permission.READ_MEDIA_IMAGES,
-                                                                    Manifest.permission.READ_MEDIA_VIDEO
-                                                                ))
-                                                            } else {
-                                                                avatarImagePickerLauncher.launch("image/*")
-                                                            }
+                                                            avatarImagePickerLauncher.launch(
+                                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                            )
                                                             draft = ""
                                                             textFieldValue = TextFieldValue("")
                                                             return@KeyboardActions
                                                         }
                                                         command == "/globalavatar" || command == "/globalavatar " -> {
                                                             pendingAvatarCommand = "globalavatar"
-                                                            if (needsMediaPermissions() && !hasRequiredMediaPermissions("image")) {
-                                                                pendingMediaPickerType = "image"
-                                                                mediaPermissionLauncher.launch(arrayOf(
-                                                                    Manifest.permission.READ_MEDIA_IMAGES,
-                                                                    Manifest.permission.READ_MEDIA_VIDEO
-                                                                ))
-                                                            } else {
-                                                                avatarImagePickerLauncher.launch("image/*")
-                                                            }
+                                                            avatarImagePickerLauncher.launch(
+                                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                            )
                                                             draft = ""
                                                             textFieldValue = TextFieldValue("")
                                                             return@KeyboardActions
                                                         }
                                                         command == "/roomavatar" || command == "/roomavatar " -> {
                                                             pendingAvatarCommand = "roomavatar"
-                                                            if (needsMediaPermissions() && !hasRequiredMediaPermissions("image")) {
-                                                                pendingMediaPickerType = "image"
-                                                                mediaPermissionLauncher.launch(arrayOf(
-                                                                    Manifest.permission.READ_MEDIA_IMAGES,
-                                                                    Manifest.permission.READ_MEDIA_VIDEO
-                                                                ))
-                                                            } else {
-                                                                avatarImagePickerLauncher.launch("image/*")
-                                                            }
+                                                            avatarImagePickerLauncher.launch(
+                                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                            )
                                                             draft = ""
                                                             textFieldValue = TextFieldValue("")
                                                             return@KeyboardActions
@@ -4335,45 +4253,27 @@ fun RoomTimelineScreen(
                                         when {
                                             command == "/myroomavatar" || command == "/myroomavatar " -> {
                                                 pendingAvatarCommand = "myroomavatar"
-                                                if (needsMediaPermissions() && !hasRequiredMediaPermissions("image")) {
-                                                    pendingMediaPickerType = "image"
-                                                    mediaPermissionLauncher.launch(arrayOf(
-                                                        Manifest.permission.READ_MEDIA_IMAGES,
-                                                        Manifest.permission.READ_MEDIA_VIDEO
-                                                    ))
-                                                } else {
-                                                    avatarImagePickerLauncher.launch("image/*")
-                                                }
+                                                avatarImagePickerLauncher.launch(
+                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                )
                                                 draft = ""
                                                 textFieldValue = TextFieldValue("")
                                                 return@Button
                                             }
                                             command == "/globalavatar" || command == "/globalavatar " -> {
                                                 pendingAvatarCommand = "globalavatar"
-                                                if (needsMediaPermissions() && !hasRequiredMediaPermissions("image")) {
-                                                    pendingMediaPickerType = "image"
-                                                    mediaPermissionLauncher.launch(arrayOf(
-                                                        Manifest.permission.READ_MEDIA_IMAGES,
-                                                        Manifest.permission.READ_MEDIA_VIDEO
-                                                    ))
-                                                } else {
-                                                    avatarImagePickerLauncher.launch("image/*")
-                                                }
+                                                avatarImagePickerLauncher.launch(
+                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                )
                                                 draft = ""
                                                 textFieldValue = TextFieldValue("")
                                                 return@Button
                                             }
                                             command == "/roomavatar" || command == "/roomavatar " -> {
                                                 pendingAvatarCommand = "roomavatar"
-                                                if (needsMediaPermissions() && !hasRequiredMediaPermissions("image")) {
-                                                    pendingMediaPickerType = "image"
-                                                    mediaPermissionLauncher.launch(arrayOf(
-                                                        Manifest.permission.READ_MEDIA_IMAGES,
-                                                        Manifest.permission.READ_MEDIA_VIDEO
-                                                    ))
-                                                } else {
-                                                    avatarImagePickerLauncher.launch("image/*")
-                                                }
+                                                avatarImagePickerLauncher.launch(
+                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                )
                                                 draft = ""
                                                 textFieldValue = TextFieldValue("")
                                                 return@Button
@@ -5058,7 +4958,9 @@ fun RoomTimelineScreen(
                                     IconButton(
                                         onClick = {
                                             showAttachmentMenu = false
-                                            launchPickerWithPermission("file", "*/*")
+                                            // SAF document picker — grants per-URI read access via the
+                                            // result, so no storage permission is needed.
+                                            filePickerLauncher.launch("*/*")
                                         },
                                         modifier = Modifier.fillMaxSize()
                                     ) {
@@ -5093,7 +4995,8 @@ fun RoomTimelineScreen(
                                     IconButton(
                                         onClick = {
                                             showAttachmentMenu = false
-                                            launchPickerWithPermission("audio", "audio/*")
+                                            // SAF picker — per-URI read grant, no storage permission needed.
+                                            audioPickerLauncher.launch("audio/*")
                                         },
                                         modifier = Modifier.fillMaxSize()
                                     ) {
@@ -5128,7 +5031,11 @@ fun RoomTimelineScreen(
                                     IconButton(
                                         onClick = {
                                             showAttachmentMenu = false
-                                            launchPickerWithPermission("image", "*/*")
+                                            // Android Photo Picker — no permission needed, consistent
+                                            // Photo/Album sheet for both images and videos.
+                                            mediaPickerLauncher.launch(
+                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                                            )
                                         },
                                         modifier = Modifier.fillMaxSize()
                                     ) {
@@ -5175,9 +5082,16 @@ fun RoomTimelineScreen(
                                 ) {
                                     IconButton(
                                         onClick = {
-                                            // Close attach menu and open in-app camera overlay
+                                            // Close attach menu and open in-app camera overlay, but
+                                            // only once CAMERA permission is granted — otherwise the
+                                            // CameraX preview binds without permission and shows a
+                                            // black frame while it retries for 10s.
                                             showAttachmentMenu = false
-                                            showCameraOverlay = true
+                                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                                showCameraOverlay = true
+                                            } else {
+                                                cameraPhotoOverlayPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                            }
                                         },
                                         interactionSource = photoInteractionSource,
                                         modifier = Modifier.fillMaxSize()
@@ -5216,7 +5130,7 @@ fun RoomTimelineScreen(
                                             if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
                                                 showVideoOverlay = true
                                             } else {
-                                                cameraVideoPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                                cameraVideoOverlayPermissionLauncher.launch(Manifest.permission.CAMERA)
                                             }
                                         },
                                         modifier = Modifier.fillMaxSize()
