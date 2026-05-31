@@ -431,8 +431,12 @@ sealed class TimelineItem {
             get() = event.eventId
     }
 
-    data class DateDivider(val date: String) : TimelineItem() {
-        override val stableKey: String get() = "date_$date"
+    // anchorEventId is the id of the first event of this date segment. It disambiguates the
+    // LazyColumn key: the same calendar date can legitimately appear in two non-adjacent
+    // segments (gap-safe background merges / rowid ordering aren't strictly monotonic by
+    // timestamp), and a bare "date_$date" key would then collide and crash the list.
+    data class DateDivider(val date: String, val anchorEventId: String) : TimelineItem() {
+        override val stableKey: String get() = "date_${date}_$anchorEventId"
     }
 }
 
@@ -1968,7 +1972,7 @@ fun RoomTimelineScreen(
 
                 // Add date divider if this is a new date
                 if (lastDate == null || eventDate != lastDate) {
-                    items.add(TimelineItem.DateDivider(eventDate))
+                    items.add(TimelineItem.DateDivider(eventDate, event.eventId))
                     lastDate = eventDate
                     // Date divider breaks consecutive grouping
                     previousEvent = null

@@ -219,8 +219,11 @@ sealed class BubbleTimelineItem {
             get() = event.eventId
     }
 
-    data class DateDivider(val date: String) : BubbleTimelineItem() {
-        override val stableKey: String get() = "date_$date"
+    // anchorEventId disambiguates the LazyColumn key: the same calendar date can appear in two
+    // non-adjacent segments after gap-safe merges, and a bare "date_$date" key would collide and
+    // crash the list. See TimelineItem.DateDivider in RoomTimelineScreen.kt.
+    data class DateDivider(val date: String, val anchorEventId: String) : BubbleTimelineItem() {
+        override val stableKey: String get() = "date_${date}_$anchorEventId"
     }
 }
 
@@ -1513,7 +1516,7 @@ fun BubbleTimelineScreen(
 
                 // Add date divider if this is a new date
                 if (lastDate == null || eventDate != lastDate) {
-                    items.add(BubbleTimelineItem.DateDivider(eventDate))
+                    items.add(BubbleTimelineItem.DateDivider(eventDate, event.eventId))
                     lastDate = eventDate
                     // Date divider breaks consecutive grouping
                     previousEvent = null
