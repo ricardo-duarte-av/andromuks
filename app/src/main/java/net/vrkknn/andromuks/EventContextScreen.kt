@@ -100,7 +100,7 @@ fun EventContextScreen(
         errorMessage = null
         contextEvents = null
         
-        appViewModel.getEventContext(roomId, eventId, limitBefore = 5, limitAfter = 5) { events ->
+        appViewModel.getEventContext(roomId, eventId, limitBefore = 5, limitAfter = 5) { events, error ->
             isLoading = false
             if (events != null) {
                 // Sort by timeline_rowid (server order) with pending echoes (~ IDs) last.
@@ -114,8 +114,8 @@ fun EventContextScreen(
                 ))
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "EventContextScreen: Received ${events.size} events in context")
             } else {
-                errorMessage = "Failed to load event context"
-                if (BuildConfig.DEBUG) Log.w("Andromuks", "EventContextScreen: Failed to load event context")
+                errorMessage = error ?: "Failed to load event context"
+                if (BuildConfig.DEBUG) Log.w("Andromuks", "EventContextScreen: Failed to load event context: ${error ?: "unknown error"}")
             }
         }
     }
@@ -221,13 +221,23 @@ fun EventContextScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(paddingValues),
+                        .padding(paddingValues)
+                        .padding(24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = errorMessage ?: "Error loading event context",
-                        color = MaterialTheme.colorScheme.error
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "Failed to load event context",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = errorMessage ?: "Error loading event context",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             }
             contextEvents == null || contextEvents!!.isEmpty() -> {
