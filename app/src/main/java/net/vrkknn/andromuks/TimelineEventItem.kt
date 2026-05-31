@@ -4103,10 +4103,13 @@ fun TimelineEventItem(
             // Trailing gap to mirror the left-side inset on others
             Spacer(modifier = Modifier.width(AvatarGap))
         } else if (actualIsMine && isConsecutive && !isEmoteMessage) {
-            // Maintain the same footprint (AvatarColumnWidth + AvatarGap) for consecutive own messages
+            // Mirror the non-consecutive footprint exactly: gap | AvatarColumnWidth | gap.
+            // Using AvatarColumnWidth (not AvatarPlaceholderWidth, which already bakes in
+            // AvatarGap) keeps the centered timestamp/status icon aligned with the avatar's
+            // center on first messages instead of drifting ~2.dp to the right.
             Spacer(modifier = Modifier.width(AvatarGap))
             Column(
-                modifier = Modifier.width(AvatarPlaceholderWidth),
+                modifier = Modifier.width(AvatarColumnWidth),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 val timestampText = if (editedBy != null) {
@@ -4143,6 +4146,8 @@ fun TimelineEventItem(
                     )
                 }
             }
+            // Trailing gap to match the non-consecutive branch (gap | column | gap)
+            Spacer(modifier = Modifier.width(AvatarGap))
         }
     }
         
