@@ -1074,7 +1074,7 @@ fun ThreadViewerScreen(
 
                 // Add date divider if this is a new date
                 if (lastDate == null || eventDate != lastDate) {
-                    items.add(TimelineItem.DateDivider(eventDate))
+                    items.add(TimelineItem.DateDivider(eventDate, event.eventId))
                     lastDate = eventDate
                 }
 

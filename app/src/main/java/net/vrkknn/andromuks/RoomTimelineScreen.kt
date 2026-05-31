@@ -431,10 +431,27 @@ sealed class TimelineItem {
             get() = event.eventId
     }
 
-    data class DateDivider(val date: String) : TimelineItem() {
-        override val stableKey: String get() = "date_$date"
+    // anchorEventId is the id of the first event of this date segment. It disambiguates the
+    // LazyColumn key: the same calendar date can legitimately appear in two non-adjacent
+    // segments (gap-safe background merges / rowid ordering aren't strictly monotonic by
+    // timestamp), and a bare "date_$date" key would then collide and crash the list.
+    data class DateDivider(val date: String, val anchorEventId: String) : TimelineItem() {
+        override val stableKey: String get() = "date_${date}_$anchorEventId"
     }
 }
+
+/**
+ * Snapshot of the values the auto-paginate effect reacts to. pendingScrollRestoration is
+ * included so the refill chain re-checks the instant a round's scroll restoration completes:
+ * restoration clears that flag in a separate effect, and a bare boolean read there would not
+ * otherwise re-emit this snapshotFlow, stalling the chain.
+ */
+private data class PaginateSnapshot(
+    val total: Int,
+    val lastVisible: Int,
+    val isPaginating: Boolean,
+    val pendingScrollRestoration: Boolean
+)
 
 private val dateFormatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
 
@@ -1968,7 +1985,7 @@ fun RoomTimelineScreen(
 
                 // Add date divider if this is a new date
                 if (lastDate == null || eventDate != lastDate) {
-                    items.add(TimelineItem.DateDivider(eventDate))
+                    items.add(TimelineItem.DateDivider(eventDate, event.eventId))
                     lastDate = eventDate
                     // Date divider breaks consecutive grouping
                     previousEvent = null
@@ -2165,7 +2182,15 @@ fun RoomTimelineScreen(
     var pendingScrollRestoration by remember { mutableStateOf(false) }
     var expectedTimelineSizeBeforePagination by remember { mutableStateOf<Int?>(null) }
 
-    
+    // Buffer-refill chaining state for auto-paginate. Keyed by roomId so a room switch resets
+    // the burst. isRefillingBuffer latches a multi-round fetch (see the auto-paginate effect);
+    // prevItemsAbove gives the falling-edge detection that prevents a capped burst from
+    // immediately re-arming itself while still below the trigger threshold.
+    var isRefillingBuffer by remember(roomId) { mutableStateOf(false) }
+    var refillRoundCount by remember(roomId) { mutableStateOf(0) }
+    var prevItemsAbove by remember(roomId) { mutableStateOf(Int.MAX_VALUE) }
+
+
     // Pull-to-refresh state
     var isRefreshingPull by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullRefreshState(
@@ -2376,35 +2401,66 @@ fun RoomTimelineScreen(
             }
     }
 
-    // Auto-paginate: when fewer than 60 rendered events remain above the viewport and
-    // more history is available, silently fetch older events using the same anchor-capture
-    // and scroll-restoration path as pull-to-refresh.
+    // Auto-paginate with buffer-refill chaining: when fewer than REFILL_TRIGGER rendered
+    // events remain above the viewport and more history is available, enter a "refill" burst
+    // that keeps fetching older events — one round at a time, gated by isPaginating — until at
+    // least REFILL_TARGET items sit above the viewport (or history is exhausted, or a safety
+    // round cap is hit). It reuses the same anchor-capture and scroll-restoration path as
+    // pull-to-refresh.
     //
-    // isPaginating is included in the snapshotFlow so the flow re-emits when a pagination
-    // batch finishes (isPaginating: true→false), even if totalItemsCount didn't change.
-    // Without this, rooms where an entire batch is filtered out (reactions, call.member state,
-    // etc.) would stall — the list size stays the same, distinctUntilChanged suppresses the
-    // re-emission, and chaining stops. Including isPaginating ensures we always re-check
-    // after a batch settles regardless of how many events were rendered.
+    // Why a target (hysteresis) instead of a single "<= 60" fetch: a duplicate-heavy paginate
+    // response (most events already cached) adds only a handful of *renderable* items, which
+    // would nudge itemsAbove just past 60 and end the chain after one low-yield round. The user
+    // can then out-scroll the pager and hit the literal top, where each subsequent round still
+    // yields little. Refilling to a deeper target rebuilds a real buffer underneath the user.
+    //
+    // isPaginating and pendingScrollRestoration are in the snapshot so the chain re-checks both
+    // when a paginate batch finishes (isPaginating: true→false) and when its scroll restoration
+    // settles — even if totalItemsCount didn't change (e.g. a batch fully filtered out as
+    // reactions / call.member state). distinctUntilChanged would otherwise suppress the
+    // re-emission and stall the chain.
     //
     // The total > 0 guard is intentionally absent: with hasLoadedInitialBatch and
     // hasInitialSnapCompleted already gating the effect, total == 0 with hasMoreMessages == true
     // is exactly the case we need to paginate through (room with no renderable initial events).
+    val REFILL_TRIGGER = 60          // start refilling when this few items remain above the viewport
+    val REFILL_TARGET = 180          // keep fetching until at least this many sit above the viewport
+    val MAX_REFILL_ROUNDS = 20       // safety valve against a backend that keeps advancing with no real yield
     LaunchedEffect(listState, roomId) {
         snapshotFlow {
             val info = listState.layoutInfo
             val lastVisible = info.visibleItemsInfo.maxOfOrNull { it.index } ?: 0
-            Triple(info.totalItemsCount, lastVisible, appViewModel.isPaginating)
+            PaginateSnapshot(info.totalItemsCount, lastVisible, appViewModel.isPaginating, pendingScrollRestoration)
         }
             .distinctUntilChanged()
             .debounce(50L)
-            .collect { (total, lastVisible, isPaginating) ->
-                val itemsAbove = total - 1 - lastVisible
-                if (itemsAbove <= 60
+            .collect { snap ->
+                val total = snap.total
+                val itemsAbove = total - 1 - snap.lastVisible
+
+                // Falling-edge entry: arm a refill burst only when the buffer crosses down
+                // through REFILL_TRIGGER. Edge-detection (vs. a level check) stops a burst that
+                // hit MAX_REFILL_ROUNDS from instantly re-arming while still below the trigger —
+                // the buffer must first recover above the trigger and then fall again.
+                if (!isRefillingBuffer && prevItemsAbove > REFILL_TRIGGER && itemsAbove <= REFILL_TRIGGER) {
+                    isRefillingBuffer = true
+                    refillRoundCount = 0
+                }
+                // Exit conditions: target reached, history exhausted, or safety cap hit.
+                if (itemsAbove >= REFILL_TARGET || !appViewModel.hasMoreMessages || refillRoundCount >= MAX_REFILL_ROUNDS) {
+                    if (isRefillingBuffer && BuildConfig.DEBUG) Log.d(
+                        "Andromuks",
+                        "RoomTimelineScreen: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, hasMore=${appViewModel.hasMoreMessages})"
+                    )
+                    isRefillingBuffer = false
+                }
+                prevItemsAbove = itemsAbove
+
+                if (isRefillingBuffer
                     && hasLoadedInitialBatch
                     && hasInitialSnapCompleted
                     && !pendingScrollRestoration
-                    && !isPaginating
+                    && !snap.isPaginating
                     && !appViewModel.isTimelineLoading
                     && timelineItems.isNotEmpty()
                     && appViewModel.hasMoreMessages
@@ -2423,21 +2479,22 @@ fun RoomTimelineScreen(
                     val atBottom = listState.firstVisibleItemIndex == 0
                     if (!atBottom && total > 0) {
                         val visibleIndices = listState.layoutInfo.visibleItemsInfo.map { it.index }
-                        val highestVisible = visibleIndices.maxOrNull() ?: lastVisible
+                        val highestVisible = visibleIndices.maxOrNull() ?: snap.lastVisible
                         highestVisibleIndexBeforePagination = highestVisible
                         anchorScrollOffsetForRestore = listState.firstVisibleItemScrollOffset
                         pendingScrollRestoration = true
                         expectedTimelineSizeBeforePagination = timelineItems.size
                         if (BuildConfig.DEBUG) Log.d(
                             "Andromuks",
-                            "RoomTimelineScreen: Auto-paginate triggered ($itemsAbove items above viewport, highestVisible=$highestVisible)"
+                            "RoomTimelineScreen: Auto-paginate round ${refillRoundCount + 1} ($itemsAbove above viewport, target=$REFILL_TARGET, highestVisible=$highestVisible)"
                         )
                     } else {
                         if (BuildConfig.DEBUG) Log.d(
                             "Andromuks",
-                            "RoomTimelineScreen: Auto-paginate triggered at bottom or empty ($itemsAbove items above viewport, total=$total) — skipping scroll restoration"
+                            "RoomTimelineScreen: Auto-paginate round ${refillRoundCount + 1} at bottom or empty ($itemsAbove above viewport, total=$total) — skipping scroll restoration"
                         )
                     }
+                    refillRoundCount++
                     appViewModel.requestPaginationWithSmallestRowId(roomId, limit = 100)
                 }
             }
@@ -3353,6 +3410,10 @@ fun RoomTimelineScreen(
                         )
                     }
 
+                    // Pagination indicator: visible while older messages are being fetched/merged
+                    AnimatedVisibility(visible = appViewModel.isPaginating) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
                     // 2. Timeline (compressible, scrollable content)
                     Box(
                         modifier = Modifier.weight(1f).fillMaxWidth()
