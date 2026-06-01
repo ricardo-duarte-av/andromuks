@@ -321,8 +321,46 @@ fun ThreadViewerScreen(
     // can be empty while timelineEvents already has the data.  Compose tracks the read of
     // appViewModel.timelineEvents inside the lambda and recomputes automatically whenever it
     // changes — no LaunchedEffect, no counter, no race condition.
-    val threadMessages by remember(roomId, threadRootEventId) {
+    val liveThreadMessages by remember(roomId, threadRootEventId) {
         derivedStateOf { appViewModel.getThreadMessages(roomId, threadRootEventId) }
+    }
+    // Events fetched directly from the homeserver via paginate_manual (thread variant). These
+    // backfill the thread root and older replies that have scrolled out of the loaded room
+    // timeline, so getThreadMessages alone can't see them. Keyed to the current thread.
+    var backfilledThreadEvents by remember(roomId, threadRootEventId) {
+        mutableStateOf<List<TimelineEvent>>(emptyList())
+    }
+    // Merge live (timeline-derived) and backfilled (server-fetched) events. Prefer the live copy
+    // when an event exists in both — it carries sync-applied edits/reactions. Dedupe by eventId.
+    val threadMessages = remember(liveThreadMessages, backfilledThreadEvents) {
+        val byId = LinkedHashMap<String, TimelineEvent>()
+        for (event in liveThreadMessages) byId[event.eventId] = event
+        for (event in backfilledThreadEvents) byId.putIfAbsent(event.eventId, event)
+        byId.values.sortedBy { it.timestamp }
+    }
+
+    // On opening the thread, fetch its messages straight from the homeserver. paginate_manual
+    // never includes the thread root (it returns only the thread's replies), so the root is
+    // sourced separately: prefer the copy already in the loaded room timeline (free), and only
+    // issue a get_event when it isn't loaded locally either.
+    LaunchedEffect(roomId, threadRootEventId) {
+        appViewModel.paginateThread(
+            roomId = roomId,
+            threadRootEventId = threadRootEventId,
+            since = "",
+            direction = "b",
+            limit = 50
+        ) { events, _ ->
+            // If the root is already in the loaded timeline, the live merge surfaces it — just
+            // take the replies. Otherwise fetch the root explicitly so it renders at the top.
+            if (appViewModel.findTimelineEvent(roomId, threadRootEventId) != null) {
+                backfilledThreadEvents = events
+            } else {
+                appViewModel.getEvent(roomId, threadRootEventId) { root ->
+                    backfilledThreadEvents = if (root != null) events + root else events
+                }
+            }
+        }
     }
     val editEventsByTargetId: Map<String, TimelineEvent> = remember(threadMessages) {
         val map = mutableMapOf<String, TimelineEvent>()
@@ -680,7 +718,9 @@ fun ThreadViewerScreen(
         sortedEvents = processTimelineEvents(
             timelineEvents = threadMessages,
             allowedEventTypes = allowedEventTypes,
-            showHiddenEvents = showHiddenEvents
+            showHiddenEvents = showHiddenEvents,
+            // paginate_manual events (root + older replies) all carry timeline_rowid = -1
+            renderContextEvents = true
         )
     }
 

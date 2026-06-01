@@ -447,7 +447,10 @@ internal fun formatDate(timestamp: Long): String {
 suspend fun processTimelineEvents(
     timelineEvents: List<TimelineEvent>,
     allowedEventTypes: Set<String>,
-    showHiddenEvents: Boolean = false
+    showHiddenEvents: Boolean = false,
+    // Thread view: paginate_manual returns every event with timeline_rowid = -1, so the thread
+    // viewer must render those instead of treating them as non-renderable reply-context events.
+    renderContextEvents: Boolean = false
 ): List<TimelineEvent> = withContext(Dispatchers.Default) {
     if (BuildConfig.DEBUG) Log.d(
         "Andromuks",
@@ -468,7 +471,8 @@ suspend fun processTimelineEvents(
 
     val filteredEvents = timelineEvents.filter { event ->
         // Special events with timeline_rowid = -1 are context events for replies, not to be rendered directly
-        if (event.timelineRowid == -1L) return@filter false
+        // (the thread view opts out via renderContextEvents — its paginate_manual events all carry -1)
+        if (!renderContextEvents && event.timelineRowid == -1L) return@filter false
         // Redaction events are always hidden (they replace other events, not standalone content)
         if (event.type == "m.room.redaction") return@filter false
         // When show_hidden_events is on, pass everything else through
