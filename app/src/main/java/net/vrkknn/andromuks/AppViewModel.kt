@@ -4873,6 +4873,8 @@ class AppViewModel : ViewModel() {
     private val roomStateWithMembersRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit>() // requestId -> callback
     // Gallery paginate: requestId -> callback(events, hasMore, minTimelineRowId)
     internal val galleryPaginateRequests = mutableMapOf<Int, (List<TimelineEvent>, Boolean, Long) -> Unit>()
+    // Thread paginate (paginate_manual with thread_root): requestId -> callback(events, nextBatch)
+    internal val threadPaginateRequests = mutableMapOf<Int, (List<TimelineEvent>, String) -> Unit>()
     internal val userEncryptionInfoRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
     private val mutualRoomsRequests = mutableMapOf<Int, (List<String>?, String?) -> Unit>() // requestId -> callback
     internal val basicProfileCallbacks = mutableMapOf<Int, (MemberProfile?) -> Unit>() // requestId -> callback for direct get_profile consumers
@@ -6973,6 +6975,7 @@ class AppViewModel : ViewModel() {
                     mentionsRequests.containsKey(requestId) ||
                     widgetCommandRequests.containsKey(requestId) ||
                     galleryPaginateRequests.containsKey(requestId) ||
+                    threadPaginateRequests.containsKey(requestId) ||
                     createRoomRequests.containsKey(requestId)
 
             // If it's NOT in any request map, it's truly stale - ignore it
@@ -7052,6 +7055,8 @@ class AppViewModel : ViewModel() {
             handleMentionsListResponse(requestId, data)
         } else if (galleryPaginateRequests.containsKey(requestId)) {
             handleGalleryPaginateResponse(requestId, data)
+        } else if (threadPaginateRequests.containsKey(requestId)) {
+            handleThreadPaginateResponse(requestId, data)
         } else if (createRoomRequests.containsKey(requestId)) {
             handleCreateRoomResponse(requestId, data)
         } else {
@@ -8441,6 +8446,104 @@ class AppViewModel : ViewModel() {
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Error handling gallery paginate response", e)
             callback(emptyList(), false, 0L)
+        }
+    }
+
+    /**
+     * Paginate a thread via the official `paginate_manual` RPC (thread variant).
+     *
+     * Unlike the thread view's timeline filtering, this fetches the thread's messages directly
+     * from the homeserver, so the thread root and older replies that have scrolled out of the
+     * loaded room timeline are returned too. The `since` token (next_batch) is not used yet —
+     * we only request the first backward page.
+     *
+     * @param roomId Room containing the thread
+     * @param threadRootEventId Root event ID the thread hangs off of
+     * @param since next_batch token from a previous page; empty to start pagination
+     * @param direction "b" (backward, older) or "f" (forward, newer)
+     * @param limit Max events to return
+     * @param callback (events, nextBatch) — events as parsed TimelineEvents, nextBatch for continuation
+     */
+    fun paginateThread(
+        roomId: String,
+        threadRootEventId: String,
+        since: String = "",
+        direction: String = "b",
+        limit: Int = 50,
+        callback: (events: List<TimelineEvent>, nextBatch: String) -> Unit
+    ) {
+        if (!isWebSocketConnected()) {
+            android.util.Log.w("Andromuks", "AppViewModel: paginateThread - WebSocket not connected, calling back empty")
+            callback(emptyList(), "")
+            return
+        }
+        val requestId = WebSocketService.allocateRequestId()
+        threadPaginateRequests[requestId] = callback
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: paginateThread - room=$roomId, root=$threadRootEventId, since='$since', dir=$direction, limit=$limit, requestId=$requestId")
+        val result = sendWebSocketCommand(
+            "paginate_manual", requestId,
+            mapOf(
+                "room_id" to roomId,
+                "thread_root" to threadRootEventId,
+                "since" to since,
+                "direction" to direction,
+                "limit" to limit
+            )
+        )
+        if (result != WebSocketResult.SUCCESS) {
+            android.util.Log.w("Andromuks", "AppViewModel: paginateThread - failed to send paginate_manual (result=$result)")
+            threadPaginateRequests.remove(requestId)
+            callback(emptyList(), "")
+            return
+        }
+        // Timeout so the screen never waits forever
+        viewModelScope.launch(Dispatchers.IO) {
+            delay(10000L)
+            if (threadPaginateRequests.containsKey(requestId)) {
+                android.util.Log.w("Andromuks", "AppViewModel: paginateThread timeout for requestId=$requestId")
+                withContext(Dispatchers.Main) {
+                    threadPaginateRequests.remove(requestId)?.invoke(emptyList(), "")
+                }
+            }
+        }
+    }
+
+    private fun handleThreadPaginateResponse(requestId: Int, data: Any) {
+        val callback = threadPaginateRequests.remove(requestId) ?: return
+        try {
+            val events = mutableListOf<TimelineEvent>()
+            var nextBatch = ""
+            when (data) {
+                is JSONObject -> {
+                    nextBatch = data.optString("next_batch", "")
+                    val eventsArray = data.optJSONArray("events")
+                    if (eventsArray != null) {
+                        for (i in 0 until eventsArray.length()) {
+                            val json = eventsArray.optJSONObject(i) ?: continue
+                            try {
+                                events.add(TimelineEvent.fromJson(json))
+                            } catch (e: Exception) {
+                                android.util.Log.e("Andromuks", "AppViewModel: paginateThread - error parsing event at index $i: ${e.message}", e)
+                            }
+                        }
+                    }
+                }
+                is JSONArray -> {
+                    for (i in 0 until data.length()) {
+                        val json = data.optJSONObject(i) ?: continue
+                        try {
+                            events.add(TimelineEvent.fromJson(json))
+                        } catch (e: Exception) {
+                            android.util.Log.e("Andromuks", "AppViewModel: paginateThread - error parsing event at index $i: ${e.message}", e)
+                        }
+                    }
+                }
+            }
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: paginateThread - parsed ${events.size} events, next_batch='$nextBatch'")
+            callback(events, nextBatch)
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: paginateThread - error handling response", e)
+            callback(emptyList(), "")
         }
     }
 
@@ -11090,6 +11193,20 @@ class AppViewModel : ViewModel() {
      * @param threadRootEventId The event ID that started the thread
      * @return List of timeline events in the thread, sorted by timestamp
      */
+    /**
+     * Find a single event in the in-memory timeline (or LRU cache fallback) by ID, without
+     * hitting the server. Returns null if it isn't currently loaded. Used to decide whether a
+     * thread root is already available locally before issuing a get_event request.
+     */
+    fun findTimelineEvent(roomId: String, eventId: String): TimelineEvent? {
+        val events = if (timelineEvents.isNotEmpty()) {
+            timelineEvents
+        } else {
+            RoomTimelineCache.getCachedEvents(roomId) ?: emptyList()
+        }
+        return events.find { it.eventId == eventId }
+    }
+
     fun getThreadMessages(roomId: String, threadRootEventId: String): List<TimelineEvent> {
         val threadMessages = mutableListOf<TimelineEvent>()
 
