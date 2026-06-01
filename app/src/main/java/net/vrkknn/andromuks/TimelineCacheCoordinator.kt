@@ -40,6 +40,56 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
         }
     }
 
+    /**
+     * Warm-open freshness probe: a single-event (limit=1, max_timeline_id=0) paginate whose response
+     * is handled by [AppViewModel.handleFreshnessCheckResponse]. That compares the server's newest
+     * timeline_rowid to our cached newest; equal ⇒ cache is fresh and the full paginate is skipped,
+     * different ⇒ it escalates to a full background paginate (merge-or-purge via handleBackgroundPrefetch).
+     *
+     * Caller must have already reserved tracking via `roomsWithPendingPaginate.add(roomId)`; on a hard
+     * send failure (disconnected) this clears that reservation. Returns the send result.
+     */
+    private fun sendFreshnessProbe(roomId: String): WebSocketResult {
+        with(vm) {
+            // Dedup: a single room open can invoke requestRoomTimeline twice (the navigation action
+            // plus RoomTimelineScreen's "not yet loaded" re-trigger), and a forced-fresh open wipes
+            // the roomsWithPendingPaginate guard via clearPendingPaginateStateForRoom between them.
+            // freshnessCheckRequests is NOT cleared there, so it's the reliable in-flight signal —
+            // skip a duplicate probe. The first probe's response clears the pending reservation.
+            if (freshnessCheckRequests.containsValue(roomId)) {
+                if (BuildConfig.DEBUG)
+                    android.util.Log.d(
+                        "Andromuks",
+                        "TimelineCacheCoordinator: Freshness probe already in flight for $roomId — skipping duplicate",
+                    )
+                return WebSocketResult.SUCCESS
+            }
+            val requestId = WebSocketService.allocateRequestId()
+            freshnessCheckRequests[requestId] = roomId
+            val result = sendWebSocketCommand(
+                "paginate",
+                requestId,
+                mapOf(
+                    "room_id" to roomId,
+                    "max_timeline_id" to 0,
+                    "limit" to 1,
+                    "reset" to false,
+                ),
+            )
+            if (result != WebSocketResult.SUCCESS && !isWebSocketConnected()) {
+                // Truly disconnected — drop probe tracking and the pending reservation.
+                freshnessCheckRequests.remove(requestId)
+                roomsWithPendingPaginate.remove(roomId)
+            }
+            if (BuildConfig.DEBUG)
+                android.util.Log.d(
+                    "Andromuks",
+                    "TimelineCacheCoordinator: Sent freshness probe for $roomId (reqId=$requestId, result=$result)",
+                )
+            return result
+        }
+    }
+
     fun clearTimelineCache() {
         with(vm) {
             if (BuildConfig.DEBUG)
@@ -868,25 +918,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     if (latestKnownId != null) markRoomAsRead(roomId, latestKnownId)
                 }
 
-                // Background paginate to pull any events the LRU restore may have missed.
+                // Freshness probe instead of an unconditional full refetch: the LRU restore already
+                // painted the cached window, so we only need to confirm whether the server has a
+                // newer top. sendFreshnessProbe escalates to a full background paginate only if so.
                 val wasAdded = roomsWithPendingPaginate.add(roomId)
                 if (wasAdded && isWebSocketConnected()) {
-                    val paginateRequestId = WebSocketService.allocateRequestId()
-                    backgroundPrefetchRequests[paginateRequestId] = roomId
-                    val result = sendWebSocketCommand(
-                        "paginate",
-                        paginateRequestId,
-                        mapOf(
-                            "room_id" to roomId,
-                            "max_timeline_id" to 0,
-                            "limit" to AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT,
-                            "reset" to false,
-                        ),
-                    )
-                    if (result != WebSocketResult.SUCCESS && !isWebSocketConnected()) {
-                        backgroundPrefetchRequests.remove(paginateRequestId)
-                        roomsWithPendingPaginate.remove(roomId)
-                    }
+                    sendFreshnessProbe(roomId)
                 }
 
                 return
@@ -1006,8 +1043,10 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 // Mark room as accessed in RoomTimelineCache for LRU eviction
                 RoomTimelineCache.markRoomAccessed(roomId)
 
-                // Still send paginate request to fetch any newer events from server
-                // Only send when opening a new room (not refreshing the same room)
+                // Freshness probe to fetch any newer events from server, instead of an unconditional
+                // full refetch+merge. The cached window is already rendered; the probe escalates to a
+                // full background paginate only when the server's newest top differs from ours.
+                // Only send when opening a new room (not refreshing the same room).
                 // GUARD: Check if a paginate request is already pending for this room (atomic
                 // check-and-set)
                 val wasAdded = roomsWithPendingPaginate.add(roomId)
@@ -1018,42 +1057,50 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT > 0 &&
                         wasAdded
                 ) {
-                    val paginateRequestId = WebSocketService.allocateRequestId()
-                    backgroundPrefetchRequests[paginateRequestId] = roomId
-                    if (BuildConfig.DEBUG)
-                        android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Sending paginate request to fetch newer events for $roomId (limit=$AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT, reqId=$paginateRequestId)",
-                        )
-                    val result =
-                        sendWebSocketCommand(
-                            "paginate",
-                            paginateRequestId,
-                            mapOf(
-                                "room_id" to roomId,
-                                "max_timeline_id" to 0, // Fetch latest events
-                                "limit" to AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT,
-                                "reset" to false,
-                            ),
-                        )
-
-                    if (result != WebSocketResult.SUCCESS) {
-                        if (!isWebSocketConnected()) {
-                            // Truly not connected — drop tracking; will retry on next room open.
-                            backgroundPrefetchRequests.remove(paginateRequestId)
-                            roomsWithPendingPaginate.remove(roomId)
-                            android.util.Log.w(
-                                "Andromuks",
-                                "AppViewModel: Failed to send paginate for newer events for $roomId (not connected): $result",
-                            )
-                        } else {
-                            // Connected but canSendCommandsToBackend=false: command was queued in
-                            // pendingCommandsQueue. Keep tracking so the response is handled when
-                            // flushPendingQueue() re-sends it after init_complete completes.
+                    // A freshness probe can only short-circuit safely when the cache is reasonably
+                    // full: for a sparse cache we still want the full paginate so it backfills
+                    // history, not just confirms the top. (The LRU warm path is already gated on
+                    // this same threshold, so its probe is always safe.)
+                    if (RoomTimelineCache.getCachedEventCount(roomId) >=
+                            AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT / 2) {
+                        sendFreshnessProbe(roomId)
+                    } else {
+                        val paginateRequestId = WebSocketService.allocateRequestId()
+                        backgroundPrefetchRequests[paginateRequestId] = roomId
+                        if (BuildConfig.DEBUG)
                             android.util.Log.d(
                                 "Andromuks",
-                                "AppViewModel: Paginate for newer events queued (canSendCommandsToBackend=false) for $roomId (reqId=$paginateRequestId) — keeping tracking",
+                                "AppViewModel: Sparse cache — full paginate (not probe) to fetch+backfill for $roomId (reqId=$paginateRequestId)",
                             )
+                        val result =
+                            sendWebSocketCommand(
+                                "paginate",
+                                paginateRequestId,
+                                mapOf(
+                                    "room_id" to roomId,
+                                    "max_timeline_id" to 0, // Fetch latest events
+                                    "limit" to AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT,
+                                    "reset" to false,
+                                ),
+                            )
+                        if (result != WebSocketResult.SUCCESS) {
+                            if (!isWebSocketConnected()) {
+                                // Truly not connected — drop tracking; will retry on next room open.
+                                backgroundPrefetchRequests.remove(paginateRequestId)
+                                roomsWithPendingPaginate.remove(roomId)
+                                android.util.Log.w(
+                                    "Andromuks",
+                                    "AppViewModel: Failed to send paginate for newer events for $roomId (not connected): $result",
+                                )
+                            } else {
+                                // Connected but queued (canSendCommandsToBackend=false): keep
+                                // tracking so the response is handled after flushPendingQueue().
+                                if (BuildConfig.DEBUG)
+                                    android.util.Log.d(
+                                        "Andromuks",
+                                        "AppViewModel: Paginate for newer events queued for $roomId (reqId=$paginateRequestId) — keeping tracking",
+                                    )
+                            }
                         }
                     }
                 } else if (!wasAdded && BuildConfig.DEBUG) {

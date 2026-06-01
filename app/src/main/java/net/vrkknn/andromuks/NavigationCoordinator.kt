@@ -362,9 +362,13 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                         "🔵 navigateToRoomWithCache: Partial cache count=$cachedEventCount but getCachedEvents returned null, falling through",
                     )
                 } else {
+                    // Catch-all fall-through to requestRoomTimeline. Reasons: cache below the
+                    // $cacheSufficientThreshold fast-path threshold, OR a forced-fresh paginate is
+                    // required (WS was down). Note: requestRoomTimeline still renders any cached
+                    // window instantly and only sends a cheap freshness probe — this is not a full refetch.
                     android.util.Log.d(
                         "Andromuks",
-                        "🔵 navigateToRoomWithCache: Cache insufficient - roomId=$roomId, cachedEventCount=$cachedEventCount (<50), will request timeline",
+                        "🔵 navigateToRoomWithCache: Not taking cache fast-path - roomId=$roomId, cachedEventCount=$cachedEventCount (need >= $cacheSufficientThreshold), mustFetchFresh=$mustFetchFreshTimeline — routing to requestRoomTimeline",
                     )
                 }
 
