@@ -164,6 +164,7 @@ class FCMService : FirebaseMessagingService() {
         getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
 
         if (BuildConfig.DEBUG) Log.d(TAG, "FCM message received - data: ${remoteMessage.data}, notification: ${remoteMessage.notification}")
+        if (BuildConfig.DEBUG) Log.d(TAG, "FCM priority=${remoteMessage.priority}, originalPriority=${remoteMessage.originalPriority} (1=HIGH, 2=NORMAL) - priority is FCM-delivered, originalPriority is sender-requested")
         
         // Handle data payload (matches the other Gomuks client approach)
         if (remoteMessage.data.isNotEmpty()) {
@@ -692,6 +693,7 @@ class FCMService : FirebaseMessagingService() {
                         if (BuildConfig.DEBUG) Log.d(TAG, "No notification found for room: $roomId in activeNotifications - attempting cancel anyway (may be stale)")
                         EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
                         notificationManagerCompat.cancel(notifID)
+                        EnhancedNotificationDisplay.refreshGroupSummary(this, justCancelledId = notifID)
                     }
                     continue
                 }
@@ -705,6 +707,7 @@ class FCMService : FirebaseMessagingService() {
                     // Also cancel the notification ID in case it gets posted before we finish
                     EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
                     notificationManagerCompat.cancel(notifID)
+                    EnhancedNotificationDisplay.refreshGroupSummary(this, justCancelledId = notifID)
                     if (BuildConfig.DEBUG) Log.d(TAG, "Successfully cancelled pending notification for room: $roomId")
                     continue
                 }
@@ -761,6 +764,7 @@ class FCMService : FirebaseMessagingService() {
                     if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId - Dismissing notification (no active bubble)")
                     EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
                     notificationManagerCompat.cancel(notifID)
+                    EnhancedNotificationDisplay.refreshGroupSummary(this, justCancelledId = notifID)
                     if (BuildConfig.DEBUG) Log.d(TAG, "Successfully dismissed notification for room: $roomId")
                 }
                 
