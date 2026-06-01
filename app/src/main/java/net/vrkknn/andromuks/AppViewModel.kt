@@ -188,7 +188,14 @@ class AppViewModel : ViewModel() {
         // doesn't fire immediately on room open (many events are filtered out post-fetch).
         @JvmStatic
         var INITIAL_ROOM_PAGINATE_LIMIT = 100
-        
+
+        // Small paginate limit used to warm the timeline cache from an FCM notification in
+        // battery-saver mode. The cache is usually already warm, so this only needs to catch the
+        // pushed event (which is the newest, so max_timeline_id=0 returns it). If the pushed
+        // event_id is absent — a burst of reactions/replies can push it out of a tiny window —
+        // handlePaginationMerge escalates to a full INITIAL_ROOM_PAGINATE_LIMIT paginate.
+        const val NOTIFICATION_HYDRATE_PAGINATE_LIMIT = 10
+
         // FCM registration debounce window to prevent duplicate registrations
         internal const val FCM_REGISTRATION_DEBOUNCE_MS = 5000L // 5 seconds debounce window
         
@@ -4858,6 +4865,10 @@ class AppViewModel : ViewModel() {
     internal val paginateRequests = java.util.concurrent.ConcurrentHashMap<Int, String>() // requestId -> roomId (for pagination)
     internal val paginateRequestMaxTimelineIds = java.util.concurrent.ConcurrentHashMap<Int, Long>() // requestId -> max_timeline_id used in request (for progress detection)
     internal val backgroundPrefetchRequests = java.util.concurrent.ConcurrentHashMap<Int, String>() // requestId -> roomId (for background prefetch)
+    // requestId -> event_id that a small FCM-hydration paginate is expected to contain. If the
+    // response is missing this event (e.g. a burst of reactions/replies pushed it out of the small
+    // window), handlePaginationMerge escalates to a full INITIAL_ROOM_PAGINATE_LIMIT paginate.
+    internal val hydrateExpectedEventIds = java.util.concurrent.ConcurrentHashMap<Int, String>()
     private val freshnessCheckRequests = mutableMapOf<Int, String>() // requestId -> roomId (for single-event freshness checks)
     private val roomStateWithMembersRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit>() // requestId -> callback
     // Gallery paginate: requestId -> callback(events, hasMore, minTimelineRowId)
@@ -9697,8 +9708,13 @@ class AppViewModel : ViewModel() {
      * Paginate [roomId] over the HTTP /exec endpoint (battery-saver mode, WebSocket down) and route
      * the result through the normal timeline-response path. See [ExecCommandCoordinator.paginate].
      */
-    fun paginateViaExec(roomId: String, maxTimelineId: Long, limit: Int = INITIAL_ROOM_PAGINATE_LIMIT) =
-        execCommandCoordinator.paginate(roomId, maxTimelineId, limit)
+    fun paginateViaExec(
+        roomId: String,
+        maxTimelineId: Long,
+        limit: Int = INITIAL_ROOM_PAGINATE_LIMIT,
+        expectedEventId: String? = null,
+    ) =
+        execCommandCoordinator.paginate(roomId, maxTimelineId, limit, expectedEventId)
     
     /**
      * Request pagination from backend using the smallest row ID from cache only (no DB).
