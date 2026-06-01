@@ -4869,7 +4869,7 @@ class AppViewModel : ViewModel() {
     // response is missing this event (e.g. a burst of reactions/replies pushed it out of the small
     // window), handlePaginationMerge escalates to a full INITIAL_ROOM_PAGINATE_LIMIT paginate.
     internal val hydrateExpectedEventIds = java.util.concurrent.ConcurrentHashMap<Int, String>()
-    private val freshnessCheckRequests = mutableMapOf<Int, String>() // requestId -> roomId (for single-event freshness checks)
+    internal val freshnessCheckRequests = java.util.concurrent.ConcurrentHashMap<Int, String>() // requestId -> roomId (single-event freshness probe sent on warm room open)
     private val roomStateWithMembersRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit>() // requestId -> callback
     // Gallery paginate: requestId -> callback(events, hasMore, minTimelineRowId)
     internal val galleryPaginateRequests = mutableMapOf<Int, (List<TimelineEvent>, Boolean, Long) -> Unit>()
@@ -7579,88 +7579,99 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling freshness check response for room: $roomId, requestId: $requestId")
         
         try {
-            // Parse the single event from response
+            // Parse the events from the response. A paginate response is a JSONObject with an
+            // "events" array (the same shape handleTimelineResponse consumes); a bare JSONArray is
+            // also tolerated. NOTE: the field is "events", not "timeline".
             val eventsArray = when (data) {
                 is org.json.JSONArray -> data
-                is org.json.JSONObject -> {
-                    val timeline = data.optJSONArray("timeline")
-                    if (timeline != null) timeline else org.json.JSONArray().apply { put(data) }
-                }
+                is org.json.JSONObject -> data.optJSONArray("events") ?: org.json.JSONArray()
                 else -> {
                     android.util.Log.w("Andromuks", "AppViewModel: Unexpected data type in freshness check response: ${data::class.java.simpleName}")
+                    roomsWithPendingPaginate.remove(roomId)
                     return
                 }
             }
-            
+
             if (eventsArray.length() == 0) {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Freshness check returned no events for $roomId - treating as up to date")
+                roomsWithPendingPaginate.remove(roomId)
                 return
             }
-            
-            // Get the latest event from response (should be only one)
-            val latestEventJson = eventsArray.optJSONObject(eventsArray.length() - 1) ?: run {
-                android.util.Log.w("Andromuks", "AppViewModel: Could not parse latest event from freshness check response")
-                return
+
+            // We only need timeline_rowid (the backend's recency key) — no need to build a full
+            // TimelineEvent. Pick the max across the array (limit=1 normally yields one, but be
+            // robust to ordering / a backend returning a few). event_id is read only for the log.
+            var serverLatestRowId = Long.MIN_VALUE
+            var latestEventId: String? = null
+            for (i in 0 until eventsArray.length()) {
+                val json = eventsArray.optJSONObject(i) ?: continue
+                val rowId = json.optLong("timeline_rowid", Long.MIN_VALUE)
+                if (rowId != Long.MIN_VALUE && rowId > serverLatestRowId) {
+                    serverLatestRowId = rowId
+                    latestEventId = json.optString("event_id")
+                }
             }
-            
-            val latestEvent = TimelineEvent.fromJson(latestEventJson)
-            val serverLatestRowId = latestEvent.timelineRowid
-            
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Freshness check - server latest event: ${latestEvent.eventId}, timeline_rowid: $serverLatestRowId")
-            
+            if (serverLatestRowId == Long.MIN_VALUE) {
+                // No parseable timeline_rowid — can't confirm freshness. Don't short-circuit: fall
+                // through to the stale branch so we refetch rather than risk skipping new events.
+                android.util.Log.w("Andromuks", "AppViewModel: Freshness check response for $roomId had no parseable timeline_rowid — treating as stale")
+            } else if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "AppViewModel: Freshness check - server latest event: $latestEventId, timeline_rowid: $serverLatestRowId")
+            }
+
             // Get our latest timeline_rowid from RAM cache
             val cachedMetadata = RoomTimelineCache.getLatestCachedEventMetadata(roomId)
-            val cachedLatestRowId = cachedMetadata?.timelineRowId ?: 0L
-            
-            // Process asynchronously to check DB if needed
-            viewModelScope.launch {
-                val ourLatestRowId = cachedLatestRowId
-                
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Freshness check - our latest timeline_rowid: $ourLatestRowId (RAM), server: $serverLatestRowId")
-                
-                // Compare: if server has newer events, trigger full paginate
-                if (serverLatestRowId > ourLatestRowId) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Server has newer events (server: $serverLatestRowId > ours: $ourLatestRowId), triggering full paginate for $roomId")
-                    
-                    // Wait for WebSocket to be ready
-                    var waitCount = 0
-                    val maxWaitAttempts = 50 // Wait up to 5 seconds
-                    while (!isWebSocketConnected() && waitCount < maxWaitAttempts) {
-                        kotlinx.coroutines.delay(100)
-                        waitCount++
-                    }
-                    
-                    if (isWebSocketConnected()) {
-                        // Trigger full paginate with max_timeline_id = our latest rowId
-                        val paginateRequestId = WebSocketService.allocateRequestId()
-                        backgroundPrefetchRequests[paginateRequestId] = roomId
-                        
-                        val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
-                            "room_id" to roomId,
-                            "max_timeline_id" to ourLatestRowId,
-                            "limit" to INITIAL_ROOM_PAGINATE_LIMIT,
-                            "reset" to false
-                        ))
-                        
-                        if (result == WebSocketResult.SUCCESS) {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent full paginate request after freshness check for $roomId (max_timeline_id: $ourLatestRowId)")
-                            markInitialPaginate(roomId, "freshness_check_newer")
-                        } else {
-                            android.util.Log.w("Andromuks", "AppViewModel: Failed to send paginate after freshness check for $roomId: $result")
-                            backgroundPrefetchRequests.remove(paginateRequestId)
-                        }
-                    } else {
-                        android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, cannot fetch fresh data for $roomId")
-                    }
+            val ourLatestRowId = cachedMetadata?.timelineRowId ?: 0L
+
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Freshness check - our latest timeline_rowid: $ourLatestRowId (RAM), server: $serverLatestRowId")
+
+            // timeline_rowid is not linear or predictable, so we can't reason about "how much"
+            // newer the server is — only whether its newest event is the same one we hold. If the
+            // ids match, the cache is fresh and the (expensive) full paginate + merge is skipped.
+            if (serverLatestRowId == ourLatestRowId) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cache is fresh for $roomId (server newest timeline_rowid == ours: $ourLatestRowId) — skipping full paginate")
+                roomsWithPendingPaginate.remove(roomId)
+                return
+            }
+
+            // Differs ⇒ stale. Fetch the newest INITIAL_ROOM_PAGINATE_LIMIT events (max_timeline_id=0)
+            // as a background prefetch. handleBackgroundPrefetch then merges if our newest id is in
+            // the response (contiguous), or purges the cache and reseeds with the fresh window if it
+            // isn't (gap — "rotten"). max_timeline_id must be 0 here: it's the only sentinel that
+            // fetches the most-recent events; a non-zero cursor would fetch events OLDER than ours.
+            if (isWebSocketConnected()) {
+                val paginateRequestId = WebSocketService.allocateRequestId()
+                backgroundPrefetchRequests[paginateRequestId] = roomId
+                val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+                    "room_id" to roomId,
+                    "max_timeline_id" to 0,
+                    "limit" to INITIAL_ROOM_PAGINATE_LIMIT,
+                    "reset" to false
+                ))
+                if (result == WebSocketResult.SUCCESS) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cache stale for $roomId (server: $serverLatestRowId != ours: $ourLatestRowId) — sent full paginate (reqId=$paginateRequestId)")
+                    // roomsWithPendingPaginate is cleared by handleBackgroundPrefetch on response.
+                } else if (!isWebSocketConnected()) {
+                    // Truly disconnected — drop tracking; next room open retries.
+                    android.util.Log.w("Andromuks", "AppViewModel: Failed to send full paginate after freshness check for $roomId (not connected): $result")
+                    backgroundPrefetchRequests.remove(paginateRequestId)
+                    roomsWithPendingPaginate.remove(roomId)
                 } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: We are up to date (server: $serverLatestRowId <= ours: $ourLatestRowId), no paginate needed for $roomId")
+                    // Connected but queued (canSendCommandsToBackend=false): keep tracking so the
+                    // response is handled when flushPendingQueue() re-sends after init_complete.
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Full paginate after freshness check queued for $roomId (reqId=$paginateRequestId) — keeping tracking")
                 }
+            } else {
+                android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, cannot fetch fresh data for $roomId")
+                roomsWithPendingPaginate.remove(roomId)
             }
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Error handling freshness check response for $roomId", e)
+            // Don't wedge the room: clear the pending reservation so the next open can retry.
+            roomsWithPendingPaginate.remove(roomId)
         }
     }
-    
+
     fun handleTimelineResponse(requestId: Int, data: Any) =
         timelineCacheCoordinator.handleTimelineResponse(requestId, data)
     private fun handleRoomStateResponse(requestId: Int, data: Any) {
