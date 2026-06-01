@@ -7,10 +7,14 @@ import android.content.Context
 import android.util.Log
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 /**
  * Intelligent media cache with viewport prioritization.
@@ -44,6 +48,24 @@ object IntelligentMediaCache {
     private val cacheEntries = ConcurrentHashMap<String, CacheEntry>()
     private val visibleMedia = ConcurrentHashMap<String, Boolean>()
     private val cacheMutex = Mutex()
+
+    // Number of immediate in-call attempts for a media download. This is distinct from
+    // (and complementary to) WorkManager's worker-level retries: these handle transient
+    // glitches within a single execution (a captive-portal HTML page, a mid-stream reset),
+    // while the worker's exponential-backoff retries ride out longer connectivity outages.
+    private const val DOWNLOAD_ATTEMPTS = 3
+
+    // Shared OkHttp client for media downloads. Bounded timeouts are the whole point of the
+    // switch from java.net.HttpURLConnection: callTimeout caps the entire request (connect +
+    // read + body) so a slow-trickle response on flaky 5G / corporate wifi can't hang the
+    // worker until WorkManager force-kills it.
+    private val downloadClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(60, TimeUnit.SECONDS)
+            .build()
+    }
     
     /**
      * Get cache directory for media files.
@@ -260,6 +282,14 @@ object IntelligentMediaCache {
     
     /**
      * Download and cache MXC URL (compatibility method matching MediaCache API).
+     *
+     * Hardened for hostile networks (5G, corporate wifi / captive portals):
+     * - Uses OkHttp with bounded timeouts so a stalled connection can't hang indefinitely.
+     * - Downloads to a `.tmp` sibling and only renames into the final cache path once the
+     *   payload is confirmed to be an actual image. A mid-stream reset therefore leaves
+     *   only a temp file (cleaned up), never a truncated file masquerading as a cache hit.
+     * - Rejects non-image responses (captive-portal HTML, 302 login pages, error bodies)
+     *   by sniffing magic bytes, then retries instead of caching the garbage.
      */
     suspend fun downloadAndCache(
         context: Context,
@@ -267,35 +297,112 @@ object IntelligentMediaCache {
         httpUrl: String,
         authToken: String
     ): File? = withContext(Dispatchers.IO) {
-        try {
-            val cachedFile = getCacheFile(context, mxcUrl)
-            cachedFile.parentFile?.mkdirs()
+        val cachedFile = getCacheFile(context, mxcUrl)
+        cachedFile.parentFile?.mkdirs()
 
-            // Check if already cached
-            if (cachedFile.exists()) {
-                // Register in cache entries if not already there
-                cacheFile(context, mxcUrl, cachedFile, "unknown")
-                return@withContext cachedFile
-            }
-            
-            // Download the file
-            val connection = java.net.URL(httpUrl).openConnection()
-            connection.setRequestProperty("Cookie", "gomuks_auth=$authToken")
-            connection.connect()
-            
-            cachedFile.outputStream().use { output ->
-                connection.getInputStream().use { input ->
-                    input.copyTo(output)
-                }
-            }
-            
-            // Register in cache
+        // Already fully cached (non-empty) — register and return.
+        if (cachedFile.exists() && cachedFile.length() > 0L) {
             cacheFile(context, mxcUrl, cachedFile, "unknown")
-            
-            cachedFile
+            return@withContext cachedFile
+        }
+
+        val tmpFile = File(cachedFile.parentFile, "${cachedFile.name}.tmp")
+
+        repeat(DOWNLOAD_ATTEMPTS) { attempt ->
+            tmpFile.delete()
+            try {
+                val request = Request.Builder()
+                    .url(httpUrl)
+                    .header("Cookie", "gomuks_auth=$authToken")
+                    .header("User-Agent", getUserAgent())
+                    .build()
+
+                downloadClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "Media download HTTP ${response.code} for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)")
+                        return@use
+                    }
+
+                    val body = response.body ?: run {
+                        Log.w(TAG, "Empty body for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)")
+                        return@use
+                    }
+
+                    val expectedLength = body.contentLength() // -1 if unknown / chunked
+                    tmpFile.outputStream().use { output ->
+                        body.byteStream().use { input -> input.copyTo(output) }
+                    }
+
+                    // Validate before promoting the temp file to the real cache path.
+                    if (tmpFile.length() == 0L) {
+                        Log.w(TAG, "Zero-byte download for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)")
+                        return@use
+                    }
+                    if (expectedLength > 0 && tmpFile.length() != expectedLength) {
+                        Log.w(TAG, "Truncated download for $mxcUrl: got ${tmpFile.length()} of $expectedLength bytes (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)")
+                        return@use
+                    }
+                    if (!looksLikeImage(tmpFile)) {
+                        Log.w(TAG, "Download for $mxcUrl is not an image (captive portal / error page?) (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)")
+                        return@use
+                    }
+
+                    // Atomic-ish promotion: rename is atomic on the same filesystem; fall back to copy.
+                    cachedFile.delete()
+                    if (!tmpFile.renameTo(cachedFile)) {
+                        tmpFile.copyTo(cachedFile, overwrite = true)
+                        tmpFile.delete()
+                    }
+
+                    cacheFile(context, mxcUrl, cachedFile, "image")
+                    return@withContext cachedFile
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Media download failed for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS): ${e.message}")
+            }
+
+            // Short linear backoff between in-call attempts; the worker handles longer outages.
+            if (attempt < DOWNLOAD_ATTEMPTS - 1) delay(500L * (attempt + 1))
+        }
+
+        tmpFile.delete()
+        Log.e(TAG, "Failed to cache media after $DOWNLOAD_ATTEMPTS attempts: $mxcUrl")
+        null
+    }
+
+    /**
+     * Sniff the leading bytes of a file to decide whether it is a real raster image.
+     *
+     * This guards against captive portals and error pages that return HTTP 200 with an
+     * HTML/text body — content-type headers are unreliable through MITM proxies, so we
+     * trust the bytes on disk instead. Covers the formats the app actually renders.
+     */
+    private fun looksLikeImage(file: File): Boolean {
+        return try {
+            val header = ByteArray(12)
+            val read = file.inputStream().use { it.read(header) }
+            if (read < 4) return false
+
+            fun u(i: Int) = header[i].toInt() and 0xFF
+            when {
+                // JPEG: FF D8 FF
+                u(0) == 0xFF && u(1) == 0xD8 && u(2) == 0xFF -> true
+                // PNG: 89 50 4E 47 0D 0A 1A 0A
+                u(0) == 0x89 && u(1) == 0x50 && u(2) == 0x4E && u(3) == 0x47 -> true
+                // GIF: "GIF8"
+                u(0) == 0x47 && u(1) == 0x49 && u(2) == 0x46 && u(3) == 0x38 -> true
+                // BMP: "BM"
+                u(0) == 0x42 && u(1) == 0x4D -> true
+                // WEBP: "RIFF"...."WEBP"
+                read >= 12 && u(0) == 0x52 && u(1) == 0x49 && u(2) == 0x46 && u(3) == 0x46 &&
+                    u(8) == 0x57 && u(9) == 0x45 && u(10) == 0x42 && u(11) == 0x50 -> true
+                // HEIC/HEIF/AVIF: bytes 4..7 == "ftyp"
+                read >= 8 && u(4) == 0x66 && u(5) == 0x74 && u(6) == 0x79 && u(7) == 0x70 -> true
+                else -> false
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to cache media: $mxcUrl", e)
-            null
+            Log.w(TAG, "Could not sniff image header for ${file.name}: ${e.message}")
+            false
         }
     }
     
