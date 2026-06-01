@@ -276,7 +276,7 @@ class FCMService : FirebaseMessagingService() {
                                                 synchronized(pendingNotificationsLock) {
                                                     pendingNotifications.remove(notificationData.roomId)
                                                 }
-                                                hydrateTimelineCacheFromNotification(notificationData.roomId)
+                                                hydrateTimelineCacheFromNotification(notificationData.roomId, notificationData.eventId)
                                             }
                                         } else {
                                             if (BuildConfig.DEBUG) Log.d(TAG, "Notification for room ${notificationData.roomId} was cancelled before showing (legacy path) - skipping")
@@ -526,7 +526,7 @@ class FCMService : FirebaseMessagingService() {
                             synchronized(pendingNotificationsLock) {
                                 pendingNotifications.remove(roomId)
                             }
-                            hydrateTimelineCacheFromNotification(roomId)
+                            hydrateTimelineCacheFromNotification(roomId, eventId)
                         }
                     } else {
                         if (BuildConfig.DEBUG) Log.d(TAG, "Notification for room $roomId was cancelled before showing - skipping")
@@ -556,14 +556,33 @@ class FCMService : FirebaseMessagingService() {
      *  - no AppViewModel is attached — RoomTimelineCache is in-memory, so a throwaway FCM-only process
      *    has nothing durable to hydrate (the next app open repopulates from disk anyway).
      */
-    private fun hydrateTimelineCacheFromNotification(roomId: String) {
+    private fun hydrateTimelineCacheFromNotification(roomId: String, eventId: String? = null) {
         if (roomId.isEmpty()) return
         val prefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
         if (!prefs.getBoolean("use_battery_saver_mode", false)) return
         val viewModel = WebSocketService.getRegisteredViewModels().firstOrNull() ?: return
-        if (BuildConfig.DEBUG) Log.d(TAG, "Hydrating timeline cache via /exec paginate for $roomId")
-        // max_timeline_id=0 → fetch the most recent events.
-        viewModel.paginateViaExec(roomId, maxTimelineId = 0L)
+
+        // When the room is cold (no cached events — e.g. the first notification since a cold start),
+        // a small window would seed a thin, gap-prone cache, and the contiguity check can't help:
+        // there is no "newest cached event" to anchor on, so it can never detect that 100 is needed.
+        // Seed a FULL window from the start instead. Only when the cache is already warm do we use
+        // the small window + pushed-event verification, which escalates to a full paginate on miss/gap.
+        if (RoomTimelineCache.getCachedEventCount(roomId) == 0) {
+            if (BuildConfig.DEBUG) Log.d(TAG, "Hydrating timeline cache via /exec paginate for $roomId (cold cache — full window seed)")
+            viewModel.paginateViaExec(roomId, maxTimelineId = 0L, limit = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT)
+            return
+        }
+
+        if (BuildConfig.DEBUG) Log.d(TAG, "Hydrating timeline cache via /exec paginate for $roomId (warm cache — small window, expecting event $eventId)")
+        // Warm cache: a small window is enough to catch the pushed event (it's the newest, so
+        // max_timeline_id=0 returns it). expectedEventId lets handlePaginationMerge escalate to a
+        // full paginate if a burst pushed it out of the window or the window doesn't reach our top.
+        viewModel.paginateViaExec(
+            roomId,
+            maxTimelineId = 0L,
+            limit = AppViewModel.NOTIFICATION_HYDRATE_PAGINATE_LIMIT,
+            expectedEventId = eventId?.takeIf { it.isNotBlank() },
+        )
     }
 
     /**

@@ -2646,6 +2646,15 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             val cacheBefore = RoomTimelineCache.getCachedEventCount(roomId)
             val oldestRowIdBefore = RoomTimelineCache.getOldestCachedEventRowId(roomId)
 
+            // For an FCM-hydration paginate, capture the newest cached event id BEFORE the merge
+            // pollutes the cache. The hydration verification below uses it as the gap signal: if the
+            // small "fetch latest" window doesn't contain it, more than a window's worth of events
+            // landed since we last updated → there is a gap. Null/empty for non-hydration requests.
+            val newestCachedIdBeforeMerge =
+                if (hydrateExpectedEventIds.containsKey(requestId))
+                    RoomTimelineCache.getLatestCachedEventMetadata(roomId)?.eventId
+                else null
+
             // CRITICAL FIX: Validate pagination response before merging
             // Backend should only return events with timeline_rowid < max_timeline_id
             val maxTimelineIdUsed = paginateRequestMaxTimelineIds[requestId]
@@ -2762,6 +2771,60 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // max_timeline_id to response
             // val maxTimelineIdUsed = paginateRequestMaxTimelineIds[requestId]
             paginateRequestMaxTimelineIds.remove(requestId) // Clean up tracking
+
+            // FCM-hydration verification on the small (NOTIFICATION_HYDRATE_PAGINATE_LIMIT) window.
+            // Two questions decide whether the warm cache is trustworthy:
+            //   (1) Did the pushed event_id arrive?  — we caught the notification's own event.
+            //   (2) Did the pre-merge newest cached event_id arrive?  — the small "fetch latest"
+            //       window overlaps our cache top, so fewer than `limit` events landed since we last
+            //       updated. If it's ABSENT there is a gap, and the merge above just spliced a
+            //       silent hole (rowid sort hides it; backward-paginate keys off the oldest rowid so
+            //       it could never refetch the middle).
+            // Gap (2-fail) is the dangerous case: purge the room timeline and reseed with ONE full
+            // paginate so the cache is fresh and hole-free — even if that full window still doesn't
+            // reach the pushed event (huge backlog), the user can scroll or use MentionsScreen.
+            // A mere (1)-fail with no gap just needs a full merge-paginate to pull the pushed event
+            // into the contiguous window. The escalated request carries no expectedEventId, so a
+            // second miss won't loop.
+            val expectedEventId = hydrateExpectedEventIds.remove(requestId)
+            if (expectedEventId != null) {
+                val responseIds = timelineList.mapTo(HashSet()) { it.eventId }
+                val caughtPushed = responseIds.contains(expectedEventId)
+                val contiguous = newestCachedIdBeforeMerge == null ||
+                    responseIds.contains(newestCachedIdBeforeMerge)
+
+                when {
+                    contiguous && caughtPushed ->
+                        if (BuildConfig.DEBUG)
+                            android.util.Log.d(
+                                "Andromuks",
+                                "AppViewModel: FCM hydration OK for $roomId — caught $expectedEventId, contiguous with cache",
+                            )
+                    !contiguous -> {
+                        // Don't nuke a visible timeline: if this room is somehow open, skip the
+                        // purge (the open-room background prefetch handles gaps) and just escalate.
+                        val purge = roomId != currentRoomId
+                        android.util.Log.i(
+                            "Andromuks",
+                            "AppViewModel: FCM hydration gap for $roomId — newest cached event " +
+                                "$newestCachedIdBeforeMerge absent from ${timelineList.size}-event window " +
+                                "(pushed caught=$caughtPushed)." +
+                                (if (purge) " Purging timeline and reseeding with full paginate."
+                                else " Room is open — skipping purge, escalating with full merge-paginate."),
+                        )
+                        if (purge) RoomTimelineCache.clearRoomCache(roomId)
+                        paginateViaExec(roomId, maxTimelineId = 0L, limit = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT)
+                    }
+                    else -> { // contiguous, but the pushed event fell outside the small window
+                        android.util.Log.i(
+                            "Andromuks",
+                            "AppViewModel: FCM hydration missed pushed event $expectedEventId for $roomId " +
+                                "in ${timelineList.size}-event window (contiguous) — escalating to full merge-paginate",
+                        )
+                        paginateViaExec(roomId, maxTimelineId = 0L, limit = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT)
+                    }
+                }
+            }
 
             // Log paginate response with earliest and oldest timeline_rowid
             if (timelineList.isNotEmpty()) {
