@@ -99,6 +99,7 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material.icons.filled.Close
@@ -3375,6 +3376,10 @@ fun RoomTimelineScreen(
                             isRefreshing = true
                             appViewModel.setAutoPaginationEnabled(false, "manual_refresh_ui_$roomId")
                             appViewModel.fullRefreshRoomTimeline(roomId)
+                        },
+                        onSearchClick = {
+                            val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+                            navController.navigate("search?roomId=$encodedRoomId")
                         }
                     )
 
@@ -6063,7 +6068,8 @@ fun RoomHeader(
     onCallClick: () -> Unit = {},
     callInProgress: Boolean = false,
     callActiveInRoom: Boolean = false,
-    onRefreshClick: () -> Unit = {}
+    onRefreshClick: () -> Unit = {},
+    onSearchClick: () -> Unit = {}
 ) {
     // Debug logging
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomHeader: roomState = $roomState")
@@ -6294,6 +6300,16 @@ fun RoomHeader(
                         },
                         leadingIcon = {
                             Icon(Icons.Filled.Notifications, contentDescription = null)
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Search") },
+                        onClick = {
+                            moreExpanded = false
+                            onSearchClick()
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Filled.Search, contentDescription = null)
                         }
                     )
                 }

@@ -1774,6 +1774,21 @@ fun AppNavigation(
             )
         }
         composable(
+            route = "search?roomId={roomId}",
+            arguments = listOf(navArgument("roomId") {
+                type = NavType.StringType
+                nullable = true
+                defaultValue = null
+            })
+        ) { backStackEntry ->
+            SearchResultsScreen(
+                appViewModel = appViewModel,
+                navController = navController,
+                modifier = modifier,
+                roomId = backStackEntry.arguments?.getString("roomId")
+            )
+        }
+        composable(
             route = "cached_profiles/{cacheType}",
             arguments = listOf(navArgument("cacheType") { type = NavType.StringType })
         ) { backStackEntry: NavBackStackEntry ->

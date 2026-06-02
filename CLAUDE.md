@@ -161,3 +161,4 @@ When investigating protocol behaviour, message shapes, or backend fields, consul
 | Reactions lifecycle, storage, redaction path, `removeReaction` internals | [docs/REACTIONS.md](docs/REACTIONS.md) |
 | Element Call (WebView/WebRTC, call state, incoming banners, timeline narrator, widget protocol) | [docs/ELEMENT_CALL.md](docs/ELEMENT_CALL.md) |
 | Androlog (persistent release-safe event log, `Androlog(category, text)`, viewer screen) | [docs/ANDROLOG.md](docs/ANDROLOG.md) |
+| Message search (`search_local`/`search_server`, SearchResultsScreen, next_batch pagination) | [docs/SEARCH.md](docs/SEARCH.md) |
