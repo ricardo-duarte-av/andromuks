@@ -1,9 +1,11 @@
 # Message Search
 
-`SearchResultsScreen` lets the user search messages either on the homeserver
-(`search_server`) or in the local SQLite database (`search_local`), with a few
-toggles. It is reached from the **More (⋮)** overflow menu in the room timeline
-header (`RoomTimelineScreen` → `RoomHeader`).
+`SearchResultsScreen` lets the user search messages either via the homeserver's
+search API (`search_server`) or against the gomuks backend's own SQLite database
+(`search_local`), with a few toggles. "Local" here means local to the gomuks
+**backend** (the server you connect to over the WebSocket) — the Android app has
+no message database of its own. It is reached from the **More (⋮)** overflow menu
+in the room timeline header (`RoomTimelineScreen` → `RoomHeader`).
 
 ## Entry point & navigation
 
@@ -22,8 +24,8 @@ switches:
 |---|---|---|
 | **Current room only** | on (off/disabled if no room context) | Restricts the search to `roomId`. |
 | **Sort by time** | off | Order by timestamp instead of relevance. |
-| **Search local database** | off (**on** if the room is E2EE) | Picks `search_local` vs `search_server`. The homeserver can't search encrypted content, so E2EE rooms default to local. |
-| **Include redacted events** | off | **Hidden unless local search is on** — it's a `search_local`-only parameter. |
+| **Search backend database** | off (**on** if the room is E2EE) | Picks `search_local` (gomuks backend's SQLite DB) vs `search_server` (homeserver search API). The homeserver can't search encrypted content, so E2EE rooms default to the backend DB. |
+| **Include redacted events** | off | **Hidden unless backend-DB search is on** — it's a `search_local`-only parameter. |
 
 E2EE detection prefers `currentRoomState?.isEncrypted` when the search room is
 the active room, otherwise falls back to

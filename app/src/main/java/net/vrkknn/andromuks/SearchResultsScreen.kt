@@ -244,7 +244,7 @@ fun SearchResultsScreen(
                                 onCheckedChange = { sortByTime = it }
                             )
                             SearchOptionRow(
-                                label = "Search local database",
+                                label = "Search backend database",
                                 checked = searchLocal,
                                 onCheckedChange = { searchLocal = it }
                             )
