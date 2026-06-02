@@ -114,6 +114,10 @@ When adding features, follow the existing Coordinator pattern: create a `*Coordi
 
 `versionCode` is computed dynamically in `app/build.gradle.kts` based on seconds since 2024-01-01 epoch, plus a Play Store offset. `versionName` (e.g., `1.0.73`) is set manually. Bump `versionName` in `app/build.gradle.kts` for releases.
 
+## Version Control
+
+Only switch branches (`git checkout`/`git switch` to another branch, or create one) when the user explicitly asks for it. Do work on the current branch by default — even when committing — unless the user requests otherwise. The user manages branching, merging, and branch cleanup themselves.
+
 ---
 
 ## Upstream API References
