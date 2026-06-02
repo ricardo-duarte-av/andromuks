@@ -156,3 +156,4 @@ When investigating protocol behaviour, message shapes, or backend fields, consul
 | Emoji picker, search, generated data files, JVM 64 KB chunk pattern | [docs/EMOJI.md](docs/EMOJI.md) |
 | Reactions lifecycle, storage, redaction path, `removeReaction` internals | [docs/REACTIONS.md](docs/REACTIONS.md) |
 | Element Call (WebView/WebRTC, call state, incoming banners, timeline narrator, widget protocol) | [docs/ELEMENT_CALL.md](docs/ELEMENT_CALL.md) |
+| Androlog (persistent release-safe event log, `Androlog(category, text)`, viewer screen) | [docs/ANDROLOG.md](docs/ANDROLOG.md) |

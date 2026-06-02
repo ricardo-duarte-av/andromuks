@@ -979,8 +979,19 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     // would be incorrectly overwritten with image data.
                     messageTimestamp = notificationData.timestamp ?: System.currentTimeMillis()
                 )
+            } else if (hasImage) {
+                // hasImage is true but we never resolved an HTTP URL to download from, so the
+                // Phase 2 worker is NOT enqueued and the notification stays text-only forever.
+                // This is the silent failure mode for "image notifications never update": the
+                // image URL was an unrecognized format, or mxcToHttpUrl returned null.
+                Androlog(
+                    "Notifications",
+                    "Room ${notificationData.roomId}: image notification will NOT be updated with the image — " +
+                        "could not resolve a download URL from image='${notificationData.image}' " +
+                        "(deferredHttpUrl=null, deferredMxcUrl=$deferredMxcUrl). Phase 2 worker not enqueued."
+                )
             }
-            
+
             // SHORTCUT OPTIMIZATION: Shortcuts already updated above when notification is shown
             // Using efficient single-room update via updateShortcutsFromSyncRooms
             

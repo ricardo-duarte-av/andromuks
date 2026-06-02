@@ -519,6 +519,36 @@ fun SettingsScreen(
                 }
             }
 
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Androlog",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "View cherry-picked events logged via Androlog(...). These are kept and persisted in both debug and release builds (unlike debug logcat output, which is stripped from release).",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Button(
+                        onClick = { navController.navigate("androlog") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("View Androlog")
+                    }
+                }
+            }
+
             // About Section
             Text(
                 text = "About",

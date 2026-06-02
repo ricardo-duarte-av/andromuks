@@ -52,6 +52,8 @@ class AndromuksApplication : Application() {
         // even before AppViewModel.updateAuthToken is called.
         ImageLoaderSingleton.initFromStorage(this)
         migrateLegacyImageCache()
+        // Initialise the Androlog store so cherry-picked events can be persisted/reviewed.
+        Androlog.init(this)
     }
 
     private fun prewarmSharedPreferences() {

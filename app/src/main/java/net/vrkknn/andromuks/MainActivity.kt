@@ -1753,6 +1753,11 @@ fun AppNavigation(
                 navController = navController
             )
         }
+        composable("androlog") {
+            AndrologScreen(
+                navController = navController
+            )
+        }
         composable(
             route = "mentions?roomId={roomId}",
             arguments = listOf(navArgument("roomId") {

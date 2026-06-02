@@ -133,6 +133,10 @@ class NotificationImageWorker(
         val existing = systemNm.activeNotifications.firstOrNull { it.id == notifId }
         if (existing == null) {
             if (BuildConfig.DEBUG) Log.d(TAG, "Notification for room $roomId was dismissed — skipping image update")
+            Androlog(
+                "Notifications",
+                "Room $roomId: image update skipped — notification no longer active (dismissed/marked read) before worker ran. eventId=$eventId"
+            )
             return Result.success()
         }
 
@@ -147,12 +151,26 @@ class NotificationImageWorker(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Image download failed for room $roomId", e)
-            return if (runAttemptCount < 3) Result.retry() else Result.failure()
+            val willRetry = runAttemptCount < 3
+            Androlog(
+                "Notifications",
+                "Room $roomId: image download threw on attempt ${runAttemptCount + 1} — ${e.javaClass.simpleName}: ${e.message}. " +
+                    (if (willRetry) "Will retry; notification not yet updated." else "Giving up after $runAttemptCount attempts; notification will NOT be updated with the image.") +
+                    " url=$imageUrl"
+            )
+            return if (willRetry) Result.retry() else Result.failure()
         }
 
         if (imageFile == null || !imageFile.exists()) {
             Log.w(TAG, "Image file missing after download attempt for room $roomId")
-            return if (runAttemptCount < 3) Result.retry() else Result.failure()
+            val willRetry = runAttemptCount < 3
+            Androlog(
+                "Notifications",
+                "Room $roomId: image file missing after download attempt ${runAttemptCount + 1} (imageFile=${if (imageFile == null) "null" else "does-not-exist"}). " +
+                    (if (willRetry) "Will retry; notification not yet updated." else "Giving up after $runAttemptCount attempts; notification will NOT be updated with the image.") +
+                    " url=$imageUrl"
+            )
+            return if (willRetry) Result.retry() else Result.failure()
         }
 
         // 3. Wrap in a content:// URI that the notification subsystem can read.
@@ -164,6 +182,11 @@ class NotificationImageWorker(
             )
         } catch (e: Exception) {
             Log.e(TAG, "FileProvider URI creation failed for room $roomId", e)
+            Androlog(
+                "Notifications",
+                "Room $roomId: FileProvider URI creation failed — ${e.javaClass.simpleName}: ${e.message}. " +
+                    "Notification will NOT be updated with the image. file=${imageFile.absolutePath}"
+            )
             return Result.failure()
         }
 
@@ -181,11 +204,23 @@ class NotificationImageWorker(
         val existingStyle = MessagingStyle.extractMessagingStyleFromNotification(existing.notification)
         if (existingStyle == null) {
             Log.w(TAG, "Could not extract MessagingStyle for room $roomId")
+            Androlog(
+                "Notifications",
+                "Room $roomId: could not extract MessagingStyle from the active notification — " +
+                    "notification will NOT be updated with the image. eventId=$eventId"
+            )
             return Result.failure()
         }
 
         val messages = existingStyle.messages.toList()
-        if (messages.isEmpty()) return Result.failure()
+        if (messages.isEmpty()) {
+            Androlog(
+                "Notifications",
+                "Room $roomId: active notification's MessagingStyle had no messages to upgrade — " +
+                    "notification will NOT be updated with the image. eventId=$eventId"
+            )
+            return Result.failure()
+        }
 
         // 5. Rebuild MessagingStyle: find and upgrade the target message to an image version.
         //    We match by timestamp so that a newer text message that arrived between Phase 1
@@ -285,6 +320,10 @@ class NotificationImageWorker(
         }
 
         if (BuildConfig.DEBUG) Log.d(TAG, "Notification updated with image for room $roomId")
+        Androlog(
+            "Notifications",
+            "Room $roomId: notification successfully updated with image (ts=$messageTimestamp, mime=$mimeType)."
+        )
         return Result.success()
     }
 }
