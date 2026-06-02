@@ -98,6 +98,8 @@ import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material.icons.filled.Close
@@ -108,6 +110,8 @@ import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedButton
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -3372,6 +3376,10 @@ fun RoomTimelineScreen(
                             isRefreshing = true
                             appViewModel.setAutoPaginationEnabled(false, "manual_refresh_ui_$roomId")
                             appViewModel.fullRefreshRoomTimeline(roomId)
+                        },
+                        onSearchClick = {
+                            val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+                            navController.navigate("search?roomId=$encodedRoomId")
                         }
                     )
 
@@ -6060,7 +6068,8 @@ fun RoomHeader(
     onCallClick: () -> Unit = {},
     callInProgress: Boolean = false,
     callActiveInRoom: Boolean = false,
-    onRefreshClick: () -> Unit = {}
+    onRefreshClick: () -> Unit = {},
+    onSearchClick: () -> Unit = {}
 ) {
     // Debug logging
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomHeader: roomState = $roomState")
@@ -6208,13 +6217,6 @@ fun RoomHeader(
                     modifier = Modifier.size(20.dp)
                 )
             }
-            IconButton(onClick = onNotificationsClick) {
-                Icon(
-                    imageVector = Icons.Filled.Notifications,
-                    contentDescription = "Room notifications",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
             val callIsLive = callInProgress || callActiveInRoom
             val callPulse = rememberInfiniteTransition(label = "call_pulse")
             val callPulseAlpha by callPulse.animateFloat(
@@ -6272,6 +6274,43 @@ fun RoomHeader(
                         imageVector = androidx.compose.material.icons.Icons.Filled.Refresh,
                         contentDescription = "Refresh timeline",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // "More" overflow menu (3-dot). Hosts secondary actions to keep the header compact.
+            var moreExpanded by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { moreExpanded = true }) {
+                    Icon(
+                        imageVector = Icons.Filled.MoreVert,
+                        contentDescription = "More",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                DropdownMenu(
+                    expanded = moreExpanded,
+                    onDismissRequest = { moreExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Mentions") },
+                        onClick = {
+                            moreExpanded = false
+                            onNotificationsClick()
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Filled.Notifications, contentDescription = null)
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Search") },
+                        onClick = {
+                            moreExpanded = false
+                            onSearchClick()
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Filled.Search, contentDescription = null)
+                        }
                     )
                 }
             }

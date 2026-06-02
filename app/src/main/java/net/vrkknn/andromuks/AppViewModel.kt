@@ -4875,6 +4875,8 @@ class AppViewModel : ViewModel() {
     internal val galleryPaginateRequests = mutableMapOf<Int, (List<TimelineEvent>, Boolean, Long) -> Unit>()
     // Thread paginate (paginate_manual with thread_root): requestId -> callback(events, nextBatch)
     internal val threadPaginateRequests = mutableMapOf<Int, (List<TimelineEvent>, String) -> Unit>()
+    // Message search (search_local / search_server): requestId -> callback(events, nextBatch)
+    internal val searchRequests = mutableMapOf<Int, (List<TimelineEvent>, String) -> Unit>()
     internal val userEncryptionInfoRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
     private val mutualRoomsRequests = mutableMapOf<Int, (List<String>?, String?) -> Unit>() // requestId -> callback
     internal val basicProfileCallbacks = mutableMapOf<Int, (MemberProfile?) -> Unit>() // requestId -> callback for direct get_profile consumers
@@ -6976,6 +6978,7 @@ class AppViewModel : ViewModel() {
                     widgetCommandRequests.containsKey(requestId) ||
                     galleryPaginateRequests.containsKey(requestId) ||
                     threadPaginateRequests.containsKey(requestId) ||
+                    searchRequests.containsKey(requestId) ||
                     createRoomRequests.containsKey(requestId)
 
             // If it's NOT in any request map, it's truly stale - ignore it
@@ -7057,6 +7060,8 @@ class AppViewModel : ViewModel() {
             handleGalleryPaginateResponse(requestId, data)
         } else if (threadPaginateRequests.containsKey(requestId)) {
             handleThreadPaginateResponse(requestId, data)
+        } else if (searchRequests.containsKey(requestId)) {
+            handleSearchResponse(requestId, data)
         } else if (createRoomRequests.containsKey(requestId)) {
             handleCreateRoomResponse(requestId, data)
         } else {
@@ -8543,6 +8548,115 @@ class AppViewModel : ViewModel() {
             callback(events, nextBatch)
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: paginateThread - error handling response", e)
+            callback(emptyList(), "")
+        }
+    }
+
+    /**
+     * Search for messages via either `search_local` (SQLite FTS5 over the local database) or
+     * `search_server` (homeserver search). Both return a ManualPaginationResponse — the same
+     * `{events, next_batch}` shape that [paginateThread] consumes — so the response handling is
+     * identical apart from the request map.
+     *
+     * @param searchTerm Free-text query. For local search this is an FTS5 MATCH expression.
+     * @param searchLocal true → `search_local`; false → `search_server`.
+     * @param roomIds Restrict to these rooms. Empty = all rooms.
+     * @param senders Restrict to these senders. Empty = all senders.
+     * @param sortByTime Sort by timestamp instead of relevance.
+     * @param includeRedacted (local only) also search redacted events.
+     * @param limit Max results per page.
+     * @param nextBatch Continuation token from a previous response; all other params must match.
+     * @param callback (events, nextBatch) — parsed TimelineEvents + continuation token.
+     */
+    fun searchMessages(
+        searchTerm: String,
+        searchLocal: Boolean,
+        roomIds: List<String> = emptyList(),
+        senders: List<String> = emptyList(),
+        sortByTime: Boolean = false,
+        includeRedacted: Boolean = false,
+        limit: Int = 50,
+        nextBatch: String = "",
+        callback: (events: List<TimelineEvent>, nextBatch: String) -> Unit
+    ) {
+        if (!isWebSocketConnected()) {
+            android.util.Log.w("Andromuks", "AppViewModel: searchMessages - WebSocket not connected, calling back empty")
+            callback(emptyList(), "")
+            return
+        }
+        val requestId = WebSocketService.allocateRequestId()
+        searchRequests[requestId] = callback
+        val command = if (searchLocal) "search_local" else "search_server"
+        val data = mutableMapOf<String, Any>(
+            "search_term" to searchTerm,
+            "raw_like" to "",
+            "limit" to limit,
+            "room_ids" to roomIds,
+            "senders" to senders,
+            "sort_by_time" to sortByTime
+        )
+        // include_redacted is a search_local-only parameter.
+        if (searchLocal) {
+            data["include_redacted"] = includeRedacted
+        }
+        if (nextBatch.isNotBlank()) {
+            data["next_batch"] = nextBatch
+        }
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: searchMessages - command=$command, term='$searchTerm', rooms=$roomIds, sortByTime=$sortByTime, includeRedacted=$includeRedacted, requestId=$requestId")
+        val result = sendWebSocketCommand(command, requestId, data)
+        if (result != WebSocketResult.SUCCESS) {
+            android.util.Log.w("Andromuks", "AppViewModel: searchMessages - failed to send $command (result=$result)")
+            searchRequests.remove(requestId)
+            callback(emptyList(), "")
+            return
+        }
+        // Timeout so the screen never waits forever
+        viewModelScope.launch(Dispatchers.IO) {
+            delay(15000L)
+            if (searchRequests.containsKey(requestId)) {
+                android.util.Log.w("Andromuks", "AppViewModel: searchMessages timeout for requestId=$requestId")
+                withContext(Dispatchers.Main) {
+                    searchRequests.remove(requestId)?.invoke(emptyList(), "")
+                }
+            }
+        }
+    }
+
+    private fun handleSearchResponse(requestId: Int, data: Any) {
+        val callback = searchRequests.remove(requestId) ?: return
+        try {
+            val events = mutableListOf<TimelineEvent>()
+            var nextBatch = ""
+            when (data) {
+                is JSONObject -> {
+                    nextBatch = data.optString("next_batch", "")
+                    val eventsArray = data.optJSONArray("events")
+                    if (eventsArray != null) {
+                        for (i in 0 until eventsArray.length()) {
+                            val json = eventsArray.optJSONObject(i) ?: continue
+                            try {
+                                events.add(TimelineEvent.fromJson(json))
+                            } catch (e: Exception) {
+                                android.util.Log.e("Andromuks", "AppViewModel: searchMessages - error parsing event at index $i: ${e.message}", e)
+                            }
+                        }
+                    }
+                }
+                is JSONArray -> {
+                    for (i in 0 until data.length()) {
+                        val json = data.optJSONObject(i) ?: continue
+                        try {
+                            events.add(TimelineEvent.fromJson(json))
+                        } catch (e: Exception) {
+                            android.util.Log.e("Andromuks", "AppViewModel: searchMessages - error parsing event at index $i: ${e.message}", e)
+                        }
+                    }
+                }
+            }
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: searchMessages - parsed ${events.size} events, next_batch='$nextBatch'")
+            callback(events, nextBatch)
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: searchMessages - error handling response", e)
             callback(emptyList(), "")
         }
     }
