@@ -1014,6 +1014,16 @@ internal class SyncRoomsCoordinator(
                                 } else {
                                     room.messageSender
                                 },
+                                // Keep the resolved display name in lockstep with messageSender.
+                                // A metadata-only sync (reaction/receipt/sort bump) parses to a null
+                                // messageSender AND null senderDisplayName; without this, the preserved
+                                // sender would be left with a null display name and the row would
+                                // revert to the usernameFromMatrixId fallback.
+                                senderDisplayName = if (room.messageSender.isNullOrBlank() && !existingRoom.messageSender.isNullOrBlank()) {
+                                    existingRoom.senderDisplayName
+                                } else {
+                                    room.senderDisplayName ?: existingRoom.senderDisplayName?.takeIf { existingRoom.messageSender == room.messageSender }
+                                },
                                 // Preserve last known event_id when sync doesn't include new events
                                 // (e.g. a sync with only reactions/joins has no latestEventId from the parser)
                                 latestEventId = room.latestEventId ?: existingRoom.latestEventId,
@@ -1097,6 +1107,7 @@ internal class SyncRoomsCoordinator(
                             room.copy(
                                 messagePreview = if (room.messagePreview.isNullOrBlank() && !existingInRoomMap.messagePreview.isNullOrBlank()) existingInRoomMap.messagePreview else room.messagePreview,
                                 messageSender = if (room.messagePreview.isNullOrBlank() && !existingInRoomMap.messagePreview.isNullOrBlank()) existingInRoomMap.messageSender else room.messageSender,
+                                senderDisplayName = if (room.messagePreview.isNullOrBlank() && !existingInRoomMap.messagePreview.isNullOrBlank()) existingInRoomMap.senderDisplayName else (room.senderDisplayName ?: existingInRoomMap.senderDisplayName?.takeIf { existingInRoomMap.messageSender == room.messageSender }),
                                 isFavourite = room.isFavourite || existingInRoomMap.isFavourite,
                                 isLowPriority = room.isLowPriority || existingInRoomMap.isLowPriority,
                                 isDirectMessage = room.isDirectMessage || existingInRoomMap.isDirectMessage,

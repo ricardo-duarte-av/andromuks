@@ -249,6 +249,8 @@ val processedInBatch = _processedInBatch.asStateFlow()
                                         bridgeProtocolAvatarUrl = room.bridgeProtocolAvatarUrl ?: existing.bridgeProtocolAvatarUrl,
                                         messagePreview = room.messagePreview ?: existing.messagePreview,
                                         messageSender = if (room.messagePreview != null) room.messageSender else existing.messageSender,
+                                        // Carry the resolved display name with the sender it belongs to.
+                                        senderDisplayName = if (room.messagePreview != null) room.senderDisplayName else existing.senderDisplayName,
                                         latestEventId = room.latestEventId ?: existing.latestEventId
                                     )
                                 }
@@ -265,6 +267,7 @@ val processedInBatch = _processedInBatch.asStateFlow()
                                         bridgeProtocolAvatarUrl = room.bridgeProtocolAvatarUrl ?: existing.bridgeProtocolAvatarUrl,
                                         messagePreview = room.messagePreview ?: existing.messagePreview,
                                         messageSender = if (room.messagePreview != null) room.messageSender else existing.messageSender,
+                                        senderDisplayName = if (room.messagePreview != null) room.senderDisplayName else existing.senderDisplayName,
                                         latestEventId = room.latestEventId ?: existing.latestEventId
                                     )
                                 }
