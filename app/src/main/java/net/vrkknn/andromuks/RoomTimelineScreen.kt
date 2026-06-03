@@ -2327,11 +2327,9 @@ fun RoomTimelineScreen(
     LaunchedEffect(appViewModel.isAppVisible, roomId) {
         val appJustBecameVisible = !previousAppVisibleState && appViewModel.isAppVisible
 
-        // Reset animation cutover so only messages received *after* user is looking animate
-        // (batched sync_completes on resume use older event timestamps and won't match).
-        if (appJustBecameVisible) {
-            appViewModel.markTimelineForeground(roomId)
-        }
+        // Note: the entrance-animation cutover is advanced in AppViewModel.onAppBecameVisible()
+        // (the authoritative resume funnel), before the batch flush rebuilds this timeline — doing
+        // it here would race that rebuild and let backgrounded messages animate.
 
         if (appJustBecameVisible && isAttachedToBottom) {
             // App was foregrounded AND we're marked as attached - animate scroll to bottom smoothly

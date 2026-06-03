@@ -2010,9 +2010,9 @@ fun BubbleTimelineScreen(
     LaunchedEffect(appViewModel.isAppVisible, roomId) {
         val appJustBecameVisible = !previousAppVisibleState && appViewModel.isAppVisible
 
-        if (appJustBecameVisible) {
-            appViewModel.markTimelineForeground(roomId)
-        }
+        // Note: the entrance-animation cutover is advanced in AppViewModel.setBubbleVisible()
+        // (the authoritative bubble resume funnel), before the timeline refresh rebuilds this
+        // timeline — doing it here would race that rebuild and let backgrounded messages animate.
 
         if (appJustBecameVisible && isAttachedToBottom) {
             // App was foregrounded AND we're marked as attached - animate scroll to bottom smoothly

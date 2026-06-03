@@ -4106,6 +4106,14 @@ class AppViewModel : ViewModel() {
             // so a backgrounded bubble's B→A transition restores live updates.
             ensureWebSocketAliveForBubble()
 
+            // Move the entrance-animation cutover to *now* (this foreground moment) BEFORE the
+            // timeline refresh below rebuilds the bubble room's timeline, so messages received
+            // while the bubble was backgrounded don't animate — only ones arriving after this
+            // resume do. Mirrors onAppBecameVisible; see markTimelineForeground.
+            if (currentRoomId.isNotEmpty()) {
+                markTimelineForeground(currentRoomId)
+            }
+
             // If a room is currently open, trigger timeline refresh to show new events from cache
             if (currentRoomId.isNotEmpty()) {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room is open ($currentRoomId), triggering timeline refresh for bubble")

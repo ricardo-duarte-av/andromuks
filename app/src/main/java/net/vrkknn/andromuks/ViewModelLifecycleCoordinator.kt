@@ -187,6 +187,16 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
             mainActivityEverResumed = true
             updateAppVisibilityInPrefs(true)
 
+            // Move the entrance-animation cutover to *now* (this foreground moment) BEFORE the
+            // batch flush + timeline refresh below rebuild the open room's timeline. Messages that
+            // arrived while backgrounded carry older timestamps and so won't animate; only messages
+            // that arrive after this resume will. Doing it here — the single authoritative resume
+            // funnel — rather than in a Compose LaunchedEffect avoids a race where the rebuild runs
+            // before recomposition marks the foreground (which made backgrounded messages animate).
+            if (currentRoomId.isNotEmpty()) {
+                markTimelineForeground(currentRoomId)
+            }
+
             // BATTERY OPTIMIZATION: Notify batch processor to flush pending messages and process
             // immediately
             // CRITICAL: Wait for batches to flush BEFORE refreshing UI, so UI shows up-to-date data
