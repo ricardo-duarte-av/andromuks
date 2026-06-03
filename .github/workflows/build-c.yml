@@ -36,6 +36,9 @@ jobs:
           # 5) Matrix Contacts provider AUTHORITY constant in MatrixContactsProvider.kt
           sed -i 's/AUTHORITY = "net\.vrkknn\.andromuks\.matrix\.contacts"/AUTHORITY = "net.vrkknn.andromuks.matrix.contacts.c"/' app/src/main/java/net/vrkknn/andromuks/MatrixContactsProvider.kt
 
+          # 6) Hardcoded FileProvider authority in Kotlin (must match the manifest authority from step 3)
+          sed -i 's/"pt\.aguiarvieira\.andromuks\.fileprovider"/"pt.aguiarvieira.andromuks.c.fileprovider"/' app/src/main/java/net/vrkknn/andromuks/NotificationImageWorker.kt app/src/main/java/net/vrkknn/andromuks/utils/CrashHandler.kt
+
       - name: Set Up JDK
         uses: actions/setup-java@v4
         with:
