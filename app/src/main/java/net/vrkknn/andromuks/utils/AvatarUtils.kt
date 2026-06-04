@@ -3,7 +3,6 @@ package net.vrkknn.andromuks.utils
 
 import android.content.Context
 import android.util.Log
-import java.net.URLEncoder
 
 object AvatarUtils {
     private const val FALLBACK_COLOR_COUNT = 10
@@ -110,17 +109,20 @@ object AvatarUtils {
     }
     
     /**
-     * Converts an MXC URL to a proper HTTP URL for loading avatars.
-     * When [userId] is provided the backend fallback parameter is appended so the server
-     * renders a coloured-initial placeholder when the media is unavailable.
+     * Converts an MXC URL to a proper HTTP URL for loading avatars (`?thumbnail=avatar`).
+     *
+     * Deliberately does NOT append the backend `&fallback=color:letter` param. That param made the
+     * backend return an HTTP 200 colored-initial image when the underlying media was unavailable,
+     * which Coil then disk-cached as a successful load under the real media's cache key — permanently
+     * pinning the placeholder even after the media became available again. We render the identical
+     * colored-initial fallback locally in [net.vrkknn.andromuks.ui.components.AvatarImage] on a genuine
+     * 404/error (which Coil does not disk-cache), so the slot self-heals when the media returns.
      */
     fun mxcToHttpUrl(
         mxcUrl: String?,
-        homeserverUrl: String,
-        userId: String? = null,
-        displayName: String? = null
+        homeserverUrl: String
     ): String? {
-        return buildMediaUrl(mxcUrl, homeserverUrl, includeAvatarParams = true, userId = userId, displayName = displayName)
+        return buildMediaUrl(mxcUrl, homeserverUrl, includeAvatarParams = true)
     }
     
     /**
@@ -135,11 +137,9 @@ object AvatarUtils {
     fun getAvatarUrl(
         context: Context,
         mxcUrl: String?,
-        homeserverUrl: String,
-        userId: String? = null,
-        displayName: String? = null
+        homeserverUrl: String
     ): String? {
-        return mxcToHttpUrl(mxcUrl, homeserverUrl, userId, displayName)
+        return mxcToHttpUrl(mxcUrl, homeserverUrl)
     }
     
     /**
@@ -158,9 +158,7 @@ object AvatarUtils {
     private fun buildMediaUrl(
         mxcUrl: String?,
         homeserverUrl: String,
-        includeAvatarParams: Boolean,
-        userId: String? = null,
-        displayName: String? = null
+        includeAvatarParams: Boolean
     ): String? {
         if (mxcUrl.isNullOrBlank() || mxcUrl == "null") return null
 
@@ -180,15 +178,9 @@ object AvatarUtils {
             val server = parts[0]
             val mediaId = parts[1]
 
-            val thumbnailParams = if (includeAvatarParams) {
-                val fallbackParam = if (userId != null) {
-                    val colorInt = getUserColor(userId)
-                    val colorHex = String.format("#%06x", 0xFFFFFF and colorInt)
-                    val letter = getFallbackCharacter(displayName, userId)
-                    "&fallback=" + URLEncoder.encode("$colorHex:$letter", "UTF-8")
-                } else ""
-                "?thumbnail=avatar&size=256$fallbackParam"
-            } else ""
+            // The backend only honours `thumbnail=avatar`; it ignores `size`, so we don't send it.
+            // No `fallback=` either — see mxcToHttpUrl kdoc for why the local fallback is preferred.
+            val thumbnailParams = if (includeAvatarParams) "?thumbnail=avatar" else ""
 
             val rawUrl = "$homeserverUrl/_gomuks/media/$server/$mediaId$thumbnailParams"
 

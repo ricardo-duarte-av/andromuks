@@ -562,7 +562,7 @@ fun RoomListScreen(
                     // Use the SAME resolution AvatarImage uses (the http(s) MXC URL), so
                     // the URL + size + cache key match exactly = same memory-cache slot.
                     val url = AvatarUtils.getAvatarUrl(
-                        context, mxc, appViewModel.homeserverUrl, room.id, room.name
+                        context, mxc, appViewModel.homeserverUrl
                     ) ?: return@forEach
                     // Use the same explicit cache key as AvatarImage so this preload
                     // populates the same memory/disk slot the row will later hit, and

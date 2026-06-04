@@ -59,7 +59,6 @@ fun AvatarImage(
 
     // Resolve effective identity for colour/letter generation
     val effectiveUserId = userId ?: fallbackText
-    val effectiveDisplayName = displayName ?: fallbackText
 
     // Resolve to the http(s) MXC URL and let Coil's general disk/memory cache serve it, keyed by
     // the immutable "${mxc}@${size}". The former CircleAvatarCache file:// path was removed: it
@@ -73,7 +72,7 @@ fun AvatarImage(
         if (mxcUrl == null) {
             mutableStateOf(null as String?)
         } else {
-            mutableStateOf(AvatarUtils.getAvatarUrl(context, mxcUrl, homeserverUrl, effectiveUserId, effectiveDisplayName))
+            mutableStateOf(AvatarUtils.getAvatarUrl(context, mxcUrl, homeserverUrl))
         }
     }
     
