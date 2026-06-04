@@ -171,8 +171,7 @@ class NotificationImageWorker(
         val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
         val freshToken = sharedPrefs.getString("image_auth_token", "")
             ?.takeIf { it.isNotBlank() }
-            ?: sharedPrefs.getString("gomuks_auth_token", "")
-            ?: ""
+            ?: net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
         val batchToken = inputData.getString(KEY_IMAGE_AUTH_TOKEN) ?: ""
         val authToken = freshToken.ifBlank { inputData.getString(KEY_AUTH_TOKEN) ?: "" }
 

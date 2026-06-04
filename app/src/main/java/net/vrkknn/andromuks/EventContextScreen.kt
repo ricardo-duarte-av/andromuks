@@ -57,7 +57,7 @@ fun EventContextScreen(
         context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
     }
     val authToken = remember(sharedPreferences) {
-        sharedPreferences.getString("gomuks_auth_token", "") ?: ""
+        net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPreferences)
     }
     val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     val myUserId = appViewModel.currentUserId

@@ -468,8 +468,9 @@ object SyncRepository {
     fun hasCredentials(context: Context): Boolean {
         val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
         val h = prefs.getString("homeserver_url", "") ?: ""
-        val t = prefs.getString("gomuks_auth_token", "") ?: ""
-        return h.isNotEmpty() && t.isNotEmpty()
+        // Presence check only — avoid a Keystore decrypt on this hot, main-thread path.
+        val hasToken = net.vrkknn.andromuks.utils.CredentialStore.hasAuthToken(prefs)
+        return h.isNotEmpty() && hasToken
     }
 
     fun emitEvent(event: SyncEvent) {

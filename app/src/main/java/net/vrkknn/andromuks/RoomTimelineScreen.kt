@@ -770,7 +770,7 @@ fun RoomTimelineScreen(
             context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
         }
     val authToken =
-        remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
+        remember(sharedPreferences) { net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPreferences) }
     val myUserId = appViewModel.currentUserId
     val homeserverUrlFromPrefs = remember(sharedPreferences) { sharedPreferences.getString("homeserver_url", "") ?: "" }
     val homeserverUrl = appViewModel.homeserverUrl.ifEmpty { homeserverUrlFromPrefs }

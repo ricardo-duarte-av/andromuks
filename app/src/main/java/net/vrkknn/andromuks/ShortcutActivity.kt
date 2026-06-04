@@ -199,7 +199,7 @@ fun ShortcutNavigation(roomId: String) {
     LaunchedEffect(Unit) {
         val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
         val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
-        val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+        val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
 
         // Expose homeserver URL and auth token on the ViewModel so that any composable
         // using appViewModel.homeserverUrl / appViewModel.authToken directly (e.g.

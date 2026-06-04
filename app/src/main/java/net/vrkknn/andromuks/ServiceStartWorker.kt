@@ -70,7 +70,7 @@ class ServiceStartWorker(
             // Check if we have credentials (user is logged in)
             val prefs = applicationContext.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
-            val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
+            val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs)
             
             if (homeserverUrl.isEmpty() || authToken.isEmpty()) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "No credentials found - user not logged in, skipping service start")

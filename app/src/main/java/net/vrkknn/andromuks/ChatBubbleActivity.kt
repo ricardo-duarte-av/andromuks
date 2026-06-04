@@ -484,7 +484,7 @@ private fun ChatBubbleLoadingScreen(
         // MutableState writes from background threads safely.
         val (token, homeserverUrl) = withContext(Dispatchers.IO) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            prefs.getString("gomuks_auth_token", null) to prefs.getString("homeserver_url", null)
+            net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs).ifBlank { null } to prefs.getString("homeserver_url", null)
         }
 
         if (token != null && homeserverUrl != null) {

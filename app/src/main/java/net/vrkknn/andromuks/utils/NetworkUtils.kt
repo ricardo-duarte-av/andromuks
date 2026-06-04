@@ -454,10 +454,19 @@ fun performHttpLogin(
                     val jsonResponse = JSONObject(responseBodyString)
                     val receivedToken = jsonResponse.optString("token", "")
                     if (receivedToken != null) {
+                        // Token is encrypted at rest (Key A) so background workers can decrypt it.
+                        // homeserver_url stays plaintext (not a secret, read in many places).
+                        // Credentials are stored encrypted for silent re-auth on token expiry; the
+                        // biometric requirement is enforced as a UI gate, not by key binding.
+                        CredentialStore.persistAuthToken(sharedPreferences, receivedToken)
                         sharedPreferences.edit {
-                            putString("gomuks_auth_token", receivedToken)
                             putString("homeserver_url", url)
                         }
+                        CredentialStore.persistCredentials(
+                            sharedPreferences,
+                            username = username,
+                            password = password
+                        )
                         if (BuildConfig.DEBUG) Log.d(
                             "LoginScreen",
                             "Token and server base URL saved to SharedPreferences."
