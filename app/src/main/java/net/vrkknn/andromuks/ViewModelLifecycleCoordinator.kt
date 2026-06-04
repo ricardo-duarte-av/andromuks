@@ -249,7 +249,7 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 if (!pingFired) {
                     val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
                     val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
-                    val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
+                    val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs)
                     if (BuildConfig.DEBUG) android.util.Log.i(
                         "Andromuks",
                         "AppViewModel: Resume health check — pingNowWithWatchdog returned false → re-dialling WebSocket",

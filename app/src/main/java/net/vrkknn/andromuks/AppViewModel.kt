@@ -503,6 +503,10 @@ class AppViewModel : ViewModel() {
     // Room timeline read receipts layout: false = inline next to bubble, true = moved to opposite screen edge
     var moveReadReceiptsToEdge by mutableStateOf(false)
         internal set
+    // Require biometric/device-credential authentication when the app is foregrounded, and before
+    // re-authenticating with stored credentials on token expiry. See BiometricLockGate.
+    var requireBiometricUnlock by mutableStateOf(false)
+        internal set
     // Trim long display names in timeline: if true, names longer than 40 chars are trimmed with "..."
     var trimLongDisplayNames by mutableStateOf(true)
         internal set
@@ -3826,7 +3830,59 @@ class AppViewModel : ViewModel() {
     fun setUnauthorizedNavigationCallback(callback: (homeserverUrl: String, username: String) -> Unit) {
         onUnauthorized = callback
     }
-    
+
+    // Biometric re-auth handshake. When a 401 arrives and the user enabled "Require biometric",
+    // ReauthCoordinator asks the UI (via this callback) to run a BiometricPrompt whose subtitle
+    // explains it is for re-authentication. On success the UI calls
+    // ReauthCoordinator.completeBiometricReauth(...), which then re-logs in with stored credentials.
+    private var onBiometricReauthRequested: (() -> Unit)? = null
+    // Set true while a biometric-gated re-auth is pending UI action; lets a foregrounding Activity
+    // pick it up even if the callback wasn't registered at the moment the 401 fired.
+    var pendingBiometricReauth: Boolean = false
+        private set
+
+    fun setBiometricReauthCallback(callback: (() -> Unit)?) {
+        onBiometricReauthRequested = callback
+        // If a re-auth became pending before the UI registered, fire it now.
+        if (callback != null && pendingBiometricReauth) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post { callback() }
+        }
+    }
+
+    /** Called by ReauthCoordinator to ask the UI to run the re-authentication biometric prompt. */
+    fun requestBiometricReauth() {
+        pendingBiometricReauth = true
+        val cb = onBiometricReauthRequested
+        if (cb != null) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post { cb() }
+        }
+    }
+
+    /** Cleared by the UI once the biometric re-auth flow resolves (success or final cancel). */
+    fun clearPendingBiometricReauth() {
+        pendingBiometricReauth = false
+    }
+
+    /**
+     * Re-establishes the WebSocket after a successful re-auth produced a fresh session token. The
+     * old session's run_id is dropped so the backend starts a clean cold-start sync.
+     */
+    internal fun reconnectAfterReauth(homeserverUrl: String, token: String) {
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            try {
+                appContext?.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+                    ?.edit()?.remove("ws_run_id")?.apply()
+                currentRunId = ""
+                WebSocketService.clearReconnectionState()
+                updateAuthToken(token)
+                updateHomeserverUrl(homeserverUrl)
+                initializeWebSocketConnection(homeserverUrl, token, isReconnection = false)
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: reconnectAfterReauth failed", e)
+            }
+        }
+    }
+
     // Pending room navigation from shortcuts
     internal var pendingRoomNavigation: String? = null
     
@@ -4149,7 +4205,7 @@ class AppViewModel : ViewModel() {
         val ctx = appContext ?: return
         val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
         val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
-        val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
+        val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs)
         if (homeserverUrl.isBlank() || authToken.isBlank()) {
             android.util.Log.w(
                 "Andromuks",
@@ -5552,14 +5608,34 @@ class AppViewModel : ViewModel() {
      * This should be called when WebSocket connection fails with 401 (invalid/expired token).
      */
     fun handleUnauthorizedError() {
-        android.util.Log.e("Andromuks", "AppViewModel: Handling 401 Unauthorized error - clearing credentials and navigating to login")
+        android.util.Log.e("Andromuks", "AppViewModel: Handling 401 Unauthorized error")
+        logActivity("401 Unauthorized", null)
+
+        // Try to silently re-authenticate with stored credentials before dropping the user back to
+        // the login screen. ReauthCoordinator returns true when it started (or is awaiting biometric
+        // confirmation for) a re-auth, in which case we must NOT clear the session here.
+        if (ReauthCoordinator.attempt(this)) {
+            android.util.Log.i("Andromuks", "AppViewModel: 401 - re-auth attempt started; deferring credential clear")
+            return
+        }
+
+        clearCredentialsAndNavigateToLogin()
+    }
+
+    /**
+     * Hard-clears the session (encrypted token + stored credentials + run_id) and navigates to the
+     * login screen with pre-filled homeserver URL and username. Used when no stored credentials
+     * exist or a re-auth attempt has definitively failed (genuinely changed/revoked password).
+     */
+    internal fun clearCredentialsAndNavigateToLogin() {
+        android.util.Log.e("Andromuks", "AppViewModel: Clearing credentials and navigating to login")
         logActivity("401 Unauthorized - Clearing Credentials", null)
-        
+
         val context = appContext ?: run {
             android.util.Log.e("Andromuks", "AppViewModel: Cannot handle 401 error - appContext is null")
             return
         }
-        
+
         try {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
 
@@ -5573,8 +5649,8 @@ class AppViewModel : ViewModel() {
 
             val editor = prefs.edit()
 
-            // Clear auth token (this will cause AuthCheck to navigate to login)
-            editor.remove("gomuks_auth_token")
+            // Clear auth token (encrypted + any legacy plaintext) so AuthCheck routes to login.
+            net.vrkknn.andromuks.utils.CredentialStore.clearAuthToken(editor)
             editor.remove("homeserver_url")
 
             // Clear run_id
@@ -5589,7 +5665,11 @@ class AppViewModel : ViewModel() {
                 // Fallback to apply() if commit() fails (shouldn't happen, but be defensive)
                 editor.apply()
             }
-            
+
+            // Drop the stored login credentials and their Keystore key — reaching this path means
+            // the password is no longer valid (changed/revoked), so they must be re-entered.
+            net.vrkknn.andromuks.utils.CredentialStore.clearCredentials(prefs)
+
             // Clear in-memory state
             currentRunId = ""
             vapidKey = ""
@@ -10872,6 +10952,8 @@ class AppViewModel : ViewModel() {
     fun toggleMoveReadReceiptsToEdge() = settingsCoordinator.toggleMoveReadReceiptsToEdge()
 
     fun toggleTrimLongDisplayNames() = settingsCoordinator.toggleTrimLongDisplayNames()
+
+    fun setRequireBiometricUnlock(enabled: Boolean) = settingsCoordinator.setRequireBiometricUnlock(enabled)
 
     fun toggleShowLinkPreviews() = settingsCoordinator.toggleShowLinkPreviews()
 

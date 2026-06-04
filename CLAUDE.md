@@ -149,6 +149,7 @@ When investigating protocol behaviour, message shapes, or backend fields, consul
 | User profile architecture (two caches, resolution order, "do we have it?" sentinel, rendering fallback, UserInfoScreen bypass) | [docs/USER_PROFILES.md](docs/USER_PROFILES.md) |
 | Read receipts invariants and update paths | [docs/RECEIPTS.md](docs/RECEIPTS.md) |
 | Push notifications (FCM, two-phase images, image auth token) | [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md) |
+| Secure credentials at rest, silent re-auth on token expiry, biometric lock | [docs/CREDENTIALS_REAUTH.md](docs/CREDENTIALS_REAUTH.md) |
 | Bridge support (detection, tab, badges, per-message profiles) | [docs/bridges.md](docs/bridges.md) |
 | Room display name & avatar resolution (m.heroes) | [docs/ROOM_DISPLAY.md](docs/ROOM_DISPLAY.md) |
 | RoomListScreen composable reference | [docs/ROOMLISTSCREEN.md](docs/ROOMLISTSCREEN.md) |

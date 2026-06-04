@@ -116,7 +116,7 @@ class FCMService : FirebaseMessagingService() {
             enhancedNotificationDisplay?.let { return@withLock it }
             val display = withContext(Dispatchers.IO) {
                 val prefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-                val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
+                val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs)
                 val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
                 val imageAuthToken = prefs.getString("image_auth_token", "")
                     .takeIf { !it.isNullOrBlank() } ?: authToken

@@ -264,7 +264,7 @@ fun RoomListScreen(
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
     val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
-    val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
+    val authToken = remember(sharedPreferences) { net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPreferences) }
     val uiState by appViewModel.rememberRoomListUiState()
     val connectionState by SyncRepository.connectionState.collectAsState()
     val imageToken = uiState.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken

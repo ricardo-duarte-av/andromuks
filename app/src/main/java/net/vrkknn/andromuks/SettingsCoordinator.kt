@@ -118,6 +118,21 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         }
     }
 
+    fun setRequireBiometricUnlock(enabled: Boolean) = with(vm) {
+        requireBiometricUnlock = enabled
+
+        appContext?.let { context ->
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("require_biometric_unlock", enabled)
+                .apply()
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Saved requireBiometricUnlock setting: $enabled"
+            )
+        }
+    }
+
     fun toggleMoveReadReceiptsToEdge() = with(vm) {
         moveReadReceiptsToEdge = !moveReadReceiptsToEdge
 
@@ -432,6 +447,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             showAllRoomListTabs = prefs.getBoolean("show_all_room_list_tabs", false)
             moveReadReceiptsToEdge = prefs.getBoolean("move_read_receipts_to_edge", false)
             trimLongDisplayNames = prefs.getBoolean("trim_long_display_names", true)
+            requireBiometricUnlock = prefs.getBoolean("require_biometric_unlock", false)
             showLinkPreviews = prefs.getBoolean("show_link_previews", true)
             sendLinkPreviews = prefs.getBoolean("send_link_previews", true)
             elementCallBaseUrl = prefs.getString("element_call_base_url", "") ?: ""

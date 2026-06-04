@@ -68,7 +68,7 @@ fun SimplerRoomListScreen(
             context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
         }
     val authToken =
-        remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
+        remember(sharedPreferences) { net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPreferences) }
     val uiState by appViewModel.rememberRoomListUiState()
     val imageToken = uiState.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     val homeserverUrl = appViewModel.homeserverUrl

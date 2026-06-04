@@ -80,7 +80,7 @@ class NotificationReplyReceiver : BroadcastReceiver() {
             // Battery-saver mode: POST to the HTTP batterySaver. Works while the WebSocket is closed.
             val pendingResult = goAsync()
             val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
-            val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
+            val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs)
             thread(name = "batterySaver-reply") {
                 try {
                     val ok = ExecApi.sendMessage(
@@ -114,7 +114,7 @@ class NotificationReplyReceiver : BroadcastReceiver() {
                 // Android only stops the spinner when notify() is called again with the same ID.
                 val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
                 val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
-                val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
                 EnhancedNotificationDisplay(context, homeserverUrl, authToken)
                     .updateNotificationWithReply(roomId, replyText)
             }

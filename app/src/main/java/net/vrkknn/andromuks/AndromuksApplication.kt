@@ -54,6 +54,14 @@ class AndromuksApplication : Application() {
         migrateLegacyImageCache()
         // Initialise the Androlog store so cherry-picked events can be persisted/reviewed.
         Androlog.init(this)
+        // Off-main: migrate any legacy plaintext token to encrypted-at-rest, then warm the decrypted
+        // token into CredentialStore's in-memory cache so the first main-thread read (composition,
+        // sync processing) is a cache hit instead of a ~20 ms Keystore decrypt that trips StrictMode.
+        applicationScope.launch {
+            val prefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+            net.vrkknn.andromuks.utils.CredentialStore.migratePlaintextTokenIfNeeded(prefs)
+            net.vrkknn.andromuks.utils.CredentialStore.warmTokenCache(prefs)
+        }
     }
 
     private fun prewarmSharedPreferences() {

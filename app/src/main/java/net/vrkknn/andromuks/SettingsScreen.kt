@@ -220,6 +220,57 @@ fun SettingsScreen(
                 }
             }
 
+            // ── Security ──────────────────────────────────────────────────────
+            Text(
+                text = "Security",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+
+            val context = LocalContext.current
+            val biometricAvailable = remember { canAuthenticate(context) }
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Require biometric unlock",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = if (biometricAvailable) {
+                                "Ask for your fingerprint, face, or device PIN each time the app comes to the " +
+                                    "foreground. This same authentication is also required before the app silently " +
+                                    "re-logs in when your session expires — so unlocking re-authenticates your " +
+                                    "account, not just the screen. Chat bubbles are not locked."
+                            } else {
+                                "Unavailable: no fingerprint, face, or device lock is set up on this device. " +
+                                    "Enrol a biometric or screen lock in system settings to use this."
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Switch(
+                        checked = appViewModel.requireBiometricUnlock,
+                        enabled = biometricAvailable,
+                        onCheckedChange = { appViewModel.setRequireBiometricUnlock(it) }
+                    )
+                }
+            }
+
             // ── Connection Mode ──────────────────────────────────────────────
             Text(
                 text = "Connection Mode",

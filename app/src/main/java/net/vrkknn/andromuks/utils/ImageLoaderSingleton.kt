@@ -33,7 +33,7 @@ object ImageLoaderSingleton {
     // very first image request, before the first composable sets authToken directly.
     fun initFromStorage(context: Context) {
         val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-        authToken = prefs.getString("gomuks_auth_token", "") ?: ""
+        authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs)
     }
 
     // QUALITY IMPROVEMENT: Optimized cache settings for better quality
@@ -83,8 +83,7 @@ object ImageLoaderSingleton {
                     // Read live holder first; fall back to SharedPreferences for the narrow
                     // window before updateAuthToken has been called in the current process.
                     val token = authToken.takeIf { it.isNotBlank() }
-                        ?: (appContext.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-                            .getString("gomuks_auth_token", "") ?: "")
+                        ?: net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(appContext.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE))
                     var builder = req.newBuilder()
                     if (token.isNotBlank()) {
                         builder = builder.header("Cookie", "gomuks_auth=$token")

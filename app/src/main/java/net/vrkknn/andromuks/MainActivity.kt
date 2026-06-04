@@ -10,7 +10,7 @@ import android.os.Bundle
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -157,7 +157,7 @@ private fun rememberMorphingStartupAvatarMaskModifier(): Modifier {
     }
 }
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     private lateinit var appViewModel: AppViewModel
     private lateinit var notificationBroadcastReceiver: BroadcastReceiver
     private lateinit var notificationActionReceiver: BroadcastReceiver
@@ -175,7 +175,7 @@ class MainActivity : ComponentActivity() {
         
         // Initialize crash handler
         CrashHandler.initialize(this)
-        
+
         // Battery-saver mode: if the service was suspended in the background, clear the
         // user-disconnected flag now that the user is actively opening the app.
         // AuthCheck downstream will handle the cold-start dial of the WebSocket and
@@ -372,7 +372,7 @@ class MainActivity : ComponentActivity() {
                             // Get homeserver URL and auth token from SharedPreferences
                             val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
                             val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
-                            val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                            val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
 
                             // Canonical fix for empty appViewModel.homeserverUrl during cold-start
                             // rendering: populate it (and the auth token) from SharedPreferences on the
@@ -641,7 +641,7 @@ class MainActivity : ComponentActivity() {
                                 // Update the notification with the sent message
                                 try {
                                     val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-                                    val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                                    val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
                                     val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
                                     
                                     if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
@@ -670,7 +670,7 @@ class MainActivity : ComponentActivity() {
                                 // Update the notification to show it's been read
                                 try {
                                     val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-                                    val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                                    val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
                                     val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
                                     
                                     if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
@@ -741,7 +741,7 @@ class MainActivity : ComponentActivity() {
                             // This prevents race conditions that cause duplicate sends
                             try {
                                 val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-                                val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                                val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
                                 val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
                                 
                                 if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
@@ -762,7 +762,7 @@ class MainActivity : ComponentActivity() {
                                     delay(200) // 200ms delay to let Android finish processing
                                     try {
                                         val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-                                        val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                                        val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
                                         val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
                                         
                                         if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
@@ -798,7 +798,7 @@ class MainActivity : ComponentActivity() {
                                 // Update the notification to show it's been read
                                 try {
                                     val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-                                    val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                                    val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
                                     val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
                                     
                                     if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
@@ -941,7 +941,7 @@ class MainActivity : ComponentActivity() {
                     // Get credentials and force reconnection
                     val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
                     val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
-                    val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                    val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
                     if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
                         appViewModel.initializeWebSocketConnection(homeserverUrl, authToken)
                     } else {
@@ -1259,7 +1259,10 @@ fun AppNavigation(
 
     // Wrap NavHost in SharedTransitionLayout for shared element transitions.
     // An outer Box layers the call overlay above the nav graph.
+    // BiometricLockGate optionally overlays an app-lock and drives biometric re-auth (no-op unless
+    // the user enabled "Require biometric"); it does not wrap chat-bubble windows.
     Box(modifier = modifier) {
+    BiometricLockGate(appViewModel) {
     SharedTransitionLayout {
         NavHost(
         navController = navController,
@@ -1375,7 +1378,7 @@ fun AppNavigation(
                         ?: sharedPrefs.getString("homeserver_url", "").orEmpty()
                 val startupAuthToken =
                     appViewModel.authToken.takeIf { it.isNotBlank() }
-                        ?: sharedPrefs.getString("gomuks_auth_token", "").orEmpty()
+                        ?: net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
                 var showStartupMorphOverlay by remember(startupAvatarMxc) { mutableStateOf(false) }
                 LaunchedEffect(startupAvatarMxc) {
                     if (startupAvatarMxc != null) {
@@ -1955,5 +1958,6 @@ fun AppNavigation(
     CallOverlay(appViewModel = appViewModel)
     // Incoming call banner (zIndex 20, above the call overlay's 10).
     IncomingCallBanner(appViewModel = appViewModel)
+    } // End of BiometricLockGate content
     } // End of outer Box
 }

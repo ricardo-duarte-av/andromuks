@@ -38,7 +38,7 @@ fun AuthCheckScreen(
 
     LaunchedEffect(Unit) {
         appViewModel.isLoading = true
-        val token = sharedPreferences.getString("gomuks_auth_token", null)
+        val token = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPreferences).ifBlank { null }
         val homeserverUrl = sharedPreferences.getString("homeserver_url", null)
 
         if (token != null && homeserverUrl != null) {
@@ -378,7 +378,7 @@ fun AuthCheckScreen(
     // Only apply this if we have token and homeserver (i.e., not on login screen)
     val hasCredentials = remember {
         val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-        val token = prefs.getString("gomuks_auth_token", null)
+        val token = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs).ifBlank { null }
         val homeserverUrl = prefs.getString("homeserver_url", null)
         token != null && homeserverUrl != null
     }

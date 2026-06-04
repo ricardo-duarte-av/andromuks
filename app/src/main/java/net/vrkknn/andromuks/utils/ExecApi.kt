@@ -66,7 +66,7 @@ object ExecApi {
         val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
         return Credentials(
             homeserverUrl = prefs.getString("homeserver_url", "") ?: "",
-            authToken = prefs.getString("gomuks_auth_token", "") ?: ""
+            authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs)
         )
     }
 

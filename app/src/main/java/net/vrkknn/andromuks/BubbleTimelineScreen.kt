@@ -563,7 +563,7 @@ fun BubbleTimelineScreen(
         context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
     }
     val authToken = remember(sharedPreferences) {
-        sharedPreferences.getString("gomuks_auth_token", "") ?: ""
+        net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPreferences)
     }
     val storedUserId = remember(sharedPreferences) {
         sharedPreferences.getString("current_user_id", "") ?: ""
