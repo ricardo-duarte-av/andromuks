@@ -60,19 +60,37 @@ Responsible for building and posting the actual `Notification` via `Notification
 | `matrix_direct_messages` | Direct Messages | DM rooms |
 | `matrix_group_messages` | Group Messages | Group rooms |
 
-### Avatar loading
+### Avatar loading — cache-only in Phase 1, deferred to a worker on a miss
 
-Avatars (room, sender, current user) are downloaded synchronously in the FCM callback before the notification is posted. The load order is:
+Avatars (room, sender, current user) are loaded **cache-only** in the FCM callback. `showEnhancedNotification` calls `loadAvatarBitmap`/`loadAvatarAsIcon`/`loadAvatarAsUriIcon` with `allowNetwork = false`:
 
-1. Check `IntelligentMediaCache` (disk cache, keyed by `mxc://server/mediaId`) — no network required.
-2. If not cached — attempt download via `IntelligentMediaCache.downloadAndCache` using the auth-bearing HTTP URL (`/_gomuks/media/...?image_auth=<token>`). This may fail silently in Doze; in that case step 3 applies.
-3. On any failure — use a generated letter-mark fallback avatar. The notification still posts immediately.
+1. Check `IntelligentMediaCache` (disk cache, keyed by `mxc://server/mediaId`) — no network. On a hit, the real avatar is used synchronously (instant).
+2. On a **miss**, the loader returns `null`; the call site renders a generated letter-mark immediately and records the missed MXC URL (`deferRoomAvatar` / `deferSenderAvatar` / `deferMeAvatar`).
+3. The notification is posted **right away** with whatever mix of real/lettermark avatars it has — the FCM callback never blocks on the network.
 
-Cache hits come from `ConversationsApi` (shortcut icon downloads) and `PersonsApi` (contacts sync). `AvatarImage.kt` does **not** back-fill `IntelligentMediaCache` — UI avatar loads go through Coil only. Avatars for contacts whose shortcuts have never been built will fall back to a letter-mark on first delivery and be correct on subsequent notifications once a shortcut or contacts sync has populated the cache.
+If any avatar was a miss (and/or the message has an image), after the post `showEnhancedNotification` enqueues a single `NotificationImageWorker` (Phase 2) carrying every deferred item.
 
-Note: there is **no** `PowerManager.isDeviceIdleMode` guard in the current implementation — unlike image downloads (which are fully deferred to `NotificationImageWorker`), avatar downloads run in the FCM callback and rely on the cache being warm.
+**Why this changed:** avatars used to be downloaded *synchronously in the FCM callback before posting*. The callback only has a ~20 s `PARTIAL_WAKE_LOCK` budget, but `IntelligentMediaCache.downloadClient` has a 60 s `callTimeout`. In Doze — and especially in **battery-saver / "Sidecar" mode**, where the WebSocket and foreground service are torn down so FCM is the *only* delivery path — the radio is parked and a cold-cache avatar fetch could outlast the wake budget. The coroutine froze mid-download and the notification did not post until the device was next woken (the "notifications only arrive when I turn the screen on, even though FCM was delivered high-priority" symptom). The fix moves the network off the FCM thread entirely.
 
-Fallback avatars (generated lettermarks from room/sender name) are used whenever the real avatar is unavailable.
+Cache hits come from `ConversationsApi` (shortcut icon downloads) and `PersonsApi` (contacts sync). `AvatarImage.kt` does **not** back-fill `IntelligentMediaCache` — UI avatar loads go through Coil only.
+
+Fallback avatars (generated lettermarks from room/sender name) are pure-CPU (`Canvas` draw, no I/O) and are used whenever the real avatar is not yet cached.
+
+The inline-reply update path (`updateNotificationWithReply`) is also cache-only by design and never downloads.
+
+### NotificationImageWorker — the single Phase-2 media worker (image + avatars)
+
+**One** worker finishes the notification, handling the message image *and* the missed avatars in a single pass. This is deliberate: avatars and media are both `mxc://`-keyed (they share one download primitive, `IntelligentMediaCache`), and — critically — one worker doing **one read of the active notification, one rebuild, one `notify()`** makes a clobbering re-post race structurally impossible. Two independent workers (an earlier image/avatar split) could read the same pre-update notification concurrently, and the second `notify()` would wipe the first's contribution (image *or* avatars lost). One writer, no race.
+
+Expedited, `NetworkType.CONNECTED`, `ExistingWorkPolicy.KEEP` keyed `notif_media_<roomId>_<eventId>`. When it runs:
+
+1. Bails if the notification is no longer active (dismissed / marked read).
+2. Downloads everything deferred — the image and the room / sender / me avatars — **in parallel**, cache-first (re-reads `homeserver_url` and a fresh `image_auth_token` from SharedPreferences at run time). The image URL already carries `?encrypted=…&image_auth=…` from Phase 1; avatars rebuild their HTTP URL from the `mxc://` + `image_auth`. If nothing downloads it retries up to 3× with backoff.
+3. Extracts the live `MessagingStyle` and rebuilds it in one pass: patches the **"me" Person** icon (root), every message `Person` from this sender, and `setData(image)` on the timestamp-matched **target message** (a message can be both — its `Person` is patched *and* its image set). Re-sets the **large icon** (room avatar for groups, sender for DMs; restored from the existing notification if not freshly downloaded).
+4. Preserves channel, `contentIntent`, reply / mark-read actions, `event_id` extra, `when`, group/shortcut, plus `LocusId` and bubble metadata.
+5. Re-posts with the same notification ID and `setSilent(true)` (visual-only, no re-alert), then refreshes the group summary.
+6. Updates the in-memory cache so a later `showEnhancedNotification` rebuild keeps the result: `upgradeMessageToImage` for the image, `upgradeAvatarsInCache(roomId, senderId, senderIcon)` for the sender avatar. The "me" Person and large icon are not cached per-message — they self-correct on the next rebuild via the now-warm disk cache.
+7. Returns `retry` if an image was requested but couldn't be fetched (so it lands on a later attempt), even when avatars already posted; avatar-only misses are not retried.
 
 ### MessagingStyle message history cache
 
@@ -126,24 +144,15 @@ The parser walks the string left-to-right, checking in the order above (code →
 
 The resulting `CharSequence` is passed directly as the `MessagingStyle.Message` text, which Android renders with the spans intact in the notification shade on API 24+.
 
-### Image notifications — two-phase approach
+### Image notifications
 
-Image messages (notifications where the FCM payload contains an `image` field) use a deferred download pattern to avoid the same Doze/network restriction that affects avatar loading:
+Image messages (FCM payload contains an `image` field) are handled by the **same single Phase-2 worker** as deferred avatars — see [NotificationImageWorker — the single Phase-2 media worker](#notificationimageworker--the-single-phase-2-media-worker-image--avatars) above. In Phase 1 the notification posts immediately with the caption / body text and **no image download is attempted**; the image URL and MXC cache key are parsed (`deferredHttpUrl` / `deferredMxcUrl`) and handed to `NotificationImageWorker.enqueue()` alongside any missed avatars.
 
-**Phase 1 — FCM callback (`showEnhancedNotification`):** The notification is posted immediately with the message text body (e.g. a caption or "📷 Photo"). No image download is attempted. The image URL and MXC cache key are parsed and passed to `NotificationImageWorker.enqueue()`.
+Two details specific to the worker's media handling:
 
-**Phase 2 — `NotificationImageWorker`:** A `CoroutineWorker` marked as **expedited** (`setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)`) and constrained to `NetworkType.CONNECTED`. Expedited work is scheduled by `JobScheduler` at the next available slot rather than waiting for a Doze maintenance window — this is the critical difference from a plain constrained job, which can be deferred for minutes or hours on aggressive OEMs (Samsung One UI, MIUI, etc.). If the device has exhausted its expedited quota the job falls back to a normal-priority scheduled job. When it runs:
+**Expedited scheduling:** the worker is marked **expedited** (`setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)`), so `JobScheduler` runs it at the next available slot rather than waiting for a Doze maintenance window — the critical difference from a plain constrained job, which aggressive OEMs (Samsung One UI, MIUI) can defer for minutes or hours. If expedited quota is exhausted it falls back to a normal-priority job.
 
-1. Checks if the notification is still active (bail if dismissed).
-2. Checks `IntelligentMediaCache` disk cache; downloads via `IntelligentMediaCache.downloadAndCache` only on a miss.
-3. Wraps the file in a `FileProvider` `content://` URI.
-4. Extracts the existing `MessagingStyle` from the active notification.
-5. Rebuilds the style — replaces the last message with a new `Message.setData(mimeType, imageUri)` version.
-6. Re-posts with the same notification ID and `setSilent(true)` (no sound/vibration on update).
-
-The worker uses `ExistingWorkPolicy.KEEP` keyed by `"notif_image_$roomId"`. If a download is already running for that room it is not cancelled; a second concurrent image for the same room is rare and cancelling an in-flight download is worse than missing the update for the second. Retries up to 3 times on transient failure, with exponential backoff starting at 15 s.
-
-**Auth token:** `doWork()` re-reads the auth token from SharedPreferences (`AndromuksAppPrefs / image_auth_token`, falling back to `gomuks_auth_token`) at run time rather than relying on the value captured at enqueue time. This ensures a delayed job — scheduled by Doze and run minutes later — uses a current credential. The token is used as a `Cookie: gomuks_auth=<token>` header by `IntelligentMediaCache.downloadAndCache`; however, the image URL passed to the worker already contains `?image_auth=<batchToken>` (appended in `FCMService.handleMessageNotification`) which is the primary credential. The cookie is a fallback for cases where the URL was built without a batch token.
+**Auth token:** `doWork()` re-reads the token from SharedPreferences (`AndromuksAppPrefs / image_auth_token`, falling back to `gomuks_auth_token`) at run time, so a delayed job uses a current credential. It's used as a `Cookie: gomuks_auth=<token>` header by `IntelligentMediaCache.downloadAndCache`; however the image URL already contains `?image_auth=<batchToken>` (appended in `FCMService.handleMessageNotification`) which is the primary credential, and the avatar URLs get `?image_auth=` appended from the same batch token. The cookie is a fallback.
 
 ### Dismiss handling
 

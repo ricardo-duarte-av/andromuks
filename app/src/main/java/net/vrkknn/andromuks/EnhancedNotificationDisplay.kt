@@ -168,6 +168,42 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     .setData(mimeType, imageUri)
             }
         }
+
+        /**
+         * Called by NotificationImageWorker after a successful Phase 2 avatar update.
+         * Re-stamps the cached messages from [senderId] with the freshly-downloaded [senderIcon]
+         * so a later showEnhancedNotification rebuild (triggered by a new message in the room)
+         * keeps the real avatar instead of reverting the older messages to their lettermark.
+         * Preserves each message's image data (set by [upgradeMessageToImage]) if present.
+         * The "me" Person and the large icon are not cached per-message — they self-correct on
+         * the next rebuild via the now-warm disk cache.
+         */
+        internal fun upgradeAvatarsInCache(
+            roomId: String,
+            senderId: String,
+            senderIcon: IconCompat?
+        ) {
+            if (senderIcon == null) return
+            val messages = roomMessageCache[roomId] ?: return
+            synchronized(messages) {
+                for (i in messages.indices) {
+                    val msg = messages[i]
+                    val person = msg.person ?: continue
+                    if (person.key != senderId) continue
+                    val newPerson = Person.Builder()
+                        .setName(person.name)
+                        .setKey(person.key)
+                        .setUri(person.uri)
+                        .setIcon(senderIcon)
+                        .build()
+                    val rebuilt = MessagingStyle.Message(msg.text, msg.timestamp, newPerson)
+                    val mime = msg.dataMimeType
+                    val uri = msg.dataUri
+                    if (mime != null && uri != null) rebuilt.setData(mime, uri)
+                    messages[i] = rebuilt
+                }
+            }
+        }
     }
     
     private val conversationsApi = ConversationsApi(context, homeserverUrl, authToken, "")
@@ -465,50 +501,55 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val isGroupRoom = notificationData.roomName != notificationData.senderDisplayName
             val hasImage = !notificationData.image.isNullOrEmpty()
             if (BuildConfig.DEBUG) Log.d(TAG, "showEnhancedNotification - hasImage: $hasImage, image: ${notificationData.image}")
-            // Load avatars asynchronously with fallbacks
-            val roomAvatarIcon = notificationData.roomAvatarUrl?.let {
-                loadAvatarAsIcon(it, notificationData.imageAuthToken)
-            } ?: run {
-                // Create fallback avatar for room (use room name + room ID)
-                if (BuildConfig.DEBUG) Log.d(TAG, "No room avatar URL, creating fallback for: ${notificationData.roomName}")
-                createFallbackAvatarIcon(notificationData.roomName, notificationData.roomId)
+            // Avatar loading here is CACHE-ONLY: we must never hit the network on the FCM
+            // callback thread. FCM grants ~20 s of wake budget and the radio is parked in Doze,
+            // so an avatar download (callTimeout 60 s) can outlast the budget and the
+            // notification never gets posted until the device next wakes. On a cache miss we
+            // render a lettermark immediately and record the MXC URL; after the notification is
+            // posted we enqueue NotificationImageWorker (Phase 2) to download the real avatars
+            // off the WorkManager network window and re-post the notification in-place.
+            // See docs/NOTIFICATIONS.md ("Avatar loading" / "Deferred avatars").
+            val roomAvatarUrl = notificationData.roomAvatarUrl
+            val senderAvatarUrl = notificationData.avatarUrl
+
+            // Room avatar bitmap (large icon for groups)
+            val roomAvatarBitmap = roomAvatarUrl?.let {
+                loadAvatarBitmap(it, notificationData.imageAuthToken, allowNetwork = false)
             }
+            val deferRoomAvatar = if (roomAvatarUrl != null && roomAvatarBitmap == null) roomAvatarUrl else null
+            val circularRoomAvatar = createCircularBitmap(
+                roomAvatarBitmap ?: createFallbackAvatarBitmap(notificationData.roomName, notificationData.roomId, 128)
+            )
 
-            val senderAvatarIcon = notificationData.avatarUrl?.let {
-                loadAvatarAsIcon(it, notificationData.imageAuthToken)
-            } ?: run {
-                // Create fallback avatar for sender
-                if (BuildConfig.DEBUG) Log.d(TAG, "No sender avatar URL, creating fallback for: $senderDisplayNameForDisplay")
-                createFallbackAvatarIcon(senderDisplayNameForDisplay, notificationData.sender)
+            // Sender avatar bitmap (large icon for DMs) + sender Person icon
+            val senderAvatarBitmap = senderAvatarUrl?.let {
+                loadAvatarBitmap(it, notificationData.imageAuthToken, allowNetwork = false)
             }
+            val deferSenderAvatar = if (senderAvatarUrl != null && senderAvatarBitmap == null) senderAvatarUrl else null
+            val circularSenderAvatar = createCircularBitmap(
+                senderAvatarBitmap ?: createFallbackAvatarBitmap(senderDisplayNameForDisplay, notificationData.sender, 128)
+            )
+            // The sender Person icon shares the (cache-only) sender bitmap; lettermark on miss.
+            val senderAvatarIcon = IconCompat.createWithAdaptiveBitmap(circularSenderAvatar)
 
-            // Load room avatar bitmap for large icon
-            val roomAvatarBitmap = notificationData.roomAvatarUrl?.let {
-                loadAvatarBitmap(it, notificationData.imageAuthToken)
-            } ?: createFallbackAvatarBitmap(notificationData.roomName, notificationData.roomId, 128)
-            val circularRoomAvatar = createCircularBitmap(roomAvatarBitmap)
-
-            // Load sender avatar bitmap
-            val senderAvatarBitmap = notificationData.avatarUrl?.let {
-                loadAvatarBitmap(it, notificationData.imageAuthToken)
-            } ?: createFallbackAvatarBitmap(senderDisplayNameForDisplay, notificationData.sender, 128)
-            val circularSenderAvatar = createCircularBitmap(senderAvatarBitmap)
-
-            // Bubble icon: use a content-URI-backed IconCompat so it qualifies as
-            // TYPE_URI_ADAPTIVE_BITMAP (required by future Android versions for bubbles).
+            // Bubble icon: content-URI-backed IconCompat (TYPE_URI_ADAPTIVE_BITMAP). Cache-only;
+            // a missed bubble avatar renders as a lettermark and self-corrects on the next post
+            // once the worker has warmed the disk cache (bubbles are rarely open in battery-saver).
             val bubbleIcon = if (isGroupRoom) {
                 loadAvatarAsUriIcon(
-                    notificationData.roomAvatarUrl,
+                    roomAvatarUrl,
                     notificationData.roomName,
                     notificationData.roomId,
-                    notificationData.imageAuthToken
+                    notificationData.imageAuthToken,
+                    allowNetwork = false
                 )
             } else {
                 loadAvatarAsUriIcon(
-                    notificationData.avatarUrl,
+                    senderAvatarUrl,
                     senderDisplayNameForDisplay,
                     notificationData.sender,
-                    notificationData.imageAuthToken
+                    notificationData.imageAuthToken,
+                    allowNetwork = false
                 )
             }
             
@@ -516,49 +557,21 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val currentUserId = sharedPrefs.getString("current_user_id", "self") ?: "self"
             val currentUserDisplayName = sharedPrefs.getString("current_user_display_name", "Me") ?: "Me"
             
-            // Load current user's avatar for "me" person
-            val currentUserAvatarIcon = try {
-                val avatarUrl = sharedPrefs.getString("current_user_avatar_url", null)
-                if (!avatarUrl.isNullOrEmpty()) {
-                    val cachedFile = IntelligentMediaCache.getCachedFile(context, avatarUrl)
-                    val avatarBitmap = if (cachedFile != null) {
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Using cached avatar for current user: $avatarUrl")
-                        decodeScaledBitmap(cachedFile)
-                    } else {
-                        val baseHttpUrl = MediaUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
-                        if (baseHttpUrl != null) {
-                            // Use ?image_auth= for gomuks media endpoints (same as other avatar downloads)
-                            val httpUrl = if (authToken.isNotEmpty() && baseHttpUrl.contains("/_gomuks/media/")) {
-                                val sep = if (baseHttpUrl.contains("?")) "&" else "?"
-                                "$baseHttpUrl${sep}image_auth=$authToken"
-                            } else {
-                                baseHttpUrl
-                            }
-                            val downloadedFile = IntelligentMediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
-                            if (downloadedFile != null) {
-                                if (BuildConfig.DEBUG) Log.d(TAG, "Downloaded current user avatar to cache: ${downloadedFile.absolutePath}")
-                                decodeScaledBitmap(downloadedFile)
-                            } else {
-                                if (BuildConfig.DEBUG) Log.d(TAG, "Failed to download current user avatar: $avatarUrl")
-                                null
-                            }
-                        } else {
-                            if (BuildConfig.DEBUG) Log.d(TAG, "Failed to convert current user avatar MXC URL: $avatarUrl")
-                            null
-                        }
-                    }
-
-                    // Apply circular transformation to match other avatars
-                    avatarBitmap?.let {
-                        IconCompat.createWithBitmap(createCircularBitmap(it))
-                    }
-                } else {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "No avatar URL stored for current user")
-                    null
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error loading current user avatar", e)
+            // Load current user's avatar for "me" person — CACHE-ONLY (see the avatar block above).
+            // A miss is recorded in deferMeAvatar and downloaded later by NotificationImageWorker.
+            val currentUserAvatarUrl = sharedPrefs.getString("current_user_avatar_url", null)
+            val currentUserAvatarBitmap = if (!currentUserAvatarUrl.isNullOrEmpty()) {
+                loadAvatarBitmap(currentUserAvatarUrl, notificationData.imageAuthToken, allowNetwork = false)
+            } else {
                 null
+            }
+            val deferMeAvatar = if (!currentUserAvatarUrl.isNullOrEmpty() && currentUserAvatarBitmap == null) {
+                currentUserAvatarUrl
+            } else {
+                null
+            }
+            val currentUserAvatarIcon = currentUserAvatarBitmap?.let {
+                IconCompat.createWithBitmap(createCircularBitmap(it))
             }
 
             // Helper function to build Person URI (same format as PersonsApi)
@@ -953,48 +966,60 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 conversationsApi?.onRoomActivity(roomItem)
             } // End synchronized block
 
-            // Phase 2: enqueue image download outside the synchronized block (no lock needed).
-            // The worker will call notify() again with the same ID once the image is ready,
-            // updating the notification in-place without re-alerting the user (setSilent=true).
-            if (hasImage && deferredHttpUrl != null) {
-                val mimeType = when {
-                    notificationData.image!!.contains(".jpg", ignoreCase = true) ||
-                    notificationData.image.contains(".jpeg", ignoreCase = true) -> "image/jpeg"
-                    notificationData.image.contains(".png", ignoreCase = true) -> "image/png"
-                    notificationData.image.contains(".gif", ignoreCase = true) -> "image/gif"
-                    notificationData.image.contains(".webp", ignoreCase = true) -> "image/webp"
-                    else -> "image/jpeg"
+            // Phase 2: enqueue ONE worker (outside the synchronized block) to finish the
+            // notification — it downloads the message image AND any avatars that missed the cache
+            // above, then re-posts in-place once, silently. A single worker (one read / one
+            // rebuild / one notify) makes a clobbering re-post race structurally impossible; an
+            // image worker and an avatar worker running concurrently could otherwise read the same
+            // pre-update notification and the second notify() would wipe the first's contribution.
+            val imageDeferred = hasImage && deferredHttpUrl != null
+            if (hasImage && deferredHttpUrl == null) {
+                // hasImage is true but we never resolved an HTTP URL to download from. This is the
+                // silent failure mode for "image notifications never update": the image URL was an
+                // unrecognized format, or mxcToHttpUrl returned null. Avatars (if any) still go.
+                Androlog(
+                    "Notifications",
+                    "Room ${notificationData.roomId}: image notification will NOT be updated with the image — " +
+                        "could not resolve a download URL from image='${notificationData.image}' " +
+                        "(deferredHttpUrl=null, deferredMxcUrl=$deferredMxcUrl)."
+                )
+            }
+            if (imageDeferred || deferRoomAvatar != null || deferSenderAvatar != null || deferMeAvatar != null) {
+                val mimeType = if (imageDeferred) {
+                    when {
+                        notificationData.image!!.contains(".jpg", ignoreCase = true) ||
+                        notificationData.image.contains(".jpeg", ignoreCase = true) -> "image/jpeg"
+                        notificationData.image.contains(".png", ignoreCase = true) -> "image/png"
+                        notificationData.image.contains(".gif", ignoreCase = true) -> "image/gif"
+                        notificationData.image.contains(".webp", ignoreCase = true) -> "image/webp"
+                        else -> "image/jpeg"
+                    }
+                } else {
+                    null
                 }
                 NotificationImageWorker.enqueue(
                     context = context,
                     roomId = notificationData.roomId,
                     eventId = notificationData.eventId,
-                    imageUrl = deferredHttpUrl,
-                    mxcUrl = deferredMxcUrl,
+                    isGroupRoom = isGroupRoom,
+                    senderId = notificationData.sender,
+                    imageUrl = if (imageDeferred) deferredHttpUrl else null,
+                    mxcUrl = if (imageDeferred) deferredMxcUrl else null,
                     mimeType = mimeType,
-                    authToken = authToken,
-                    // Pass the exact timestamp used in the MessagingStyle.Message so the worker
-                    // can match by timestamp instead of blindly upgrading the last message.
-                    // Without this, a newer text message arriving between Phase 1 and Phase 2
-                    // would be incorrectly overwritten with image data.
-                    messageTimestamp = notificationData.timestamp ?: System.currentTimeMillis()
-                )
-            } else if (hasImage) {
-                // hasImage is true but we never resolved an HTTP URL to download from, so the
-                // Phase 2 worker is NOT enqueued and the notification stays text-only forever.
-                // This is the silent failure mode for "image notifications never update": the
-                // image URL was an unrecognized format, or mxcToHttpUrl returned null.
-                Androlog(
-                    "Notifications",
-                    "Room ${notificationData.roomId}: image notification will NOT be updated with the image — " +
-                        "could not resolve a download URL from image='${notificationData.image}' " +
-                        "(deferredHttpUrl=null, deferredMxcUrl=$deferredMxcUrl). Phase 2 worker not enqueued."
+                    // Exact timestamp of the MessagingStyle.Message so the worker matches the image
+                    // to the right message instead of blindly upgrading the last one.
+                    messageTimestamp = notificationData.timestamp ?: System.currentTimeMillis(),
+                    roomAvatarMxc = deferRoomAvatar,
+                    senderAvatarMxc = deferSenderAvatar,
+                    meAvatarMxc = deferMeAvatar,
+                    imageAuthToken = notificationData.imageAuthToken ?: "",
+                    authToken = authToken
                 )
             }
 
             // SHORTCUT OPTIMIZATION: Shortcuts already updated above when notification is shown
             // Using efficient single-room update via updateShortcutsFromSyncRooms
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "Error showing enhanced notification", e)
         }
@@ -1219,7 +1244,11 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      * Falls back to bitmap-based icon if ContentUri creation fails
      * Uses in-memory cache to avoid reloading the same avatar on every notification update
      */
-    private suspend fun loadAvatarAsIcon(avatarUrl: String, imageAuthToken: String? = null): IconCompat? {
+    private suspend fun loadAvatarAsIcon(
+        avatarUrl: String,
+        imageAuthToken: String? = null,
+        allowNetwork: Boolean = true
+    ): IconCompat? {
         return try {
             // Check cache first to avoid reloading
             avatarIconCache[avatarUrl]?.let { cachedIcon ->
@@ -1231,8 +1260,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             if (BuildConfig.DEBUG) Log.d(TAG, "  Avatar URL: $avatarUrl")
 
             // Load bitmap (from cache or download)
-            val bitmap = loadAvatarBitmap(avatarUrl, imageAuthToken)
+            val bitmap = loadAvatarBitmap(avatarUrl, imageAuthToken, allowNetwork)
             if (BuildConfig.DEBUG) Log.d(TAG, "  Bitmap loaded: ${bitmap != null}")
+
+            // Cache-only miss: signal the caller (with null) so it can render a lettermark and
+            // defer the download to NotificationImageWorker, rather than burning the matrix
+            // default icon into the notification.
+            if (bitmap == null && !allowNetwork) return null
 
             val icon = if (bitmap != null) {
                 // Make it circular and use directly as adaptive bitmap
@@ -1477,10 +1511,11 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         avatarUrl: String?,
         fallbackName: String?,
         fallbackId: String,
-        imageAuthToken: String? = null
+        imageAuthToken: String? = null,
+        allowNetwork: Boolean = true
     ): IconCompat = try {
         val bitmap = if (!avatarUrl.isNullOrEmpty()) {
-            loadAvatarBitmap(avatarUrl, imageAuthToken)
+            loadAvatarBitmap(avatarUrl, imageAuthToken, allowNetwork)
                 ?: createFallbackAvatarBitmap(fallbackName, fallbackId, maxIconPx)
         } else {
             createFallbackAvatarBitmap(fallbackName, fallbackId, maxIconPx)
@@ -1504,7 +1539,11 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         createDefaultAdaptiveIcon()
     }
 
-    private suspend fun loadAvatarBitmap(avatarUrl: String, imageAuthToken: String? = null): Bitmap? = withContext(Dispatchers.IO) {
+    private suspend fun loadAvatarBitmap(
+        avatarUrl: String,
+        imageAuthToken: String? = null,
+        allowNetwork: Boolean = true
+    ): Bitmap? = withContext(Dispatchers.IO) {
         try {
             if (BuildConfig.DEBUG) Log.d(TAG, "loadAvatarBitmap called with: $avatarUrl")
 
@@ -1519,6 +1558,14 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             if (cachedFile != null) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Using cached avatar file: ${cachedFile.absolutePath}")
                 return@withContext decodeScaledBitmap(cachedFile)
+            }
+
+            // Cache miss. In cache-only mode (the FCM callback's 20 s wake budget can't afford a
+            // network round-trip in Doze — see NotificationImageWorker) return null so the caller
+            // renders a lettermark now and defers the real download to the worker.
+            if (!allowNetwork) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "Avatar not cached and network disallowed; deferring: $avatarUrl")
+                return@withContext null
             }
 
             // Build the base HTTP URL from the MXC or relative form.
