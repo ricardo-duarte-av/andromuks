@@ -334,11 +334,24 @@ class NotificationImageWorker(
         NotificationCompat.getLocusId(existing.notification)?.let { builder.setLocusId(it) }
         NotificationCompat.getBubbleMetadata(existing.notification)?.let { builder.setBubbleMetadata(it) }
 
-        // Preserve event_id extra and reply / mark-read actions.
+        // Preserve event_id extra and reply / mark-read actions. Use NotificationCompat.getAction
+        // (not raw Notification.Action copies) so each action keeps its icon and — critically — its
+        // RemoteInput: the inline-reply text field would otherwise be dropped on the silent re-post.
         val storedEventId = existing.notification.extras?.getString("event_id") ?: eventId
         storedEventId?.let { builder.addExtras(android.os.Bundle().apply { putString("event_id", it) }) }
-        existing.notification.actions?.forEach { action ->
-            builder.addAction(NotificationCompat.Action(0, action.title ?: "", action.actionIntent))
+        var replyActionForWear: NotificationCompat.Action? = null
+        val actionCount = NotificationCompat.getActionCount(existing.notification)
+        for (i in 0 until actionCount) {
+            val action = NotificationCompat.getAction(existing.notification, i) ?: continue
+            builder.addAction(action)
+            // The reply action is the one carrying a RemoteInput; surface it on the watch too,
+            // matching the WearableExtender attached by Phase 1 (showEnhancedNotification).
+            if (replyActionForWear == null && action.remoteInputs?.isNotEmpty() == true) {
+                replyActionForWear = action
+            }
+        }
+        replyActionForWear?.let {
+            builder.extend(NotificationCompat.WearableExtender().addAction(it))
         }
 
         NotificationManagerCompat.from(applicationContext).notify(notifId, builder.build())
