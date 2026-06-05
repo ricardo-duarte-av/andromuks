@@ -416,6 +416,8 @@ class AppViewModel : ViewModel() {
         } ?: run {
             val elapsed = System.currentTimeMillis() - startTime
             android.util.Log.w("Andromuks", "🟣 awaitRoomDataReadiness: TIMEOUT - roomId=$roomId, elapsed=${elapsed}ms, timeoutMs=$timeoutMs, isProcessingPendingItems=$isProcessingPendingItems, isPendingNavFromNotif=$isPendingNavigationFromNotification, initialSyncComplete=$initialSyncComplete, isTimelineLoading=$isTimelineLoading, timelineEvents=${timelineEvents.size}, currentRoomId=$currentRoomId")
+            Androlog("FCMOpen", "awaitRoomDataReadiness TIMEOUT room=$roomId loading=$isTimelineLoading events=${timelineEvents.size} wsConn=${WebSocketService.isWebSocketConnected()} syncComplete=$initialSyncComplete currentRoom=$currentRoomId")
+            WebSocketService.logActivity("FCMOpen: awaitRoomDataReadiness TIMEOUT room=$roomId loading=$isTimelineLoading events=${timelineEvents.size} wsConn=${WebSocketService.isWebSocketConnected()} syncComplete=$initialSyncComplete currentRoom=$currentRoomId")
             // Bug B defense-in-depth: don't poison the next FCM-open with a stuck flag.
             // If we timed out and still believe we're mid-notification-nav for this room,
             // release the gate so subsequent navigations aren't blocked from the start.
@@ -3610,6 +3612,8 @@ class AppViewModel : ViewModel() {
             roomsAwaitingInitCompletePaginate.clear()
             copy
         }
+        Androlog("FCMOpen", "onInitComplete: fired, deferredRooms=$toRetry currentRoom=$currentRoomId")
+        WebSocketService.logActivity("FCMOpen: onInitComplete fired, deferredRooms=$toRetry currentRoom=$currentRoomId")
         if (toRetry.isNotEmpty()) {
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
@@ -3619,12 +3623,18 @@ class AppViewModel : ViewModel() {
             // skip rooms abandoned before WS came up, to avoid clobbering currentRoomId state.
             toRetry.forEach { roomId ->
                 if (roomId == currentRoomId) {
+                    Androlog("FCMOpen", "onInitComplete: retrying deferred paginate room=$roomId")
+                    WebSocketService.logActivity("FCMOpen: onInitComplete retrying deferred paginate room=$roomId")
                     requestRoomTimeline(roomId)
-                } else if (BuildConfig.DEBUG) {
-                    android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: onInitComplete — skipping deferred retry for $roomId (no longer current, now=$currentRoomId)",
-                    )
+                } else {
+                    Androlog("FCMOpen", "onInitComplete: SKIPPED deferred paginate room=$roomId (currentRoom=$currentRoomId) — isTimelineLoading stays stuck")
+                    WebSocketService.logActivity("FCMOpen: onInitComplete SKIPPED deferred paginate room=$roomId (currentRoom=$currentRoomId) — isTimelineLoading stays stuck")
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                            "Andromuks",
+                            "AppViewModel: onInitComplete — skipping deferred retry for $roomId (no longer current, now=$currentRoomId)",
+                        )
+                    }
                 }
             }
         }

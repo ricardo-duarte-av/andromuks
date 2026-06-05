@@ -1140,6 +1140,8 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 // bumps arrive before that gate opens — they get "consumed" by lastKnownRefreshTrigger
                 // without firing the retry, leaving the room stuck on "Loading...".
                 roomsAwaitingInitCompletePaginate.add(roomId)
+                Androlog("FCMOpen", "requestRoomTimeline: WS down → isTimelineLoading=true, queued paginate room=$roomId currentRoom=$currentRoomId")
+                WebSocketService.logActivity("FCMOpen: requestRoomTimeline WS down → queued paginate room=$roomId currentRoom=$currentRoomId")
                 // Bug B: clear the notification-pending flag so awaitRoomDataReadiness unsticks.
                 if (isPendingNavigationFromNotification && currentRoomId == roomId) {
                     isPendingNavigationFromNotification = false
@@ -3116,6 +3118,8 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 buildTimelineFromChain(expectedRoomId = roomId)
                 val timelineSizeBefore = timelineEvents.size
                 viewModelScope.launch(Dispatchers.Main) { isTimelineLoading = false }
+                Androlog("FCMOpen", "handleInitialTimelineBuild: built room=$roomId events=${timelineList.size} → isTimelineLoading=false")
+                WebSocketService.logActivity("FCMOpen: handleInitialTimelineBuild built room=$roomId events=${timelineList.size} → isTimelineLoading=false")
                 // RACE CONDITION FIX: Clear notification-pending flag so awaitRoomDataReadiness
                 // unblocks when the initial paginate arrives for rooms without a cache hit.
                 if (isPendingNavigationFromNotification) {

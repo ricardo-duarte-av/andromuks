@@ -246,6 +246,8 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 }
 
                 val pingFired = WebSocketService.pingNowWithWatchdog()
+                Androlog("FCMOpen", "onAppBecameVisible: pingFired=$pingFired role=$instanceRole wsConn=${WebSocketService.isWebSocketConnected()} currentRoom=$currentRoomId")
+                WebSocketService.logActivity("FCMOpen: onAppBecameVisible pingFired=$pingFired role=$instanceRole wsConn=${WebSocketService.isWebSocketConnected()} currentRoom=$currentRoomId")
                 if (!pingFired) {
                     val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
                     val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
@@ -254,7 +256,10 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                         "Andromuks",
                         "AppViewModel: Resume health check — pingNowWithWatchdog returned false → re-dialling WebSocket",
                     )
-                    if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+                    val haveCreds = homeserverUrl.isNotEmpty() && authToken.isNotEmpty()
+                    Androlog("FCMOpen", "onAppBecameVisible: re-dial branch haveCreds=$haveCreds → ${if (haveCreds) "initializeWebSocketConnection" else "startWebSocketService"}")
+                    WebSocketService.logActivity("FCMOpen: onAppBecameVisible re-dial haveCreds=$haveCreds → ${if (haveCreds) "initializeWebSocketConnection" else "startWebSocketService"}")
+                    if (haveCreds) {
                         initializeWebSocketConnection(homeserverUrl, authToken)
                     } else {
                         startWebSocketService()

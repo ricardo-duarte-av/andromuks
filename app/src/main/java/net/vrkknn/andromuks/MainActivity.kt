@@ -929,7 +929,9 @@ class MainActivity : FragmentActivity() {
         extractedRoomId?.let { roomId ->
             if (::appViewModel.isInitialized) {
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - Direct navigation to room: $roomId")
-                
+                Androlog("FCMOpen", "onNewIntent room=$roomId fromNotif=$fromNotification stuck=${WebSocketService.isConnectionStuck()} wsConn=${WebSocketService.isWebSocketConnected()}")
+                WebSocketService.logActivity("FCMOpen: onNewIntent room=$roomId fromNotif=$fromNotification stuck=${WebSocketService.isConnectionStuck()} wsConn=${WebSocketService.isWebSocketConnected()}")
+
                 // CRITICAL FIX: Check if WebSocket is stuck and trigger recovery
                 // This fixes the issue where FCM notifications don't recover stuck connections
                 // (unlike permanent notification which recreates MainActivity via onCreate)
