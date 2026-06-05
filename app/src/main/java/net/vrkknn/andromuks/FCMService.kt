@@ -461,7 +461,29 @@ class FCMService : FirebaseMessagingService() {
                 // the push payload sends (mxc://, relative _gomuks/, or full HTTP).
                 // This ensures a cache hit when the main app already fetched the same avatar.
                 val avatarUrl = normalizeToMxcUrl(senderAvatar) ?: senderAvatar
-                val roomAvatarUrl = normalizeToMxcUrl(roomAvatar) ?: roomAvatar
+                // Determine if this is a DM or Group room (used for both the room-avatar
+                // fallback below and the notification type/large-icon choice).
+                val isDirectMessage = roomName == senderDisplayName
+                // The push payload frequently omits `room_avatar` (rooms with no explicitly-set
+                // avatar, and most DMs). When it does, recover an avatar so the notification AND
+                // its conversation shortcut don't render a client-side lettermark forever (there
+                // would be nothing for NotificationImageWorker / Phase 2 to download). Two
+                // fallbacks, in order:
+                //   1. The avatar the main app persisted from sync (RoomMetadataStore, already
+                //      canonical mxc://). Covers group rooms and any DM with an explicit avatar.
+                //   2. For a DM only: the sender IS the conversation partner, so the sender avatar
+                //      is the room avatar. A nameless DM never has m.room.avatar and its hero
+                //      avatar is resolved only at UI render time (see docs/ROOM_DISPLAY.md), so it
+                //      is absent from both the payload and RoomMetadataStore — this is the one that
+                //      catches it.
+                val roomAvatarUrl = (normalizeToMxcUrl(roomAvatar) ?: roomAvatar)
+                    ?: withContext(Dispatchers.IO) {
+                        net.vrkknn.andromuks.utils.RoomMetadataStore.initialize(applicationContext)
+                        net.vrkknn.andromuks.utils.RoomMetadataStore.getRow(roomId)
+                            ?.avatarMxc
+                            ?.takeIf { it.isNotBlank() }
+                    }
+                    ?: avatarUrl?.takeIf { isDirectMessage }
                 val imageUrl = image?.let { rawUrl ->
                     val httpUrl = convertToFullUrl(rawUrl) ?: return@let null
                     if (batchImageAuth != null) {
@@ -473,10 +495,7 @@ class FCMService : FirebaseMessagingService() {
                 }
 
                 if (BuildConfig.DEBUG) Log.d(TAG, "Avatar URLs - sender: $avatarUrl, room: $roomAvatarUrl, image: $imageUrl")
-                
-                // Determine if this is a DM or Group room
-                val isDirectMessage = roomName == senderDisplayName
-                
+
                 val notificationData = NotificationData(
                     roomId = roomId,
                     eventId = eventId,

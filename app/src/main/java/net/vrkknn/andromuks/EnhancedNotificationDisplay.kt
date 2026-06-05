@@ -984,7 +984,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         "(deferredHttpUrl=null, deferredMxcUrl=$deferredMxcUrl)."
                 )
             }
-            if (imageDeferred || deferRoomAvatar != null || deferSenderAvatar != null || deferMeAvatar != null) {
+            // Enqueue Phase 2 when there is media/avatars to finish OR an event to enrich. We fetch
+            // the full event (get_event) for ANY notification with an eventId: it tells a voice
+            // message from an audio file or plain text, and for image messages it yields the
+            // thumbnail (smaller, preferred over the full payload image). See the worker's
+            // resolveImageThumbnail / audioOutcomeFrom.
+            val fetchEvent = notificationData.eventId != null
+            if (imageDeferred || deferRoomAvatar != null || deferSenderAvatar != null || deferMeAvatar != null || fetchEvent) {
                 val mimeType = if (imageDeferred) {
                     when {
                         notificationData.image!!.contains(".jpg", ignoreCase = true) ||
@@ -1000,6 +1006,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 NotificationImageWorker.enqueue(
                     context = context,
                     roomId = notificationData.roomId,
+                    roomName = notificationData.roomName,
                     eventId = notificationData.eventId,
                     isGroupRoom = isGroupRoom,
                     senderId = notificationData.sender,
@@ -1013,7 +1020,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     senderAvatarMxc = deferSenderAvatar,
                     meAvatarMxc = deferMeAvatar,
                     imageAuthToken = notificationData.imageAuthToken ?: "",
-                    authToken = authToken
+                    authToken = authToken,
+                    fetchEvent = fetchEvent
                 )
             }
 
