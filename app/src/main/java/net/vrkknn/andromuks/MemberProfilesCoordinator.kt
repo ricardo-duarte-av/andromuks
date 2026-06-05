@@ -241,17 +241,16 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                                 }
                                 updatedMembers++
 
-                                if (isLargeRoom) {
-                                    if (updatedMembers > 500 && !cacheCleared) {
-                                        ProfileCache.clear()
-                                        cacheCleared = true
-                                        android.util.Log.w(
-                                            "Andromuks",
-                                            "AppViewModel: Cleared all caches due to large member list (${updatedMembers}+ members)",
-                                        )
-                                    }
-                                } else {
-                                    queueProfileForBatchSave(stateKey, newProfile)
+                                // For very large rooms, clear caches aggressively to prevent OOM.
+                                // Smaller rooms need no action — newProfile is already in the
+                                // caches above; there is no separate persistence step.
+                                if (isLargeRoom && updatedMembers > 500 && !cacheCleared) {
+                                    ProfileCache.clear()
+                                    cacheCleared = true
+                                    android.util.Log.w(
+                                        "Andromuks",
+                                        "AppViewModel: Cleared all caches due to large member list (${updatedMembers}+ members)",
+                                    )
                                 }
                             }
                             "leave", "ban" -> {
@@ -475,7 +474,6 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                 checkStartupComplete()
             }
 
-            queueProfileForBatchSave(userId, memberProfile)
             basicProfileCallback?.invoke(memberProfile)
 
             val fullUserInfoCallback = fullUserInfoCallbacks.remove(requestId)

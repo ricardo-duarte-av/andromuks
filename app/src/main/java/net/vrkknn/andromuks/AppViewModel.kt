@@ -4997,7 +4997,7 @@ class AppViewModel : ViewModel() {
     private val pendingProfileBatch = mutableMapOf<String, MutableSet<String>>() // roomId -> set of userIds
     private val batchProfileRequestKeys = mutableMapOf<Int, List<String>>() // requestId -> list of "roomId:userId" for cleanup
     private var profileBatchFlushJob: kotlinx.coroutines.Job? = null
-    private val PROFILE_BATCH_DELAY_MS = 80L
+    private val PROFILE_BATCH_DELAY_MS = 250L
     
     // Local echoes removed: status/error helpers no longer used.
 
@@ -7311,9 +7311,6 @@ class AppViewModel : ViewModel() {
         prefs.edit().putString("current_user_display_name", value).apply()
     }
     
-    // Profile management - in-memory only, loaded opportunistically when rendering events
-    private val pendingProfileSaves = mutableMapOf<String, MemberProfile>()
-    private var profileSaveJob: kotlinx.coroutines.Job? = null
     internal var syncIngestor: net.vrkknn.andromuks.database.SyncIngestor? = null
 
     /**
@@ -7398,56 +7395,6 @@ class AppViewModel : ViewModel() {
             // Clear oldest entries to make room
             ProfileCache.cleanupFlattenedProfiles(1000) // Keep only 1000 most recent
             android.util.Log.w("Andromuks", "AppViewModel: Cleaned up flattened cache to prevent memory issues")
-        }
-    }
-    
-    /**
-     * Queues a profile for batch processing. This prevents blocking the main thread
-     * when processing large member lists.
-     */
-    internal fun queueProfileForBatchSave(userId: String, profile: MemberProfile) {
-        synchronized(pendingProfileSaves) {
-            // Aggressive memory management: Much smaller batch size to prevent OOM
-            if (pendingProfileSaves.size >= 50) {
-                android.util.Log.w("Andromuks", "AppViewModel: Too many pending profile saves (${pendingProfileSaves.size}), forcing immediate save")
-                viewModelScope.launch(Dispatchers.IO) {
-                    performBatchProfileSave()
-                }
-            }
-            
-            pendingProfileSaves[userId] = profile
-            
-            // Start batch save job if not already running
-            if (profileSaveJob?.isActive != true) {
-                profileSaveJob = viewModelScope.launch(Dispatchers.IO) {
-                    // Much shorter delay to save more frequently
-                    delay(50)
-                    performBatchProfileSave()
-                }
-            }
-        }
-    }
-    
-    /**
-     * Performs batch processing of queued profiles (in-memory only).
-     */
-    private suspend fun performBatchProfileSave() {
-        val profilesToSave = synchronized(pendingProfileSaves) {
-            if (pendingProfileSaves.isEmpty()) return
-            val profiles = pendingProfileSaves.toMap()
-            pendingProfileSaves.clear()
-            profiles
-        }
-        
-        if (profilesToSave.isEmpty()) return
-        
-        val startTime = System.currentTimeMillis()
-        
-        // Profiles are cached in-memory only - no DB persistence needed
-        // Profiles are loaded opportunistically when rendering events via requestUserProfileOnDemand()
-        if (BuildConfig.DEBUG) {
-            val duration = System.currentTimeMillis() - startTime
-            android.util.Log.d("Andromuks", "AppViewModel: Processed ${profilesToSave.size} profiles (in-memory only) in ${duration}ms")
         }
     }
     
@@ -9176,14 +9123,12 @@ class AppViewModel : ViewModel() {
                             
                             updatedProfiles++
                             
-                            // For very large lists, clear caches aggressively to prevent OOM
+                            // For very large lists, clear caches aggressively to prevent OOM.
+                            // Smaller lists need no action — the profile is already in the
+                            // caches above; there is no separate persistence step.
                             if (updatedProfiles > 500) {
-                                // Clear all caches to prevent OOM
                                 ProfileCache.clear()
                                 android.util.Log.w("Andromuks", "AppViewModel: Cleared all caches due to large profile update ($updatedProfiles profiles)")
-                            } else {
-                                // Queue for batch saving for smaller lists
-                                queueProfileForBatchSave(stateKey, newProfile)
                             }
                         }
                     } else if (membership == "leave" || membership == "ban") {

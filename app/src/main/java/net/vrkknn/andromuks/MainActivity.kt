@@ -1040,13 +1040,13 @@ class MainActivity : FragmentActivity() {
     // never hits these methods, so it still locks.
     // Deprecated in favour of the ActivityResult API, but that API dispatches through exactly these
     // methods, which is why we override them to intercept every launcher centrally.
-    @Suppress("DEPRECATION")
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     override fun startActivityForResult(intent: Intent, requestCode: Int, options: Bundle?) {
         if (::appViewModel.isInitialized) appViewModel.suppressNextAutoLock = true
         super.startActivityForResult(intent, requestCode, options)
     }
 
-    @Suppress("DEPRECATION")
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     override fun startIntentSenderForResult(
         intent: android.content.IntentSender,
         requestCode: Int,
