@@ -509,6 +509,14 @@ class AppViewModel : ViewModel() {
     // re-authenticating with stored credentials on token expiry. See BiometricLockGate.
     var requireBiometricUnlock by mutableStateOf(false)
         internal set
+    // Set true by MainActivity right before it launches an internal child activity for a result
+    // (file/media/camera/avatar picker — all routed through startActivityForResult /
+    // startIntentSenderForResult). BiometricLockGate skips the re-lock on the ON_STOP this causes and
+    // clears the flag when the app resumes, so returning from a picker does NOT re-prompt. A genuine
+    // departure (HOME / recents / screen-off) never sets it, so those still lock. Plain Boolean — not
+    // Compose state — because it is read inside a lifecycle observer.
+    @Volatile
+    var suppressNextAutoLock: Boolean = false
     // Trim long display names in timeline: if true, names longer than 40 chars are trimmed with "..."
     var trimLongDisplayNames by mutableStateOf(true)
         internal set

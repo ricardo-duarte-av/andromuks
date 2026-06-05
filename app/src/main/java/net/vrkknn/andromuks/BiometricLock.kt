@@ -112,8 +112,10 @@ fun runBiometricPrompt(
  *
  *  1. **App lock** — a full-screen overlay shown on cold start, whenever the app returns to the
  *     foreground (process `ON_STOP` → `ON_START`), and immediately when the user enables the
- *     setting. The biometric/device-credential prompt is launched only while the activity is in the
- *     foreground (`ON_RESUME`), never from the background.
+ *     setting. Returning from an internal child activity launched for a result (file/media/camera/
+ *     avatar picker) does NOT re-lock — MainActivity sets `suppressNextAutoLock` before such a launch
+ *     and the gate skips that one ON_STOP. The biometric/device-credential prompt is launched only
+ *     while the activity is in the foreground (`ON_START`), never from the background.
  *  2. **Re-auth gate** — registers [AppViewModel.setBiometricReauthCallback] so that when the session
  *     token expires, the user authenticates (with a subtitle making clear it is for *re-authentication*)
  *     before [ReauthCoordinator] re-logs in with the stored credentials.
@@ -162,14 +164,22 @@ fun BiometricLockGate(
 
     // Drive lock/unlock off the activity's own lifecycle (immediate, unlike the debounced
     // ProcessLifecycleOwner). ON_STOP fires the moment the activity is no longer visible, so a quick
-    // background→foreground still re-locks. The promptInFlight guard ignores the ON_STOP that a
-    // full-screen device-credential (PIN) prompt causes, so authenticating doesn't re-lock us.
+    // background→foreground still re-locks.
+    //
+    // Two ON_STOPs must NOT re-lock: the one caused by a full-screen device-credential (PIN) prompt
+    // (guarded by promptInFlight), and the one caused by launching our own child activity for a
+    // result — file/media/camera/avatar pickers (guarded by suppressNextAutoLock, set in
+    // MainActivity.startActivityForResult / startIntentSenderForResult). The suppress flag is a
+    // one-shot cleared on ON_RESUME so it only ever absorbs that single round-trip; a genuine
+    // departure (HOME / recents / screen-off) doesn't set it and still locks.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_STOP -> if (!promptInFlight) unlocked = false
+                Lifecycle.Event.ON_STOP ->
+                    if (!promptInFlight && !appViewModel.suppressNextAutoLock) unlocked = false
                 Lifecycle.Event.ON_START -> launchUnlockPrompt()
+                Lifecycle.Event.ON_RESUME -> appViewModel.suppressNextAutoLock = false
                 else -> {}
             }
         }

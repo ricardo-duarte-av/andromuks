@@ -1033,6 +1033,35 @@ class MainActivity : FragmentActivity() {
         userLeftTask = true
     }
 
+    // All Compose ActivityResult launchers (file/media/camera/avatar pickers) ultimately route
+    // through these. Marking the launch here tells BiometricLockGate that the upcoming ON_STOP is
+    // from our own child activity, not the user leaving — so it must not re-lock. The flag is a
+    // one-shot, cleared by the gate on resume. A genuine departure (HOME / recents / screen-off)
+    // never hits these methods, so it still locks.
+    // Deprecated in favour of the ActivityResult API, but that API dispatches through exactly these
+    // methods, which is why we override them to intercept every launcher centrally.
+    @Suppress("DEPRECATION")
+    override fun startActivityForResult(intent: Intent, requestCode: Int, options: Bundle?) {
+        if (::appViewModel.isInitialized) appViewModel.suppressNextAutoLock = true
+        super.startActivityForResult(intent, requestCode, options)
+    }
+
+    @Suppress("DEPRECATION")
+    override fun startIntentSenderForResult(
+        intent: android.content.IntentSender,
+        requestCode: Int,
+        fillInIntent: Intent?,
+        flagsMask: Int,
+        flagsValues: Int,
+        extraFlags: Int,
+        options: Bundle?
+    ) {
+        if (::appViewModel.isInitialized) appViewModel.suppressNextAutoLock = true
+        super.startIntentSenderForResult(
+            intent, requestCode, fillInIntent, flagsMask, flagsValues, extraFlags, options
+        )
+    }
+
     override fun onStart() {
         super.onStart()
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onStart called (hasBeenStopped=$hasBeenStopped)")
