@@ -91,10 +91,20 @@ fun AuthCheckScreen(
             appViewModel.updateHomeserverUrl(homeserverUrl)
             appViewModel.updateAuthToken(token)
 
+            // Run FCM init, navigation-callback setup, and the WebSocket connection on the
+            // ViewModel scope — NOT this LaunchedEffect. populateRoomMapFromCache /
+            // populateSpacesFromCache above flip `spacesLoaded`, which fires the cache-driven
+            // navigation LaunchedEffect below; that pops auth_check (popUpTo inclusive) and
+            // disposes this composable, cancelling this LaunchedEffect at its first suspension
+            // point (the frame delay / FCM IO). If the connection were initiated inline here it
+            // would be cancelled before initializeWebSocketConnection ever runs, leaving the app
+            // stuck on RoomListScreen with the red "disconnected" icon and no foreground service
+            // armed to reconnect (observed after a battery-saver teardown / cold start). The
+            // viewModelScope job outlives the composable, so the connection always completes.
+            // The body below is intentionally left at its original indentation to keep the diff
+            // reviewable.
+            appViewModel.viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
             // Wait for at least one Compose frame to paint before kicking off heavy work.
-            // The cache-driven navigation LaunchedEffect (keyed on spacesLoaded) will fire on
-            // the next snapshot, swap the route, and paint RoomListScreen with cached rooms.
-            // We then proceed with FCM/WS init, which can compete with the main thread freely.
             // 32ms = ~2 frames at 60Hz, enough slack even on slow devices.
             kotlinx.coroutines.delay(32)
 
@@ -297,7 +307,7 @@ fun AuthCheckScreen(
                 // Navigation is handled by the sentinel callback in populateFromCacheAndNavigateAfterAttach,
                 // which fires the navigation callback set above. The callback checks directRoomNavigation
                 // and routes accordingly, so no direct navigation is needed here.
-                return@LaunchedEffect
+                return@launch
             }
 
             // Verbose cold-start checklist (WebSocket not connected yet, or no deep link while connected)
@@ -365,6 +375,7 @@ fun AuthCheckScreen(
                     )
                 }
             }
+            } // end appViewModel.viewModelScope.launch — connection work decoupled from auth_check lifecycle
         } else {
             if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "No token or server URL found. Going to login.")
             appViewModel.isLoading = false

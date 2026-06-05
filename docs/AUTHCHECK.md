@@ -48,6 +48,18 @@ The first Compose screen shown on every launch. It validates credentials, connec
 
 ---
 
+### Connection runs on `viewModelScope`, not on `LaunchedEffect(Unit)` — the "stuck disconnected" race
+
+Inside `LaunchedEffect(Unit)`, the cache-population calls (`populateRoomMapFromCache()` / `populateSpacesFromCache()`) flip `spacesLoaded = true`. That arms the `spacesLoaded` effect above, which navigates to `room_list` with `popUpTo("auth_check") { inclusive = true }` — **disposing `AuthCheckScreen` and cancelling `LaunchedEffect(Unit)`**.
+
+If the WebSocket connection were initiated inline in `LaunchedEffect(Unit)`, that cancellation would land at the first suspension point after `spacesLoaded` flips (the `delay(32)` frame wait / the FCM-init `withContext(IO)`) — **before `initializeWebSocketConnection()` is ever reached**. The foreground service never starts, no reconnection logic is armed, and the app sits on `RoomListScreen` with the red "disconnected" icon forever (it cannot even recover when the network returns). This was observed on cold start after a battery-saver teardown, and is intermittent because it is a race between the connect call and the navigation-triggered disposal.
+
+**Fix:** the FCM-init + `setNavigationCallback` + connection tail of `LaunchedEffect(Unit)` runs inside `appViewModel.viewModelScope.launch(Dispatchers.Main) { … }`. `viewModelScope` outlives the composable, so disposing `auth_check` no longer cancels the connection work. The cache-population writes (which must precede navigation for fast first paint) stay synchronous in the `LaunchedEffect` itself. The already-connected fast path inside the wrapped block returns via `return@launch`.
+
+**Invariant:** never initiate the WebSocket connection (or any work that must outlive navigation) directly in `LaunchedEffect(Unit)` after a `spacesLoaded`-flipping call — it can be cancelled by the cache-driven navigation. Put it on `viewModelScope`.
+
+---
+
 ### Navigation Callback (`setNavigationCallback`)
 
 Registered in `LaunchedEffect(Unit)` **before** `initializeWebSocketConnection()` is called, so it is always available when `AppViewModel.checkStartupComplete()` fires. The callback resolves the destination in priority order:
