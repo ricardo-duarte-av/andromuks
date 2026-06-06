@@ -59,6 +59,9 @@ fun buildStaticMapUrl(latitude: Double, longitude: Double, apiKey: String): Stri
  *
  * @param contentColor The text/icon color — pass the bubble's content color so it
  *   always contrasts with the bubble background regardless of theme or sender.
+ * @param onCaptionClick Tap handler for the caption row below the map thumbnail. When
+ *   non-null (e.g. a thread message) it overrides the default "open in Maps" so the
+ *   caption can open the thread instead. The map thumbnail always opens Maps.
  */
 @Composable
 fun LocationMessageContent(
@@ -66,7 +69,8 @@ fun LocationMessageContent(
     body: String,
     mapsApiKey: String,
     contentColor: androidx.compose.ui.graphics.Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onCaptionClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val coords = remember(geoUri) { parseGeoUri(geoUri) }
@@ -114,7 +118,7 @@ fun LocationMessageContent(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { openInMaps() }
+                .clickable { (onCaptionClick ?: openInMaps)() }
                 .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)

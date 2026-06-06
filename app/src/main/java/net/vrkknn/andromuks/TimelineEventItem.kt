@@ -1338,6 +1338,7 @@ private fun RoomLocationMessageContent(
 ) {
     val geoUri = content?.optString("geo_uri", "") ?: ""
     val coords = remember(geoUri) { parseGeoUri(geoUri) }
+    val isThreadMessage = event.isThreadMessage()
 
     val bubbleShape = if (actualIsMine) {
         RoundedCornerShape(topStart = 12.dp, topEnd = 2.dp, bottomEnd = 12.dp, bottomStart = 12.dp)
@@ -1348,7 +1349,12 @@ private fun RoomLocationMessageContent(
     val bubbleColors = if (isRedacted) {
         BubblePalette.colors(MaterialTheme.colorScheme, isMine = actualIsMine, isRedacted = true)
     } else {
-        BubblePalette.colors(MaterialTheme.colorScheme, isMine = actualIsMine)
+        BubblePalette.colors(
+            MaterialTheme.colorScheme,
+            isMine = actualIsMine,
+            mentionsMe = mentionsMe,
+            isThreadMessage = isThreadMessage
+        )
     }
 
     val mapsApiKey = androidx.compose.ui.platform.LocalContext.current
@@ -1397,7 +1403,11 @@ private fun RoomLocationMessageContent(
                 onEdit = {},
                 onDelete = { onDelete(event) },
                 appViewModel = appViewModel,
-                onBubbleClick = { onThreadClick(event) },
+                onBubbleClick = if (isThreadMessage) {
+                    { onThreadClick(event) }
+                } else {
+                    null
+                },
                 onShowEditHistory = null,
                 onShowMenu = onShowMenu,
                 mentionBorder = bubbleColors.mentionBorder,
@@ -1421,7 +1431,13 @@ private fun RoomLocationMessageContent(
                         body = body,
                         mapsApiKey = mapsApiKey,
                         contentColor = bubbleColors.content,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        // In a thread, the caption row opens the thread; the map still opens Maps.
+                        onCaptionClick = if (isThreadMessage) {
+                            { onThreadClick(event) }
+                        } else {
+                            null
+                        }
                     )
                 }
             }
