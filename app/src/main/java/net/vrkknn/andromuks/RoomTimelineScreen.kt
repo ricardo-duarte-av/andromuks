@@ -97,6 +97,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
@@ -1027,6 +1028,8 @@ fun RoomTimelineScreen(
     
     // Attachment menu state
     var showAttachmentMenu by remember { mutableStateOf(false) }
+    // Location picker overlay — shown instead of navigating so the room stays alive
+    var showLocationPickerOverlay by remember { mutableStateOf(false) }
     // In-app camera snapping overlay (rememberSaveable so it survives rotation/config changes)
     var showCameraOverlay by rememberSaveable { mutableStateOf(false) }
     // Simple flash mode cycling for CameraX integration
@@ -3131,11 +3134,13 @@ fun RoomTimelineScreen(
     val isBackStackEmpty = remember { navController.previousBackStackEntry == null }
     val isRootDestination = isBackStackEmpty
     BackHandler(
-        enabled = messageMenuConfig != null || showCameraOverlay || showVideoOverlay ||
+        enabled = messageMenuConfig != null || showLocationPickerOverlay || showCameraOverlay || showVideoOverlay ||
                 showAttachmentMenu || jumpBackStack.isNotEmpty() || isRootDestination
     ) {
         if (messageMenuConfig != null) {
             messageMenuConfig = null
+        } else if (showLocationPickerOverlay) {
+            showLocationPickerOverlay = false
         } else if (showCameraOverlay) {
             showCameraOverlay = false
         } else if (showVideoOverlay) {
@@ -4431,6 +4436,19 @@ fun RoomTimelineScreen(
                 }
                 }
                 
+                // Location picker overlay — shown without navigation so the room stays alive
+                if (showLocationPickerOverlay) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LocationPickerOverlay(
+                            onDismiss = { showLocationPickerOverlay = false },
+                            onSendLocation = { lat, lon, caption ->
+                                appViewModel.sendLocationMessage(roomId, lat, lon, description = caption)
+                                showLocationPickerOverlay = false
+                            }
+                        )
+                    }
+                }
+
                 // In-app camera snapping overlay (full-frame between header and message box)
                 AnimatedVisibility(
                     visible = showCameraOverlay,
@@ -5223,6 +5241,40 @@ fun RoomTimelineScreen(
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = "Video",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            // Location option
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                    shape = RoundedCornerShape(16.dp),
+                                    tonalElevation = 1.dp,
+                                    modifier = Modifier.size(56.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            showAttachmentMenu = false
+                                            showLocationPickerOverlay = true
+                                        },
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.LocationOn,
+                                            contentDescription = "Location",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.alpha(attachmentButtonsAlpha.value)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Location",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

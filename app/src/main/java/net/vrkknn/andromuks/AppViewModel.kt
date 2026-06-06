@@ -6872,6 +6872,15 @@ class AppViewModel : ViewModel() {
     
     fun updateRecentEmojis(emoji: String) = accountDataCoordinator.updateRecentEmojis(emoji)
 
+    fun sendLocationMessage(
+        roomId: String,
+        latitude: Double,
+        longitude: Double,
+        description: String = "",
+        threadRootEventId: String? = null,
+        replyToEventId: String? = null
+    ) = messageSendCoordinator.sendLocationMessage(roomId, latitude, longitude, description, threadRootEventId, replyToEventId)
+
     fun sendReply(roomId: String, text: String, originalEvent: TimelineEvent) =
         messageSendCoordinator.sendReply(roomId, text, originalEvent)
 

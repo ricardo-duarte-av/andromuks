@@ -72,6 +72,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material.icons.filled.Close
@@ -704,6 +705,7 @@ fun BubbleTimelineScreen(
     
     // Attachment menu state
     var showAttachmentMenu by remember { mutableStateOf(false) }
+    var showLocationPickerOverlay by remember { mutableStateOf(false) }
     var selectedAudioUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
     
@@ -4110,11 +4112,58 @@ fun BubbleTimelineScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+
+                            // Location option
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                    shape = RoundedCornerShape(16.dp),
+                                    tonalElevation = 1.dp,
+                                    modifier = Modifier.size(56.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            showAttachmentMenu = false
+                                            showLocationPickerOverlay = true
+                                        },
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.LocationOn,
+                                            contentDescription = "Location",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.alpha(attachmentButtonsAlpha.value)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Location",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                     }
                 }
-                
+
+                // Location picker overlay
+                if (showLocationPickerOverlay) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LocationPickerOverlay(
+                            onDismiss = { showLocationPickerOverlay = false },
+                            onSendLocation = { lat, lon, caption ->
+                                appViewModel.sendLocationMessage(roomId, lat, lon, description = caption)
+                                showLocationPickerOverlay = false
+                            }
+                        )
+                    }
+                }
+
                 // Floating member list for mentions
                 if (showMentionList) {
                     Box(

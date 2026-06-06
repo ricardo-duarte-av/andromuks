@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.StickyNote2
@@ -400,6 +401,7 @@ fun ThreadViewerScreen(
 
     // Attachment/media state
     var showAttachmentMenu by remember { mutableStateOf(false) }
+    var showLocationPickerOverlay by remember { mutableStateOf(false) }
     var selectedMediaUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var selectedAudioUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var selectedFileUri by remember { mutableStateOf<android.net.Uri?>(null) }
@@ -2394,11 +2396,44 @@ fun ThreadViewerScreen(
                                     modifier = Modifier.alpha(attachmentButtonsAlpha.value)
                                 )
                             }
+                            IconButton(
+                                onClick = {
+                                    showAttachmentMenu = false
+                                    showLocationPickerOverlay = true
+                                },
+                                modifier = Modifier.size(56.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.LocationOn,
+                                    contentDescription = "Location",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value)
+                                )
+                            }
                         }
                     }
                 }
                 }
-                
+
+                // Location picker overlay
+                if (showLocationPickerOverlay) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LocationPickerOverlay(
+                            onDismiss = { showLocationPickerOverlay = false },
+                            onSendLocation = { lat, lon, caption ->
+                                appViewModel.sendLocationMessage(
+                                    roomId = roomId,
+                                    latitude = lat,
+                                    longitude = lon,
+                                    description = caption,
+                                    threadRootEventId = threadRootEventId
+                                )
+                                showLocationPickerOverlay = false
+                            }
+                        )
+                    }
+                }
+
                 // Emoji shortcode suggestion list
                 if (showEmojiSuggestionList) {
                     Box(
