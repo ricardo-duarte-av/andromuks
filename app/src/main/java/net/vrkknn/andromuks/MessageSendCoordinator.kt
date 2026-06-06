@@ -730,6 +730,63 @@ internal class MessageSendCoordinator(
         }
     }
 
+    fun sendLocationMessage(
+        roomId: String,
+        latitude: Double,
+        longitude: Double,
+        description: String = "",
+        threadRootEventId: String? = null,
+        replyToEventId: String? = null
+    ) {
+        notifyUserSentTo(roomId)
+        val messageRequestId = vm.getAndIncrementRequestId()
+        vm.trackOutgoingRequest(messageRequestId, roomId)
+
+        val geoUri = "geo:$latitude,$longitude"
+
+        val baseContent = mapOf(
+            "msgtype" to "m.location",
+            "body" to if (description.isNotBlank()) description else "Location",
+            "geo_uri" to geoUri
+        )
+
+        val extra = mapOf(
+            "org.matrix.msc3488.asset" to mapOf("type" to "m.pin"),
+            "org.matrix.msc3488.location" to mapOf(
+                "uri" to geoUri,
+                "description" to description
+            )
+        )
+
+        val dataMap = mutableMapOf<String, Any>(
+            "room_id" to roomId,
+            "base_content" to baseContent,
+            "extra" to extra,
+            "text" to "",
+            "mentions" to mapOf("user_ids" to emptyList<String>(), "room" to false),
+            "url_previews" to emptyList<Any>()
+        )
+
+        if (threadRootEventId != null) {
+            val resolvedReplyTarget = replyToEventId
+                ?: vm.getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
+            val threadFallbackFlag = resolvedReplyTarget == null
+            val relatesTo = mutableMapOf<String, Any>(
+                "rel_type" to "m.thread",
+                "event_id" to threadRootEventId,
+                "is_falling_back" to threadFallbackFlag
+            )
+            if (resolvedReplyTarget != null) {
+                relatesTo["m.in_reply_to"] = mapOf("event_id" to resolvedReplyTarget)
+            }
+            dataMap["relates_to"] = relatesTo
+        }
+
+        vm.sendWebSocketCommand("send_message", messageRequestId, dataMap)
+        vm.messageRequests[messageRequestId] = roomId
+        vm.pendingSendCount++
+    }
+
     fun sendVideoMessage(
         roomId: String,
         videoMxcUrl: String,

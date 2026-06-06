@@ -30,6 +30,10 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     
+    <!-- Location permissions for location sharing (MSC3488) -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
     <!-- Camera permission for taking photos/videos -->
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- Microphone permission for voice/video calls -->
@@ -244,6 +248,11 @@
                 android:name="android.provider.CONTACTS_STRUCTURE"
                 android:resource="@xml/contacts" />
         </service>
+
+        <!-- Google Maps SDK API key (enable Maps SDK for Android + Maps Static API in GCP console) -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="@string/google_maps_api_key" />
 
         <!-- Default notification icon -->
         <meta-data

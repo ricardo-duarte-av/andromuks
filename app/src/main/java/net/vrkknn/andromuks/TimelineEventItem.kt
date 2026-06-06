@@ -99,6 +99,8 @@ import net.vrkknn.andromuks.utils.mediaBubbleColorFor
 import net.vrkknn.andromuks.utils.stickerBubbleColorFor
 import net.vrkknn.andromuks.utils.BubblePalette
 import net.vrkknn.andromuks.utils.BubbleColors
+import net.vrkknn.andromuks.utils.LocationMessageContent
+import net.vrkknn.andromuks.utils.parseGeoUri
 import net.vrkknn.andromuks.BuildConfig
 
 import java.text.SimpleDateFormat
@@ -1206,6 +1208,39 @@ private fun RoomMessageContent(
         return
     }
     
+    // Check if it's a location message (MSC3488 / m.location)
+    if (finalMsgType == "m.location") {
+        RoomLocationMessageContent(
+            event = event,
+            content = content,
+            body = finalBody,
+            actualIsMine = actualIsMine,
+            mentionsMe = mentionsMe,
+            isRedacted = isRedacted,
+            userProfileCache = userProfileCache,
+            replyInfo = replyInfo,
+            originalEvent = originalEvent,
+            timelineEvents = timelineEvents,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            isConsecutive = isConsecutive,
+            displayName = displayName,
+            avatarUrl = avatarUrl,
+            readReceipts = readReceipts,
+            appViewModel = appViewModel,
+            myUserId = myUserId,
+            onScrollToMessage = onScrollToMessage,
+            onReply = onReply,
+            onReact = onReact,
+            onDelete = onDelete,
+            onUserClick = onUserClick,
+            onThreadClick = onThreadClick,
+            onShowMenu = onShowMenu,
+            onShowReactions = onShowReactions
+        )
+        return
+    }
+
     // Check if it's a media message
     if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio" || msgType == "m.file") {
         RoomMediaMessageContent(
@@ -1269,6 +1304,175 @@ private fun RoomMessageContent(
             onShowMenu = onShowMenu,
             onShowReactions = onShowReactions
         )
+    }
+}
+
+@Composable
+private fun RoomLocationMessageContent(
+    event: TimelineEvent,
+    content: org.json.JSONObject?,
+    body: String,
+    actualIsMine: Boolean,
+    mentionsMe: Boolean,
+    isRedacted: Boolean,
+    userProfileCache: Map<String, MemberProfile>,
+    replyInfo: ReplyInfo?,
+    originalEvent: TimelineEvent?,
+    timelineEvents: List<TimelineEvent>,
+    homeserverUrl: String,
+    authToken: String,
+    isConsecutive: Boolean,
+    displayName: String?,
+    avatarUrl: String?,
+    readReceipts: List<ReadReceipt>,
+    appViewModel: AppViewModel?,
+    myUserId: String?,
+    onScrollToMessage: (String) -> Unit,
+    onReply: (TimelineEvent) -> Unit,
+    onReact: (TimelineEvent) -> Unit,
+    onDelete: (TimelineEvent) -> Unit,
+    onUserClick: (String) -> Unit,
+    onThreadClick: (TimelineEvent) -> Unit,
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
+    onShowReactions: (() -> Unit)? = null
+) {
+    val geoUri = content?.optString("geo_uri", "") ?: ""
+    val coords = remember(geoUri) { parseGeoUri(geoUri) }
+
+    val bubbleShape = if (actualIsMine) {
+        RoundedCornerShape(topStart = 12.dp, topEnd = 2.dp, bottomEnd = 12.dp, bottomStart = 12.dp)
+    } else {
+        RoundedCornerShape(topStart = 2.dp, topEnd = 12.dp, bottomEnd = 12.dp, bottomStart = 12.dp)
+    }
+
+    val bubbleColors = if (isRedacted) {
+        BubblePalette.colors(MaterialTheme.colorScheme, isMine = actualIsMine, isRedacted = true)
+    } else {
+        BubblePalette.colors(MaterialTheme.colorScheme, isMine = actualIsMine)
+    }
+
+    val mapsApiKey = androidx.compose.ui.platform.LocalContext.current
+        .getString(net.vrkknn.andromuks.R.string.google_maps_api_key)
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // Sender header (non-consecutive)
+        if (!isConsecutive && !actualIsMine) {
+            Row(
+                modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                net.vrkknn.andromuks.ui.components.AvatarImage(
+                    mxcUrl = avatarUrl,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    fallbackText = displayName ?: event.sender,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clickable { onUserClick(event.sender) }
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = displayName ?: event.sender,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable { onUserClick(event.sender) }
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
+        ) {
+            MessageBubbleWithMenu(
+                event = event,
+                bubbleColor = bubbleColors.container,
+                bubbleShape = bubbleShape,
+                modifier = Modifier.widthIn(max = 280.dp).padding(top = 2.dp),
+                isMine = actualIsMine,
+                myUserId = myUserId,
+                powerLevels = appViewModel?.currentRoomState?.powerLevels,
+                onReply = { onReply(event) },
+                onReact = { onReact(event) },
+                onEdit = {},
+                onDelete = { onDelete(event) },
+                appViewModel = appViewModel,
+                onBubbleClick = { onThreadClick(event) },
+                onShowEditHistory = null,
+                onShowMenu = onShowMenu,
+                mentionBorder = bubbleColors.mentionBorder,
+                threadBorder = bubbleColors.threadBorder,
+                onShowReactions = onShowReactions
+            ) {
+                if (isRedacted) {
+                    val deletionMessage = net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(
+                        event.redactionSender, event.redactionReason, event.redactionTimestamp, userProfileCache
+                    )
+                    Text(
+                        text = deletionMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = bubbleColors.content,
+                        fontStyle = FontStyle.Italic,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                    )
+                } else {
+                    LocationMessageContent(
+                        geoUri = geoUri,
+                        body = body,
+                        mapsApiKey = mapsApiKey,
+                        contentColor = bubbleColors.content,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+
+        // Read receipts
+        if (readReceipts.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp),
+                horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
+            ) {
+                net.vrkknn.andromuks.utils.AnimatedInlineReadReceiptAvatars(
+                    receipts = readReceipts,
+                    userProfileCache = userProfileCache,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    appViewModel = appViewModel,
+                    messageSender = event.sender,
+                    eventId = event.eventId,
+                    isMine = actualIsMine
+                )
+            }
+        }
+
+        // Reaction badges
+        if (appViewModel != null) {
+            val reactions = remember(appViewModel.reactionUpdateCounter, event.eventId) {
+                appViewModel.messageReactions[event.eventId] ?: emptyList()
+            }
+            if (reactions.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 2.dp),
+                    horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
+                ) {
+                    ReactionBadges(
+                        eventId = event.eventId,
+                        reactions = reactions,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        isMine = actualIsMine,
+                        onReactionClick = { emoji ->
+                            appViewModel.sendReaction(event.roomId, event.eventId, emoji)
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 
