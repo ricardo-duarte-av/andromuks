@@ -3549,6 +3549,19 @@ fun RoomTimelineScreen(
                                                             }
                                                         }
                                                     } else null,
+                                                    // For messages that aren't themselves thread replies, offer Start/View
+                                                    // thread rooted at this message. ThreadViewerScreen renders the single
+                                                    // root via getThreadMessages; the m.thread relation is created on the
+                                                    // first reply. Label depends on whether replies already exist.
+                                                    onStartOrViewThread = if (!menuConfig.event.isThreadMessage()) {
+                                                        {
+                                                            val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+                                                            val encodedThreadRoot = java.net.URLEncoder.encode(menuConfig.event.eventId, "UTF-8")
+                                                            appViewModel.threadReturnScrollEventId = menuConfig.event.eventId
+                                                            navController.navigate("thread_viewer/$encodedRoomId/$encodedThreadRoot")
+                                                        }
+                                                    } else null,
+                                                    startThreadIsExisting = appViewModel.hasThreadReplies(roomId, menuConfig.event.eventId),
                                                     onShowBridgeDeliveryInfo = if (appViewModel.messageBridgeSendStatus.containsKey(menuConfig.event.eventId)) {
                                                         {
                                                             bridgeDeliveryEventId = menuConfig.event.eventId

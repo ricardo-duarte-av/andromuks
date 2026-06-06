@@ -143,6 +143,7 @@ When investigating protocol behaviour, message shapes, or backend fields, consul
 | `currentRoomState` and `timelineEvents` clearing invariants | [docs/STATE_INVARIANTS.md](docs/STATE_INVARIANTS.md) |
 | Timeline event rendering rules, rowid gates, related_events, reply jump navigation | [docs/TIMELINE_EVENTS.md](docs/TIMELINE_EVENTS.md) |
 | Timeline paginate routing (`TimelineCacheCoordinator`) | [docs/TIMELINE_PAGINATE.md](docs/TIMELINE_PAGINATE.md) |
+| Threads (`ThreadViewerScreen` rendering, `getThreadMessages`, starting a new thread from one message) | [docs/THREADS.md](docs/THREADS.md) |
 | Message sending protocol, local echo, error states | [docs/MESSAGE_SENDING.md](docs/MESSAGE_SENDING.md) |
 | Message long-press menu (`MessageMenuBar`) | [docs/MESSAGE_MENU.md](docs/MESSAGE_MENU.md) |
 | Power levels parsing and `canPin` | [docs/POWER_LEVELS.md](docs/POWER_LEVELS.md) |

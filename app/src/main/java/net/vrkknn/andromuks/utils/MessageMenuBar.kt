@@ -91,6 +91,11 @@ data class MessageMenuConfig(
     val onViewRenderedText: ((String) -> Unit)? = null,
     val onShowReactions: (() -> Unit)? = null,
     val onViewInThread: (() -> Unit)? = null,
+    // Start a brand-new thread rooted at this message, or open it if it already has replies.
+    // Mutually exclusive with onViewInThread (which is for messages that are themselves thread
+    // replies). startThreadIsExisting toggles the label: "View thread" vs "Start thread".
+    val onStartOrViewThread: (() -> Unit)? = null,
+    val startThreadIsExisting: Boolean = false,
     val onShowBridgeDeliveryInfo: (() -> Unit)? = null
 )
 
@@ -428,6 +433,19 @@ fun MessageMenuBar(
                                         moreExpanded = false
                                         onDismiss()
                                         menuConfig.onViewInThread.invoke()
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.AutoMirrored.Filled.Message, contentDescription = null)
+                                    }
+                                )
+                            }
+                            if (menuConfig.onStartOrViewThread != null) {
+                                DropdownMenuItem(
+                                    text = { Text(if (menuConfig.startThreadIsExisting) "View thread" else "Start thread") },
+                                    onClick = {
+                                        moreExpanded = false
+                                        onDismiss()
+                                        menuConfig.onStartOrViewThread.invoke()
                                     },
                                     leadingIcon = {
                                         Icon(Icons.AutoMirrored.Filled.Message, contentDescription = null)

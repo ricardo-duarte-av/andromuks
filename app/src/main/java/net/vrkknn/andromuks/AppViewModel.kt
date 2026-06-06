@@ -11383,6 +11383,22 @@ class AppViewModel : ViewModel() {
         return events.find { it.eventId == eventId }
     }
 
+    /**
+     * Returns true if [eventId] already has at least one thread reply loaded — i.e. it is an
+     * existing thread root rather than a plain message. Used by the long-press menu to label the
+     * action "View thread" (existing) vs "Start thread" (new). Scans the same event source as
+     * [getThreadMessages] (live timeline, or the LRU cache when the timeline has been cleared), so
+     * it's a best-effort check bounded by what's currently loaded.
+     */
+    fun hasThreadReplies(roomId: String, eventId: String): Boolean {
+        val events = if (timelineEvents.isNotEmpty()) {
+            timelineEvents
+        } else {
+            RoomTimelineCache.getCachedEvents(roomId) ?: emptyList()
+        }
+        return events.any { it.isThreadMessage() && it.relatesTo == eventId }
+    }
+
     fun getThreadMessages(roomId: String, threadRootEventId: String): List<TimelineEvent> {
         val threadMessages = mutableListOf<TimelineEvent>()
 
