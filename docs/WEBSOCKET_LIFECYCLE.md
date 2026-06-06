@@ -42,6 +42,16 @@ Helper extensions live in `ConnectionState.kt`: `isReady()`, `isDisconnected()`,
 
 **Fix in stuck-DISCONNECTED health check:** The check now also fires when `connectionLostAt == 0` (service never had a connection this process lifetime) and `serviceStartTime` is >5s ago — covering cold `START_STICKY` restarts.
 
+## Cold-start Dialer & AuthCheck-Bypass Watchdog
+
+The **normal cold-start dialer** is `AuthCheckScreen` (`AuthCheck.kt`): its `LaunchedEffect(Unit)` calls `appViewModel.initializeWebSocketConnection()` for the primary instance once stored credentials are confirmed. `auth_check` is the nav graph's `startDestination`, so on a fresh launch it composes first and owns the dial.
+
+**The gap:** Compose Navigation (`rememberNavController()`) persists and restores its back stack across process death. If the previous session left a non-`auth_check` destination on top (e.g. a `room_timeline` the user was reading), the restored `NavHost` mounts that destination directly — `auth_check` never composes, its connect `LaunchedEffect` never runs, and the socket is never dialed. `awaitRoomDataReadiness` then polls with `websocketReady=false`, times out after 15s, and the timeline is stuck on "Room loading…".
+
+**Watchdog (`AppNavigation` in `MainActivity.kt`):** A lifetime-scoped `LaunchedEffect(Unit)`, placed at the top of `AppNavigation` *outside* the `BiometricLockGate` wrapper so it runs regardless of which destination is mounted or whether the app is still biometrically locked. It waits ~2.5s (to let AuthCheck dial on the normal path), then — if the socket is still down, this is the primary instance, and credentials exist — calls the same idempotent `initializeWebSocketConnection()`.
+
+**Why it can't double-dial:** `initializeWebSocketConnection()` no-ops for non-primary instances and attaches instead of dialing when already connected. `connectWebSocket()` independently skips when already connected and when a dial is already `Connecting`. So even if the watchdog races AuthCheck, whichever reaches the service first wins and the other no-ops. It is one-shot: a failed dial hands off to the service's normal reconnection/backoff.
+
 ## No-VM Race: Service Starts Without AppViewModel
 
 **Race:** The service can connect and receive the full initial `init_complete` + `sync_complete` batch before any `AppViewModel` is attached. This happens when the service is auto-started via `START_STICKY`, `BootStartReceiver`, `ServiceStartWorker`, or the stuck-DISCONNECTED health check recovery — all of which call `connectWebSocket(null)`. With no VM attached, `SyncRepository.processSyncCompletePipeline()` previously dropped every `sync_complete` (logged as `"no AppViewModel to process"`), leaving `RoomListCache` empty.

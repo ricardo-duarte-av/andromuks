@@ -1144,9 +1144,45 @@ fun AppNavigation(
 ) {
     val navController = rememberNavController()
     val appViewModel: AppViewModel = viewModel()
-    
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     // Notify the parent about the ViewModel creation
     onViewModelCreated(appViewModel)
+
+    // Cold-start WebSocket watchdog (safety net for AuthCheck being bypassed).
+    //
+    // AuthCheck (the start destination) is the normal cold-start dialer — its LaunchedEffect
+    // calls initializeWebSocketConnection(). But Compose Navigation persists and restores its
+    // back stack across process death. If the previous session left a non-auth_check destination
+    // on top (e.g. a room_timeline the user was reading), the restored NavHost mounts that
+    // destination directly and auth_check never composes, so its connect LaunchedEffect never
+    // runs. The socket stays undialed, awaitRoomDataReadiness polls with websocketReady=false,
+    // times out after 15 s, and the timeline is stuck on "Room loading…" (see init-fail postmortem).
+    //
+    // This watchdog runs for the whole lifetime of the nav graph, independent of which destination
+    // is on top. It waits briefly to let AuthCheck dial on the normal path, then connects itself if
+    // the socket is still down. initializeWebSocketConnection() is idempotent (no-op when non-primary
+    // or already connected) and connectWebSocket() skips when a dial is already Connecting, so this is
+    // safe even if it races AuthCheck — whoever reaches the service first wins and the other no-ops.
+    LaunchedEffect(Unit) {
+        // Give AuthCheck (when it is the active destination) time to dial on the normal path.
+        kotlinx.coroutines.delay(2_500)
+        if (WebSocketService.isWebSocketConnected()) return@LaunchedEffect
+        if (!appViewModel.isPrimaryInstance()) return@LaunchedEffect
+        val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+        val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
+        val token = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs)
+        if (homeserverUrl.isBlank() || token.isBlank()) {
+            // No stored credentials — AuthCheck will route to login; nothing to dial.
+            return@LaunchedEffect
+        }
+        android.util.Log.i(
+            "Andromuks",
+            "AppNavigation: cold-start watchdog — WebSocket still down after delay, dialing connection " +
+                "(restored back stack likely bypassed AuthCheck)",
+        )
+        appViewModel.initializeWebSocketConnection(homeserverUrl, token)
+    }
 
     // Register the unauthorized-navigation callback for the full lifetime of the nav graph.
     // This handles 401 errors that fire after auth_check has already been popped (i.e. the user
