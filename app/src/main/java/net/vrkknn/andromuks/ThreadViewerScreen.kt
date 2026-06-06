@@ -64,6 +64,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -402,14 +403,16 @@ fun ThreadViewerScreen(
     // Attachment/media state
     var showAttachmentMenu by remember { mutableStateOf(false) }
     var showLocationPickerOverlay by remember { mutableStateOf(false) }
+    // In-app camera/video capture overlays. The overlays (utils/AttachmentMenu.kt) own all
+    // CameraX state internally; we only toggle visibility. rememberSaveable survives rotation.
+    var showCameraOverlay by rememberSaveable { mutableStateOf(false) }
+    var showVideoOverlay by rememberSaveable { mutableStateOf(false) }
     var selectedMediaUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var selectedAudioUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var selectedFileUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var selectedMediaIsVideo by remember { mutableStateOf(false) }
     var showMediaPreview by remember { mutableStateOf(false) }
     var isUploading by remember { mutableStateOf(false) }
-    var cameraPhotoUri by remember { mutableStateOf<android.net.Uri?>(null) }
-    var cameraVideoUri by remember { mutableStateOf<android.net.Uri?>(null) }
     
     // Avatar command state (for commands that need image picker) - must be declared before launcher
     var pendingAvatarCommand by remember { mutableStateOf<String?>(null) } // "myroomavatar", "globalavatar", or "roomavatar"
@@ -527,60 +530,9 @@ fun ThreadViewerScreen(
                 showMediaPreview = true
             }
         }
-    val cameraPhotoLauncher =
-        rememberLauncherForActivityResult(contract = ActivityResultContracts.TakePicture()) { success ->
-            if (success && cameraPhotoUri != null) {
-                selectedMediaUri = cameraPhotoUri
-                selectedMediaIsVideo = false
-                selectedAudioUri = null
-                selectedFileUri = null
-                showMediaPreview = true
-            }
-            cameraPhotoUri = null
-        }
-    val cameraVideoLauncher =
-        rememberLauncherForActivityResult(contract = ActivityResultContracts.CaptureVideo()) { success ->
-            if (success && cameraVideoUri != null) {
-                selectedMediaUri = cameraVideoUri
-                selectedMediaIsVideo = true
-                selectedAudioUri = null
-                selectedFileUri = null
-                showMediaPreview = true
-            }
-            cameraVideoUri = null
-        }
-    val cameraPermissionLauncher =
-        rememberLauncherForActivityResult(contract = ActivityResultContracts.RequestPermission()) { granted ->
-            if (!granted) {
-                Toast.makeText(context, "Camera permission is required", Toast.LENGTH_SHORT).show()
-            }
-        }
+    // Photo/Video capture is handled by the shared in-app CameraX overlays
+    // (utils/AttachmentMenu.kt), which write straight into the media-preview pipeline.
 
-    fun createCameraFileUri(isVideo: Boolean): android.net.Uri? {
-        return try {
-            val timeStamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault()).format(java.util.Date())
-            val fileName = if (isVideo) "VID_${timeStamp}.mp4" else "IMG_${timeStamp}.jpg"
-            val contentValues = android.content.ContentValues().apply {
-                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, if (isVideo) "video/mp4" else "image/jpeg")
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                    put(
-                        android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
-                        if (isVideo) android.os.Environment.DIRECTORY_MOVIES else android.os.Environment.DIRECTORY_PICTURES
-                    )
-                }
-            }
-            context.contentResolver.insert(
-                if (isVideo) android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                else android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                contentValues
-            )
-        } catch (e: Exception) {
-            Log.e("Andromuks", "Error creating camera file URI", e)
-            null
-        }
-    }
-    
     // Get the thread root event
     val threadRootEvent = threadMessages.firstOrNull { it.eventId == threadRootEventId }
     
@@ -1197,9 +1149,14 @@ fun ThreadViewerScreen(
 
     // Handle Android back key — only intercept when there is UI state to dismiss.
     // When disabled, NavController handles back natively (enables predictive back gesture animation).
-    BackHandler(enabled = messageMenuConfig != null || showAttachmentMenu) {
+    BackHandler(enabled = messageMenuConfig != null || showCameraOverlay || showVideoOverlay || showAttachmentMenu) {
         if (messageMenuConfig != null) {
             messageMenuConfig = null
+        } else if (showCameraOverlay) {
+            showCameraOverlay = false
+        } else if (showVideoOverlay) {
+            // InAppVideoOverlay stops any in-flight recording when it's disposed on hide.
+            showVideoOverlay = false
         } else if (showAttachmentMenu) {
             showAttachmentMenu = false
         }
@@ -2243,177 +2200,47 @@ fun ThreadViewerScreen(
                     }
                 }
 
-                // Attachment menu overlay (floating, does not push composer)
-                AnimatedVisibility(
+                // Attachment action bar + in-app camera/video capture overlays (shared with
+                // RoomTimelineScreen). See utils/AttachmentMenu.kt.
+                net.vrkknn.andromuks.utils.AttachmentMenuBar(
                     visible = showAttachmentMenu,
-                    enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = 120)),
-                    exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = 120))
-                ) {
-                val attachmentBarSlideOffsetPx = transition.animateFloat(
-                    transitionSpec = {
-                        if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
-                            // ENTER: slide in first
-                            tween(durationMillis = 120)
-                        } else {
-                            // EXIT: wait for buttons to fade out, then slide down
-                            tween(durationMillis = 120, delayMillis = 500)
-                        }
+                    buttonHeight = buttonHeight,
+                    onDismiss = { showAttachmentMenu = false },
+                    onPickImageVideo = {
+                        mediaPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                        )
                     },
-                    label = "attachmentBarSlideOffset"
-                ) { state ->
-                    if (state == EnterExitState.Visible) 0f else with(density) { 56.dp.toPx() }
-                }
-                val attachmentButtonsAlpha = transition.animateFloat(
-                    transitionSpec = {
-                        if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
-                            // ENTER: buttons fade in after bar has slid in
-                            tween(durationMillis = 500, delayMillis = 120)
-                        } else {
-                            // EXIT: buttons fade out immediately
-                            tween(durationMillis = 500)
-                        }
-                    },
-                    label = "attachmentButtonsAlpha"
-                ) { state ->
-                    if (state == EnterExitState.Visible) 1f else 0f
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = 72.dp)
-                        .navigationBarsPadding()
-                        .imePadding()
-                        .graphicsLayer {
-                            translationY = attachmentBarSlideOffsetPx.value
-                        }
-                        .zIndex(6f),
-                    contentAlignment = Alignment.BottomStart
-                ) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        tonalElevation = 2.dp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(
-                                onClick = {
-                                    showAttachmentMenu = false
-                                    mediaPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
-                                },
-                                modifier = Modifier.size(56.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Image,
-                                    contentDescription = "Image/Video",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value)
-                                )
-                            }
-                            IconButton(
-                                onClick = {
-                                    showAttachmentMenu = false
-                                    audioPickerLauncher.launch("audio/*")
-                                },
-                                modifier = Modifier.size(56.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.AudioFile,
-                                    contentDescription = "Audio",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value)
-                                )
-                            }
-                            IconButton(
-                                onClick = {
-                                    showAttachmentMenu = false
-                                    filePickerLauncher.launch("*/*")
-                                },
-                                modifier = Modifier.size(56.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Folder,
-                                    contentDescription = "File",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value)
-                                )
-                            }
-                            IconButton(
-                                onClick = {
-                                    val hasCam = ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                                    if (hasCam) {
-                                        val uri = createCameraFileUri(false)
-                                        if (uri != null) {
-                                            cameraPhotoUri = uri
-                                            cameraPhotoLauncher.launch(uri)
-                                            showAttachmentMenu = false
-                                        } else {
-                                            Toast.makeText(context, "Error creating camera file", Toast.LENGTH_SHORT).show()
-                                        }
-                                    } else {
-                                        cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
-                                    }
-                                },
-                                modifier = Modifier.size(56.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.CameraAlt,
-                                    contentDescription = "Camera Photo",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value)
-                                )
-                            }
-                            IconButton(
-                                onClick = {
-                                    val hasCam = ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                                    if (hasCam) {
-                                        val uri = createCameraFileUri(true)
-                                        if (uri != null) {
-                                            cameraVideoUri = uri
-                                            cameraVideoLauncher.launch(uri)
-                                            showAttachmentMenu = false
-                                        } else {
-                                            Toast.makeText(context, "Error creating camera file", Toast.LENGTH_SHORT).show()
-                                        }
-                                    } else {
-                                        cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
-                                    }
-                                },
-                                modifier = Modifier.size(56.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Videocam,
-                                    contentDescription = "Camera Video",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value)
-                                )
-                            }
-                            IconButton(
-                                onClick = {
-                                    showAttachmentMenu = false
-                                    showLocationPickerOverlay = true
-                                },
-                                modifier = Modifier.size(56.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.LocationOn,
-                                    contentDescription = "Location",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value)
-                                )
-                            }
-                        }
+                    onPickAudio = { audioPickerLauncher.launch("audio/*") },
+                    onPickFile = { filePickerLauncher.launch("*/*") },
+                    onOpenPhotoCamera = { showCameraOverlay = true },
+                    onOpenVideoCamera = { showVideoOverlay = true },
+                    onPickLocation = { showLocationPickerOverlay = true }
+                )
+
+                net.vrkknn.andromuks.utils.InAppCameraOverlay(
+                    visible = showCameraOverlay,
+                    onDismiss = { showCameraOverlay = false },
+                    onCaptured = { uri, isVideo ->
+                        selectedMediaUri = uri
+                        selectedMediaIsVideo = isVideo
+                        selectedAudioUri = null
+                        selectedFileUri = null
+                        showMediaPreview = true
                     }
-                }
-                }
+                )
+
+                net.vrkknn.andromuks.utils.InAppVideoOverlay(
+                    visible = showVideoOverlay,
+                    onDismiss = { showVideoOverlay = false },
+                    onCaptured = { uri, isVideo ->
+                        selectedMediaUri = uri
+                        selectedMediaIsVideo = isVideo
+                        selectedAudioUri = null
+                        selectedFileUri = null
+                        showMediaPreview = true
+                    }
+                )
 
                 // Location picker overlay
                 if (showLocationPickerOverlay) {
