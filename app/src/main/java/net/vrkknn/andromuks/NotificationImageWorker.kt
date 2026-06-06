@@ -185,15 +185,23 @@ class NotificationImageWorker(
         val meAvatarMxc = inputData.getString(KEY_ME_AVATAR_MXC)
         val fetchEvent = inputData.getBoolean(KEY_FETCH_EVENT, false)
 
-        // Re-read auth token at run time so a delayed job uses a fresh credential.
-        // Falls back to the token captured at enqueue time if SharedPreferences is empty.
+        // Re-read auth tokens at run time so a delayed job uses fresh credentials. There are TWO
+        // distinct tokens and conflating them breaks media downloads:
+        //  - the SESSION token (`gomuks_auth` cookie) authenticates every /_gomuks/media/* request.
+        //    This is what `IntelligentMediaCache.downloadAndCache` puts in the Cookie header. The
+        //    proven avatar path (EnhancedNotificationDisplay.loadAvatarBitmap, ConversationsApi,
+        //    PersonsApi) all pass the session token here.
+        //  - the IMAGE-AUTH token is a media query-param token (`?image_auth=`), per push batch;
+        //    it is NOT a valid session cookie. Using it as the cookie made cache-miss avatar/audio
+        //    downloads fail (invalid cookie), which is why they only worked once already cached.
         val sharedPrefs = applicationContext.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
         val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
-        val freshToken = sharedPrefs.getString("image_auth_token", "")
-            ?.takeIf { it.isNotBlank() }
-            ?: net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
+        // Cookie auth: session token, falling back to the one captured at enqueue time.
+        val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
+            .ifBlank { inputData.getString(KEY_AUTH_TOKEN) ?: "" }
+        // ?image_auth= query token: per-batch token preferred, then the persisted image_auth token,
+        // then the session token as a last resort.
         val batchToken = inputData.getString(KEY_IMAGE_AUTH_TOKEN) ?: ""
-        val authToken = freshToken.ifBlank { inputData.getString(KEY_AUTH_TOKEN) ?: "" }
 
         if (BuildConfig.DEBUG) Log.d(TAG, "Starting media update for room $roomId")
 
@@ -210,7 +218,9 @@ class NotificationImageWorker(
             return Result.success()
         }
 
-        val effectiveToken = batchToken.ifBlank { authToken }
+        val effectiveToken = batchToken
+            .ifBlank { sharedPrefs.getString("image_auth_token", "") ?: "" }
+            .ifBlank { authToken }
         val maxPx = (48f * applicationContext.resources.displayMetrics.density).toInt().coerceAtLeast(96)
 
         // 2. Event enrichment FIRST (if requested) — we need it before downloading so we can declare
