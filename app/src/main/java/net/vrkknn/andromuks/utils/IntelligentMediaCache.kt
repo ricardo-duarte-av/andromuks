@@ -319,7 +319,12 @@ object IntelligentMediaCache {
 
                 downloadClient.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
-                        Log.w(TAG, "Media download HTTP ${response.code} for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)")
+                        // Log enough to diagnose auth/URL failures without leaking the token: the full
+                        // URL (shows whether image_auth was appended), the cookie token length, and the
+                        // server's error body (gomuks returns e.g. FI.MAU.GOMUKS.INVALID_COOKIE here).
+                        val bodySnippet = try { response.body?.string()?.take(300) } catch (e: Exception) { "<unreadable: ${e.message}>" }
+                        Log.w(TAG, "Media download HTTP ${response.code} for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS) " +
+                            "url=$httpUrl hasImageAuth=${httpUrl.contains("image_auth=")} cookieLen=${authToken.length} body=$bodySnippet")
                         return@use
                     }
 

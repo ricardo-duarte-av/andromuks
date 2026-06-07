@@ -118,10 +118,15 @@ class FCMService : FirebaseMessagingService() {
                 val prefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
                 val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs)
                 val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
-                val imageAuthToken = prefs.getString("image_auth_token", "")
-                    .takeIf { !it.isNullOrBlank() } ?: authToken
                 if (homeserverUrl.isEmpty() || authToken.isEmpty()) return@withContext null
-                EnhancedNotificationDisplay(this@FCMService, homeserverUrl, imageAuthToken)
+                // The constructor token becomes the gomuks_auth COOKIE for media downloads
+                // (loadAvatarBitmap, ConversationsApi shortcut icons), so it MUST be the session
+                // token — the same one /exec uses and the server accepts on /_gomuks/media. Passing
+                // the persisted image_auth token here made every cache-miss avatar download fail with
+                // FI.MAU.GOMUKS.INVALID_COOKIE: image_auth is a `?image_auth=` query param, never a
+                // cookie. The per-batch image_auth token still flows separately via
+                // NotificationData.imageAuthToken for the query-param path.
+                EnhancedNotificationDisplay(this@FCMService, homeserverUrl, authToken)
                     .also { it.createNotificationChannel() }
             }
             enhancedNotificationDisplay = display
