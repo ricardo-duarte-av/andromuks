@@ -40,6 +40,8 @@ This check replaced the previous `getUserProfile() != null && displayName != nul
 
 Requests are batched with an 80 ms flush delay (`PROFILE_BATCH_DELAY_MS`) and throttled per `roomId:userId` to once per 5 seconds (`PROFILE_REQUEST_THROTTLE_MS`) to avoid redundant requests during scroll recycling.
 
+**Transport (WS or `/exec`):** `flushProfileBatch` picks the transport at flush time. When the WebSocket is connected it sends `get_specific_room_state` over the socket. When it is **not** connected (battery-saver / cold-FCM), it falls back to the HTTP `/_gomuks/exec/get_specific_room_state` endpoint via `ExecCommandCoordinator.execute`, with the identical `{room_id, type: "m.room.member", state_key}` key shape. The synthetic request_id is registered in the same `roomSpecificStateRequests` / `batchProfileRequestKeys` maps, so the `/exec` response routes through the same `handleResponse → handleRoomSpecificStateResponse` path and updates `ProfileCache` exactly as the WS frame would (`handleError` cleans up on failure). This replaced the earlier behaviour where `requestUserProfileOnDemand` logged "WebSocket not connected, skipping" and dropped the request — leaving unknown senders unresolved until the next live sync. See [WEBSOCKET_LIFECYCLE.md](WEBSOCKET_LIFECYCLE.md#batterysaver-battery-saver) for the shared `/exec` bridge.
+
 When the profile hint (`m.room.member` with `timeline_rowid: 0`) **is** present in the `sync_complete` payload, `populateMemberCacheFromSync` stores the profile and increments `memberUpdateCounter` before `processSyncEventsArray` runs — so `hasFlattenedProfile` returns `true` by the time any `LaunchedEffect` fires and no network request is needed.
 
 ## Rendering Fallback (`memberMapWithFallback`)
