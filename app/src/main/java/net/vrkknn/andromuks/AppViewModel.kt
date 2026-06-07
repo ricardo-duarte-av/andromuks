@@ -6496,14 +6496,11 @@ class AppViewModel : ViewModel() {
         }
         
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting profile on-demand (network) for $userId in room $roomId")
-        
-        // Check if WebSocket is connected
-        if (!isWebSocketConnected()) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, skipping on-demand profile request")
-            return
-        }
-        
-        // BATCH: Queue (roomId, userId) and send one get_specific_room_state per room after a short delay
+
+        // BATCH: Queue (roomId, userId) and send one get_specific_room_state per room after a short
+        // delay. flushProfileBatch picks the transport at flush time: the WebSocket when connected,
+        // otherwise the /exec HTTP endpoint (battery-saver / cold-FCM, WS down) with the same
+        // get_specific_room_state syntax — so on-demand profiles still resolve instead of being dropped.
         pendingProfileRequests.add(requestKey)
         recentProfileRequestTimes[requestKey] = currentTime
         synchronized(pendingProfileBatch) {
@@ -6529,7 +6526,7 @@ class AppViewModel : ViewModel() {
 
     private fun flushProfileBatch() {
         profileBatchFlushJob = null
-        if (!isWebSocketConnected()) return
+        val connected = isWebSocketConnected()
         val toSend: List<Pair<String, List<String>>> = synchronized(pendingProfileBatch) {
             val list = pendingProfileBatch.mapNotNull { (roomId, userIds) ->
                 if (userIds.isEmpty()) null else Pair(roomId, userIds.toList()).also { userIds.clear() }
@@ -6539,18 +6536,39 @@ class AppViewModel : ViewModel() {
         }
         for ((roomId, userIds) in toSend) {
             if (userIds.isEmpty()) continue
-            val keysList = userIds.map { userId ->
-                mapOf(
-                    "room_id" to roomId,
-                    "type" to "m.room.member",
-                    "state_key" to userId
-                )
+            if (connected) {
+                val keysList = userIds.map { userId ->
+                    mapOf(
+                        "room_id" to roomId,
+                        "type" to "m.room.member",
+                        "state_key" to userId
+                    )
+                }
+                val requestId = WebSocketService.allocateRequestId()
+                roomSpecificStateRequests[requestId] = roomId
+                batchProfileRequestKeys[requestId] = userIds.map { "$roomId:$it" }
+                sendWebSocketCommand("get_specific_room_state", requestId, mapOf("keys" to keysList))
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent batched profile request with ID $requestId for $roomId (${userIds.size} users)")
+            } else {
+                // WebSocket down: fall back to the /exec endpoint with the same get_specific_room_state
+                // syntax. ExecCommandCoordinator allocates the synthetic request_id, runs the register
+                // lambda (mirroring the WS bookkeeping), and routes the response through the same
+                // handleResponse -> handleRoomSpecificStateResponse path. On failure handleError cleans up.
+                val keysArray = org.json.JSONArray()
+                userIds.forEach { userId ->
+                    keysArray.put(org.json.JSONObject().apply {
+                        put("room_id", roomId)
+                        put("type", "m.room.member")
+                        put("state_key", userId)
+                    })
+                }
+                val data = org.json.JSONObject().apply { put("keys", keysArray) }
+                execCommandCoordinator.execute("get_specific_room_state", data) { requestId ->
+                    roomSpecificStateRequests[requestId] = roomId
+                    batchProfileRequestKeys[requestId] = userIds.map { "$roomId:$it" }
+                }
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent batched profile request via /exec for $roomId (${userIds.size} users)")
             }
-            val requestId = WebSocketService.allocateRequestId()
-            roomSpecificStateRequests[requestId] = roomId
-            batchProfileRequestKeys[requestId] = userIds.map { "$roomId:$it" }
-            sendWebSocketCommand("get_specific_room_state", requestId, mapOf("keys" to keysList))
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent batched profile request with ID $requestId for $roomId (${userIds.size} users)")
         }
     }
     /**
