@@ -42,3 +42,12 @@ Selecting **Start thread** on a plain message opens `ThreadViewerScreen` with th
 ### Start vs. View label
 
 `MessageMenuConfig.startThreadIsExisting` drives the label: `AppViewModel.hasThreadReplies(roomId, eventId)` scans the same loaded-event source as `getThreadMessages` for any reply with `relatesTo == eventId`. A root that already has replies loaded reads **View thread**; a plain message reads **Start thread**. This is best-effort, bounded by what is currently loaded — a root whose replies have all scrolled out of the loaded window may still read "Start thread", but the navigation target is identical either way, so it opens the existing thread correctly.
+
+## Thread border ("glow") — and the E2EE pitfalls
+
+Thread replies render as **normal-colored bubbles with a subtle border** (`outlineVariant @ 60%`), not a recolored bubble. The border comes from `BubblePalette.colors(isThreadMessage = true)` → `bubbleColors.threadBorder`, which each timeline renderer must **forward** to `MessageBubbleWithMenu(threadBorder = …)`. `MessageBubbleWithMenu` only draws it (`threadBorderStroke` → `combinedBorder`) when that param is non-null.
+
+Two bugs historically broke this in **encrypted rooms specifically** — worth knowing because encrypted messages render through a *separate* composable branch in `TimelineEventItem`:
+
+1. **Detection.** `TimelineEvent.fromJson` (the live `sync_complete` parser) originally read `relationType`/`relatesTo` only from the **top-level** `relation_type`/`relates_to` keys. For E2EE events those keys are often absent on the live frame while the relation lives in `content`/`decrypted`/`encrypted` `m.relates_to`. `fromJson` now falls back to the payload's `m.relates_to` (mirroring `SyncIngestor.parseEventFromJson`), so `isThreadMessage()` is reliable on both the live and cache paths. This also matters because the encrypted renderer routes on `!isThreadMessage` (`if (replyInfo != null && !isThreadMessage)`) — a missed relation would send a thread reply down the reply-preview branch.
+2. **Rendering.** The encrypted text bubble's two `MessageBubbleWithMenu` calls passed `mentionBorder` but **not** `threadBorder`, so even when `isThreadMessage()` was true the glow never reached the bubble. Every bubble renderer must pass *both*; the invariant to keep is "wherever `mentionBorder = …colors.mentionBorder` appears, `threadBorder = …colors.threadBorder` appears too."

@@ -3045,6 +3045,7 @@ private fun EncryptedMessageContent(
                         },
                         onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null,
                         mentionBorder = bubbleColors.mentionBorder,
+                        threadBorder = bubbleColors.threadBorder,
                         onShowMenu = onShowMenu,
                         onShowReactions = onShowReactions
                     ) {
@@ -3148,6 +3149,7 @@ private fun EncryptedMessageContent(
                         },
                         onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null,
                         mentionBorder = bubbleColors.mentionBorder,
+                        threadBorder = bubbleColors.threadBorder,
                         onShowMenu = onShowMenu,
                         onShowReactions = onShowReactions
                     ) {

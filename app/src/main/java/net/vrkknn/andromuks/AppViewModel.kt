@@ -316,6 +316,22 @@ class AppViewModel : ViewModel() {
                 }
             }
         }
+        // Dedicated collector for command acks (response/send_complete/error) on the non-lossy
+        // ackEvents flow — routed identically, just isolated from high-volume sync/key bursts so a
+        // response is never DROP_LATEST-evicted. Fan-out is preserved (every VM collects and routes
+        // by request_id). Only IncomingWebSocketMessage is emitted on this flow.
+        viewModelScope.launch {
+            SyncRepository.ackEvents.collect { event ->
+                if (event is SyncEvent.IncomingWebSocketMessage) {
+                    try {
+                        val json = JSONObject(event.jsonString)
+                        applyIncomingWebSocketMessageForViewModel(json, this@AppViewModel, event.hint)
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: ack IncomingWebSocketMessage apply failed", e)
+                    }
+                }
+            }
+        }
     }
     
     internal enum class InstanceRole {
@@ -1257,6 +1273,9 @@ class AppViewModel : ViewModel() {
 
     /** Edit chains, merged bubbles, [MessageVersionsCache] — see [EditVersionCoordinator]. */
     internal val editVersionCoordinator by lazy { EditVersionCoordinator(this) }
+
+    /** Optimistic send-time placeholders + Sending→Sent→Confirmed/Failed state machine — see [LocalEchoCoordinator]. */
+    internal val localEchoCoordinator by lazy { LocalEchoCoordinator(this) }
 
     /** Timeline cache, LRU, paginate / prefetch handling — see [TimelineCacheCoordinator]. */
     private val timelineCacheCoordinator by lazy { TimelineCacheCoordinator(this) }
@@ -7466,6 +7485,13 @@ class AppViewModel : ViewModel() {
     private fun handleOutgoingRequestResponse(requestId: Int, data: Any) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: handleOutgoingRequestResponse called with requestId=$requestId")
         val roomId = outgoingRequests.remove(requestId)
+        // Upgrade a send-time placeholder (Sending → Sent) for sends that route via outgoingRequests
+        // (the mentions sendMessage overload) rather than messageRequests. Exclusive routing in
+        // handleResponse guarantees onResponse runs at most once per request_id.
+        if (data is JSONObject) {
+            val echoTxId = data.optString("transaction_id").takeIf { it.isNotBlank() }
+            localEchoCoordinator.onResponse(requestId, echoTxId)
+        }
         if (roomId == null && BuildConfig.DEBUG) {
             android.util.Log.w("Andromuks", "AppViewModel: No roomId found for outgoing request $requestId")
         }
@@ -7510,6 +7536,7 @@ class AppViewModel : ViewModel() {
     fun dismissPendingEcho(eventId: String) {
         val expectedRoom = currentRoomId
         eventChainMap.remove(eventId)
+        localEchoCoordinator.cancel(eventId)
         val txId = pendingEchoMap.entries.firstOrNull { it.value == eventId }?.key
         if (txId != null) pendingEchoMap.remove(txId)
         buildTimelineFromChain(expectedRoomId = expectedRoom.takeIf { it.isNotEmpty() })
@@ -7545,6 +7572,7 @@ class AppViewModel : ViewModel() {
                         )
                         buildTimelineFromChain(expectedRoomId = event.roomId)
                     }
+                    localEchoCoordinator.cancel(pendingId)  // Matrix-side error: resolved, stop the backstop watchdog
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Echo $pendingId marked failed: $sendErrorRaw")
                 }
                 return
@@ -7553,6 +7581,7 @@ class AppViewModel : ViewModel() {
                 val pendingId = pendingEchoMap.remove(echoTxId)
                 if (pendingId != null) {
                     eventChainMap.remove(pendingId)
+                    localEchoCoordinator.cancel(pendingId)  // confirmed: stop the backstop watchdog
                     // Pre-mark the confirmed event's entrance as played. The pending echo already
                     // ran the slide-in animation; the $-prefixed replacement should just swap its
                     // color in place with no second entrance animation.
@@ -8307,22 +8336,27 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // Pending echo: show the message immediately in the timeline with the ~-prefixed local ID.
-        // It will be replaced when send_complete arrives with the real $-prefixed event_id.
-        if (data is JSONObject && !isError && roomId == currentRoomId) {
+        // Pending echo. Preferred path: a send-time placeholder already exists for this request_id —
+        // upgrade it Sending → Sent (LocalEchoCoordinator). Fallback (no send-time placeholder, e.g.
+        // notification quick-reply or a send issued while another room was open): create the echo
+        // here from the response data, as before.
+        if (data is JSONObject && !isError) {
             try {
-                val echoEvent = TimelineEvent.fromJson(data)
-                val echoTxId = echoEvent.transactionId
-                if (echoTxId != null && echoEvent.eventId.startsWith("~") &&
-                    (echoEvent.type == "m.room.message" || echoEvent.type == "m.room.encrypted" || echoEvent.type == "m.sticker")
-                ) {
-                    addNewEventToChain(echoEvent)            // eventChainMap first
-                    pendingEchoMap[echoTxId] = echoEvent.eventId  // then pendingEchoMap
-                    buildTimelineFromChain(expectedRoomId = roomId)
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Pending echo inserted for txId=$echoTxId eventId=${echoEvent.eventId}")
+                val echoTxId = data.optString("transaction_id").takeIf { it.isNotBlank() }
+                val upgraded = localEchoCoordinator.onResponse(requestId, echoTxId)
+                if (!upgraded && roomId == currentRoomId) {
+                    val echoEvent = TimelineEvent.fromJson(data)
+                    if (echoTxId != null && echoEvent.eventId.startsWith("~") &&
+                        (echoEvent.type == "m.room.message" || echoEvent.type == "m.room.encrypted" || echoEvent.type == "m.sticker")
+                    ) {
+                        addNewEventToChain(echoEvent)            // eventChainMap first
+                        pendingEchoMap[echoTxId] = echoEvent.eventId  // then pendingEchoMap
+                        buildTimelineFromChain(expectedRoomId = roomId)
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Pending echo inserted for txId=$echoTxId eventId=${echoEvent.eventId}")
+                    }
                 }
             } catch (e: Exception) {
-                android.util.Log.w("Andromuks", "AppViewModel: Failed to insert pending echo", e)
+                android.util.Log.w("Andromuks", "AppViewModel: Failed to insert/upgrade pending echo", e)
             }
         }
 

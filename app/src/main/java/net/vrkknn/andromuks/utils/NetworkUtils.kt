@@ -136,6 +136,10 @@ private fun emitIncomingWebSocketMessage(json: JSONObject, hint: IncomingWebSock
     SyncRepository.emitIncomingWebSocketMessage(json.toString(), hint)
 }
 
+private fun emitPriorityIncomingWebSocketMessage(json: JSONObject, hint: IncomingWebSocketHint = IncomingWebSocketHint.NONE) {
+    SyncRepository.emitPriorityIncomingWebSocketMessage(json.toString(), hint)
+}
+
 /**
  * Applies one parsed inbound WebSocket message to a single [AppViewModel].
  * Emission is fan-out via [SyncRepository.events] ([SyncEvent.IncomingWebSocketMessage]); each attached VM collects and calls this.
@@ -309,13 +313,14 @@ private fun dispatchParsedWebSocketMessage(jsonObject: JSONObject) {
             emitIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
         }
         "error" -> {
-            emitIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
+            // Command acks → dedicated non-lossy flow (see SyncRepository.ackEvents).
+            emitPriorityIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
         }
         "response" -> {
-            emitIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
+            emitPriorityIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
         }
         "send_complete" -> {
-            emitIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
+            emitPriorityIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
         }
         "typing" -> {
             emitIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)

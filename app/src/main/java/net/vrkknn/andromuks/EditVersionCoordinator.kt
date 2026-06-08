@@ -620,6 +620,7 @@ internal class EditVersionCoordinator(
             val pendingId = vm.pendingEchoMap.remove(txId)
             if (pendingId != null) {
                 vm.eventChainMap.remove(pendingId)
+                vm.localEchoCoordinator.cancel(pendingId)  // confirmed via sync_complete: stop watchdog
                 vm.markTimelineEntrancePlayed(event.eventId)
             }
         }

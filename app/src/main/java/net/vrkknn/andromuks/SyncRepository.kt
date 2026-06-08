@@ -282,6 +282,20 @@ object SyncRepository {
     )
     val events: SharedFlow<SyncEvent> = _events.asSharedFlow()
 
+    // Dedicated low-volume flow for command acknowledgments: `response`, `send_complete`, `error`.
+    // These were previously interleaved with high-volume `to_device`/`typing` traffic on [_events],
+    // where a burst (e.g. a flood of encryption key events) could overflow the shared 1024 buffer and
+    // DROP_LATEST-evict an ack. Losing a `response`/`send_complete` strands the request (a send's echo
+    // never confirms → it falsely times out to Failed; see LocalEchoCoordinator). Acks are one-per-
+    // user-action, so on their own flow the buffer effectively never fills. Fan-out to every attached
+    // VM is preserved (each routes by request_id); DROP_OLDEST keeps the freshest acks if it ever did.
+    private val _ackEvents = MutableSharedFlow<SyncEvent>(
+        replay = 0,
+        extraBufferCapacity = 1024,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    val ackEvents: SharedFlow<SyncEvent> = _ackEvents.asSharedFlow()
+
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
@@ -481,6 +495,18 @@ object SyncRepository {
 
     fun emitIncomingWebSocketMessage(jsonString: String, hint: IncomingWebSocketHint = IncomingWebSocketHint.NONE) {
         emitEvent(SyncEvent.IncomingWebSocketMessage(jsonString, hint))
+    }
+
+    /**
+     * Emit a command-acknowledgment frame (`response`/`send_complete`/`error`) onto the dedicated
+     * non-lossy [ackEvents] flow instead of [_events]. Keeps acks safe from high-volume sync/key
+     * bursts so request responses are never silently dropped.
+     */
+    fun emitPriorityIncomingWebSocketMessage(jsonString: String, hint: IncomingWebSocketHint = IncomingWebSocketHint.NONE) {
+        if (!_ackEvents.tryEmit(SyncEvent.IncomingWebSocketMessage(jsonString, hint))) {
+            // DROP_OLDEST never reports failure for a non-zero buffer; logged only for completeness.
+            android.util.Log.w("SyncRepository", "Ack event dropped (buffer full)")
+        }
     }
 
     fun updateConnectionState(state: ConnectionState) {

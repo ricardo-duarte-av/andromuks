@@ -87,29 +87,40 @@ internal class WebSocketCommandSender(
 
     fun send(command: String, requestId: Int, data: Map<String, Any>): WebSocketResult {
         if (vm.isOfflineMode && !isOfflineCapableCommand(command)) {
-            android.util.Log.w("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Command $command queued for offline retry")
+            // queueOfflineRetry decides whether the command is offline-replayable. send_message is
+            // NOT (non-idempotent) — it is dropped here and surfaced as a Failed placeholder.
             queueOfflineRetry(command, requestId, data)
             return WebSocketResult.NOT_CONNECTED
         }
 
         if (!WebSocketService.isWebSocketConnected()) {
-            val isUserInitiated = when (command) {
-                "send_message", "mark_read" -> true
-                else -> false
-            }
-
-            if (isUserInitiated) {
-                android.util.Log.w(
-                    "Andromuks",
-                    "AppViewModel: WebSocket is not connected, queuing user-initiated command: $command (requestId: $requestId)"
-                )
-                queueOfflineRetry(command, requestId, data)
-            } else {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d(
+            when (command) {
+                "send_message" -> {
+                    // NON-IDEMPOTENT: never buffer for offline retry. send_message has no client
+                    // idempotency key, so re-sending on reconnect creates a DUPLICATE event. It is
+                    // backed by a send-time placeholder (LocalEchoCoordinator) that times out to
+                    // Failed; the user resends manually. Buffering here is exactly what produced the
+                    // "fails red, then sends anyway on reconnect" duplicate.
+                    android.util.Log.w(
                         "Andromuks",
-                        "AppViewModel: WebSocket is not connected, skipping automatic command: $command (will be re-requested when online)"
+                        "AppViewModel: WebSocket not connected — send_message NOT queued (placeholder will fail), requestId=$requestId"
                     )
+                }
+                "mark_read" -> {
+                    // Idempotent — safe to replay on reconnect.
+                    android.util.Log.w(
+                        "Andromuks",
+                        "AppViewModel: WebSocket is not connected, queuing mark_read (requestId: $requestId)"
+                    )
+                    queueOfflineRetry(command, requestId, data)
+                }
+                else -> {
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                            "Andromuks",
+                            "AppViewModel: WebSocket is not connected, skipping automatic command: $command (will be re-requested when online)"
+                        )
+                    }
                 }
             }
             return WebSocketResult.NOT_CONNECTED
@@ -223,17 +234,20 @@ internal class WebSocketCommandSender(
     }
 
     fun queueOfflineRetry(command: String, requestId: Int, data: Map<String, Any>) {
-        val isUserInitiated = when (command) {
-            "send_message" -> true
+        // Only idempotent commands may be buffered for offline replay. send_message is deliberately
+        // EXCLUDED: it has no client idempotency key, so replaying it on reconnect duplicates the
+        // message (the "fails red, then sends anyway" bug). Offline send failure is surfaced via the
+        // send-time placeholder (LocalEchoCoordinator) instead, and the user resends manually.
+        val isOfflineReplayable = when (command) {
             "mark_read" -> true
             else -> false
         }
 
-        if (!isUserInitiated) {
+        if (!isOfflineReplayable) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Skipping offline storage for automatic command: $command (will be re-requested when online)"
+                    "AppViewModel: Skipping offline storage for $command (not offline-replayable; will be re-requested or resent manually)"
                 )
             }
             return

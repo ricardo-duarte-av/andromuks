@@ -103,7 +103,24 @@ data class TimelineEvent(
                 }
             }
             val transactionId = json.optString("transaction_id").takeIf { it.isNotBlank() }
-            
+
+            val decrypted = json.optJSONObject("decrypted")
+            val decryptedType = json.optString("decrypted_type")?.takeIf { it.isNotBlank() }
+            // relationType/relatesTo: prefer gomuks' top-level keys, but fall back to the message
+            // payload's m.relates_to. For E2EE events the top-level relation_type/relates_to are
+            // often absent on the live (encrypted) frame while the relation lives in
+            // content/decrypted/encrypted m.relates_to — without this fallback, thread messages in
+            // E2EE rooms lose isThreadMessage() and their thread border. Mirrors
+            // SyncIngestor.parseEventFromJson so the live and cache paths agree.
+            val relationPayload =
+                if (decryptedType == "m.room.message" && decrypted != null) decrypted else content
+            val payloadRelatesTo = relationPayload?.optJSONObject("m.relates_to")
+                ?: json.optJSONObject("encrypted")?.optJSONObject("m.relates_to")
+            val resolvedRelationType = json.optString("relation_type").takeIf { it.isNotBlank() }
+                ?: payloadRelatesTo?.optString("rel_type")?.takeIf { it.isNotBlank() }
+            val resolvedRelatesTo = json.optString("relates_to").takeIf { it.isNotBlank() }
+                ?: payloadRelatesTo?.optString("event_id")?.takeIf { it.isNotBlank() }
+
             return TimelineEvent(
                 rowid = json.optLong("rowid", 0),
                 timelineRowid = json.optLong("timeline_rowid", 0),
@@ -114,13 +131,13 @@ data class TimelineEvent(
                 timestamp = timestamp,
                 content = content,
                 stateKey = json.optString("state_key")?.takeIf { it.isNotBlank() },
-                decrypted = json.optJSONObject("decrypted"),
-                decryptedType = json.optString("decrypted_type")?.takeIf { it.isNotBlank() },
+                decrypted = decrypted,
+                decryptedType = decryptedType,
                 unsigned = json.optJSONObject("unsigned"),
                 redactedBy = json.optString("redacted_by")?.takeIf { it.isNotBlank() },
                 localContent = json.optJSONObject("local_content"),
-                relationType = json.optString("relation_type")?.takeIf { it.isNotBlank() },
-                relatesTo = json.optString("relates_to")?.takeIf { it.isNotBlank() },
+                relationType = resolvedRelationType,
+                relatesTo = resolvedRelatesTo,
                 aggregatedReactions = aggregatedReactions,
                 transactionId = transactionId,
                 redactionSender = json.optString("redaction_sender").takeIf { it.isNotBlank() },

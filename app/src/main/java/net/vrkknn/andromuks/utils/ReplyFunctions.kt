@@ -856,6 +856,11 @@ fun MessageBubbleWithMenu(
     val isRedacted = event.redactedBy != null
     val isPendingEcho = event.eventId.startsWith("~")
     val isFailedEcho = event.localContent?.optString("send_error")?.isNotBlank() == true
+    // Send-time placeholder sub-state (LocalEchoCoordinator): "sending" = pre-response (elevated),
+    // "sent" = server-acked, awaiting confirmation. Legacy response-time echoes carry no
+    // local_send_state and so render flat (already server-acked).
+    val isSendingEcho = isPendingEcho && !isFailedEcho &&
+        event.localContent?.optString("local_send_state") == "sending"
     val deletedBody = event.localContent?.optString("deleted_body")?.takeIf { it.isNotBlank() }
     val deletedFormattedBody = event.localContent?.optString("deleted_formatted_body")?.takeIf { it.isNotBlank() }
     val deletedMsgType = event.localContent?.optString("deleted_msgtype")?.takeIf { it.isNotBlank() }
@@ -1104,12 +1109,22 @@ fun MessageBubbleWithMenu(
 
     val combinedBorder = menuPulseBorder ?: mentionPulseBorder ?: threadBorderStroke ?: highlightBorder
     
-    // Adjust bubble color based on local echo state
-    val bubbleColorAdjusted = when {
+    // Adjust bubble color based on local echo state, animating transitions (Sending/Sent → Confirmed
+    // happens via item swap, but Sent → Failed animates in place).
+    val bubbleColorTarget = when {
         isFailedEcho -> MaterialTheme.colorScheme.errorContainer
         isPendingEcho -> MaterialTheme.colorScheme.tertiaryContainer
         else -> bubbleColor
     }
+    val bubbleColorAdjusted = androidx.compose.animation.animateColorAsState(
+        targetValue = bubbleColorTarget,
+        label = "echoBubbleColor"
+    ).value
+    // Lift the bubble while it's still being sent (no server response yet); settle flat once Sent.
+    val echoElevation = androidx.compose.animation.core.animateDpAsState(
+        targetValue = if (isSendingEcho) 6.dp else 0.dp,
+        label = "echoElevation"
+    ).value
 
     Box {
         Surface(
@@ -1161,14 +1176,16 @@ fun MessageBubbleWithMenu(
                 ),
             color = bubbleColorAdjusted,
             shape = bubbleShape,
-            tonalElevation = 0.dp,  // No elevation/shadow
-            shadowElevation = 0.dp,  // No shadow
+            tonalElevation = 0.dp,  // No tonal overlay
+            shadowElevation = echoElevation,  // Lifted while Sending, flat otherwise
             border = combinedBorder
         ) {
             Row(content = content)
         }
 
-        if (isPendingEcho) {
+        // Shimmer only while genuinely in-flight. A failed echo is also `~`-prefixed (isPendingEcho),
+        // but it's a terminal state — no animation.
+        if (isPendingEcho && !isFailedEcho) {
             PendingShimmerOverlay(
                 bubbleShape = bubbleShape,
                 modifier = Modifier.matchParentSize()

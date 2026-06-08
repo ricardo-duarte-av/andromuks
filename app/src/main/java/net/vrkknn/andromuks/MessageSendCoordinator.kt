@@ -6,6 +6,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * Outgoing message sending for [AppViewModel]: plain text, replies, edits, media, typing,
@@ -38,6 +39,7 @@ internal class MessageSendCoordinator(
             )
         }
 
+        vm.localEchoCoordinator.insert(roomId, reqId, "m.room.message", textContent(text))
         vm.trackOutgoingRequest(reqId, roomId)
 
         val mentionsData = mapOf(
@@ -68,16 +70,18 @@ internal class MessageSendCoordinator(
         notifyUserSentTo(roomId)
         val result = sendMessageInternal(roomId, text)
 
-        // Offline/not-ready cases are already covered:
-        //   - WebSocket fully down → queueOfflineRetry stored it as offline_send_message
-        //   - canSendCommandsToBackend=false → pendingCommandsQueue holds it for flushPendingQueue
-        // Adding a sendMessage op here on top of those would produce a duplicate send on reconnect
-        // (offline_send_message retries via sendWebSocketCommand while sendMessage retries via
-        // sendMessageInternal, which creates a new echo with a new transaction_id → two server events).
+        // Non-SUCCESS handling depends on WHY it didn't send:
+        //   - WebSocket fully down (airplane): NOT buffered. send_message is non-idempotent, so we
+        //     never replay it — the send-time placeholder (LocalEchoCoordinator) times out to Failed
+        //     and the user resends manually. (Buffering here was the "fails red, then sends anyway on
+        //     reconnect" duplicate.)
+        //   - canSendCommandsToBackend=false (connected, pre-init): pendingCommandsQueue holds it and
+        //     flushPendingQueue re-sends ONCE with the SAME request_id, so the placeholder reconciles
+        //     and there is no duplicate.
         if (result != WebSocketResult.SUCCESS) {
             android.util.Log.w(
                 "Andromuks",
-                "AppViewModel: sendMessage not sent immediately (result: $result) — will be retried via offline queue or pendingCommandsQueue"
+                "AppViewModel: sendMessage not sent immediately (result: $result) — placeholder will fail if offline, or flush once if pre-init"
             )
         }
     }
@@ -101,6 +105,8 @@ internal class MessageSendCoordinator(
     internal fun sendMessageInternal(roomId: String, text: String, urlPreviews: JSONArray = JSONArray()): WebSocketResult {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendMessageInternal called")
         val messageRequestId = vm.getAndIncrementRequestId()
+
+        vm.localEchoCoordinator.insert(roomId, messageRequestId, "m.room.message", textContent(text))
 
         val urlPreviewsList = mutableListOf<Any>()
         for (i in 0 until urlPreviews.length()) {
@@ -413,6 +419,8 @@ internal class MessageSendCoordinator(
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendReplyInternal called")
         val messageRequestId = vm.getAndIncrementRequestId()
 
+        vm.localEchoCoordinator.insert(roomId, messageRequestId, "m.room.message", textContent(text, originalEvent.eventId))
+
         val mentions = mutableListOf<String>()
         if (originalEvent.sender.isNotBlank()) {
             mentions.add(originalEvent.sender)
@@ -591,6 +599,7 @@ internal class MessageSendCoordinator(
             commandData["relates_to"] = relatesTo
         }
 
+        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId)
         if (BuildConfig.DEBUG) {
             android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with media data: $commandData")
         }
@@ -721,6 +730,7 @@ internal class MessageSendCoordinator(
             dataMap["relates_to"] = relatesTo
         }
 
+        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId)
         vm.sendWebSocketCommand("send_message", messageRequestId, dataMap)
 
         vm.messageRequests[messageRequestId] = roomId
@@ -782,6 +792,7 @@ internal class MessageSendCoordinator(
             dataMap["relates_to"] = relatesTo
         }
 
+        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId)
         vm.sendWebSocketCommand("send_message", messageRequestId, dataMap)
         vm.messageRequests[messageRequestId] = roomId
         vm.pendingSendCount++
@@ -879,6 +890,7 @@ internal class MessageSendCoordinator(
             commandData["relates_to"] = relatesTo
         }
 
+        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId)
         if (BuildConfig.DEBUG) {
             android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with video data: $commandData")
         }
@@ -982,6 +994,7 @@ internal class MessageSendCoordinator(
             commandData["relates_to"] = relatesTo
         }
 
+        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId)
         if (BuildConfig.DEBUG) {
             android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with audio data: $commandData")
         }
@@ -1054,6 +1067,7 @@ internal class MessageSendCoordinator(
             commandData["relates_to"] = relatesTo
         }
 
+        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId)
         if (BuildConfig.DEBUG) {
             android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with file data: $commandData")
         }
@@ -1128,6 +1142,14 @@ internal class MessageSendCoordinator(
             "url_previews" to urlPreviewsList
         )
 
+        vm.localEchoCoordinator.insert(
+            roomId = roomId,
+            requestId = messageRequestId,
+            type = "m.room.message",
+            content = textContent(text, resolvedReplyTarget),
+            relationType = "m.thread",
+            relatesTo = threadRootEventId
+        )
         if (BuildConfig.DEBUG) {
             android.util.Log.d("Andromuks", "AppViewModel: Sending thread reply with data: $commandData")
         }
@@ -1138,5 +1160,40 @@ internal class MessageSendCoordinator(
     private fun notifyUserSentTo(roomId: String) {
         val room = vm.getRoomById(roomId) ?: return
         vm.conversationsApi?.onUserSentToRoom(room)
+    }
+
+    // --- send-time placeholder helpers (LocalEchoCoordinator) ---
+
+    /** Minimal text/reply content for an optimistic placeholder bubble. */
+    private fun textContent(text: String, replyToEventId: String? = null): JSONObject {
+        val content = JSONObject().put("msgtype", "m.text").put("body", text)
+        if (replyToEventId != null) {
+            content.put(
+                "m.relates_to",
+                JSONObject().put("m.in_reply_to", JSONObject().put("event_id", replyToEventId))
+            )
+        }
+        return content
+    }
+
+    /**
+     * Insert an optimistic placeholder for a media/sticker/location send. [baseContent] is the same
+     * `base_content` map sent to the backend (msgtype/body/url/info/...), so the bubble renders
+     * identically to the confirmed event.
+     */
+    private fun insertMediaEcho(
+        roomId: String,
+        requestId: Int,
+        baseContent: Map<String, Any>,
+        threadRootEventId: String?
+    ) {
+        vm.localEchoCoordinator.insert(
+            roomId = roomId,
+            requestId = requestId,
+            type = "m.room.message",
+            content = JSONObject(baseContent),
+            relationType = if (threadRootEventId != null) "m.thread" else null,
+            relatesTo = threadRootEventId
+        )
     }
 }

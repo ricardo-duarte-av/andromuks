@@ -86,6 +86,36 @@ Write order matters (race-condition guard): `eventChainMap` is written **before*
 
 **Fix (applied in `RoomTimelineScreen.kt` and `BubbleTimelineScreen.kt` `stableKey`)**: Changed from `transactionId ?: ... ?: eventId` to simply `eventId`. Since `eventId` is unique per event, duplicate `LazyColumn` keys are structurally impossible even if both a `~` echo and its `$` confirmation are transiently present in the list.
 
+## Send-time placeholders & the lifecycle state machine
+
+`send_message` is **non-idempotent**: the backend mints a fresh `transaction_id` on every call and there is **no client-supplied idempotency key** (confirmed against the gomuks RPC spec — `SendMessageParams` has no txn field). Re-sending therefore creates a *duplicate* event. Two consequences:
+
+1. **We never auto-retry or buffer `send_message`.** `PersistenceCoordinator.checkAcknowledgmentTimeouts()` and `retryPendingWebSocketOperations()` both **drop** any `send_message` op (matched by `data["command"]`, covering `command_*` and any stale `offline_*`) instead of re-sending it. And `WebSocketCommandSender` no longer offline-buffers `send_message` at all: when the WebSocket is down, the send is **not** queued (`queueOfflineRetry` only accepts idempotent `mark_read`) — the send-time placeholder times out to Failed and the user resends manually. Without this, an airplane-mode send failed red **and then sent anyway on reconnect** from the `offline_send_message` queue — a duplicate. (The one legitimate buffer is `pendingCommandsQueue` for the *connected-but-pre-init* window, which re-sends once with the **same** `request_id`, so the placeholder reconciles and nothing duplicates.) Together these fix a duplication storm where a missed `response` ack spawned an endless chain of new events.
+
+2. **Failure is surfaced to the user, not papered over.** Every user send (`message / reply / thread reply / image / video / audio / file / sticker / location` — *not* reactions) inserts an optimistic placeholder **at send time** via `LocalEchoCoordinator`, which walks this state machine (encoded in the placeholder's `local_content`):
+
+| State | Trigger | Color | Elevation |
+|-------|---------|-------|-----------|
+| `Sending` | send issued (immediate) | `tertiaryContainer` | lifted (6.dp) |
+| `Sent` | `response` arrives | `tertiaryContainer` | flat |
+| `Confirmed` | `send_complete` ok / `sync_complete` evicts | `bubbleColor` (real bubble) | flat |
+| `Failed` | see triggers below | `errorContainer` | flat |
+
+**Identity.** The placeholder keeps a stable client-local id (`~local-<uuid>`) as its `eventChainMap`/LazyColumn key for its whole life, so `Sending → Sent` never recreates the item (animation continuity). The leading `~` makes `isPendingEcho` apply. On the `response` we learn the backend `transaction_id` and register `pendingEchoMap[txId] = localId`, so the **existing** reconciliation paths (`EditVersionCoordinator.addNewEventToChain` for `sync_complete`, `processSendCompleteEvent` for `send_complete`) evict/fail the echo by `transaction_id` exactly as before.
+
+**Correlation.** The `response` echoes our `request_id`, which is the only frame that bridges our send to the backend's `transaction_id` (`send_complete`/`sync_complete` carry the txId but not our request_id). `handleMessageResponse` (messageRequests path) and `handleOutgoingRequestResponse` (the mentions `sendMessage` overload) both call `localEchoCoordinator.onResponse(requestId, txId)`.
+
+**Failure triggers (three):**
+1. **No `response`** within `RESPONSE_TIMEOUT_MS` (20 s) — the backend never received the send. (The `response` is fast even in E2EE; encryption latency lives in `send_complete`.)
+2. **`send_complete` with a Matrix-server error** (e.g. event too large) — handled by `processSendCompleteEvent`. **No `sync_complete` follows in this case**, because the event was never committed.
+3. **Backstop** `CONFIRM_BACKSTOP_MS` (90 s) after `Sent` — covers a dropped `send_complete` *error* frame; generous so E2EE's slower confirmation never trips it falsely. Layer 2 (below) makes it almost never fire.
+
+## Layer 2 — non-lossy ack flow
+
+`response` / `send_complete` / `error` frames previously rode `SyncRepository._events` — a `MutableSharedFlow(extraBufferCapacity = 1024, onBufferOverflow = DROP_LATEST)` shared with high-volume `to_device`/`typing` traffic. A burst (e.g. a flood of encryption key events) could overflow that buffer and **evict an ack**, stranding the request: a send's echo would never confirm and would falsely time out to `Failed`.
+
+These three frames now route to a **dedicated** `SyncRepository.ackEvents` flow (`emitPriorityIncomingWebSocketMessage`, `NetworkUtils.dispatchParsedWebSocketMessage`). Because acks are one-per-user-action, their own buffer effectively never fills, so they're isolated from sync/key bursts. Fan-out is preserved — every attached VM collects `ackEvents` too (a second collector in `AppViewModel.init`) and routes by `request_id`, so bubble VMs still reconcile their own sends. `sync_complete` continues to bypass both flows via the `UNLIMITED` `syncCompleteChannel`.
+
 ## Visual States
 
 Pending/failed state is derived entirely from `event.eventId` and `event.localContent` in `ReplyFunctions.kt`:
@@ -93,6 +123,8 @@ Pending/failed state is derived entirely from `event.eventId` and `event.localCo
 ```kotlin
 val isPendingEcho = event.eventId.startsWith("~")
 val isFailedEcho  = event.localContent?.optString("send_error")?.isNotBlank() == true
+val isSendingEcho = isPendingEcho && !isFailedEcho &&
+    event.localContent?.optString("local_send_state") == "sending"
 ```
 
 Color priority (order matters — a failed echo also starts with `~`):
@@ -100,8 +132,10 @@ Color priority (order matters — a failed echo also starts with `~`):
 | State | Color |
 |-------|-------|
 | Failed | `errorContainer` |
-| Pending | `tertiaryContainer` |
+| Pending (sending/sent) | `tertiaryContainer` |
 | Normal | `bubbleColor` |
+
+`MessageBubbleWithMenu` animates both the bubble color (`animateColorAsState`) and the shadow elevation (`animateDpAsState`, lifted only while `isSendingEcho`), so the `Sending → Sent` settle and `Sent → Failed` recolor morph smoothly. Both `RoomTimelineScreen` and `BubbleTimelineScreen` render through this shared composable.
 
 ## Sort Position of Pending Echoes
 
@@ -130,7 +164,10 @@ Applied in both `RoomTimelineScreen.kt` (`processTimelineEvents`) and `BubbleTim
 
 | File | Role |
 |------|------|
-| `AppViewModel.kt` | `pendingEchoMap` declaration; `handleMessageResponse` (echo insertion); `processSendCompleteEvent` (eviction/failure); `dismissPendingEcho` |
+| `LocalEchoCoordinator.kt` | Send-time placeholders + `Sending→Sent→Confirmed/Failed` state machine, response/confirm watchdog timers |
+| `PersistenceCoordinator.kt` | Layer 1: drops timed-out `command_send_message` instead of re-sending (non-idempotent) |
+| `MessageSendCoordinator.kt` | Inserts the placeholder for every send variant (`textContent`/`insertMediaEcho` helpers) |
+| `AppViewModel.kt` | `pendingEchoMap` declaration; `handleMessageResponse` / `handleOutgoingRequestResponse` (upgrade Sending→Sent, legacy echo fallback); `processSendCompleteEvent` (eviction/failure + watchdog cancel); `dismissPendingEcho` |
 | `EditVersionCoordinator.kt` | `addNewEventToChain` — deduplication + pending echo eviction when confirmed event arrives via sync before send_complete |
 | `utils/NetworkUtils.kt` | Calls `processSendCompleteEvent(event, error)` — passes outer `error` field from `send_complete` |
 | `utils/ReplyFunctions.kt` | Derives `isPendingEcho`, `isFailedEcho`; applies bubble colors; disables actions; wires `effectiveOnDelete` |

@@ -226,6 +226,16 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                         delay(100L)
                     }
 
+                    if (operation.data["command"] == "send_message") {
+                        // Non-idempotent — never auto-resend (see checkAcknowledgmentTimeouts and
+                        // docs/MESSAGE_SENDING.md). Covers command_* and any stale offline_send_message
+                        // op persisted before offline-buffering was removed — this is the reconnect
+                        // drain path that produced the "fails red, then sends anyway" duplicate. The op
+                        // was already removed from the queue by the selection block above; just drop it.
+                        android.util.Log.w("Andromuks", "AppViewModel: Dropping send_message op from retry/drain loop (non-idempotent, would duplicate) messageId=${operation.messageId}")
+                        return@forEachIndexed
+                    }
+
                     when (operation.type) {
                         "sendMessage" -> {
                             // Legacy op type — no longer created. sendMessage failures are now
@@ -317,6 +327,19 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
 
         operationsSnapshot.forEach { operation ->
             if (!operation.acknowledged && currentTime >= operation.acknowledgmentTimeout) {
+                if (operation.data["command"] == "send_message") {
+                    // send_message is NON-IDEMPOTENT: the backend mints a fresh transaction_id on
+                    // every call and there is no client-supplied idempotency key (see
+                    // docs/MESSAGE_SENDING.md). A missed ack means we never saw the `response`, but
+                    // the server may well have received the send — re-sending would create a
+                    // DUPLICATE event. So we must NEVER auto-retry it (covers both command_* and any
+                    // stale offline_* op persisted before send_message offline-buffering was removed).
+                    // Drop the op; the message is still delivered/redelivered via sync_complete, and
+                    // the pending echo is marked failed by its own send-confirmation timeout.
+                    android.util.Log.w("Andromuks", "AppViewModel: send_message ack timed out — NOT retrying (non-idempotent), dropping op messageId=${operation.messageId}")
+                    operationsToRemove.add(operation)
+                    return@forEach
+                }
                 if (isInStabilizationPeriod && operation.retryCount == 0) {
                     val newTimeout = currentTime + 10000L
                     android.util.Log.i("Andromuks", "AppViewModel: QUEUE FLUSHING - Extending timeout for ${operation.type} (stabilization period, ${timeSinceReconnection}ms since reconnection)")
