@@ -356,4 +356,15 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         sendGomuksRoomPref(roomId, "show_hidden_events", value)
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: room $roomId show_hidden_events=$value")
     }
+
+    fun setGomuksGlobalShowMembershipEvents(value: Boolean?) = with(vm) {
+        sendGomuksGlobalPref("show_membership_events", value)
+        accountGlobalShowMembershipEvents = value
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: global show_membership_events=$value")
+    }
+
+    fun setGomuksRoomShowMembershipEvents(roomId: String, value: Boolean?) {
+        sendGomuksRoomPref(roomId, "show_membership_events", value)
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: room $roomId show_membership_events=$value")
+    }
 }

@@ -463,6 +463,34 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         gomuksRoomPrefsVersion++
     }
 
+    fun setDeviceGlobalShowMembershipEvents(value: Boolean?) = with(vm) {
+        deviceGlobalShowMembershipEvents = value
+        appContext?.let { ctx ->
+            val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            if (value == null) editor.remove("gomuks_device_show_membership_events")
+            else editor.putBoolean("gomuks_device_show_membership_events", value)
+            editor.apply()
+        }
+    }
+
+    fun getDeviceRoomShowMembershipEvents(roomId: String): Boolean? = with(vm) {
+        val ctx = appContext ?: return null
+        val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+        return booleanPrefOrNull(prefs, "gomuks_room_show_membership_events_$roomId")
+    }
+
+    fun setDeviceRoomShowMembershipEvents(roomId: String, value: Boolean?) = with(vm) {
+        appContext?.let { ctx ->
+            val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            val key = "gomuks_room_show_membership_events_$roomId"
+            if (value == null) editor.remove(key) else editor.putBoolean(key, value)
+            editor.apply()
+        }
+        gomuksRoomPrefsVersion++
+    }
+
     fun loadSettings(context: Context? = null) = with(vm) {
         val contextToUse = context ?: appContext
         contextToUse?.let { ctx ->
@@ -486,6 +514,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             deviceGlobalSendTypingNotifications = booleanPrefOrNull(prefs, "gomuks_device_send_typing_notifications")
             deviceGlobalDisplayReadReceipts = booleanPrefOrNull(prefs, "gomuks_device_display_read_receipts")
             deviceGlobalShowHiddenEvents = booleanPrefOrNull(prefs, "gomuks_device_show_hidden_events")
+            deviceGlobalShowMembershipEvents = booleanPrefOrNull(prefs, "gomuks_device_show_membership_events")
 
             AnimationSpeed.tweenFactor = prefs.getFloat("anim_tween_factor", AnimationSpeed.DEFAULT_FACTOR)
                 .coerceIn(AnimationSpeed.MIN_FACTOR, AnimationSpeed.MAX_FACTOR)

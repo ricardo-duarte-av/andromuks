@@ -317,11 +317,30 @@ internal fun formatDate(timestamp: Long): String {
     return dateFormatter.format(Date(timestamp))
 }
 
+/**
+ * True for the membership events hidden by show_membership_events=false: a user joining, a user
+ * leaving on their own, or a join→join profile change (display name / avatar). Invites, bans and
+ * kicks (a "leave" whose sender differs from the target) return false — they stay visible.
+ */
+private fun isHideableMembershipEvent(event: TimelineEvent): Boolean {
+    if (event.type != "m.room.member") return false
+    val membership = event.content?.optString("membership")?.takeIf { it.isNotBlank() } ?: return false
+    return when (membership) {
+        "join" -> true                          // plain join + display-name/avatar changes
+        "leave" -> event.sender == event.stateKey // self-leave only; kicks stay visible
+        else -> false                            // invite, ban, knock, etc.
+    }
+}
+
 /** PERFORMANCE: Helper function to process timeline events in background */
 suspend fun processTimelineEvents(
     timelineEvents: List<TimelineEvent>,
     allowedEventTypes: Set<String>,
     showHiddenEvents: Boolean = false,
+    // When false, hide join/leave/profile-change membership events (show_membership_events).
+    // Moderation events (invite, ban, kick) are kept regardless. Defaults to true so callers that
+    // don't care (e.g. threads) are unaffected.
+    showMembershipEvents: Boolean = true,
     // Thread view: paginate_manual returns every event with timeline_rowid = -1, so the thread
     // viewer must render those instead of treating them as non-renderable reply-context events.
     renderContextEvents: Boolean = false
@@ -349,6 +368,10 @@ suspend fun processTimelineEvents(
         if (!renderContextEvents && event.timelineRowid == -1L) return@filter false
         // Redaction events are always hidden (they replace other events, not standalone content)
         if (event.type == "m.room.redaction") return@filter false
+        // Hide joins/leaves/profile-changes when show_membership_events is off. Checked before the
+        // show_hidden_events short-circuit so the more specific membership preference wins.
+        // Moderation events (invite, ban, kick) fall through and stay visible.
+        if (!showMembershipEvents && isHideableMembershipEvent(event)) return@filter false
         // When show_hidden_events is on, pass everything else through
         if (showHiddenEvents) return@filter true
         // Filter out org.matrix.msc4075.* events (call notifications)
@@ -1757,13 +1780,14 @@ fun RoomTimelineScreen(
     // PERFORMANCE: Use background processing for heavy filtering and sorting operations
     var sortedEvents by remember { mutableStateOf<List<TimelineEvent>>(emptyList()) }
     val showHiddenEvents = appViewModel.resolveShowHiddenEvents(roomId)
+    val showMembershipEvents = appViewModel.resolveShowMembershipEvents(roomId)
 
     // Process timeline events in background when this room's timeline changes.
     // IMPORTANT: Do NOT key this effect on global counters (like timelineUpdateCounter),
     // otherwise updates in other rooms would trigger unnecessary work here.
     // PERFORMANCE: Gate logging on app visibility and current room, but still process events
     // (needed for when app comes back to foreground)
-    LaunchedEffect(timelineEvents, showHiddenEvents) {
+    LaunchedEffect(timelineEvents, showHiddenEvents, showMembershipEvents) {
         val shouldLog = appViewModel.isAppVisible && appViewModel.currentRoomId == roomId
         if (shouldLog && BuildConfig.DEBUG) {
             Log.d(
@@ -1774,7 +1798,8 @@ fun RoomTimelineScreen(
         sortedEvents = processTimelineEvents(
             timelineEvents = timelineEvents,
             allowedEventTypes = allowedEventTypes,
-            showHiddenEvents = showHiddenEvents
+            showHiddenEvents = showHiddenEvents,
+            showMembershipEvents = showMembershipEvents
         )
     }
 

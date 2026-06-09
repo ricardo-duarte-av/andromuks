@@ -19,6 +19,7 @@ Legacy fallback          AppViewModel.renderThumbnailsAlways (device toggle, pre
 | Key | Type | Description |
 |---|---|---|
 | `show_media_previews` | `Boolean?` | Render images and videos inline; false shows only a BlurHash placeholder until tapped |
+| `show_membership_events` | `Boolean?` | Show joins, leaves and display-name/avatar changes. Moderation events (invite, ban, kick) are unaffected. **Unset default is per-room-type:** shown in DMs, hidden in group rooms (all other prefs default to a flat fallback) |
 
 ## Reactivity model
 

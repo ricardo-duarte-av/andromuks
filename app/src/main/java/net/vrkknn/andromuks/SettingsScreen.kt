@@ -1431,6 +1431,15 @@ fun ClientPreferencesScreen(
                 onValueChange = { appViewModel.setGomuksGlobalShowHiddenEvents(it) }
             )
 
+            GomuksPreferenceCard(
+                title = "Show membership events",
+                description = "Stored in account data — applies across all your Matrix clients. " +
+                    "Controls joins, leaves and display-name/avatar changes (moderation events stay visible). " +
+                    "Default shows them in DMs and hides them in group rooms.",
+                value = appViewModel.accountGlobalShowMembershipEvents,
+                onValueChange = { appViewModel.setGomuksGlobalShowMembershipEvents(it) }
+            )
+
             Text(
                 text = "Global (this device only)",
                 style = MaterialTheme.typography.headlineSmall,
@@ -1487,6 +1496,13 @@ fun ClientPreferencesScreen(
                 description = "Stored locally on this device. Overrides the global (all-devices) setting.",
                 value = appViewModel.deviceGlobalShowHiddenEvents,
                 onValueChange = { appViewModel.setDeviceGlobalShowHiddenEvents(it) }
+            )
+
+            GomuksPreferenceCard(
+                title = "Show membership events",
+                description = "Stored locally on this device. Overrides the global (all-devices) setting.",
+                value = appViewModel.deviceGlobalShowMembershipEvents,
+                onValueChange = { appViewModel.setDeviceGlobalShowMembershipEvents(it) }
             )
 
             Text(
@@ -1606,6 +1622,12 @@ fun RoomPreferencesScreen(
     var roomDeviceShowHidden by remember(roomId, roomPrefsVersion) {
         mutableStateOf(appViewModel.getDeviceRoomShowHiddenEvents(roomId))
     }
+    var roomAccountShowMembership by remember(roomId, roomPrefsVersion) {
+        mutableStateOf(appViewModel.getAccountRoomShowMembershipEvents(roomId))
+    }
+    var roomDeviceShowMembership by remember(roomId, roomPrefsVersion) {
+        mutableStateOf(appViewModel.getDeviceRoomShowMembershipEvents(roomId))
+    }
 
     Scaffold(
         topBar = {
@@ -1711,6 +1733,18 @@ fun RoomPreferencesScreen(
                 }
             )
 
+            GomuksPreferenceCard(
+                title = "Show membership events",
+                description = "Stored in room account data — applies to this room on all your Matrix clients. " +
+                    "Controls joins, leaves and display-name/avatar changes (moderation events stay visible). " +
+                    "Default shows them in DMs and hides them in group rooms.",
+                value = roomAccountShowMembership,
+                onValueChange = {
+                    roomAccountShowMembership = it
+                    appViewModel.setGomuksRoomShowMembershipEvents(roomId, it)
+                }
+            )
+
             Text(
                 text = "Room (this device only)",
                 style = MaterialTheme.typography.headlineSmall,
@@ -1787,6 +1821,16 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomDeviceShowHidden = it
                     appViewModel.setDeviceRoomShowHiddenEvents(roomId, it)
+                }
+            )
+
+            GomuksPreferenceCard(
+                title = "Show membership events",
+                description = "Stored locally on this device for this room. Overrides all other preferences for this room on this device.",
+                value = roomDeviceShowMembership,
+                onValueChange = {
+                    roomDeviceShowMembership = it
+                    appViewModel.setDeviceRoomShowMembershipEvents(roomId, it)
                 }
             )
 

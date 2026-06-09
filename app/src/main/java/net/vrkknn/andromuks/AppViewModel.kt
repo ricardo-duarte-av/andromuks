@@ -578,6 +578,10 @@ class AppViewModel : ViewModel() {
         internal set
     var deviceGlobalShowHiddenEvents: Boolean? by mutableStateOf(null)
         internal set
+    var accountGlobalShowMembershipEvents: Boolean? by mutableStateOf(null)
+        internal set
+    var deviceGlobalShowMembershipEvents: Boolean? by mutableStateOf(null)
+        internal set
     // Bumped whenever room-level gomuks prefs change so composables recompose
     var gomuksRoomPrefsVersion by mutableStateOf(0)
         internal set
@@ -11182,6 +11186,48 @@ class AppViewModel : ViewModel() {
 
     fun getDeviceRoomShowHiddenEvents(roomId: String): Boolean? =
         settingsCoordinator.getDeviceRoomShowHiddenEvents(roomId)
+
+    fun getAccountRoomShowMembershipEvents(roomId: String): Boolean? =
+        getRoomAccountGomuksPref(roomId, "show_membership_events")
+
+    /**
+     * Resolves whether to show membership events — joins, leaves, and display-name/avatar changes
+     * (show_membership_events). Moderation events (invite, ban, kick) are not affected.
+     *
+     * Resolution order: room-device → room-account → global-device → global-account. When unset at
+     * every scope the default is per-room-type: shown in DMs, hidden in group rooms.
+     */
+    fun resolveShowMembershipEvents(roomId: String?): Boolean {
+        @Suppress("UNUSED_VARIABLE") val _v = gomuksRoomPrefsVersion
+        if (roomId != null) {
+            val roomDevice = settingsCoordinator.getDeviceRoomShowMembershipEvents(roomId)
+            if (roomDevice != null) return roomDevice
+            val roomAccount = getRoomAccountGomuksPref(roomId, "show_membership_events")
+            if (roomAccount != null) return roomAccount
+        }
+        val devGlobal = deviceGlobalShowMembershipEvents
+        if (devGlobal != null) return devGlobal
+        val accGlobal = accountGlobalShowMembershipEvents
+        if (accGlobal != null) return accGlobal
+        // Default when nothing is set: enabled in DMs, disabled in group rooms.
+        return roomId != null &&
+            (getRoomById(roomId)?.isDirectMessage ?: isDirectMessageFromAccountData(roomId))
+    }
+
+    fun setGomuksGlobalShowMembershipEvents(value: Boolean?) =
+        accountDataCoordinator.setGomuksGlobalShowMembershipEvents(value)
+
+    fun setGomuksRoomShowMembershipEvents(roomId: String, value: Boolean?) =
+        accountDataCoordinator.setGomuksRoomShowMembershipEvents(roomId, value)
+
+    fun setDeviceGlobalShowMembershipEvents(value: Boolean?) =
+        settingsCoordinator.setDeviceGlobalShowMembershipEvents(value)
+
+    fun setDeviceRoomShowMembershipEvents(roomId: String, value: Boolean?) =
+        settingsCoordinator.setDeviceRoomShowMembershipEvents(roomId, value)
+
+    fun getDeviceRoomShowMembershipEvents(roomId: String): Boolean? =
+        settingsCoordinator.getDeviceRoomShowMembershipEvents(roomId)
 
     /**
      * Resolves whether to display read receipts for a room (display_read_receipts).
