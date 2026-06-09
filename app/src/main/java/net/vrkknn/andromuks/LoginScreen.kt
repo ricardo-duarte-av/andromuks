@@ -2,6 +2,7 @@ package net.vrkknn.andromuks
 
 import android.content.Context
 import androidx.compose.animation.core.animateFloatAsState
+import net.vrkknn.andromuks.ui.theme.scaledSpring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,7 +74,7 @@ fun LoginScreen(
     }
 
     val imeVisible = rememberImeVisible()
-    val logoScale by animateFloatAsState(targetValue = if (imeVisible) 1f else 2f, label = "logoScale")
+    val logoScale by animateFloatAsState(targetValue = if (imeVisible) 1f else 2f, animationSpec = scaledSpring(), label = "logoScale")
 
     Box(
         modifier = modifier

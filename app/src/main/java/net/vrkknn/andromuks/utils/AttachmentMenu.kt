@@ -1,5 +1,7 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.ui.theme.scaledStiffness
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import android.Manifest
 import android.net.Uri
 import android.util.Log
@@ -153,17 +155,17 @@ fun AttachmentMenuBar(
     AnimatedVisibility(
         visible = visible,
         modifier = modifier,
-        enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = 120)),
-        exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = 120))
+        enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
+        exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120)))
     ) {
         val attachmentBarSlideOffsetPx = transition.animateFloat(
             transitionSpec = {
                 if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
                     // ENTER: slide in first
-                    tween(durationMillis = 120)
+                    tween(durationMillis = scaledTweenMs(120))
                 } else {
                     // EXIT: wait for buttons to fade out, then slide down
-                    tween(durationMillis = 120, delayMillis = 500)
+                    tween(durationMillis = scaledTweenMs(120), delayMillis = scaledTweenMs(500))
                 }
             },
             label = "attachmentBarSlideOffset"
@@ -174,10 +176,10 @@ fun AttachmentMenuBar(
             transitionSpec = {
                 if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
                     // ENTER: buttons fade in after bar has slid in
-                    tween(durationMillis = 500, delayMillis = 120)
+                    tween(durationMillis = scaledTweenMs(500), delayMillis = scaledTweenMs(120))
                 } else {
                     // EXIT: buttons fade out immediately
-                    tween(durationMillis = 500)
+                    tween(durationMillis = scaledTweenMs(500))
                 }
             },
             label = "attachmentButtonsAlpha"
@@ -256,7 +258,7 @@ fun AttachmentMenuBar(
                         targetValue = if (photoPressed) 50f else 29f, // 50 = circle on press, 29 ~ RoundedCornerShape(16.dp) on 56dp
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMedium
+                            stiffness = scaledStiffness(Spring.StiffnessMedium)
                         ),
                         label = "photoShapeMorph"
                     )
@@ -370,22 +372,22 @@ fun InAppCameraOverlay(
         enter = fadeIn(
             animationSpec = spring(
                 dampingRatio = Spring.DampingRatioNoBouncy,
-                stiffness = Spring.StiffnessMedium
+                stiffness = scaledStiffness(Spring.StiffnessMedium)
             )
         ) + scaleIn(
             initialScale = 0.88f,
             transformOrigin = TransformOrigin(0.5f, 1f),
             animationSpec = spring(
                 dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = Spring.StiffnessMedium
+                stiffness = scaledStiffness(Spring.StiffnessMedium)
             )
         ),
         exit = fadeOut(
-            animationSpec = tween(160, easing = FastOutSlowInEasing)
+            animationSpec = tween(scaledTweenMs(160), easing = FastOutSlowInEasing)
         ) + scaleOut(
             targetScale = 0.88f,
             transformOrigin = TransformOrigin(0.5f, 1f),
-            animationSpec = tween(180, easing = FastOutSlowInEasing)
+            animationSpec = tween(scaledTweenMs(180), easing = FastOutSlowInEasing)
         )
     ) {
         // Track physical device orientation and rotate only camera controls (not preview container)
@@ -418,7 +420,7 @@ fun InAppCameraOverlay(
 
             val animatedRotation by animateFloatAsState(
                 targetValue = cameraOrientation.iconAngle,
-                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
+                animationSpec = tween(durationMillis = scaledTweenMs(250), easing = FastOutSlowInEasing),
                 label = "cameraControlsRotation"
             )
 
@@ -587,22 +589,22 @@ fun InAppVideoOverlay(
         enter = fadeIn(
             animationSpec = spring(
                 dampingRatio = Spring.DampingRatioNoBouncy,
-                stiffness = Spring.StiffnessMedium
+                stiffness = scaledStiffness(Spring.StiffnessMedium)
             )
         ) + scaleIn(
             initialScale = 0.88f,
             transformOrigin = TransformOrigin(0.5f, 1f),
             animationSpec = spring(
                 dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = Spring.StiffnessMedium
+                stiffness = scaledStiffness(Spring.StiffnessMedium)
             )
         ),
         exit = fadeOut(
-            animationSpec = tween(160, easing = FastOutSlowInEasing)
+            animationSpec = tween(scaledTweenMs(160), easing = FastOutSlowInEasing)
         ) + scaleOut(
             targetScale = 0.88f,
             transformOrigin = TransformOrigin(0.5f, 1f),
-            animationSpec = tween(180, easing = FastOutSlowInEasing)
+            animationSpec = tween(scaledTweenMs(180), easing = FastOutSlowInEasing)
         )
     ) {
         val cameraOrientation = rememberCameraOrientation()
@@ -631,7 +633,7 @@ fun InAppVideoOverlay(
 
             val animatedRotation by animateFloatAsState(
                 targetValue = cameraOrientation.iconAngle,
-                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
+                animationSpec = tween(durationMillis = scaledTweenMs(250), easing = FastOutSlowInEasing),
                 label = "videoControlsRotation"
             )
 

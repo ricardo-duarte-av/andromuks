@@ -1,5 +1,7 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
+import net.vrkknn.andromuks.ui.theme.scaledSpring
 import net.vrkknn.andromuks.BuildConfig
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.utils.SingleEventRendererDialog
@@ -913,12 +915,12 @@ fun MessageBubbleWithMenu(
             highlightAnim.snapTo(1f)
             highlightAnim.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(durationMillis = 5000, easing = FastOutSlowInEasing)
+                animationSpec = tween(durationMillis = scaledTweenMs(5000), easing = FastOutSlowInEasing)
             )
         } else if (!isHighlightTarget && highlightAnim.value > 0f) {
             highlightAnim.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
+                animationSpec = tween(durationMillis = scaledTweenMs(150), easing = FastOutSlowInEasing)
             )
         }
     }
@@ -1049,11 +1051,11 @@ fun MessageBubbleWithMenu(
             mentionPulseAnim.snapTo(0f)
             mentionPulseAnim.animateTo(
                 targetValue = 1f,
-                animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing)
+                animationSpec = tween(durationMillis = scaledTweenMs(900), easing = FastOutSlowInEasing)
             )
             mentionPulseAnim.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(durationMillis = 1100, easing = FastOutSlowInEasing)
+                animationSpec = tween(durationMillis = scaledTweenMs(1100), easing = FastOutSlowInEasing)
             )
         }
     }
@@ -1086,11 +1088,11 @@ fun MessageBubbleWithMenu(
             while (true) {
                 menuPulseAnim.animateTo(
                     targetValue = 1f,
-                    animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing)
+                    animationSpec = tween(durationMillis = scaledTweenMs(700), easing = FastOutSlowInEasing)
                 )
                 menuPulseAnim.animateTo(
                     targetValue = 0f,
-                    animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing)
+                    animationSpec = tween(durationMillis = scaledTweenMs(700), easing = FastOutSlowInEasing)
                 )
             }
         } else {
@@ -1118,11 +1120,13 @@ fun MessageBubbleWithMenu(
     }
     val bubbleColorAdjusted = androidx.compose.animation.animateColorAsState(
         targetValue = bubbleColorTarget,
+        animationSpec = scaledSpring(),
         label = "echoBubbleColor"
     ).value
     // Lift the bubble while it's still being sent (no server response yet); settle flat once Sent.
     val echoElevation = androidx.compose.animation.core.animateDpAsState(
         targetValue = if (isSendingEcho) 6.dp else 0.dp,
+        animationSpec = scaledSpring(),
         label = "echoElevation"
     ).value
 

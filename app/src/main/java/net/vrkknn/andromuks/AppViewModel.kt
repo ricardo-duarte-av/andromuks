@@ -10991,6 +10991,10 @@ class AppViewModel : ViewModel() {
 
     fun updateBackgroundPurgeThreshold(count: Int) = settingsCoordinator.updateBackgroundPurgeThreshold(count)
 
+    fun setAnimationTweenFactor(factor: Float) = settingsCoordinator.setAnimationTweenFactor(factor)
+
+    fun setAnimationStiffnessFactor(factor: Float) = settingsCoordinator.setAnimationStiffnessFactor(factor)
+
     // ── Gomuks preferences ────────────────────────────────────────────────────
 
     /**

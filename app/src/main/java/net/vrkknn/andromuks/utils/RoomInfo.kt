@@ -1,5 +1,7 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.ui.theme.scaledStiffness
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.BuildConfig
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -345,7 +347,7 @@ fun RoomInfoScreen(
                                             boundsTransform = { _, _ ->
                                                 spring(
                                                     dampingRatio = Spring.DampingRatioLowBouncy,
-                                                    stiffness = Spring.StiffnessLow
+                                                    stiffness = scaledStiffness(Spring.StiffnessLow)
                                                 )
                                             },
                                             renderInOverlayDuringTransition = true,
@@ -384,7 +386,7 @@ fun RoomInfoScreen(
                             val badgeAlpha = remember { Animatable(0f) }
                             LaunchedEffect(Unit) {
                                 kotlinx.coroutines.delay(500)
-                                badgeAlpha.animateTo(1f, animationSpec = tween(durationMillis = 100))
+                                badgeAlpha.animateTo(1f, animationSpec = tween(durationMillis = scaledTweenMs(100)))
                             }
                             // While the shared-element transition runs, the room avatar is hoisted
                             // into the SharedTransitionScope overlay (zIndexInOverlay=1f), which

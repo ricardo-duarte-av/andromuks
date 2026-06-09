@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks
 
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import android.util.Log
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -363,8 +364,8 @@ fun MentionItem(
             return@LaunchedEffect
         }
         while (true) {
-            pulseAnim.animateTo(1f, animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing))
-            pulseAnim.animateTo(0f, animationSpec = tween(durationMillis = 1100, easing = FastOutSlowInEasing))
+            pulseAnim.animateTo(1f, animationSpec = tween(durationMillis = scaledTweenMs(900), easing = FastOutSlowInEasing))
+            pulseAnim.animateTo(0f, animationSpec = tween(durationMillis = scaledTweenMs(1100), easing = FastOutSlowInEasing))
         }
     }
     val mentionBorder = if (isDirect) {

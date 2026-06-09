@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks
 
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import android.content.Context
 import android.util.Log
 import androidx.activity.compose.BackHandler
@@ -1249,8 +1250,8 @@ fun ThreadViewerScreen(
                             val connectionState by SyncRepository.connectionState.collectAsState()
                             AnimatedVisibility(
                                 visible = !connectionState.isReady(),
-                                enter = fadeIn(animationSpec = tween(300)),
-                                exit = fadeOut(animationSpec = tween(300))
+                                enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
+                                exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
                             ) {
                                 val offlinePulse = rememberInfiniteTransition(label = "offline_pulse")
                                 val offlineAlpha by offlinePulse.animateFloat(
@@ -2142,17 +2143,17 @@ fun ThreadViewerScreen(
                 // Message menu bar (slides from bottom, same position as attach menu)
                 AnimatedVisibility(
                     visible = messageMenuConfig != null,
-                    enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = 120)),
-                    exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = 120))
+                    enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
+                    exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120)))
                 ) {
                     val messageBarSlideOffsetPx = transition.animateFloat(
                         transitionSpec = {
                             if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
                                 // ENTER: slide in first
-                                tween(durationMillis = 120)
+                                tween(durationMillis = scaledTweenMs(120))
                             } else {
                                 // EXIT: wait for buttons to fade out, then slide down
-                                tween(durationMillis = 120, delayMillis = 500)
+                                tween(durationMillis = scaledTweenMs(120), delayMillis = scaledTweenMs(500))
                             }
                         },
                         label = "messageBarSlideOffset"
@@ -2163,10 +2164,10 @@ fun ThreadViewerScreen(
                         transitionSpec = {
                             if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
                                 // ENTER: buttons fade in after bar has slid in
-                                tween(durationMillis = 500, delayMillis = 120)
+                                tween(durationMillis = scaledTweenMs(500), delayMillis = scaledTweenMs(120))
                             } else {
                                 // EXIT: buttons fade out immediately
-                                tween(durationMillis = 500)
+                                tween(durationMillis = scaledTweenMs(500))
                             }
                         },
                         label = "messageButtonsAlpha"

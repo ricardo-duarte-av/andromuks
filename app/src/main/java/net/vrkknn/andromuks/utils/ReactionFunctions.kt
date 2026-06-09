@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.BuildConfig
 import android.os.Build
 import androidx.compose.foundation.Image
@@ -570,16 +571,16 @@ fun ReactionDetailsDialog(
         ) {
             androidx.compose.animation.AnimatedVisibility(
                 visible = isVisible,
-                enter = androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(durationMillis = enterDuration, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                enter = androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(durationMillis = scaledTweenMs(enterDuration), easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
                     androidx.compose.animation.scaleIn(
                         initialScale = 0.85f,
-                        animationSpec = androidx.compose.animation.core.tween(durationMillis = enterDuration, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                        animationSpec = androidx.compose.animation.core.tween(durationMillis = scaledTweenMs(enterDuration), easing = androidx.compose.animation.core.FastOutSlowInEasing),
                         transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
                     ),
-                exit = androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(durationMillis = exitDuration, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                exit = androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(durationMillis = scaledTweenMs(exitDuration), easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
                     androidx.compose.animation.scaleOut(
                         targetScale = 0.85f,
-                        animationSpec = androidx.compose.animation.core.tween(durationMillis = exitDuration, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                        animationSpec = androidx.compose.animation.core.tween(durationMillis = scaledTweenMs(exitDuration), easing = androidx.compose.animation.core.FastOutSlowInEasing),
                         transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
                     )
             ) {

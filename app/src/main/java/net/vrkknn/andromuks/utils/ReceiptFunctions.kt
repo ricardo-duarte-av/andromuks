@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
 import androidx.compose.foundation.background
@@ -548,8 +549,8 @@ fun AnimatedInlineReadReceiptAvatars(
                     // Use simple animated visibility with enhanced enter animation for moved receipts
                     AnimatedVisibility(
                         visible = true,
-                        enter = fadeIn(animationSpec = tween(durationMillis = if (isAnimatingIn) 500 else 200)),
-                        exit = fadeOut(animationSpec = tween(durationMillis = 200))
+                        enter = fadeIn(animationSpec = tween(durationMillis = scaledTweenMs(if (isAnimatingIn) 500 else 200))),
+                        exit = fadeOut(animationSpec = tween(durationMillis = scaledTweenMs(200)))
                     ) {
                         Box(
                             modifier = Modifier
@@ -580,16 +581,16 @@ fun AnimatedInlineReadReceiptAvatars(
                             AnimatedVisibility(
                                 visible = isVisible,
                                 enter = if (isNewlyMoved) {
-                                    fadeIn(tween(600, easing = FastOutSlowInEasing)) + 
-                                    scaleIn(initialScale = 0.5f, animationSpec = tween(600, easing = FastOutSlowInEasing)) //+ 
+                                    fadeIn(tween(scaledTweenMs(600), easing = FastOutSlowInEasing)) + 
+                                    scaleIn(initialScale = 0.5f, animationSpec = tween(scaledTweenMs(600), easing = FastOutSlowInEasing)) //+ 
                                     //slideInVertically(
                                     //    initialOffsetY = { -it / 2 },
-                                    //    animationSpec = tween(600, easing = FastOutSlowInEasing)
+                                    //    animationSpec = tween(scaledTweenMs(600), easing = FastOutSlowInEasing)
                                     //)
                                 } else {
-                                    fadeIn(tween(200))
+                                    fadeIn(tween(scaledTweenMs(200)))
                                 },
-                                exit = fadeOut(tween(200)) + scaleOut(targetScale = 0.5f, animationSpec = tween(200))
+                                exit = fadeOut(tween(scaledTweenMs(200))) + scaleOut(targetScale = 0.5f, animationSpec = tween(scaledTweenMs(200)))
                             ) {
                                 AvatarImage(
                                     mxcUrl = avatarUrl,
@@ -607,8 +608,8 @@ fun AnimatedInlineReadReceiptAvatars(
                     // "+" indicator
                     AnimatedVisibility(
                         visible = true,
-                        enter = fadeIn(animationSpec = tween(300)),
-                        exit = fadeOut(animationSpec = tween(200))
+                        enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
+                        exit = fadeOut(animationSpec = tween(scaledTweenMs(200)))
                     ) {
                         Box(
                             modifier = Modifier
@@ -716,16 +717,16 @@ fun ReadReceiptDetailsDialog(
         ) {
             AnimatedVisibility(
                 visible = isVisible,
-                enter = fadeIn(animationSpec = tween(durationMillis = enterDuration, easing = FastOutSlowInEasing)) +
+                enter = fadeIn(animationSpec = tween(durationMillis = scaledTweenMs(enterDuration), easing = FastOutSlowInEasing)) +
                     scaleIn(
                         initialScale = 0.85f,
-                        animationSpec = tween(durationMillis = enterDuration, easing = FastOutSlowInEasing),
+                        animationSpec = tween(durationMillis = scaledTweenMs(enterDuration), easing = FastOutSlowInEasing),
                         transformOrigin = TransformOrigin.Center
                     ),
-                exit = fadeOut(animationSpec = tween(durationMillis = exitDuration, easing = FastOutSlowInEasing)) +
+                exit = fadeOut(animationSpec = tween(durationMillis = scaledTweenMs(exitDuration), easing = FastOutSlowInEasing)) +
                     scaleOut(
                         targetScale = 0.85f,
-                        animationSpec = tween(durationMillis = exitDuration, easing = FastOutSlowInEasing),
+                        animationSpec = tween(durationMillis = scaledTweenMs(exitDuration), easing = FastOutSlowInEasing),
                         transformOrigin = TransformOrigin.Center
                     )
             ) {

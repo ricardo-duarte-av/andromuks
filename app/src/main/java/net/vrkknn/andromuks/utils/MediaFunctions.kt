@@ -1,5 +1,8 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
+import net.vrkknn.andromuks.ui.theme.scaledSpring
+import androidx.compose.animation.core.Spring
 import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
 import androidx.compose.foundation.Canvas
@@ -1884,8 +1887,8 @@ private fun InlineVideoPlayer(
         // Controls overlay
         AnimatedVisibility(
             visible = controlsVisible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 200)),
-            exit = fadeOut(animationSpec = tween(durationMillis = 200)) // Faster fade-out
+            enter = fadeIn(animationSpec = tween(durationMillis = scaledTweenMs(200))),
+            exit = fadeOut(animationSpec = tween(durationMillis = scaledTweenMs(200))) // Faster fade-out
         ) {
             Box(
                 modifier = Modifier
@@ -2592,7 +2595,7 @@ internal fun ImageViewerDialog(
     // Animate rotation smoothly - normalize to 0-360 range only for rendering
     val animatedRotation by animateFloatAsState(
         targetValue = rotationDegrees,
-        animationSpec = tween(durationMillis = 300), // 300ms animation
+        animationSpec = tween(durationMillis = scaledTweenMs(300)), // 300ms animation
         label = "rotation"
     )
     
@@ -2602,7 +2605,7 @@ internal fun ImageViewerDialog(
     // Animate button visibility
     val buttonsAlpha by animateFloatAsState(
         targetValue = if (showButtons) 1f else 0f,
-        animationSpec = tween(durationMillis = 300),
+        animationSpec = tween(durationMillis = scaledTweenMs(300)),
         label = "buttons_alpha"
     )
     
@@ -2655,7 +2658,7 @@ internal fun ImageViewerDialog(
             isOpening -> 0f
             else -> 1f
         },
-        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = scaledTweenMs(300), easing = FastOutSlowInEasing),
         finishedListener = { value ->
             if (isClosingManually && value == 0f) onDismiss()
         },
@@ -2778,7 +2781,7 @@ internal fun ImageViewerDialog(
                 }
                 val fullImageAlpha by animateFloatAsState(
                     targetValue = if (fullImageLoaded) 1f else 0f,
-                    animationSpec = tween(durationMillis = 220),
+                    animationSpec = tween(durationMillis = scaledTweenMs(220)),
                     label = "full_image_overlay_alpha"
                 )
 
@@ -3012,8 +3015,8 @@ internal fun ImageViewerDialog(
                     // The thumbnail renders behind it; this disappears once the full image is ready.
                     AnimatedVisibility(
                         visible = !fullImageLoaded && !fullImageFailed,
-                        enter = fadeIn(),
-                        exit = fadeOut(),
+                        enter = fadeIn(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)),
+                        exit = fadeOut(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)),
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .windowInsetsPadding(WindowInsets.navigationBars)
@@ -4029,7 +4032,7 @@ fun VideoPlayerDialog(
                 // rather than jumping, which matters most for short videos.
                 val smoothProgress by animateFloatAsState(
                     targetValue = progressState.value,
-                    animationSpec = tween(durationMillis = 100, easing = LinearEasing),
+                    animationSpec = tween(durationMillis = scaledTweenMs(100), easing = LinearEasing),
                     label = "videoProgressThumb"
                 )
 

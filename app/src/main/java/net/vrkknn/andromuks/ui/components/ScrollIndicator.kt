@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.ui.components
 
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -108,19 +109,19 @@ fun ExpressiveScrollIndicator(
     
     val animatedProgress by animateFloatAsState(
         targetValue = scrollProgress,
-        animationSpec = tween(durationMillis = 200),
+        animationSpec = tween(durationMillis = scaledTweenMs(200)),
         label = "scroll_progress"
     )
     
     AnimatedVisibility(
         visible = isVisible,
-        enter = fadeIn(animationSpec = tween(200)) + scaleIn(
+        enter = fadeIn(animationSpec = tween(scaledTweenMs(200))) + scaleIn(
             initialScale = 0.8f,
-            animationSpec = tween(200)
+            animationSpec = tween(scaledTweenMs(200))
         ),
-        exit = fadeOut(animationSpec = tween(300)) + scaleOut(
+        exit = fadeOut(animationSpec = tween(scaledTweenMs(300))) + scaleOut(
             targetScale = 0.8f,
-            animationSpec = tween(300)
+            animationSpec = tween(scaledTweenMs(300))
         ),
         modifier = modifier
     ) {

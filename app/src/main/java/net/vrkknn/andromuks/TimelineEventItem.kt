@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks
 
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import android.util.Log
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -3896,20 +3897,20 @@ fun TimelineEventItem(
     val entranceEnter =
         if (runEntrance) {
             if (actualIsMine) {
-                fadeIn(animationSpec = tween(500)) +
-                    slideInVertically(animationSpec = tween(500)) { h -> h / 2 }
+                fadeIn(animationSpec = tween(scaledTweenMs(500))) +
+                    slideInVertically(animationSpec = tween(scaledTweenMs(500))) { h -> h / 2 }
             } else {
-                fadeIn(animationSpec = tween(500)) +
-                    slideInHorizontally(animationSpec = tween(500)) { w -> -w }
+                fadeIn(animationSpec = tween(scaledTweenMs(500))) +
+                    slideInHorizontally(animationSpec = tween(scaledTweenMs(500))) { w -> -w }
             }
         } else {
-            fadeIn(animationSpec = tween(0))
+            fadeIn(animationSpec = tween(scaledTweenMs(0)))
         }
 
     AnimatedVisibility(
         visibleState = entranceVisibleState,
         enter = entranceEnter,
-        exit = fadeOut(animationSpec = tween(0)) // no exit flash when item leaves lazy list
+        exit = fadeOut(animationSpec = tween(scaledTweenMs(0))) // no exit flash when item leaves lazy list
     ) {
     Box(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -3961,7 +3962,7 @@ fun TimelineEventItem(
                                     rememberSharedContentState(key = sharedKey),
                                     animatedVisibilityScope = animatedVisibilityScope,
                                     boundsTransform = { _, _ ->
-                                        tween(durationMillis = 380, easing = LinearEasing)
+                                        tween(durationMillis = scaledTweenMs(380), easing = LinearEasing)
                                     },
                                     renderInOverlayDuringTransition = true,
                                     zIndexInOverlay = 1f
@@ -4092,7 +4093,7 @@ fun TimelineEventItem(
                                 dragOffsetAnimatable.snapTo(releasedOffset)
                                 dragOffsetAnimatable.animateTo(
                                     targetValue = 0f,
-                                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                                    animationSpec = tween(durationMillis = scaledTweenMs(300), easing = FastOutSlowInEasing)
                                 )
                             }
                             shouldTriggerReply = false
@@ -4267,7 +4268,7 @@ fun TimelineEventItem(
                                     rememberSharedContentState(key = sharedKey),
                                     animatedVisibilityScope = animatedVisibilityScope,
                                     boundsTransform = { _, _ ->
-                                        tween(durationMillis = 380, easing = LinearEasing)
+                                        tween(durationMillis = scaledTweenMs(380), easing = LinearEasing)
                                     },
                                     renderInOverlayDuringTransition = true,
                                     zIndexInOverlay = 1f

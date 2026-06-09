@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks
 
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -488,8 +489,8 @@ fun EventContextScreen(
                     // Message menu bar overlay
                     AnimatedVisibility(
                         visible = messageMenuConfig != null,
-                        enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = 120)),
-                        exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = 120))
+                        enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
+                        exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120)))
                     ) {
                         Box(
                             modifier = Modifier

@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -127,12 +128,12 @@ fun SystemEventNarrator(
             highlightAnim.snapTo(1f)
             highlightAnim.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(durationMillis = 5000, easing = FastOutSlowInEasing)
+                animationSpec = tween(durationMillis = scaledTweenMs(5000), easing = FastOutSlowInEasing)
             )
         } else if (!isHighlightTarget && highlightAnim.value > 0f) {
             highlightAnim.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
+                animationSpec = tween(durationMillis = scaledTweenMs(150), easing = FastOutSlowInEasing)
             )
         }
     }
@@ -147,11 +148,11 @@ fun SystemEventNarrator(
             while (true) {
                 narratorMenuPulse.animateTo(
                     targetValue = 1f,
-                    animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing)
+                    animationSpec = tween(durationMillis = scaledTweenMs(700), easing = FastOutSlowInEasing)
                 )
                 narratorMenuPulse.animateTo(
                     targetValue = 0f,
-                    animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing)
+                    animationSpec = tween(durationMillis = scaledTweenMs(700), easing = FastOutSlowInEasing)
                 )
             }
         } else {

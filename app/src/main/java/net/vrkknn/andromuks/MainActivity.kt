@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks
 
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.Context
@@ -1400,13 +1401,13 @@ fun AppNavigation(
             },
             exitTransition = {
                 // UX: Fade the list out so it remains softly visible behind the flying avatar
-                fadeOut(tween(500))
+                fadeOut(tween(scaledTweenMs(500)))
             },
             popEnterTransition = {
                 // UX: Fade the list back in when returning from a room
-                fadeIn(tween(500))
+                fadeIn(tween(scaledTweenMs(500)))
             },
-            popExitTransition = { fadeOut(tween(500)) }
+            popExitTransition = { fadeOut(tween(scaledTweenMs(500))) }
         ) { backStackEntry ->
             val navigationScope = this
             // CRITICAL FIX: Always show StartupLoadingScreen initially to prevent white flash during navigation
@@ -1545,7 +1546,7 @@ fun AppNavigation(
                     // Instant exit when cacheReady flips — no fade so RoomListScreen becomes
                     // visible immediately. The 300ms fade only matters when isStartupComplete
                     // completes the normal way (no cache), keeping the original feel.
-                    exit = fadeOut(animationSpec = tween(durationMillis = 0))
+                    exit = fadeOut(animationSpec = tween(durationMillis = scaledTweenMs(0)))
                 ) {
                     net.vrkknn.andromuks.ui.components.StartupLoadingScreen(
                         progressMessages = emptyList(),
@@ -1569,7 +1570,7 @@ fun AppNavigation(
                                                     animatedVisibilityScope = navigationScope,
                                                     boundsTransform = { _, _ ->
                                                         tween(
-                                                            durationMillis = 380,
+                                                            durationMillis = scaledTweenMs(380),
                                                             easing = LinearEasing
                                                         )
                                                     },
@@ -1612,7 +1613,7 @@ fun AppNavigation(
                 // list paint immediately on cold start without waiting for the WebSocket sync.
                 AnimatedVisibility(
                     visible = cacheReady || (isStartupComplete && showRoomList),
-                    enter = fadeIn(animationSpec = tween(durationMillis = 0))
+                    enter = fadeIn(animationSpec = tween(durationMillis = scaledTweenMs(0)))
                 ) {
                     RoomListScreen(
                         navController = navController,
@@ -1648,7 +1649,7 @@ fun AppNavigation(
                         "MainActivity room_timeline enterTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, fromUserInfo=$fromUserInfo, fromRoomInfo=$fromRoomInfo"
                     )
                 }
-                if (fromUserInfo || fromRoomInfo) null else fadeIn(tween(500))
+                if (fromUserInfo || fromRoomInfo) null else fadeIn(tween(scaledTweenMs(500)))
             },
             exitTransition = {
                 val toUserInfo = targetState.destination.route?.startsWith("user_info") == true
@@ -1659,7 +1660,7 @@ fun AppNavigation(
                         "MainActivity room_timeline exitTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, toUserInfo=$toUserInfo, toRoomInfo=$toRoomInfo"
                     )
                 }
-                if (toUserInfo || toRoomInfo) null else fadeOut(tween(500))
+                if (toUserInfo || toRoomInfo) null else fadeOut(tween(scaledTweenMs(500)))
             },
             popEnterTransition = {
                 val fromUserInfo = initialState.destination.route?.startsWith("user_info") == true
@@ -1670,7 +1671,7 @@ fun AppNavigation(
                         "MainActivity room_timeline popEnterTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, fromUserInfo=$fromUserInfo, fromRoomInfo=$fromRoomInfo"
                     )
                 }
-                if (fromUserInfo || fromRoomInfo) null else fadeIn(tween(500))
+                if (fromUserInfo || fromRoomInfo) null else fadeIn(tween(scaledTweenMs(500)))
             },
             popExitTransition = {
                 val toUserInfo = targetState.destination.route?.startsWith("user_info") == true
@@ -1681,7 +1682,7 @@ fun AppNavigation(
                         "MainActivity room_timeline popExitTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, toUserInfo=$toUserInfo, toRoomInfo=$toRoomInfo"
                     )
                 }
-                if (toUserInfo || toRoomInfo) null else fadeOut(tween(500))
+                if (toUserInfo || toRoomInfo) null else fadeOut(tween(scaledTweenMs(500)))
             }
         ) { backStackEntry ->
             val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
@@ -1718,13 +1719,13 @@ fun AppNavigation(
             enterTransition = {
                 slideInHorizontally(
                     initialOffsetX = { it },
-                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                    animationSpec = tween(durationMillis = scaledTweenMs(300), easing = FastOutSlowInEasing)
                 )
             },
             popExitTransition = {
                 slideOutHorizontally(
                     targetOffsetX = { it },
-                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                    animationSpec = tween(durationMillis = scaledTweenMs(300), easing = FastOutSlowInEasing)
                 )
             }
         ) { backStackEntry: NavBackStackEntry ->
@@ -1747,13 +1748,13 @@ fun AppNavigation(
             enterTransition = {
                 slideInHorizontally(
                     initialOffsetX = { it },
-                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                    animationSpec = tween(durationMillis = scaledTweenMs(300), easing = FastOutSlowInEasing)
                 )
             },
             popExitTransition = {
                 slideOutHorizontally(
                     targetOffsetX = { it },
-                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                    animationSpec = tween(durationMillis = scaledTweenMs(300), easing = FastOutSlowInEasing)
                 )
             }
         ) { backStackEntry: NavBackStackEntry ->
@@ -1887,10 +1888,10 @@ fun AppNavigation(
                 // Disable fade/scale when coming from room_timeline to allow shared element transition
                 val fromRoomTimeline = initialState.destination.route?.startsWith("room_timeline") == true
                 if (fromRoomTimeline) null else {
-                    fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
+                    fadeIn(animationSpec = tween(durationMillis = scaledTweenMs(220), easing = FastOutSlowInEasing)) +
                         scaleIn(
                             initialScale = 0.85f,
-                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                            animationSpec = tween(durationMillis = scaledTweenMs(220), easing = FastOutSlowInEasing),
                             transformOrigin = TransformOrigin.Center
                         )
                 }
@@ -1899,10 +1900,10 @@ fun AppNavigation(
                 // Disable fade/scale when going to room_timeline to allow shared element transition
                 val toRoomTimeline = targetState.destination.route?.startsWith("room_timeline") == true
                 if (toRoomTimeline) null else {
-                    fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)) +
+                    fadeOut(animationSpec = tween(durationMillis = scaledTweenMs(160), easing = FastOutSlowInEasing)) +
                         scaleOut(
                             targetScale = 0.85f,
-                            animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
+                            animationSpec = tween(durationMillis = scaledTweenMs(160), easing = FastOutSlowInEasing),
                             transformOrigin = TransformOrigin.Center
                         )
                 }
@@ -1911,10 +1912,10 @@ fun AppNavigation(
                 // Disable fade/scale when coming from room_timeline to allow shared element transition
                 val fromRoomTimeline = initialState.destination.route?.startsWith("room_timeline") == true
                 if (fromRoomTimeline) null else {
-                    fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
+                    fadeIn(animationSpec = tween(durationMillis = scaledTweenMs(220), easing = FastOutSlowInEasing)) +
                         scaleIn(
                             initialScale = 0.85f,
-                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                            animationSpec = tween(durationMillis = scaledTweenMs(220), easing = FastOutSlowInEasing),
                             transformOrigin = TransformOrigin.Center
                         )
                 }
@@ -1923,10 +1924,10 @@ fun AppNavigation(
                 // Disable fade/scale when going to room_timeline to allow shared element transition
                 val toRoomTimeline = targetState.destination.route?.startsWith("room_timeline") == true
                 if (toRoomTimeline) null else {
-                    fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)) +
+                    fadeOut(animationSpec = tween(durationMillis = scaledTweenMs(160), easing = FastOutSlowInEasing)) +
                         scaleOut(
                             targetScale = 0.85f,
-                            animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
+                            animationSpec = tween(durationMillis = scaledTweenMs(160), easing = FastOutSlowInEasing),
                             transformOrigin = TransformOrigin.Center
                         )
                 }

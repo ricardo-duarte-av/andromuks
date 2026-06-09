@@ -1,11 +1,13 @@
 package net.vrkknn.andromuks.utils
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.padding
+import net.vrkknn.andromuks.ui.theme.scaledSpring
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -87,8 +89,10 @@ fun StickyDateIndicator(
 
     AnimatedVisibility(
         visible = showPill,
-        enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
-        exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
+        enter = slideInVertically(initialOffsetY = { -it }, animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)) +
+            fadeIn(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)),
+        exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)) +
+            fadeOut(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)),
         modifier = modifier
     ) {
         Surface(

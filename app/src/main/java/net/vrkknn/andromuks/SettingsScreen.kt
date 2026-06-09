@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
+import net.vrkknn.andromuks.ui.theme.AnimationSpeed
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -217,6 +218,97 @@ fun SettingsScreen(
                         checked = appViewModel.trimLongDisplayNames,
                         onCheckedChange = { appViewModel.toggleTrimLongDisplayNames() }
                     )
+                }
+            }
+
+            // ── Animations ───────────────────────────────────────────────────
+            Text(
+                text = "Animations",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = "Tune the speed of UI animations. Both default to 1.0 (no change). " +
+                            "Continuous indicators like spinners are not affected.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    // Tween/duration factor: lower = snappier.
+                    Text(
+                        text = "Transition speed (duration)",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Scales time-based animations (fades, slides, expansions). Lower is faster.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Slider(
+                            value = AnimationSpeed.tweenFactor,
+                            onValueChange = { appViewModel.setAnimationTweenFactor(it) },
+                            valueRange = AnimationSpeed.MIN_FACTOR..AnimationSpeed.MAX_FACTOR,
+                            steps = 18, // 0.1 increments across 0.1..2.0
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = String.format(Locale.US, "%.1f×", AnimationSpeed.tweenFactor),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.widthIn(min = 48.dp)
+                        )
+                    }
+
+                    HorizontalDivider()
+
+                    // Spring stiffness factor: higher = snappier (springs have no duration).
+                    Text(
+                        text = "Spring speed (stiffness)",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Scales spring-based animations (default show/hide transitions). " +
+                            "Higher is faster — springs have no fixed duration.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Slider(
+                            value = AnimationSpeed.stiffnessFactor,
+                            onValueChange = { appViewModel.setAnimationStiffnessFactor(it) },
+                            valueRange = AnimationSpeed.MIN_FACTOR..AnimationSpeed.MAX_FACTOR,
+                            steps = 18,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = String.format(Locale.US, "%.1f×", AnimationSpeed.stiffnessFactor),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.widthIn(min = 48.dp)
+                        )
+                    }
                 }
             }
 

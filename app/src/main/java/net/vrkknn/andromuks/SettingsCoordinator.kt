@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import net.vrkknn.andromuks.ui.theme.AnimationSpeed
 
 /**
  * UI prefs and SharedPreferences-backed settings — see [AppViewModel] toggles / [loadSettings].
@@ -237,6 +238,32 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
 
 
 
+    /** Persist the tween-duration animation factor and apply it immediately to [AnimationSpeed]. */
+    fun setAnimationTweenFactor(factor: Float) = with(vm) {
+        val clamped = factor.coerceIn(AnimationSpeed.MIN_FACTOR, AnimationSpeed.MAX_FACTOR)
+        AnimationSpeed.tweenFactor = clamped
+        appContext?.let { ctx ->
+            ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                .edit()
+                .putFloat("anim_tween_factor", clamped)
+                .apply()
+        }
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved anim tweenFactor=$clamped")
+    }
+
+    /** Persist the spring-stiffness animation factor and apply it immediately to [AnimationSpeed]. */
+    fun setAnimationStiffnessFactor(factor: Float) = with(vm) {
+        val clamped = factor.coerceIn(AnimationSpeed.MIN_FACTOR, AnimationSpeed.MAX_FACTOR)
+        AnimationSpeed.stiffnessFactor = clamped
+        appContext?.let { ctx ->
+            ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                .edit()
+                .putFloat("anim_stiffness_factor", clamped)
+                .apply()
+        }
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved anim stiffnessFactor=$clamped")
+    }
+
     private fun booleanPrefOrNull(prefs: android.content.SharedPreferences, key: String): Boolean? =
         if (prefs.contains(key)) prefs.getBoolean(key, false) else null
 
@@ -459,6 +486,11 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             deviceGlobalSendTypingNotifications = booleanPrefOrNull(prefs, "gomuks_device_send_typing_notifications")
             deviceGlobalDisplayReadReceipts = booleanPrefOrNull(prefs, "gomuks_device_display_read_receipts")
             deviceGlobalShowHiddenEvents = booleanPrefOrNull(prefs, "gomuks_device_show_hidden_events")
+
+            AnimationSpeed.tweenFactor = prefs.getFloat("anim_tween_factor", AnimationSpeed.DEFAULT_FACTOR)
+                .coerceIn(AnimationSpeed.MIN_FACTOR, AnimationSpeed.MAX_FACTOR)
+            AnimationSpeed.stiffnessFactor = prefs.getFloat("anim_stiffness_factor", AnimationSpeed.DEFAULT_FACTOR)
+                .coerceIn(AnimationSpeed.MIN_FACTOR, AnimationSpeed.MAX_FACTOR)
 
             val defaultIntervalMin = (SyncBatchProcessor.DEFAULT_BATCH_INTERVAL_MS / 60_000L).toInt()
             backgroundPurgeIntervalMinutes = prefs.getInt("background_purge_interval_minutes", defaultIntervalMin)

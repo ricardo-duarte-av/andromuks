@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.util.Log
@@ -1138,7 +1139,7 @@ fun UserInfoScreen(
                                     rememberSharedContentState(key = sharedAvatarKey),
                                     animatedVisibilityScope = animatedVisibilityScope,
                                     boundsTransform = { _, _ ->
-                                        tween(durationMillis = 380, easing = LinearEasing)
+                                        tween(durationMillis = scaledTweenMs(380), easing = LinearEasing)
                                     },
                                     renderInOverlayDuringTransition = true,
                                     zIndexInOverlay = 1f
@@ -1393,7 +1394,7 @@ fun UserInfoScreen(
                                                 rememberSharedContentState(key = sharedAvatarKey),
                                                 animatedVisibilityScope = animatedVisibilityScope,
                                                 boundsTransform = { _, _ ->
-                                                    tween(durationMillis = 380, easing = LinearEasing)
+                                                    tween(durationMillis = scaledTweenMs(380), easing = LinearEasing)
                                                 },
                                                 renderInOverlayDuringTransition = true,
                                                 zIndexInOverlay = 1f
@@ -1522,7 +1523,7 @@ fun UserInfoScreen(
                                     rememberSharedContentState(key = sharedAvatarKey),
                                     animatedVisibilityScope = animatedVisibilityScope,
                                     boundsTransform = { _, _ ->
-                                        tween(durationMillis = 380, easing = LinearEasing)
+                                        tween(durationMillis = scaledTweenMs(380), easing = LinearEasing)
                                     },
                                     renderInOverlayDuringTransition = true,
                                     zIndexInOverlay = 1f
@@ -3276,7 +3277,7 @@ fun AvatarViewerDialog(
     // Animate rotation smoothly
     val animatedRotation by animateFloatAsState(
         targetValue = rotationDegrees,
-        animationSpec = tween(durationMillis = 300),
+        animationSpec = tween(durationMillis = scaledTweenMs(300)),
         label = "rotation"
     )
     val normalizedRotation = (animatedRotation % 360f + 360f) % 360f

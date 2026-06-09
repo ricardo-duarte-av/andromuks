@@ -1,5 +1,9 @@
 package net.vrkknn.andromuks
 
+import net.vrkknn.andromuks.ui.theme.scaledStiffness
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
+import net.vrkknn.andromuks.ui.theme.scaledColumnEnter
+import net.vrkknn.andromuks.ui.theme.scaledColumnExit
 import android.Manifest
 import android.app.Activity
 import android.content.BroadcastReceiver
@@ -3225,7 +3229,7 @@ fun RoomTimelineScreen(
                     }
 
                     // Pagination indicator: visible while older messages are being fetched/merged
-                    AnimatedVisibility(visible = appViewModel.isPaginating) {
+                    AnimatedVisibility(visible = appViewModel.isPaginating, enter = scaledColumnEnter(), exit = scaledColumnExit()) {
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     }
                     // 2. Timeline (compressible, scrollable content)
@@ -4325,17 +4329,17 @@ fun RoomTimelineScreen(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .fillMaxWidth(),
-                    enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = 120)),
-                    exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = 120))
+                    enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
+                    exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120)))
                 ) {
                     val messageBarSlideOffsetPx = transition.animateFloat(
                         transitionSpec = {
                             if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
                                 // ENTER: slide in first
-                                tween(durationMillis = 120)
+                                tween(durationMillis = scaledTweenMs(120))
                             } else {
                                 // EXIT: wait for buttons to fade out, then slide down
-                                tween(durationMillis = 120, delayMillis = 500)
+                                tween(durationMillis = scaledTweenMs(120), delayMillis = scaledTweenMs(500))
                             }
                         },
                         label = "messageBarSlideOffset"
@@ -4346,10 +4350,10 @@ fun RoomTimelineScreen(
                         transitionSpec = {
                             if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
                                 // ENTER: buttons fade in after bar has slid in
-                                tween(durationMillis = 500, delayMillis = 120)
+                                tween(durationMillis = scaledTweenMs(500), delayMillis = scaledTweenMs(120))
                             } else {
                                 // EXIT: buttons fade out immediately
-                                tween(durationMillis = 500)
+                                tween(durationMillis = scaledTweenMs(500))
                             }
                         },
                         label = "messageButtonsAlpha"
@@ -5284,7 +5288,7 @@ fun RoomHeader(
                                     boundsTransform = { _, _ ->
                                         spring(
                                             dampingRatio = Spring.DampingRatioLowBouncy,
-                                            stiffness = Spring.StiffnessLow
+                                            stiffness = scaledStiffness(Spring.StiffnessLow)
                                         )
                                     },
                                     renderInOverlayDuringTransition = true,
@@ -5357,8 +5361,8 @@ fun RoomHeader(
             val bridgeInfo = roomState?.bridgeInfo
             AnimatedVisibility(
                 visible = !connectionState.isReady(),
-                enter = fadeIn(animationSpec = tween(300)),
-                exit = fadeOut(animationSpec = tween(300))
+                enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
+                exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
             ) {
                 val offlinePulse = rememberInfiniteTransition(label = "offline_pulse")
                 val offlineAlpha by offlinePulse.animateFloat(
@@ -5413,7 +5417,7 @@ fun RoomHeader(
                             boundsTransform = { _, _ ->
                                 spring(
                                     dampingRatio = Spring.DampingRatioLowBouncy,
-                                    stiffness = Spring.StiffnessLow
+                                    stiffness = scaledStiffness(Spring.StiffnessLow)
                                 )
                             },
                             renderInOverlayDuringTransition = true,

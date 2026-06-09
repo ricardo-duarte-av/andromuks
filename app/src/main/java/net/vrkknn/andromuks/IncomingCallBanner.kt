@@ -1,10 +1,12 @@
 package net.vrkknn.andromuks
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import net.vrkknn.andromuks.ui.theme.scaledSpring
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -72,8 +74,10 @@ fun IncomingCallBanner(appViewModel: AppViewModel) {
     ) {
         AnimatedVisibility(
             visible = true,
-            enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut()
+            enter = slideInVertically(initialOffsetY = { -it }, animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)) +
+                fadeIn(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)),
+            exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)) +
+                fadeOut(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow))
         ) {
             Surface(
                 modifier = Modifier

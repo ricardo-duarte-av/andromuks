@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -132,26 +133,26 @@ fun BridgeDeliveryInfoDialog(
                 visible = isVisible,
                 enter = androidx.compose.animation.fadeIn(
                     animationSpec = androidx.compose.animation.core.tween(
-                        durationMillis = enterDuration,
+                        durationMillis = scaledTweenMs(enterDuration),
                         easing = androidx.compose.animation.core.FastOutSlowInEasing
                     )
                 ) + androidx.compose.animation.scaleIn(
                     initialScale = 0.85f,
                     animationSpec = androidx.compose.animation.core.tween(
-                        durationMillis = enterDuration,
+                        durationMillis = scaledTweenMs(enterDuration),
                         easing = androidx.compose.animation.core.FastOutSlowInEasing
                     ),
                     transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
                 ),
                 exit = androidx.compose.animation.fadeOut(
                     animationSpec = androidx.compose.animation.core.tween(
-                        durationMillis = exitDuration,
+                        durationMillis = scaledTweenMs(exitDuration),
                         easing = androidx.compose.animation.core.FastOutSlowInEasing
                     )
                 ) + androidx.compose.animation.scaleOut(
                     targetScale = 0.85f,
                     animationSpec = androidx.compose.animation.core.tween(
-                        durationMillis = exitDuration,
+                        durationMillis = scaledTweenMs(exitDuration),
                         easing = androidx.compose.animation.core.FastOutSlowInEasing
                     ),
                     transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center

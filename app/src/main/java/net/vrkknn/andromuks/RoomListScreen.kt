@@ -1,5 +1,11 @@
 package net.vrkknn.andromuks
 
+import net.vrkknn.andromuks.ui.theme.scaledStiffness
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
+import net.vrkknn.andromuks.ui.theme.scaledColumnEnter
+import net.vrkknn.andromuks.ui.theme.scaledColumnExit
+import net.vrkknn.andromuks.ui.theme.scaledSpring
+import androidx.compose.ui.unit.IntOffset
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -239,8 +245,8 @@ private fun ScrollToTopFab(visible: Boolean, onScrollToTop: () -> Unit, modifier
     AnimatedVisibility(
         visible = visible,
         modifier = modifier,
-        enter = fadeIn(animationSpec = tween(150)) + scaleIn(initialScale = 0.6f, animationSpec = tween(150)),
-        exit = fadeOut(animationSpec = tween(150)) + scaleOut(targetScale = 0.6f, animationSpec = tween(150))
+        enter = fadeIn(animationSpec = tween(scaledTweenMs(150))) + scaleIn(initialScale = 0.6f, animationSpec = tween(scaledTweenMs(150))),
+        exit = fadeOut(animationSpec = tween(scaledTweenMs(150))) + scaleOut(targetScale = 0.6f, animationSpec = tween(scaledTweenMs(150)))
     ) {
         FloatingActionButton(
             onClick = onScrollToTop,
@@ -947,7 +953,7 @@ fun RoomListScreen(
                                     rememberSharedContentState(key = STARTUP_SHARED_AVATAR_KEY),
                                     animatedVisibilityScope = animatedVisibilityScope,
                                     boundsTransform = { _, _ ->
-                                        tween(durationMillis = 380, easing = androidx.compose.animation.core.LinearEasing)
+                                        tween(durationMillis = scaledTweenMs(380), easing = androidx.compose.animation.core.LinearEasing)
                                     },
                                     renderInOverlayDuringTransition = true,
                                     zIndexInOverlay = 1f
@@ -999,8 +1005,8 @@ fun RoomListScreen(
                 // Offline indicator - shows when websocket is not connected
                 AnimatedVisibility(
                     visible = !connectionState.isReady(),
-                    enter = fadeIn(animationSpec = tween(300)),
-                    exit = fadeOut(animationSpec = tween(300))
+                    enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
+                    exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
                 ) {
                     val offlinePulse = rememberInfiniteTransition(label = "offline_pulse")
                     val offlineAlpha by offlinePulse.animateFloat(
@@ -1102,7 +1108,7 @@ fun RoomListScreen(
             // Extra spacing between the search bar and the room list/content for better visual separation
             Spacer(modifier = Modifier.height(8.dp))
             
-            AnimatedVisibility(inlineSyncInProgress) {
+            AnimatedVisibility(inlineSyncInProgress, enter = scaledColumnEnter(), exit = scaledColumnExit()) {
                 ExpressiveStatusRow(
                     text = inlineSyncMessage,
                     modifier = Modifier
@@ -1112,7 +1118,7 @@ fun RoomListScreen(
                 )
             }
             
-            AnimatedVisibility(showNotificationActionIndicator) {
+            AnimatedVisibility(showNotificationActionIndicator, enter = scaledColumnEnter(), exit = scaledColumnExit()) {
                 ExpressiveStatusRow(
                     text = "Completing notification action...",
                     modifier = Modifier
@@ -1124,7 +1130,7 @@ fun RoomListScreen(
             }
             
             // Room invitations section - shown above room list for immediate visibility
-            AnimatedVisibility(pendingInvites.isNotEmpty()) {
+            AnimatedVisibility(pendingInvites.isNotEmpty(), enter = scaledColumnEnter(), exit = scaledColumnExit()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1184,23 +1190,23 @@ fun RoomListScreen(
                     val enter = when {
                         direction > 0 -> slideInHorizontally(
                             initialOffsetX = { it },
-                            animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing)
-                        ) + fadeIn(animationSpec = tween(360, easing = FastOutSlowInEasing))
+                            animationSpec = tween(durationMillis = scaledTweenMs(420), easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(scaledTweenMs(360), easing = FastOutSlowInEasing))
                         direction < 0 -> slideInHorizontally(
                             initialOffsetX = { -it },
-                            animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing)
-                        ) + fadeIn(animationSpec = tween(360, easing = FastOutSlowInEasing))
+                            animationSpec = tween(durationMillis = scaledTweenMs(420), easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(scaledTweenMs(360), easing = FastOutSlowInEasing))
                         else -> EnterTransition.None
                     }
                     val exit = when {
                         direction > 0 -> slideOutHorizontally(
                             targetOffsetX = { -it / 2 },
-                            animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing)
-                        ) + fadeOut(animationSpec = tween(320, easing = FastOutSlowInEasing))
+                            animationSpec = tween(durationMillis = scaledTweenMs(360), easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(scaledTweenMs(320), easing = FastOutSlowInEasing))
                         direction < 0 -> slideOutHorizontally(
                             targetOffsetX = { it / 2 },
-                            animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing)
-                        ) + fadeOut(animationSpec = tween(320, easing = FastOutSlowInEasing))
+                            animationSpec = tween(durationMillis = scaledTweenMs(360), easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(scaledTweenMs(320), easing = FastOutSlowInEasing))
                         else -> ExitTransition.None
                     }
                     enter togetherWith exit
@@ -1254,12 +1260,12 @@ fun RoomListScreen(
                                     visible = !isInSpace,
                                     exit = slideOutVertically(
                                         targetOffsetY = { -it }, // Slide up (negative offset = upward) when entering space
-                                        animationSpec = tween(1000, easing = FastOutSlowInEasing)
-                                    ) + fadeOut(animationSpec = tween(1000, easing = FastOutSlowInEasing)),
+                                        animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)
+                                    ) + fadeOut(animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)),
                                     enter = slideInVertically(
                                         initialOffsetY = { -it }, // Slide down from top (negative offset = from above) when exiting space
-                                        animationSpec = tween(1000, easing = FastOutSlowInEasing)
-                                    ) + fadeIn(animationSpec = tween(1000, easing = FastOutSlowInEasing)),
+                                        animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)
+                                    ) + fadeIn(animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)),
                                     label = "SpaceListTransition"
                                 ) {
                                     SpacesListContent(
@@ -1277,12 +1283,12 @@ fun RoomListScreen(
                                     visible = isInSpace,
                                     exit = scaleOut(
                                         targetScale = 0.0f, // Zoom out completely when exiting space
-                                        animationSpec = tween(1000, easing = FastOutSlowInEasing)
-                                    ) + fadeOut(animationSpec = tween(1000, easing = FastOutSlowInEasing)),
+                                        animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)
+                                    ) + fadeOut(animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)),
                                     enter = scaleIn(
                                         initialScale = 0.0f, // Zoom in from nothing when entering space
-                                        animationSpec = tween(1000, easing = FastOutSlowInEasing)
-                                    ) + fadeIn(animationSpec = tween(1000, easing = FastOutSlowInEasing)),
+                                        animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)
+                                    ) + fadeIn(animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)),
                                     label = "RoomsTransition"
                                 ) {
                                     RoomListContent(
@@ -1383,12 +1389,12 @@ fun RoomListScreen(
                                     visible = !isInBridge,
                                     exit = slideOutVertically(
                                         targetOffsetY = { -it }, // Slide up (negative offset = upward) when entering bridge
-                                        animationSpec = tween(1000, easing = FastOutSlowInEasing)
-                                    ) + fadeOut(animationSpec = tween(1000, easing = FastOutSlowInEasing)),
+                                        animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)
+                                    ) + fadeOut(animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)),
                                     enter = slideInVertically(
                                         initialOffsetY = { -it }, // Slide down from top (negative offset = from above) when exiting bridge
-                                        animationSpec = tween(1000, easing = FastOutSlowInEasing)
-                                    ) + fadeIn(animationSpec = tween(1000, easing = FastOutSlowInEasing)),
+                                        animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)
+                                    ) + fadeIn(animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)),
                                     label = "BridgeListTransition"
                                 ) {
                                     BridgesListContent(
@@ -1406,12 +1412,12 @@ fun RoomListScreen(
                                     visible = isInBridge,
                                     exit = scaleOut(
                                         targetScale = 0.0f, // Zoom out completely when exiting bridge
-                                        animationSpec = tween(1000, easing = FastOutSlowInEasing)
-                                    ) + fadeOut(animationSpec = tween(1000, easing = FastOutSlowInEasing)),
+                                        animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)
+                                    ) + fadeOut(animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)),
                                     enter = scaleIn(
                                         initialScale = 0.0f, // Zoom in from nothing when entering bridge
-                                        animationSpec = tween(1000, easing = FastOutSlowInEasing)
-                                    ) + fadeIn(animationSpec = tween(1000, easing = FastOutSlowInEasing)),
+                                        animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)
+                                    ) + fadeIn(animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)),
                                     label = "BridgeRoomsTransition"
                                 ) {
                                     RoomListContent(
@@ -1805,7 +1811,7 @@ fun RoomListItem(
                                         boundsTransform = { _, _ ->
                                             androidx.compose.animation.core.spring(
                                                 dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-                                                stiffness = androidx.compose.animation.core.Spring.StiffnessMedium
+                                                stiffness = scaledStiffness(androidx.compose.animation.core.Spring.StiffnessMedium)
                                             )
                                         },
                                         renderInOverlayDuringTransition = true,
@@ -1852,7 +1858,7 @@ fun RoomListItem(
                                         boundsTransform = { _, _ ->
                                             spring(
                                                 dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                stiffness = Spring.StiffnessMedium
+                                                stiffness = scaledStiffness(Spring.StiffnessMedium)
                                             )
                                         },
                                         renderInOverlayDuringTransition = true,
@@ -2130,16 +2136,16 @@ fun RoomListItem(
             ) {
                 AnimatedVisibility(
                     visible = menuVisible,
-                    enter = fadeIn(animationSpec = tween(durationMillis = enterDuration, easing = FastOutSlowInEasing)) +
+                    enter = fadeIn(animationSpec = tween(durationMillis = scaledTweenMs(enterDuration), easing = FastOutSlowInEasing)) +
                         scaleIn(
                             initialScale = 0.85f,
-                            animationSpec = tween(durationMillis = enterDuration, easing = FastOutSlowInEasing),
+                            animationSpec = tween(durationMillis = scaledTweenMs(enterDuration), easing = FastOutSlowInEasing),
                             transformOrigin = TransformOrigin.Center
                         ),
-                    exit = fadeOut(animationSpec = tween(durationMillis = exitDuration, easing = FastOutSlowInEasing)) +
+                    exit = fadeOut(animationSpec = tween(durationMillis = scaledTweenMs(exitDuration), easing = FastOutSlowInEasing)) +
                         scaleOut(
                             targetScale = 0.85f,
-                            animationSpec = tween(durationMillis = exitDuration, easing = FastOutSlowInEasing),
+                            animationSpec = tween(durationMillis = scaledTweenMs(exitDuration), easing = FastOutSlowInEasing),
                             transformOrigin = TransformOrigin.Center
                         )
                 ) {
@@ -2502,8 +2508,8 @@ private fun SyncBatchIndicator(
     }
     AnimatedVisibility(
         visible = isProcessingPendingItems || showSyncIndicator || isProcessingBatch,
-        enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.5f, animationSpec = tween(200)),
-        exit = fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.5f, animationSpec = tween(200))
+        enter = fadeIn(animationSpec = tween(scaledTweenMs(200))) + scaleIn(initialScale = 0.5f, animationSpec = tween(scaledTweenMs(200))),
+        exit = fadeOut(animationSpec = tween(scaledTweenMs(200))) + scaleOut(targetScale = 0.5f, animationSpec = tween(scaledTweenMs(200)))
     ) {
         val infiniteTransition = rememberInfiniteTransition(label = "sync_pulse")
         val alpha by infiniteTransition.animateFloat(
@@ -2830,7 +2836,14 @@ fun RoomListContent(
             val shouldLoadAvatar = index <= avatarLoadCutoff
             
             Column(
-                modifier = Modifier.animateItem()
+                // Re-sort/insert/remove animation. placementSpec drives the slide to the new
+                // position when rooms reorder; all three default to spring(StiffnessMediumLow),
+                // re-expressed via scaledSpring so the stiffness slider reaches them.
+                modifier = Modifier.animateItem(
+                    fadeInSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow),
+                    placementSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = IntOffset(1, 1)),
+                    fadeOutSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)
+                )
             ) {
                 RoomListItem(
                     room = room,
