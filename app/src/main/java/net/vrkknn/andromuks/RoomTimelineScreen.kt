@@ -92,6 +92,7 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -286,6 +287,13 @@ sealed class TimelineItem {
     // timestamp), and a bare "date_$date" key would then collide and crash the list.
     data class DateDivider(val date: String, val anchorEventId: String) : TimelineItem() {
         override val stableKey: String get() = "date_${date}_$anchorEventId"
+    }
+
+    // The "new messages" divider, drawn immediately above the first event that follows the
+    // m.fully_read marker that was in effect when the room was opened. anchorEventId is the
+    // unread event it precedes, which keeps the LazyColumn key stable and unique.
+    data class ReadMarker(val anchorEventId: String) : TimelineItem() {
+        override val stableKey: String get() = "readmarker_$anchorEventId"
     }
 }
 
@@ -583,6 +591,37 @@ fun DateDivider(date: String) {
                 Modifier.weight(1f)
                     .height(1.dp)
                     .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+        )
+    }
+}
+
+/** "New messages" divider separating already-read events from unread ones (m.fully_read). */
+@Composable
+fun UnreadMarker() {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        androidx.compose.foundation.layout.Spacer(
+            modifier =
+                Modifier.weight(1f)
+                    .height(1.dp)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+        )
+
+        Text(
+            text = "New messages",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
+
+        androidx.compose.foundation.layout.Spacer(
+            modifier =
+                Modifier.weight(1f)
+                    .height(1.dp)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
         )
     }
 }
@@ -1783,12 +1822,36 @@ fun RoomTimelineScreen(
     // PERFORMANCE: Create timeline items with date dividers and pre-compute consecutive flags.
     // Use produceState to offload this heavy computation (iterating thousands of events) to a background thread.
     // The main thread should NEVER iterate the full event list.
-    val timelineItems by produceState<List<TimelineItem>>(initialValue = emptyList(), sortedEvents) {
+    // Snapshot the m.fully_read marker once when the room opens. Another client can advance it
+    // (the new value arrives via sync_complete and updates RoomAccountDataCache), but the
+    // "new messages" line should stay frozen at the position it had on entry — Element-style —
+    // so it doesn't chase the user as they read. Recomputed only when roomId changes.
+    val fullyReadMarkerEventId = remember(roomId) {
+        net.vrkknn.andromuks.RoomAccountDataCache.getFullyReadEventId(roomId)
+    }
+
+    val timelineItems by produceState<List<TimelineItem>>(initialValue = emptyList(), sortedEvents, fullyReadMarkerEventId) {
         value = withContext(Dispatchers.Default) {
             val items = mutableListOf<TimelineItem>()
             var lastDate: String? = null
             var previousEvent: TimelineEvent? = null
             val formatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
+            // Read-marker placement. Look up the read-up-to event in the *unfiltered* timeline so
+            // the divider can be positioned even when that event is itself hidden/redacted and thus
+            // absent from sortedEvents. We then drop the divider in just before the first rendered
+            // event that sorts after it — i.e. exactly where the hidden event would have sat. If the
+            // marker event isn't loaded at all (deep in the past) it stays null and no divider shows
+            // until pagination brings it in. The comparator mirrors processTimelineEvents' ordering.
+            val timelineOrder = compareBy<TimelineEvent>(
+                { it.eventId.startsWith("~") },
+                { it.timelineRowid },
+                { it.timestamp },
+                { it.eventId }
+            )
+            val fullyReadEvent = fullyReadMarkerEventId?.let { id ->
+                timelineEvents.firstOrNull { it.eventId == id }
+            }
+            var readMarkerInserted = false
 
             for (event in sortedEvents) {
                 if (event.type == "m.reaction") {
@@ -1804,6 +1867,16 @@ fun RoomTimelineScreen(
                     items.add(TimelineItem.DateDivider(eventDate, event.eventId))
                     lastDate = eventDate
                     // Date divider breaks consecutive grouping
+                    previousEvent = null
+                }
+
+                // Unread divider: the first rendered event that sorts after the read-up-to event
+                // starts the unread run.
+                if (!readMarkerInserted && fullyReadEvent != null && timelineOrder.compare(event, fullyReadEvent) > 0) {
+                    items.add(TimelineItem.ReadMarker(event.eventId))
+                    readMarkerInserted = true
+                    // The marker breaks consecutive grouping so the first unread message
+                    // renders its sender header/avatar.
                     previousEvent = null
                 }
 
@@ -3339,6 +3412,9 @@ fun RoomTimelineScreen(
                                     is TimelineItem.DateDivider -> {
                                         DateDivider(item.date)
                                     }
+                                    is TimelineItem.ReadMarker -> {
+                                        UnreadMarker()
+                                    }
                                     is TimelineItem.Event -> {
                                         val event = item.event
                                         // PERFORMANCE: Removed logging from item rendering to improve scroll performance
@@ -3417,6 +3493,7 @@ fun RoomTimelineScreen(
                                                     when (item) {
                                                         is TimelineItem.Event -> item.event.eventId == eventId
                                                         is TimelineItem.DateDivider -> false
+                                                        is TimelineItem.ReadMarker -> false
                                                     }
                                                 }
                                                 if (indexInOriginal >= 0) {
@@ -4322,7 +4399,44 @@ fun RoomTimelineScreen(
                         )
                     }
                 }
-                
+
+                // Jump-to-unread FAB: shown only when pinned to the bottom (same clause that hides
+                // the scroll-down FAB) AND a "New messages" divider is present above. Lets the user
+                // jump straight up to where reading left off. The two FABs are mutually exclusive
+                // (one needs detached, this needs attached), so they never overlap.
+                val unreadMarkerIndex = remember(timelineItems) {
+                    timelineItems.indexOfFirst { it is TimelineItem.ReadMarker }
+                }
+                if (isAttachedToBottom && unreadMarkerIndex >= 0) {
+                    val menuOpen = showAttachmentMenu || messageMenuConfig != null
+                    val fabBottomPadding = if (menuOpen) 200.dp else 90.dp
+                    FloatingActionButton(
+                        onClick = {
+                            coroutineScope.launch {
+                                // timelineItems is oldest-first; the LazyColumn renders it reversed.
+                                val reversedIndex = (timelineItems.lastIndex - unreadMarkerIndex).coerceAtLeast(0)
+                                listState.animateScrollToItem(reversedIndex)
+                                isAttachedToBottom = false
+                            }
+                        },
+                        modifier =
+                            Modifier.align(Alignment.BottomEnd)
+                                .padding(
+                                    end = 16.dp,
+                                    bottom = fabBottomPadding
+                                )
+                                .navigationBarsPadding()
+                                .imePadding(),
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.KeyboardArrowUp,
+                            contentDescription = "Jump to unread"
+                        )
+                    }
+                }
+
                 // Message menu bar (slides from bottom, same position as attach menu)
                 AnimatedVisibility(
                     visible = messageMenuConfig != null,

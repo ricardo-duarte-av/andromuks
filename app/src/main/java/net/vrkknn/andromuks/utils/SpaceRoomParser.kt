@@ -292,6 +292,13 @@ object SpaceRoomParser {
                 if (gomuksPrefData != null) {
                     net.vrkknn.andromuks.RoomAccountDataCache.setRoomAccountData(roomId, "fi.mau.gomuks.preferences", gomuksPrefData)
                 }
+                // m.fully_read: the read-up-to marker. Cached so the timeline can draw an
+                // "unread" divider at this position. May be advanced by another client and
+                // arrive here via a later sync_complete.
+                val fullyReadData = accountData.optJSONObject("m.fully_read")
+                if (fullyReadData != null) {
+                    net.vrkknn.andromuks.RoomAccountDataCache.setRoomAccountData(roomId, "m.fully_read", fullyReadData)
+                }
             }
 
             //android.util.Log.d("Andromuks", "SpaceRoomParser: Creating RoomItem for '$name' - messagePreview='$messagePreview', messageSender='$messageSender'")
@@ -594,6 +601,11 @@ object SpaceRoomParser {
                 val gomuksPrefData = accountData.optJSONObject("fi.mau.gomuks.preferences")
                 if (gomuksPrefData != null) {
                     net.vrkknn.andromuks.RoomAccountDataCache.setRoomAccountData(roomId, "fi.mau.gomuks.preferences", gomuksPrefData)
+                }
+                // m.fully_read: the read-up-to marker (see the full-parse path above).
+                val fullyReadData = accountData.optJSONObject("m.fully_read")
+                if (fullyReadData != null) {
+                    net.vrkknn.andromuks.RoomAccountDataCache.setRoomAccountData(roomId, "m.fully_read", fullyReadData)
                 }
             }
 

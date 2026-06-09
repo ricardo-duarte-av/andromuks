@@ -1329,6 +1329,8 @@ fun ThreadViewerScreen(
                                 is TimelineItem.DateDivider -> {
                                     DateDivider(item.date)
                                 }
+                                // Threads never carry a read marker, but TimelineItem is shared.
+                                is TimelineItem.ReadMarker -> {}
                                 is TimelineItem.Event -> {
                                     val event = item.event
                                     val isMine = event.sender == myUserId
@@ -1341,6 +1343,8 @@ fun ThreadViewerScreen(
                                             is TimelineItem.Event ->
                                                 previousEvent = prevItem.event
                                             is TimelineItem.DateDivider ->
+                                                break
+                                            is TimelineItem.ReadMarker ->
                                                 break
                                         }
                                         prevIndex--

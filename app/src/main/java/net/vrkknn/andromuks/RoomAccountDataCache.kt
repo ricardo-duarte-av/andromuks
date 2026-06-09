@@ -16,5 +16,19 @@ object RoomAccountDataCache {
 
     fun getRoomAccountData(roomId: String, type: String): JSONObject? = cache[roomId]?.get(type)
 
+    /**
+     * The event_id this user has read up to (m.fully_read), or null if unknown.
+     *
+     * gomuks may deliver the value either wrapped in a `content` object or as the bare content
+     * (just `{"event_id": "..."}`), so both shapes are handled — mirroring how the gomuks-prefs
+     * reader in [AccountDataCoordinator] copes with the same ambiguity.
+     */
+    fun getFullyReadEventId(roomId: String): String? {
+        val data = getRoomAccountData(roomId, "m.fully_read") ?: return null
+        return (data.optJSONObject("content") ?: data)
+            .optString("event_id")
+            .takeIf { it.isNotBlank() }
+    }
+
     fun clear() = cache.clear()
 }
