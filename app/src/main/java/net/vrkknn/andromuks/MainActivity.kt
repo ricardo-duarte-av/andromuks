@@ -82,6 +82,8 @@ import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.MatrixContactsProvider
 
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import net.vrkknn.andromuks.SharedMediaItem
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.toPath
@@ -1161,28 +1163,46 @@ fun AppNavigation(
     // times out after 15 s, and the timeline is stuck on "Room loading…" (see init-fail postmortem).
     //
     // This watchdog runs for the whole lifetime of the nav graph, independent of which destination
-    // is on top. It waits briefly to let AuthCheck dial on the normal path, then connects itself if
-    // the socket is still down. initializeWebSocketConnection() is idempotent (no-op when non-primary
-    // or already connected) and connectWebSocket() skips when a dial is already Connecting, so this is
-    // safe even if it races AuthCheck — whoever reaches the service first wins and the other no-ops.
-    LaunchedEffect(Unit) {
-        // Give AuthCheck (when it is the active destination) time to dial on the normal path.
-        kotlinx.coroutines.delay(2_500)
-        if (WebSocketService.isWebSocketConnected()) return@LaunchedEffect
-        if (!appViewModel.isPrimaryInstance()) return@LaunchedEffect
-        val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-        val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
-        val token = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs)
-        if (homeserverUrl.isBlank() || token.isBlank()) {
-            // No stored credentials — AuthCheck will route to login; nothing to dial.
-            return@LaunchedEffect
+    // is on top. It dials the socket itself if AuthCheck didn't. initializeWebSocketConnection() is
+    // idempotent (no-op when non-primary or already connected) and connectWebSocket() skips when a
+    // dial is already Connecting, so this is safe even if it races AuthCheck — whoever reaches the
+    // service first wins and the other no-ops.
+    //
+    // Why it gates on RESUMED instead of a blind delay (Option 2, biometric-lock postmortem):
+    // the dial chain ends in startWebSocketService() → context.startForegroundService(), which is
+    // illegal from the background on Android 12+ (ForegroundServiceStartNotAllowedException, then
+    // swallowed → no service, no dial). When the app opens behind a lock — biometric app-lock or a
+    // device keyguard — the activity is held below RESUMED, so a fixed-timer dial fires while the
+    // app is still in the background and the FGS start is denied. A one-shot LaunchedEffect(Unit)
+    // never retries, so the socket stays down for the whole process.
+    //
+    // repeatOnLifecycle(RESUMED) fixes both halves: the block only runs once the activity is
+    // RESUMED (so the FGS start is legal by construction), and it re-arms on every foreground
+    // transition (so a dial that's still needed after unlock/return is retried instead of lost).
+    // Gating on RESUMED — not on the lock being dismissed — is deliberate: the biometric overlay is
+    // drawn inside the (RESUMED) activity, so dialing while it's still showing is fine; the socket
+    // connects in the background while the UI stays covered.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            // Give AuthCheck (when it is the active destination) time to dial on the normal path.
+            kotlinx.coroutines.delay(2_500)
+            if (WebSocketService.isWebSocketConnected()) return@repeatOnLifecycle
+            if (!appViewModel.isPrimaryInstance()) return@repeatOnLifecycle
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+            val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
+            val token = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs)
+            if (homeserverUrl.isBlank() || token.isBlank()) {
+                // No stored credentials — AuthCheck will route to login; nothing to dial.
+                return@repeatOnLifecycle
+            }
+            android.util.Log.i(
+                "Andromuks",
+                "AppNavigation: cold-start watchdog — WebSocket still down after RESUMED, dialing connection " +
+                    "(restored back stack likely bypassed AuthCheck, or app opened behind a lock)",
+            )
+            appViewModel.initializeWebSocketConnection(homeserverUrl, token)
         }
-        android.util.Log.i(
-            "Andromuks",
-            "AppNavigation: cold-start watchdog — WebSocket still down after delay, dialing connection " +
-                "(restored back stack likely bypassed AuthCheck)",
-        )
-        appViewModel.initializeWebSocketConnection(homeserverUrl, token)
     }
 
     // Register the unauthorized-navigation callback for the full lifetime of the nav graph.

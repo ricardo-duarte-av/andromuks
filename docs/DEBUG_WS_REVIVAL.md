@@ -9,6 +9,67 @@ The older "spurious 401 auto-logout" theory is **down-weighted** — see "Why th
 was wrong" below. The diagnostic `DIAG-WS-START` Log.i breadcrumbs remain in place and are
 still useful if this fix doesn't pan out.
 
+---
+
+## Confirmed variant (2026-06-10): no dial after FCM-tap behind a biometric lock — FIXED
+
+A distinct, reliably-reproducible cause of the same "socket never dialed, pulsing red
+`CloudOff` on the header" symptom, specific to **battery-saver mode + the biometric
+app-lock (or a device keyguard)**:
+
+1. Battery-saver tore the socket down ~15 s after the last background (`scheduleBatterySaverLinger`)
+   and stopped the foreground service. At tap time there is no service and no socket — the red
+   indicator is honest.
+2. The FCM tap opens `MainActivity` onto a **restored back stack** whose top is a `room_timeline`
+   (Compose Navigation persists/restores it across process death). So `auth_check` — the start
+   destination and the only cold-start caller of `initializeWebSocketConnection()` — never
+   composes (the documented [AuthCheck-bypass gap](WEBSOCKET_LIFECYCLE.md#cold-start-dialer--authcheck-bypass-watchdog)).
+3. `onNewIntent` only recovers a *stuck* socket (`isConnectionStuck()`), not a cleanly *down*
+   one — with the service gone that returns `false`, so its dial is skipped (`MainActivity.kt:939`).
+4. The biometric lock holds the activity **below `RESUMED`** while the prompt is up (it drives
+   `ON_STOP` — see the `promptInFlight` re-lock guard in `BiometricLock.kt`). So:
+   - `onResume → onAppBecameVisible` (the battery-saver foreground re-dialer) is gated on
+     `isAtLeast(RESUMED)` / `::appViewModel.isInitialized` and doesn't run during the lock.
+   - The **cold-start watchdog** (then a one-shot `LaunchedEffect(Unit)` + `delay(2_500)`) *did*
+     run, but fired while the app was still backgrounded behind the lock. Its dial chain ends in
+     `startWebSocketService() → context.startForegroundService()`, which is **illegal from the
+     background on Android 12+** (`ForegroundServiceStartNotAllowedException`). The exception was
+     swallowed by a generic `catch (Exception)` at `AppViewModel.kt`, so no service was created,
+     `connectWebSocket` bailed on `waitForServiceInstance`, and — being one-shot — the watchdog
+     never retried. The socket stayed down for the whole process.
+
+**Root cause:** every automatic dialer assumed "notification tapped ⇒ app foregrounded", but
+with a lock that's false until *after* unlock. During the only windows where a dial was
+attempted, the activity was in the background, so AuthCheck was bypassed, `onAppBecameVisible`
+was gated off, and the watchdog's FGS start was denied-and-swallowed.
+
+### The fix (Option 2 + Option 3)
+
+- **Option 2 — `AppNavigation` watchdog is now `RESUMED`-gated (`MainActivity.kt`).** Replaced
+  the one-shot `LaunchedEffect(Unit)` + `delay(2_500)` with
+  `LaunchedEffect(lifecycleOwner) { lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) { … } }`.
+  The dial block now runs only once the activity is `RESUMED` (so `startForegroundService` is
+  legal by construction) and **re-arms on every foreground transition** (so a dial still owed
+  after unlock/return is retried instead of lost). Gating on `RESUMED` — not on the lock being
+  dismissed — is deliberate: the biometric overlay is drawn inside the (already-`RESUMED`)
+  activity, so dialing while it's still showing is fine; the socket connects in the background
+  while the UI stays covered.
+- **Option 3 — the FGS denial is no longer silent (`AppViewModel.startWebSocketService`).** Added
+  a dedicated `catch (e: ForegroundServiceStartNotAllowedException)` (before the generic
+  `catch (Exception)`) that logs at `Log.w` with a `DIAG-WS-START` marker. Any *remaining*
+  background-dial attempt now surfaces in the breadcrumbs instead of going dark.
+
+### Confirming from logs
+
+```bash
+grep -nE "FCMOpen|DIAG-WS-START|startWebSocketService DENIED|ForegroundServiceStartNotAllowed|service instance never appeared|onAppBecameVisible" /tmp/andromuks-*.log
+```
+
+- `startWebSocketService DENIED - ForegroundServiceStartNotAllowed` present → a dialer still
+  fired while backgrounded (pre-fix signature, or a path the `RESUMED` gate doesn't cover).
+- `onAppBecameVisible: …` absent across the tap → the lock kept the app below `RESUMED`, so the
+  foreground re-dialer never ran (expected pre-fix).
+
 ## The bug
 
 After the app has been backgrounded/idle for a long time (Doze-territory), tapping
@@ -202,7 +263,7 @@ ViewModelLifecycleCoordinator.kt:248  initializeWebSocketConnection(url, token)
   → AppViewModel.kt:10944  if (isWebSocketConnected()) return                        ← silent bail #2
   → AppViewModel.kt:10954  startWebSocketService()
       → AppViewModel.kt:10900  appContext?.let { ... } else silent                   ← silent bail #3
-      → context.startForegroundService(intent)  or  startService(intent) (FGS-latch) ← potentially silent
+      → context.startForegroundService(intent)  or  startService(intent) (FGS-latch) ← FGS background-start denial now logged (DIAG-WS-START, "startWebSocketService DENIED"); see the biometric-lock variant above
   → AppViewModel.kt:10978  WebSocketService.connectWebSocket(...)
       → WebSocketService.kt:1614  waitForServiceInstance(5_000L) ?: return           ← silent unless captured
       → WebSocketService.kt:1626  if (isWebSocketConnected()) return                 ← debug-only log

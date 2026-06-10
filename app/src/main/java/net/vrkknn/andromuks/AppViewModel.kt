@@ -56,6 +56,7 @@ import android.content.Context
 import android.media.MediaPlayer
 import android.media.AudioManager
 import android.net.Uri
+import android.app.ForegroundServiceStartNotAllowedException
 import android.os.Build
 import java.util.concurrent.ConcurrentHashMap
 import java.io.File
@@ -11366,6 +11367,20 @@ class AppViewModel : ViewModel() {
                 android.util.Log.i("Andromuks", "AppViewModel: startWebSocketService - FALLBACK to startService (no FGS)")
                 context.startService(intent)
             }
+        } catch (e: ForegroundServiceStartNotAllowedException) {
+            // DIAG-WS-START: see docs/DEBUG_WS_REVIVAL.md
+            // Android 12+ refused the foreground-service start because the app was in the background
+            // at the moment of the call — i.e. a dialer fired while the activity was still below
+            // RESUMED (app opened behind a biometric app-lock or device keyguard). The service is
+            // never created, so the downstream connectWebSocket() bails on waitForServiceInstance.
+            // The AppNavigation watchdog is now RESUMED-gated to prevent this; this distinct log
+            // (instead of swallowing into the generic catch below) surfaces any remaining
+            // background-dial attempt in the DIAG-WS-START breadcrumbs instead of going dark.
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: startWebSocketService DENIED - ForegroundServiceStartNotAllowed (dialed while app backgrounded/below RESUMED, e.g. behind a lock)",
+                e,
+            )
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to start WebSocketService", e)
         }
