@@ -509,6 +509,41 @@ internal class MessageSendCoordinator(
         }
     }
 
+    /**
+     * Builds the `relates_to` map for a media/attachment send, or null when the message relates to
+     * nothing. Three cases:
+     *  - Thread send (`threadRootEventId != null`): an `m.thread` relation, with an `m.in_reply_to`
+     *    target that is either the explicit [replyToEventId] or the thread's last message (falling
+     *    back flag set when neither resolves).
+     *  - Plain reply (`threadRootEventId == null` but [replyToEventId] != null): a bare
+     *    `m.in_reply_to`, matching the shape produced by [sendReplyInternal] for text replies. This
+     *    is what lets us reply to a message *with* an image/video/audio/file.
+     *  - Neither: null.
+     */
+    private fun buildMediaRelatesTo(
+        roomId: String,
+        threadRootEventId: String?,
+        replyToEventId: String?
+    ): Map<String, Any>? = when {
+        threadRootEventId != null -> {
+            val resolvedReplyTarget = replyToEventId
+                ?: vm.getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
+            val relatesTo = mutableMapOf<String, Any>(
+                "rel_type" to "m.thread",
+                "event_id" to threadRootEventId,
+                "is_falling_back" to (resolvedReplyTarget == null)
+            )
+            if (resolvedReplyTarget != null) {
+                relatesTo["m.in_reply_to"] = mapOf("event_id" to resolvedReplyTarget)
+            }
+            relatesTo
+        }
+        replyToEventId != null -> mapOf(
+            "m.in_reply_to" to mapOf("event_id" to replyToEventId)
+        )
+        else -> null
+    }
+
     fun sendMediaMessage(
         roomId: String,
         mxcUrl: String,
@@ -584,19 +619,8 @@ internal class MessageSendCoordinator(
             ),
             "url_previews" to emptyList<String>()
         )
-        if (threadRootEventId != null) {
-            val resolvedReplyTarget = replyToEventId
-                ?: vm.getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
-            val threadFallbackFlag = resolvedReplyTarget == null
-            val relatesTo = mutableMapOf<String, Any>(
-                "rel_type" to "m.thread",
-                "event_id" to threadRootEventId,
-                "is_falling_back" to threadFallbackFlag
-            )
-            if (resolvedReplyTarget != null) {
-                relatesTo["m.in_reply_to"] = mapOf("event_id" to resolvedReplyTarget)
-            }
-            commandData["relates_to"] = relatesTo
+        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let {
+            commandData["relates_to"] = it
         }
 
         insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId)
@@ -715,19 +739,8 @@ internal class MessageSendCoordinator(
             "url_previews" to emptyList<Any>()
         )
 
-        if (threadRootEventId != null) {
-            val resolvedReplyTarget = replyToEventId
-                ?: vm.getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
-            val threadFallbackFlag = resolvedReplyTarget == null
-            val relatesTo = mutableMapOf<String, Any>(
-                "rel_type" to "m.thread",
-                "event_id" to threadRootEventId,
-                "is_falling_back" to threadFallbackFlag
-            )
-            if (resolvedReplyTarget != null) {
-                relatesTo["m.in_reply_to"] = mapOf("event_id" to resolvedReplyTarget)
-            }
-            dataMap["relates_to"] = relatesTo
+        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let {
+            dataMap["relates_to"] = it
         }
 
         insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId)
@@ -777,19 +790,8 @@ internal class MessageSendCoordinator(
             "url_previews" to emptyList<Any>()
         )
 
-        if (threadRootEventId != null) {
-            val resolvedReplyTarget = replyToEventId
-                ?: vm.getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
-            val threadFallbackFlag = resolvedReplyTarget == null
-            val relatesTo = mutableMapOf<String, Any>(
-                "rel_type" to "m.thread",
-                "event_id" to threadRootEventId,
-                "is_falling_back" to threadFallbackFlag
-            )
-            if (resolvedReplyTarget != null) {
-                relatesTo["m.in_reply_to"] = mapOf("event_id" to resolvedReplyTarget)
-            }
-            dataMap["relates_to"] = relatesTo
+        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let {
+            dataMap["relates_to"] = it
         }
 
         insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId)
@@ -875,19 +877,8 @@ internal class MessageSendCoordinator(
             ),
             "url_previews" to emptyList<String>()
         )
-        if (threadRootEventId != null) {
-            val resolvedReplyTarget = replyToEventId
-                ?: vm.getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
-            val threadFallbackFlag = resolvedReplyTarget == null
-            val relatesTo = mutableMapOf<String, Any>(
-                "rel_type" to "m.thread",
-                "event_id" to threadRootEventId,
-                "is_falling_back" to threadFallbackFlag
-            )
-            if (resolvedReplyTarget != null) {
-                relatesTo["m.in_reply_to"] = mapOf("event_id" to resolvedReplyTarget)
-            }
-            commandData["relates_to"] = relatesTo
+        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let {
+            commandData["relates_to"] = it
         }
 
         insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId)
@@ -979,19 +970,8 @@ internal class MessageSendCoordinator(
             ),
             "url_previews" to emptyList<String>()
         )
-        if (threadRootEventId != null) {
-            val resolvedReplyTarget = replyToEventId
-                ?: vm.getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
-            val threadFallbackFlag = resolvedReplyTarget == null
-            val relatesTo = mutableMapOf<String, Any>(
-                "rel_type" to "m.thread",
-                "event_id" to threadRootEventId,
-                "is_falling_back" to threadFallbackFlag
-            )
-            if (resolvedReplyTarget != null) {
-                relatesTo["m.in_reply_to"] = mapOf("event_id" to resolvedReplyTarget)
-            }
-            commandData["relates_to"] = relatesTo
+        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let {
+            commandData["relates_to"] = it
         }
 
         insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId)
@@ -1052,19 +1032,8 @@ internal class MessageSendCoordinator(
             ),
             "url_previews" to emptyList<String>()
         )
-        if (threadRootEventId != null) {
-            val resolvedReplyTarget = replyToEventId
-                ?: vm.getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
-            val threadFallbackFlag = resolvedReplyTarget == null
-            val relatesTo = mutableMapOf<String, Any>(
-                "rel_type" to "m.thread",
-                "event_id" to threadRootEventId,
-                "is_falling_back" to threadFallbackFlag
-            )
-            if (resolvedReplyTarget != null) {
-                relatesTo["m.in_reply_to"] = mapOf("event_id" to resolvedReplyTarget)
-            }
-            commandData["relates_to"] = relatesTo
+        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let {
+            commandData["relates_to"] = it
         }
 
         insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId)

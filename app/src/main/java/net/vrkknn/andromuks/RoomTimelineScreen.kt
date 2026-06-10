@@ -5129,13 +5129,22 @@ fun RoomTimelineScreen(
                             val audioUriToUpload = selectedAudioUri
                             val fileUriToUpload = selectedFileUri
                             val isVideoToUpload = selectedMediaIsVideo
-                            
+
+                            // Capture the reply target (if any) so the uploaded media is sent as a
+                            // reply to the selected message — mirrors the text-reply thread handling
+                            // above. Cleared immediately (like the media state) so the preview's
+                            // shrink-out plays and a fresh send doesn't inherit a stale target.
+                            val replyTargetEvent = replyingToEvent
+                            val replyThreadRootEventId = replyTargetEvent?.getThreadInfo()?.threadRootEventId
+                            val replyToEventId = replyTargetEvent?.eventId
+
                             // Clear state immediately
                             selectedMediaUri = null
                             selectedAudioUri = null
                             selectedFileUri = null
                             selectedMediaIsVideo = false
-                            
+                            replyingToEvent = null
+
                             // Upload and send in background
                             coroutineScope.launch {
                                 // Local helper for uploads with retry
@@ -5195,7 +5204,9 @@ fun RoomTimelineScreen(
                                                     thumbnailWidth = videoResult.thumbnailWidth,
                                                     thumbnailHeight = videoResult.thumbnailHeight,
                                                     thumbnailSize = videoResult.thumbnailSize,
-                                                    caption = caption.takeIf { it.isNotBlank() }
+                                                    caption = caption.takeIf { it.isNotBlank() },
+                                                    threadRootEventId = replyThreadRootEventId,
+                                                    replyToEventId = replyToEventId
                                                 )
                                             } else {
                                                 Log.e("Andromuks", "RoomTimelineScreen: Video upload failed after retries")
@@ -5231,7 +5242,9 @@ fun RoomTimelineScreen(
                                                     duration = audioResult.duration,
                                                     size = audioResult.size,
                                                     mimeType = audioResult.mimeType,
-                                                    caption = caption.takeIf { it.isNotBlank() }
+                                                    caption = caption.takeIf { it.isNotBlank() },
+                                                    threadRootEventId = replyThreadRootEventId,
+                                                    replyToEventId = replyToEventId
                                                 )
                                             } else {
                                                 Log.e("Andromuks", "RoomTimelineScreen: Audio upload failed after retries")
@@ -5266,7 +5279,9 @@ fun RoomTimelineScreen(
                                                     filename = fileResult.filename,
                                                     size = fileResult.size,
                                                     mimeType = fileResult.mimeType,
-                                                    caption = caption.takeIf { it.isNotBlank() }
+                                                    caption = caption.takeIf { it.isNotBlank() },
+                                                    threadRootEventId = replyThreadRootEventId,
+                                                    replyToEventId = replyToEventId
                                                 )
                                             } else {
                                                 Log.e("Andromuks", "RoomTimelineScreen: File upload failed after retries")
@@ -5309,7 +5324,9 @@ fun RoomTimelineScreen(
                                                     thumbnailWidth = uploadResult.thumbnailWidth,
                                                     thumbnailHeight = uploadResult.thumbnailHeight,
                                                     thumbnailMimeType = uploadResult.thumbnailMimeType,
-                                                    thumbnailSize = uploadResult.thumbnailSize
+                                                    thumbnailSize = uploadResult.thumbnailSize,
+                                                    threadRootEventId = replyThreadRootEventId,
+                                                    replyToEventId = replyToEventId
                                                 )
                                             } else {
                                                 Log.e("Andromuks", "RoomTimelineScreen: Image upload failed after retries")
