@@ -44,10 +44,12 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -957,6 +959,10 @@ fun RoomTimelineScreen(
     // Focus requester for text field (to focus when replying)
     val textFieldFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    // Base (unscaled) duration of the reply-preview grow animation. Shared between the
+    // AnimatedVisibility enter/exit and the keyboard-raise delay so the keyboard only starts
+    // pushing the input box up *after* the preview has finished expanding.
+    val replyPreviewGrowMs = 220
     
     // Track text field height to match button heights
     var textFieldHeight by remember { mutableStateOf(0) }
@@ -1104,8 +1110,12 @@ fun RoomTimelineScreen(
         if (replyingToEvent != null) {
             showMentionList = false
             isWaitingForFullMemberList = false
-            // Focus text field and show keyboard
-            kotlinx.coroutines.delay(100) // Small delay to ensure UI is ready
+            // Let the reply-preview grow finish first, *then* focus the field / raise the
+            // keyboard. Focusing immediately makes the keyboard push the input box up at the
+            // same time the preview expands, which masks the animation. We wait the grow
+            // duration plus a small buffer; the deterministic tween (not a spring) means the
+            // grow is reliably done by then. Scaled by the speed slider so the two stay in sync.
+            kotlinx.coroutines.delay(scaledTweenMs(replyPreviewGrowMs + 60).toLong())
             textFieldFocusRequester.requestFocus()
             keyboardController?.show()
         }
@@ -3630,6 +3640,21 @@ fun RoomTimelineScreen(
                                                 // Close attach menu if open
                                                 showAttachmentMenu = false
                                                 messageMenuConfig = menuConfig.copy(
+                                                    // Long-press path only: the menu bar's Reply
+                                                    // button calls onDismiss() (which kicks off the
+                                                    // ~620ms slide-down exit) and then this. If we
+                                                    // raised the reply preview immediately, its rise
+                                                    // would play under the menu sliding down and be
+                                                    // masked. Wait for the menu exit to finish, then
+                                                    // set replyingToEvent so the grow has the stage to
+                                                    // itself. (Swipe-to-reply uses the instant onReply
+                                                    // at the TimelineEventItem call site instead.)
+                                                    onReply = {
+                                                        coroutineScope.launch {
+                                                            kotlinx.coroutines.delay(scaledTweenMs(620).toLong())
+                                                            replyingToEvent = menuConfig.event
+                                                        }
+                                                    },
                                                     onViewSource = { code ->
                                                         codeViewerContent = code
                                                         showCodeViewer = true
@@ -3793,15 +3818,31 @@ fun RoomTimelineScreen(
                                     )
                                 }
 
-                                // Reply preview inside the text input (if replying)
-                                if (replyingToEvent != null) {
-                                    ReplyPreviewInput(
-                                        event = replyingToEvent!!,
-                                        userProfileCache = memberMapWithFallback, // Use reactive memberMap with fallback profiles
-                                        onCancel = { replyingToEvent = null },
-                                        appViewModel = appViewModel,
-                                        roomId = roomId
-                                    )
+                                // Reply preview inside the text input (if replying).
+                                // Keep the last event around so the shrink/fade exit can still
+                                // render content after replyingToEvent is cleared on cancel/send.
+                                var lastReplyPreviewEvent by remember { mutableStateOf<TimelineEvent?>(null) }
+                                LaunchedEffect(replyingToEvent) {
+                                    if (replyingToEvent != null) lastReplyPreviewEvent = replyingToEvent
+                                }
+                                AnimatedVisibility(
+                                    visible = replyingToEvent != null,
+                                    // Deterministic tween (not a spring) so the grow finishes at a
+                                    // known time and the keyboard-raise can be sequenced after it.
+                                    enter = fadeIn(animationSpec = tween(scaledTweenMs(replyPreviewGrowMs))) +
+                                        expandVertically(animationSpec = tween(scaledTweenMs(replyPreviewGrowMs))),
+                                    exit = shrinkVertically(animationSpec = tween(scaledTweenMs(replyPreviewGrowMs))) +
+                                        fadeOut(animationSpec = tween(scaledTweenMs(replyPreviewGrowMs)))
+                                ) {
+                                    lastReplyPreviewEvent?.let { previewEvent ->
+                                        ReplyPreviewInput(
+                                            event = previewEvent,
+                                            userProfileCache = memberMapWithFallback, // Use reactive memberMap with fallback profiles
+                                            onCancel = { replyingToEvent = null },
+                                            appViewModel = appViewModel,
+                                            roomId = roomId
+                                        )
+                                    }
                                 }
 
                                 // URL preview composition bar
