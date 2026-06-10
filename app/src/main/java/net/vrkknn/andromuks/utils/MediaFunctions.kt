@@ -151,6 +151,11 @@ import androidx.compose.foundation.layout.BoxScope
 import kotlinx.coroutines.delay
 import android.app.DownloadManager
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.pdf.PdfRenderer
+import android.os.ParcelFileDescriptor
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.CircularProgressIndicator
 import android.content.ContentValues
 import android.content.res.ColorStateList
 import android.graphics.Color as AndroidColor
@@ -2173,6 +2178,169 @@ private fun AudioPlayer(
 }
 
 /**
+ * First-page PDF thumbnail cache for timeline rendering.
+ *
+ * Two layers, keyed by mxc URL:
+ *  - An in-memory LRU of rendered bitmaps, so scrolling a PDF back into view redraws
+ *    instantly instead of re-rendering page 0.
+ *  - An on-disk copy of the PDF bytes under cacheDir/pdf_thumbs, so a re-render after
+ *    eviction doesn't re-hit the network.
+ *
+ * The gomuks backend decrypts encrypted media server-side (the timeline URL carries
+ * `?encrypted=true`), so we only ever deal with plain PDF bytes here.
+ */
+/**
+ * Size cap (bytes) for auto-rendering a PDF's first-page timeline preview. Page-0 rendering
+ * requires the whole file on disk, so above this we skip the preview and show only the chip.
+ */
+private const val PDF_PREVIEW_MAX_BYTES = 500L * 1024L
+
+private object PdfThumbnailCache {
+    private const val MAX_MEMORY_ENTRIES = 24
+    private val client = OkHttpClient()
+    // PdfRenderer is not thread-safe; serialize open/render across concurrently visible PDFs.
+    private val renderMutex = kotlinx.coroutines.sync.Mutex()
+
+    // access-ordered LRU; eldest evicted past MAX_MEMORY_ENTRIES.
+    private val memCache = object : LinkedHashMap<String, Bitmap>(0, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>): Boolean =
+            size > MAX_MEMORY_ENTRIES
+    }
+
+    @Synchronized
+    fun getMemory(key: String): Bitmap? = memCache[key]
+
+    @Synchronized
+    private fun putMemory(key: String, bmp: Bitmap) { memCache[key] = bmp }
+
+    private fun fileNameFor(mxcUrl: String): String =
+        mxcUrl.removePrefix("mxc://").replace('/', '_').replace(':', '_') + ".pdf"
+
+    /** Render the first page of the PDF to a bitmap, or null on any failure. */
+    suspend fun render(
+        context: Context,
+        mxcUrl: String,
+        httpUrl: String,
+        authToken: String
+    ): Bitmap? = withContext(Dispatchers.IO) {
+        getMemory(mxcUrl)?.let { return@withContext it }
+        if (httpUrl.isBlank()) return@withContext null
+
+        val dir = File(context.cacheDir, "pdf_thumbs").apply { mkdirs() }
+        val pdfFile = File(dir, fileNameFor(mxcUrl))
+
+        // Fetch the PDF bytes once and keep them on disk.
+        if (!pdfFile.exists() || pdfFile.length() == 0L) {
+            try {
+                val request = Request.Builder()
+                    .url(httpUrl)
+                    .header("Cookie", "gomuks_auth=$authToken")
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w("Andromuks", "PDF thumbnail download HTTP ${response.code} for $mxcUrl")
+                        return@withContext null
+                    }
+                    val tmp = File(dir, pdfFile.name + ".tmp")
+                    response.body?.byteStream()?.use { input ->
+                        FileOutputStream(tmp).use { output -> input.copyTo(output) }
+                    } ?: return@withContext null
+                    if (tmp.length() == 0L) { tmp.delete(); return@withContext null }
+                    if (!tmp.renameTo(pdfFile)) { tmp.copyTo(pdfFile, overwrite = true); tmp.delete() }
+                }
+            } catch (e: Exception) {
+                Log.w("Andromuks", "PDF thumbnail download failed for $mxcUrl: ${e.message}")
+                return@withContext null
+            }
+        }
+
+        renderMutex.lock()
+        var pfd: ParcelFileDescriptor? = null
+        var renderer: PdfRenderer? = null
+        try {
+            pfd = ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
+            renderer = PdfRenderer(pfd)
+            if (renderer.pageCount <= 0) return@withContext null
+            renderer.openPage(0).use { page ->
+                // Scale page-0 to ~1080px wide for a crisp-but-bounded thumbnail.
+                val targetWidth = 1080
+                val scale = targetWidth.toFloat() / page.width.toFloat()
+                val height = (page.height * scale).toInt().coerceAtLeast(1)
+                val bmp = Bitmap.createBitmap(targetWidth, height, Bitmap.Config.ARGB_8888)
+                bmp.eraseColor(android.graphics.Color.WHITE)
+                page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                putMemory(mxcUrl, bmp)
+                bmp
+            }
+        } catch (e: Exception) {
+            Log.w("Andromuks", "PDF thumbnail render failed for $mxcUrl: ${e.message}")
+            // Corrupt/partial download — drop it so a later attempt can re-fetch.
+            pdfFile.delete()
+            null
+        } finally {
+            try { renderer?.close() } catch (_: Exception) {}
+            try { pfd?.close() } catch (_: Exception) {}
+            renderMutex.unlock()
+        }
+    }
+}
+
+/**
+ * First-page thumbnail of a PDF [m.file] message, shown above the file chip on the
+ * timeline. Tapping it triggers [onTap] (the same download as the chip's button);
+ * long-press forwards to [onLongPress] so the message menu still works.
+ *
+ * Falls back to nothing (the chip alone) when the PDF can't be fetched or rendered.
+ */
+@Composable
+private fun PdfTimelineThumbnail(
+    mxcUrl: String,
+    httpUrl: String,
+    authToken: String,
+    onTap: () -> Unit,
+    onLongPress: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var bitmap by remember(mxcUrl) { mutableStateOf<Bitmap?>(PdfThumbnailCache.getMemory(mxcUrl)) }
+    var failed by remember(mxcUrl) { mutableStateOf(false) }
+
+    LaunchedEffect(mxcUrl, httpUrl) {
+        if (bitmap != null) return@LaunchedEffect
+        val rendered = PdfThumbnailCache.render(context, mxcUrl, httpUrl, authToken)
+        if (rendered != null) bitmap = rendered else failed = true
+    }
+
+    val bmp = bitmap
+    when {
+        bmp != null -> Image(
+            bitmap = bmp.asImageBitmap(),
+            contentDescription = "PDF preview",
+            modifier = modifier
+                .fillMaxWidth()
+                .heightIn(max = 320.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .pointerInput(onTap, onLongPress) {
+                    detectTapGestures(
+                        onTap = { onTap() },
+                        onLongPress = { onLongPress?.invoke() }
+                    )
+                },
+            contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
+        )
+        !failed -> Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(120.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(28.dp))
+        }
+        // failed → render nothing; the file chip below still offers a download.
+    }
+}
+
+/**
  * File download component for m.file messages with Material 3 design.
  * Features file icon, filename, size, mimetype, and download button.
  */
@@ -2199,7 +2367,38 @@ private fun FileDownload(
     }
     
     val coroutineScope = rememberCoroutineScope()
-    
+
+    val triggerDownload: () -> Unit = {
+        coroutineScope.launch {
+            downloadFile(
+                context = context,
+                url = fileHttpUrl,
+                filename = mediaMessage.filename,
+                authToken = authToken
+            )
+        }
+    }
+
+    // Auto-render the first-page preview only for small PDFs: page-0 rendering needs the
+    // whole file on disk (PdfRenderer is seek-based), so a large document would be pulled
+    // down in full just for a thumbnail. Unknown size is treated as "too big" — skip it.
+    val pdfSize = mediaMessage.info.size
+    val isPdf = mediaMessage.info.mimeType?.lowercase() == "application/pdf"
+    val showPdfPreview = isPdf && pdfSize != null && pdfSize <= PDF_PREVIEW_MAX_BYTES
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+    // First-page preview for small PDFs, mirroring the pre-send upload preview.
+    if (showPdfPreview) {
+        PdfTimelineThumbnail(
+            mxcUrl = mediaMessage.url,
+            httpUrl = fileHttpUrl,
+            authToken = authToken,
+            onTap = triggerDownload,
+            onLongPress = onLongPress,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+        )
+    }
+
     // File download UI
     Row(
         modifier = Modifier
@@ -2277,16 +2476,7 @@ private fun FileDownload(
         
         // Download button
         IconButton(
-            onClick = {
-                coroutineScope.launch {
-                    downloadFile(
-                        context = context,
-                        url = fileHttpUrl,
-                        filename = mediaMessage.filename,
-                        authToken = authToken
-                    )
-                }
-            },
+            onClick = triggerDownload,
             modifier = Modifier.size(40.dp)
         ) {
             Icon(
@@ -2296,6 +2486,7 @@ private fun FileDownload(
                 modifier = Modifier.size(24.dp)
             )
         }
+    }
     }
 }
 
