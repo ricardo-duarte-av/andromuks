@@ -194,6 +194,19 @@ fun ReplyPreview(
             }
         }
     }
+    // Media fallback: an attachment sent without a caption has a blank body, which would render
+    // an empty preview. Substitute a type-appropriate placeholder so the reply still reads clearly.
+    val mediaFallback: String? = latestOriginalEvent?.let { event ->
+        if (event.redactedBy != null) return@let null
+        when (event.getMessagePayload()?.optString("msgtype", "")) {
+            "m.image" -> "📷 Sent a photo"
+            "m.video" -> "📹 Sent a video"
+            "m.audio" -> "🎶 Sent an audio"
+            "m.file" -> "📁 Sent a file"
+            else -> null
+        }
+    }
+
     // Fallback: if we resolved to a version (e.g. edit) but body is empty, use the passed-in event (e.g. merged timeline event)
     val originalBodyResolved = originalBody?.takeIf { it.isNotBlank() }
         ?: originalEvent?.let { fallback ->
@@ -206,6 +219,7 @@ fun ReplyPreview(
                 payload?.optString("body", "")
             }
         }?.takeIf { it.isNotBlank() }
+        ?: mediaFallback
         ?: originalBody
         ?: "Reply to unknown event"
     
@@ -373,10 +387,10 @@ fun formatEventForReplyPreview(
             }
             
             when (actualMsgType) {
-                "m.image" -> "📷 Image"
-                "m.video" -> "🎥 Video"
-                "m.audio" -> "🎵 Audio"
-                "m.file" -> "📎 File"
+                "m.image" -> "📷 Sent a photo"
+                "m.video" -> "📹 Sent a video"
+                "m.audio" -> "🎶 Sent an audio"
+                "m.file" -> "📁 Sent a file"
                 "m.sticker" -> {
                     // Try to get sticker body/name
                     val stickerBody = body.takeIf { it.isNotBlank() } ?: "Sticker"
