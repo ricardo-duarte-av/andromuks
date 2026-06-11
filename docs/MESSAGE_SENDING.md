@@ -35,6 +35,18 @@ Sending a message involves four distinct stages, all linked by `transaction_id`:
 - `send_complete.data.error` (outer field) is the canonical success/failure signal — **not** `send_error` inside the event
 - `send_error: "not sent"` inside the event is a backend placeholder always present; it does **not** indicate failure
 
+## Replies & thread relations on attachments (`buildMediaRelatesTo`)
+
+Text replies set `content.m.relates_to.m.in_reply_to` via `textContent(text, replyToEventId)`. Every **media/attachment** send variant (`sendMediaMessage`/image, video, audio, file, sticker, location) builds the same `relates_to` through one shared helper, `MessageSendCoordinator.buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)`:
+
+- **Thread send** (`threadRootEventId != null`): an `m.thread` relation whose `m.in_reply_to` target is the explicit `replyToEventId` or the thread's last message; `is_falling_back` is set when neither resolves.
+- **Plain reply** (`threadRootEventId == null`, `replyToEventId != null`): a bare `m.in_reply_to` — identical in shape to a text reply. This is what lets you reply to a message *with* an image/video/audio/file.
+- **Neither**: `null` (no relation).
+
+This was previously inlined per-function and gated on `threadRootEventId != null` only, so a plain reply target was silently dropped — attachments never went out as replies. The UI side (`RoomTimelineScreen` `MediaPreviewDialog.onSend`) captures `replyingToEvent` at send time and threads `threadRootEventId`/`replyToEventId` through; camera and voice capture share that path.
+
+`insertMediaEcho` embeds the **same** `buildMediaRelatesTo` result into the optimistic placeholder's `content`, so the pending bubble renders the reply quote / thread relation immediately — `getReplyInfo()`/`getThreadInfo()` read it from `content.m.relates_to`, not from the TimelineEvent-level `relationType`/`relatesTo` fields. Reusing the helper keeps echo and confirmed event byte-identical.
+
 ## Local Echo (Pending Placeholders)
 
 When `response` arrives (step 2), the app inserts a pending placeholder immediately so the user sees their message without waiting for the full round-trip.
@@ -166,7 +178,7 @@ Applied in both `RoomTimelineScreen.kt` (`processTimelineEvents`) and `BubbleTim
 |------|------|
 | `LocalEchoCoordinator.kt` | Send-time placeholders + `Sending→Sent→Confirmed/Failed` state machine, response/confirm watchdog timers |
 | `PersistenceCoordinator.kt` | Layer 1: drops timed-out `command_send_message` instead of re-sending (non-idempotent) |
-| `MessageSendCoordinator.kt` | Inserts the placeholder for every send variant (`textContent`/`insertMediaEcho` helpers) |
+| `MessageSendCoordinator.kt` | Inserts the placeholder for every send variant (`textContent`/`insertMediaEcho` helpers); `buildMediaRelatesTo` builds reply/thread `relates_to` shared by sends and echoes |
 | `AppViewModel.kt` | `pendingEchoMap` declaration; `handleMessageResponse` / `handleOutgoingRequestResponse` (upgrade Sending→Sent, legacy echo fallback); `processSendCompleteEvent` (eviction/failure + watchdog cancel); `dismissPendingEcho` |
 | `EditVersionCoordinator.kt` | `addNewEventToChain` — deduplication + pending echo eviction when confirmed event arrives via sync before send_complete |
 | `utils/NetworkUtils.kt` | Calls `processSendCompleteEvent(event, error)` — passes outer `error` field from `send_complete` |

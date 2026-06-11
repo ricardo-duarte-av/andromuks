@@ -623,7 +623,7 @@ internal class MessageSendCoordinator(
             commandData["relates_to"] = it
         }
 
-        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId)
+        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId)
         if (BuildConfig.DEBUG) {
             android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with media data: $commandData")
         }
@@ -743,7 +743,7 @@ internal class MessageSendCoordinator(
             dataMap["relates_to"] = it
         }
 
-        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId)
+        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId)
         vm.sendWebSocketCommand("send_message", messageRequestId, dataMap)
 
         vm.messageRequests[messageRequestId] = roomId
@@ -794,7 +794,7 @@ internal class MessageSendCoordinator(
             dataMap["relates_to"] = it
         }
 
-        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId)
+        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId)
         vm.sendWebSocketCommand("send_message", messageRequestId, dataMap)
         vm.messageRequests[messageRequestId] = roomId
         vm.pendingSendCount++
@@ -881,7 +881,7 @@ internal class MessageSendCoordinator(
             commandData["relates_to"] = it
         }
 
-        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId)
+        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId)
         if (BuildConfig.DEBUG) {
             android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with video data: $commandData")
         }
@@ -974,7 +974,7 @@ internal class MessageSendCoordinator(
             commandData["relates_to"] = it
         }
 
-        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId)
+        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId)
         if (BuildConfig.DEBUG) {
             android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with audio data: $commandData")
         }
@@ -1036,7 +1036,7 @@ internal class MessageSendCoordinator(
             commandData["relates_to"] = it
         }
 
-        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId)
+        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId)
         if (BuildConfig.DEBUG) {
             android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with file data: $commandData")
         }
@@ -1154,13 +1154,21 @@ internal class MessageSendCoordinator(
         roomId: String,
         requestId: Int,
         baseContent: Map<String, Any>,
-        threadRootEventId: String?
+        threadRootEventId: String?,
+        replyToEventId: String? = null
     ) {
+        val content = JSONObject(baseContent)
+        // Embed the same relates_to we send to the server so the optimistic bubble renders the
+        // reply quote (and thread relation) immediately — getReplyInfo()/getThreadInfo() read it
+        // from content, not from the TimelineEvent-level relationType/relatesTo fields below.
+        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let { relatesTo ->
+            content.put("m.relates_to", JSONObject(relatesTo))
+        }
         vm.localEchoCoordinator.insert(
             roomId = roomId,
             requestId = requestId,
             type = "m.room.message",
-            content = JSONObject(baseContent),
+            content = content,
             relationType = if (threadRootEventId != null) "m.thread" else null,
             relatesTo = threadRootEventId
         )
