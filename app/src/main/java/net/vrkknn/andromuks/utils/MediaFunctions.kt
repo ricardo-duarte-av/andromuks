@@ -2369,6 +2369,11 @@ private fun FileDownload(
     val coroutineScope = rememberCoroutineScope()
 
     val triggerDownload: () -> Unit = {
+        android.widget.Toast.makeText(
+            context,
+            "Downloading ${mediaMessage.filename}",
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
         coroutineScope.launch {
             downloadFile(
                 context = context,
