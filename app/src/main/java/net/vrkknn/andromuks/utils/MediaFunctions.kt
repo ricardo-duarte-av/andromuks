@@ -72,6 +72,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import net.vrkknn.andromuks.TimelineEvent
 
@@ -1996,8 +1997,117 @@ private fun InlineVideoPlayer(
 }
 
 /**
+ * Converts a raw MSC1767 waveform (the `org.matrix.msc1767.audio.waveform` array) into a list
+ * of normalized bar heights in the 0f..1f range, ready to render as vertical bars.
+ *
+ * Real-world senders disagree on the amplitude ceiling — the spec nominally bounds samples to
+ * 0..1024, but the WhatsApp/Beeper bridges emit far smaller peaks — so heights are normalized
+ * against the actual peak sample rather than a fixed maximum. A small [minHeight] floor keeps
+ * near-silent bars visible as a sliver instead of vanishing.
+ *
+ * The samples are resampled (bucket-averaged) to [targetBars] so clips of any length render at a
+ * consistent visual density. When [targetBars] <= 0, a count is derived from [durationMs]
+ * (roughly one bar per 90 ms, clamped to a sane range), falling back to the raw sample count.
+ *
+ * @param waveform raw amplitude samples from the message content
+ * @param durationMs voice-message duration in milliseconds (used to pick a bar count)
+ * @param targetBars explicit bar count; pass <= 0 to derive one from [durationMs]
+ * @param minHeight minimum normalized height so silent bars stay visible
+ * @return normalized bar heights in 0f..1f, empty if [waveform] is empty
+ */
+fun normalizeWaveform(
+    waveform: List<Int>,
+    durationMs: Int = 0,
+    targetBars: Int = 0,
+    minHeight: Float = 0.12f
+): List<Float> {
+    if (waveform.isEmpty()) return emptyList()
+    val bars = when {
+        targetBars > 0 -> targetBars
+        durationMs > 0 -> (durationMs / 90).coerceIn(24, 64)
+        else -> waveform.size.coerceAtMost(64)
+    }
+    // Resample to `bars` buckets by averaging the samples that fall in each bucket.
+    val resampled = FloatArray(bars)
+    for (i in 0 until bars) {
+        val start = (i.toLong() * waveform.size / bars).toInt()
+        val end = ((i + 1).toLong() * waveform.size / bars).toInt().coerceIn(start + 1, waveform.size)
+        var sum = 0.0
+        var count = 0
+        for (j in start until end) {
+            sum += waveform[j].coerceAtLeast(0)
+            count++
+        }
+        resampled[i] = if (count > 0) (sum / count).toFloat() else 0f
+    }
+    val peak = resampled.maxOrNull() ?: 0f
+    if (peak <= 0f) return List(bars) { minHeight }
+    // Map [0, peak] onto [minHeight, 1].
+    return resampled.map { (it / peak).coerceIn(0f, 1f) * (1f - minHeight) + minHeight }
+}
+
+/**
+ * Renders a voice-message waveform as centered, rounded vertical bars and acts as a seek bar.
+ *
+ * Bars before the current playback position are drawn in [playedColor]; the rest in
+ * [unplayedColor]. Tapping or dragging horizontally reports the touched fraction via [onSeek].
+ * Colors are passed in (not hard-coded) so the waveform tracks the Material theme and adapts to
+ * light/dark and dynamic-color schemes.
+ *
+ * @param bars normalized bar heights (0f..1f), e.g. from [normalizeWaveform]
+ * @param progress playback position as a fraction (0f..1f)
+ * @param playedColor color for the portion already played
+ * @param unplayedColor color for the portion not yet played
+ * @param onSeek callback with the touched position fraction (0f..1f)
+ */
+@Composable
+private fun WaveformSeekBar(
+    bars: List<Float>,
+    progress: Float,
+    playedColor: Color,
+    unplayedColor: Color,
+    modifier: Modifier = Modifier,
+    onSeek: (Float) -> Unit = {}
+) {
+    val clampedProgress = progress.coerceIn(0f, 1f)
+    Canvas(
+        modifier = modifier
+            .pointerInput(bars.size) {
+                detectTapGestures { offset ->
+                    if (size.width > 0) onSeek((offset.x / size.width).coerceIn(0f, 1f))
+                }
+            }
+            .pointerInput(bars.size) {
+                detectHorizontalDragGestures { change, _ ->
+                    if (size.width > 0) onSeek((change.position.x / size.width).coerceIn(0f, 1f))
+                }
+            }
+    ) {
+        val n = bars.size
+        if (n == 0) return@Canvas
+        val slot = size.width / n
+        val barWidth = (slot * 0.6f).coerceAtLeast(1f)
+        val centerY = size.height / 2f
+        val playedThreshold = clampedProgress * n
+        val radius = androidx.compose.ui.geometry.CornerRadius(barWidth / 2f, barWidth / 2f)
+        for (i in 0 until n) {
+            // Min height = bar width so a near-silent bar still reads as a round dot.
+            val h = (bars[i] * size.height).coerceAtLeast(barWidth)
+            val left = slot * i + (slot - barWidth) / 2f
+            val top = centerY - h / 2f
+            drawRoundRect(
+                color = if (i < playedThreshold) playedColor else unplayedColor,
+                topLeft = androidx.compose.ui.geometry.Offset(left, top),
+                size = androidx.compose.ui.geometry.Size(barWidth, h),
+                cornerRadius = radius
+            )
+        }
+    }
+}
+
+/**
  * Audio player component for m.audio messages with Material 3 design.
- * Features play/pause button, progress slider, and duration display.
+ * Features play/pause button, a waveform (or progress slider) seek bar, and duration display.
  */
 @Composable
 private fun AudioPlayer(
@@ -2129,27 +2239,53 @@ private fun AudioPlayer(
                 }
                 
                 Spacer(modifier = Modifier.width(8.dp))
-                
-                // Progress slider
+
+                // Progress: waveform seek bar when MSC1767 amplitude samples are present
+                // (voice messages), otherwise a plain Material slider.
+                val waveformBars = remember(mediaMessage.info.waveform, mediaMessage.info.duration) {
+                    mediaMessage.info.waveform?.let {
+                        normalizeWaveform(it, mediaMessage.info.duration ?: 0)
+                    }
+                }
                 Column(
                     modifier = Modifier.weight(1f)
                 ) {
-                    Slider(
-                        value = if (duration > 0) currentPosition.toFloat() / duration.toFloat() else 0f,
-                        onValueChange = { progress ->
-                            if (duration > 0) {
-                                val newPosition = (progress * duration).toLong()
-                                exoPlayer.seekTo(newPosition)
+                    val playbackProgress = if (duration > 0) {
+                        currentPosition.toFloat() / duration.toFloat()
+                    } else 0f
+                    if (!waveformBars.isNullOrEmpty()) {
+                        WaveformSeekBar(
+                            bars = waveformBars,
+                            progress = playbackProgress,
+                            playedColor = MaterialTheme.colorScheme.primary,
+                            unplayedColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(32.dp),
+                            onSeek = { fraction ->
+                                if (duration > 0) {
+                                    exoPlayer.seekTo((fraction * duration).toLong())
+                                }
                             }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = MaterialTheme.colorScheme.primary,
-                            inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
                         )
-                    )
-                    
+                    } else {
+                        Slider(
+                            value = playbackProgress,
+                            onValueChange = { progress ->
+                                if (duration > 0) {
+                                    val newPosition = (progress * duration).toLong()
+                                    exoPlayer.seekTo(newPosition)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = SliderDefaults.colors(
+                                thumbColor = MaterialTheme.colorScheme.primary,
+                                activeTrackColor = MaterialTheme.colorScheme.primary,
+                                inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                            )
+                        )
+                    }
+
                     // Current position and duration
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -2389,7 +2525,7 @@ private fun FileDownload(
     // down in full just for a thumbnail. Unknown size is treated as "too big" — skip it.
     val pdfSize = mediaMessage.info.size
     val isPdf = mediaMessage.info.mimeType?.lowercase() == "application/pdf"
-    val showPdfPreview = isPdf && pdfSize != null && pdfSize <= PDF_PREVIEW_MAX_BYTES
+    val showPdfPreview = isPdf && pdfSize <= PDF_PREVIEW_MAX_BYTES
 
     Column(modifier = Modifier.fillMaxWidth()) {
     // First-page preview for small PDFs, mirroring the pre-send upload preview.

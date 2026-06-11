@@ -146,6 +146,19 @@ private fun isHorizontalRuleHtml(html: String?): Boolean {
     return trimmed.isNotEmpty() && HorizontalRuleHtmlRegex.matches(trimmed)
 }
 
+/**
+ * Extracts the MSC1767 voice-message waveform from a message content object.
+ *
+ * The samples live under `org.matrix.msc1767.audio.waveform` as a JSON array of amplitude
+ * values. Returns null when absent or empty so callers can fall back to a plain seek bar.
+ */
+private fun extractWaveform(content: JSONObject?): List<Int>? {
+    val arr = content?.optJSONObject("org.matrix.msc1767.audio")?.optJSONArray("waveform")
+        ?: return null
+    if (arr.length() == 0) return null
+    return List(arr.length()) { arr.optInt(it, 0) }
+}
+
 private fun isHorizontalRuleMessage(
     event: TimelineEvent,
     content: JSONObject?,
@@ -1656,6 +1669,11 @@ private fun RoomMediaMessageContent(
             info.optInt("duration", 0).takeIf { it > 0 }
         } else null
 
+        // Extract MSC1767 voice-message waveform (amplitude samples) for m.audio
+        val waveform = if (msgType == "m.audio") {
+            extractWaveform(content)
+        } else null
+
         // Extract is_animated from MSC4230 (for animated images: GIF, animated PNG, animated WebP)
         val isAnimated = if (msgType == "m.image") {
             info.optBoolean("is_animated", false).takeIf { info.has("is_animated") }
@@ -1689,7 +1707,8 @@ private fun RoomMediaMessageContent(
                 thumbnailHeight = thumbnailHeight,
                 duration = duration,
                 thumbnailIsEncrypted = thumbnailIsEncrypted,
-                isAnimated = isAnimated
+                isAnimated = isAnimated,
+                waveform = waveform
             )
 
         val mediaMessage =
@@ -2724,6 +2743,11 @@ private fun EncryptedMessageContent(
                     info.optInt("duration", 0).takeIf { it > 0 }
                 } else null
 
+                // Extract MSC1767 voice-message waveform (amplitude samples) for m.audio
+                val waveform = if (msgType == "m.audio") {
+                    extractWaveform(decrypted)
+                } else null
+
                 // Extract is_animated from MSC4230 (for animated images: GIF, animated PNG, animated WebP)
                 val isAnimated = if (msgType == "m.image") {
                     info.optBoolean("is_animated", false).takeIf { info.has("is_animated") }
@@ -2756,7 +2780,8 @@ private fun EncryptedMessageContent(
                         thumbnailHeight = thumbnailHeight,
                         duration = duration,
                         thumbnailIsEncrypted = thumbnailIsEncrypted,
-                        isAnimated = isAnimated
+                        isAnimated = isAnimated,
+                        waveform = waveform
                     )
 
                 val mediaMessage =

@@ -57,6 +57,41 @@ The outer `videoBlurHashPainter` (decoded once for the pre-reveal placeholder) i
 
 ---
 
+## Voice-message waveforms (`m.audio`)
+
+Voice messages carry an [MSC1767] amplitude waveform under
+`content["org.matrix.msc1767.audio"]["waveform"]` (a JSON array of ints) alongside a
+`duration` in ms. `AudioPlayer` renders this as a live, theme-aware seek bar instead of the plain
+Material `Slider`.
+
+**Parsing** (`TimelineEventItem.kt`): the private helper `extractWaveform(content)` reads the
+array into `MediaInfo.waveform: List<Int>?` (null when absent). It is called at both media-parse
+sites — unencrypted (from `content`) and encrypted (from `decrypted`) — guarded by
+`msgType == "m.audio"`. All other `MediaInfo(...)` construction sites omit the field (defaults to
+`null`).
+
+**Normalization** (`MediaFunctions.kt`, `normalizeWaveform`): turns the raw samples into bar
+heights in `0f..1f`.
+- **Peak-relative, not fixed-ceiling.** The spec nominally bounds samples to 0..1024, but bridges
+  (WhatsApp/Beeper) emit much smaller peaks (~70 in practice), so heights are normalized against
+  the actual peak sample. A fixed 1024 ceiling would render every bar as a flat nub.
+- **Resampled** (bucket-averaged) to a bar count derived from `durationMs` (~1 bar/90 ms, clamped
+  24–64) so clips of any length render at consistent density.
+- A `minHeight` floor (default `0.12f`) keeps leading silent bars visible as dots rather than
+  vanishing.
+
+**Rendering** (`MediaFunctions.kt`, `WaveformSeekBar`): a `Canvas` drawing centered, rounded
+vertical bars (`drawRoundRect` with a half-width corner radius = pill caps). It is **not a static
+image** — `playedColor`/`unplayedColor` are passed in from `MaterialTheme.colorScheme.primary`
+(and `primary.copy(alpha = 0.3f)`), so it tracks light/dark and dynamic color. The played/unplayed
+split is driven live by `currentPosition / duration`, so bars recolor as playback advances. Tap or
+horizontal-drag reports the touched fraction via `onSeek`, which calls `exoPlayer.seekTo`. When
+`waveform` is null/empty (non-voice audio), `AudioPlayer` falls back to the original `Slider`.
+
+[MSC1767]: https://github.com/matrix-org/matrix-spec-proposals/pull/1767
+
+---
+
 ## `/_gomuks/media/*` authentication
 
 The backend accepts two authentication methods for media endpoints (in addition to the `Cookie: gomuks_auth=<session_token>` used by the Coil interceptor):
