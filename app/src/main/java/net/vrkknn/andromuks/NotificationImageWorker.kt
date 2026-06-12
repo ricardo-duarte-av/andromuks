@@ -89,6 +89,7 @@ class NotificationImageWorker(
         private const val KEY_IMAGE_AUTH_TOKEN = "image_auth_token"
         private const val KEY_AUTH_TOKEN = "auth_token"
         private const val KEY_FETCH_EVENT = "fetch_event"
+        private const val KEY_MESSAGE_RECEIVED_AT = "message_received_at"
 
         /**
          * Enqueue a Phase-2 update for the given notification. Every media parameter is optional —
@@ -118,7 +119,11 @@ class NotificationImageWorker(
             // When true (and an eventId is present), the worker fetches the full event over
             // /_gomuks/exec/get_event to enrich the notification — currently used to detect and
             // attach voice messages (m.audio + msc3245.voice). See doWork's audio block.
-            fetchEvent: Boolean = false
+            fetchEvent: Boolean = false,
+            // Wall-clock instant the triggering FCM was received. The worker re-checks the dismiss
+            // tombstone against this immediately before re-posting, so a dismiss that landed during
+            // the download window cannot be resurrected (Race 2). See NotificationDismissTracker.
+            messageReceivedAt: Long = System.currentTimeMillis()
         ) {
             // Nothing deferred and no event to enrich → nothing to do.
             if (imageUrl == null && roomAvatarMxc == null && senderAvatarMxc == null && meAvatarMxc == null &&
@@ -141,6 +146,7 @@ class NotificationImageWorker(
                 .putString(KEY_ME_AVATAR_MXC, meAvatarMxc)
                 .putString(KEY_IMAGE_AUTH_TOKEN, imageAuthToken)
                 .putString(KEY_AUTH_TOKEN, authToken)
+                .putLong(KEY_MESSAGE_RECEIVED_AT, messageReceivedAt)
                 .build()
 
             val constraints = Constraints.Builder()
@@ -184,6 +190,7 @@ class NotificationImageWorker(
         val senderAvatarMxc = inputData.getString(KEY_SENDER_AVATAR_MXC)
         val meAvatarMxc = inputData.getString(KEY_ME_AVATAR_MXC)
         val fetchEvent = inputData.getBoolean(KEY_FETCH_EVENT, false)
+        val messageReceivedAt = inputData.getLong(KEY_MESSAGE_RECEIVED_AT, 0L)
 
         // Re-read auth tokens at run time so a delayed job uses fresh credentials. There are TWO
         // distinct tokens and conflating them breaks media downloads:
@@ -463,7 +470,29 @@ class NotificationImageWorker(
             }
         }
 
-        NotificationManagerCompat.from(applicationContext).notify(notifId, builder.build())
+        // Dismiss/re-post race guard (Race 2): the start-of-run check at the top of doWork() is not
+        // atomic with this re-post — a dismiss may have cancelled the notification during the
+        // multi-second download window above. Re-check under the same per-room monitor the dismiss
+        // path takes, immediately before notify(): bail if the notification is gone, OR if this
+        // room was dismissed after our triggering message was received (the latter also stops a
+        // stale worker from clobbering a newer notification that re-posted in the meantime).
+        val reposted = synchronized(NotificationDismissTracker.lockFor(roomId)) {
+            val stillActive = systemNm.activeNotifications.any { it.id == notifId }
+            if (!stillActive || NotificationDismissTracker.isDismissedAfter(roomId, messageReceivedAt)) {
+                false
+            } else {
+                NotificationManagerCompat.from(applicationContext).notify(notifId, builder.build())
+                true
+            }
+        }
+        if (!reposted) {
+            Androlog(
+                "Notifications",
+                "Room $roomId: worker re-post skipped — dismissed during download window (msgReceivedAt=$messageReceivedAt)"
+            )
+            if (BuildConfig.DEBUG) Log.d(TAG, "Worker re-post skipped for $roomId — dismissed during download window")
+            return Result.success()
+        }
         EnhancedNotificationDisplay.refreshGroupSummary(applicationContext, justPostedChild = true)
 
         // 8. Keep the in-memory MessagingStyle cache consistent so a later rebuild (new message in

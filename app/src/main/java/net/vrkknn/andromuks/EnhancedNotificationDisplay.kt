@@ -76,8 +76,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
 
         // Process-wide message cache shared with NotificationImageWorker so Phase 2 can
         // upgrade the cached text placeholder to a real image message. Access is serialised
-        // per-room by roomNotificationLocks inside showEnhancedNotification; the worker
-        // calls upgradeMessageToImage() which is independently thread-safe via synchronized.
+        // per-room by the NotificationDismissTracker monitor (getRoomLock) inside
+        // showEnhancedNotification; the worker calls upgradeMessageToImage() which is
+        // independently thread-safe via synchronized.
         internal val roomMessageCache = ConcurrentHashMap<String, ArrayDeque<MessagingStyle.Message>>()
         internal const val MAX_CACHED_MESSAGES_PER_ROOM = 5
 
@@ -209,7 +210,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     private val conversationsApi = ConversationsApi(context, homeserverUrl, authToken, "")
     
     // Per-room locks to prevent concurrent notification updates for the same room
-    private val roomNotificationLocks = ConcurrentHashMap<String, Any>()
+    // Per-room notification monitor now lives in NotificationDismissTracker so the dismiss path and
+    // the worker can take the same lock; getRoomLock() delegates there.
     
     // Max pixel size for notification/bubble avatars. Android downscales any bitmap
     // passed via Icon at notification build() time on the main thread (StrictMode
@@ -244,11 +246,15 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     private val roomsProcessingReply = java.util.concurrent.ConcurrentHashMap<String, Long>()
     
     /**
-     * Get or create a lock object for a specific room
+     * Get or create a lock object for a specific room.
+     *
+     * Delegates to [NotificationDismissTracker] so the post path (this class), the dismiss path
+     * ([FCMService.handleDismissNotification]), and the worker re-post ([NotificationImageWorker])
+     * all serialise on the *same* per-room monitor. This is what makes the "check dismiss tombstone
+     * then notify" and "record dismiss then cancel" sequences mutually exclusive — two distinct
+     * locks would reopen the race they are meant to close.
      */
-    private fun getRoomLock(roomId: String): Any {
-        return roomNotificationLocks.computeIfAbsent(roomId) { Any() }
-    }
+    private fun getRoomLock(roomId: String): Any = NotificationDismissTracker.lockFor(roomId)
     
     /**
      * Create notification channel
@@ -409,9 +415,18 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
 
     
     /**
-     * Show enhanced notification with conversation features
+     * Show enhanced notification with conversation features.
+     *
+     * [messageReceivedAt] is the wall-clock instant the triggering FCM was received (see
+     * [NotificationDismissTracker]). Immediately before the post, the notify is gated on whether a
+     * dismiss for this room arrived after that instant — closing the race where a dismiss cancels
+     * nothing because this post had not landed yet. Defaults to now for non-FCM callers (reply /
+     * legacy paths) that are not racing a dismiss.
      */
-    suspend fun showEnhancedNotification(notificationData: NotificationData) {
+    suspend fun showEnhancedNotification(
+        notificationData: NotificationData,
+        messageReceivedAt: Long = System.currentTimeMillis()
+    ) {
         try {
             // Check if room is marked as low priority - skip notifications for low priority rooms
             val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
@@ -957,6 +972,25 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         } ?: Log.w(TAG, "Channel not found: $channelId")
                     }
                 }
+                // Dismiss/post race guard: if the backend dismissed this room AFTER the triggering
+                // message was received, a dismiss is racing this post and its cancel() may have
+                // already no-oped against a not-yet-posted notification. Suppress instead of posting
+                // a notification the user has already read. We are inside synchronized(roomLock),
+                // which is the same monitor the dismiss path takes — so record-then-cancel and
+                // check-then-notify cannot interleave. See NotificationDismissTracker.
+                if (NotificationDismissTracker.isDismissedAfter(notificationData.roomId, messageReceivedAt)) {
+                    notificationManager.cancel(notifID)   // ensure nothing lingers if it slipped through
+                    // The build above appended this message to roomMessageCache (line ~759). Since
+                    // the room is read, drop the cached history so this already-seen message does
+                    // not replay in a future notification's MessagingStyle.
+                    clearRoomMessageCache(notificationData.roomId)
+                    Androlog(
+                        "Notifications",
+                        "Room ${notificationData.roomId}: post suppressed — room dismissed after msg received (msgReceivedAt=$messageReceivedAt)"
+                    )
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Suppressing post for ${notificationData.roomId} — dismissed after message received")
+                    return  // skip notify AND the onRoomActivity / Direct Share bump below
+                }
                 notificationManager.notify(notifID, notification)
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "✓ Notification posted successfully for room: ${notificationData.roomId}")
@@ -1021,7 +1055,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     meAvatarMxc = deferMeAvatar,
                     imageAuthToken = notificationData.imageAuthToken ?: "",
                     authToken = authToken,
-                    fetchEvent = fetchEvent
+                    fetchEvent = fetchEvent,
+                    messageReceivedAt = messageReceivedAt
                 )
             }
 

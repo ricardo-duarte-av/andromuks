@@ -426,7 +426,13 @@ class FCMService : FirebaseMessagingService() {
             for (i in 0 until messagesArray.length()) {
                 val message = messagesArray.getJSONObject(i)
                 if (BuildConfig.DEBUG) Log.d(TAG, "Processing message: $message")
-                
+
+                // Wall-clock instant this message FCM was received. Compared against any later
+                // dismiss for the same room (NotificationDismissTracker) so a dismiss racing this
+                // post can suppress it. Captured here, before any async work, so it reflects FCM
+                // arrival order rather than processing latency.
+                val messageReceivedAt = System.currentTimeMillis()
+
                 // Extract message data from the correct JSON structure
                 val roomId = message.optString("room_id", "")
                 val eventId = message.optString("event_id", "")
@@ -547,7 +553,7 @@ class FCMService : FirebaseMessagingService() {
                     }
                     if (!wasCancelled) {
                         withContext(NonCancellable) {
-                            ensureNotificationDisplay()?.showEnhancedNotification(notificationData)
+                            ensureNotificationDisplay()?.showEnhancedNotification(notificationData, messageReceivedAt)
                             synchronized(pendingNotificationsLock) {
                                 pendingNotifications.remove(roomId)
                             }
@@ -715,9 +721,16 @@ class FCMService : FirebaseMessagingService() {
                         if (BuildConfig.DEBUG) Log.d(TAG, "No notification found for room: $roomId but bubble is open - not cancelling")
                     } else {
                         if (BuildConfig.DEBUG) Log.d(TAG, "No notification found for room: $roomId in activeNotifications - attempting cancel anyway (may be stale)")
-                        EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
-                        notificationManagerCompat.cancel(notifID)
+                        // Record the dismiss even though nothing is on screen: a message post for
+                        // this room may still be in flight (Race 1). The tombstone lets that post
+                        // suppress itself when it reaches its guarded notify().
+                        synchronized(NotificationDismissTracker.lockFor(roomId)) {
+                            NotificationDismissTracker.recordDismiss(roomId)
+                            EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
+                            notificationManagerCompat.cancel(notifID)
+                        }
                         EnhancedNotificationDisplay.refreshGroupSummary(this, justCancelledId = notifID)
+                        Androlog("Notifications", "Room $roomId: dismiss recorded (no active notification — cancel-anyway / in-flight guard)")
                     }
                     continue
                 }
@@ -729,9 +742,13 @@ class FCMService : FirebaseMessagingService() {
                         pendingNotifications.remove(roomId)
                     }
                     // Also cancel the notification ID in case it gets posted before we finish
-                    EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
-                    notificationManagerCompat.cancel(notifID)
+                    synchronized(NotificationDismissTracker.lockFor(roomId)) {
+                        NotificationDismissTracker.recordDismiss(roomId)
+                        EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
+                        notificationManagerCompat.cancel(notifID)
+                    }
                     EnhancedNotificationDisplay.refreshGroupSummary(this, justCancelledId = notifID)
+                    Androlog("Notifications", "Room $roomId: dismiss recorded (pending notification cancelled before post)")
                     if (BuildConfig.DEBUG) Log.d(TAG, "Successfully cancelled pending notification for room: $roomId")
                     continue
                 }
@@ -786,9 +803,13 @@ class FCMService : FirebaseMessagingService() {
                     // next notification for this room starts fresh and does not re-display
                     // messages the user has already acknowledged.
                     if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId - Dismissing notification (no active bubble)")
-                    EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
-                    notificationManagerCompat.cancel(notifID)
+                    synchronized(NotificationDismissTracker.lockFor(roomId)) {
+                        NotificationDismissTracker.recordDismiss(roomId)
+                        EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
+                        notificationManagerCompat.cancel(notifID)
+                    }
                     EnhancedNotificationDisplay.refreshGroupSummary(this, justCancelledId = notifID)
+                    Androlog("Notifications", "Room $roomId: notification dismissed (active, no bubble)")
                     if (BuildConfig.DEBUG) Log.d(TAG, "Successfully dismissed notification for room: $roomId")
                 }
                 
