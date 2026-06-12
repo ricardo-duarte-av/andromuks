@@ -106,9 +106,19 @@ Scroll speed is sampled via `LazyListState.firstVisibleItemIndex` changes. If th
 
 `avatarLoadCutoff` tracks `firstVisibleItemIndex + 25`. Items beyond this index receive `shouldLoadAvatar = false`, avoiding unnecessary Coil decode requests for rooms far outside the viewport.
 
-### Sticky-top scroll
+### Attach-to-top scroll
 
-When `effectiveInitialSyncComplete` transitions to `true`, `RoomListContent` calls `scrollToItem(0)` on the active `LazyListState`. This fixes the viewport shift that occurs when rooms prepended to the top during initial sync push `firstVisibleItemIndex` upward.
+The room list re-sorts whenever sync updates arrive — the room with the newest message floats to the top. Because the `LazyColumn` is **keyed by room ID**, prepending newer rooms above the current top keeps the *old* top room anchored on screen and silently bumps `firstVisibleItemIndex` upward. An index-based "am I at the top?" check therefore gives a false negative right after a re-sort, leaving the user staring at a now-stale anchor while fresher rooms pile up off-screen above the fold (this is the bug the old `firstVisibleItemIndex <= 1` guard suffered from).
+
+`RoomListContent` instead keeps an explicit **`attachedToTop`** intent flag:
+
+- **Initial value**: `true` when the list mounts at the very top (`firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset == 0`), so the post-initial-sync re-sort lands the user on the newest room. If the section's hoisted `LazyListState` was already scrolled down (returning to a tab), it starts `false`.
+- **Updated only by real user drags**: a `DragInteraction.Start` sets `userDragging = true`; when the resulting scroll settles (`isScrollInProgress` falls), `attachedToTop` is recomputed from whether the user landed at the very top. Programmatic prepends never touch the flag — that's the whole point, since prepends are what corrupt the index.
+- **Effect**: `LaunchedEffect(firstRoomId)` scrolls to index 0 whenever the top room changes *and* `attachedToTop` is true. It **animates** the scroll when the hop is short (`firstVisibleItemIndex <= ATTACH_ANIMATE_THRESHOLD`, currently `8` — roughly one screenful, so the everyday "one new message bumps a room to the top" case, which always lands at index 1) so the scroll runs alongside the rows' `animateItem` placement slide and the re-sort stays visible; it **snaps** (instant) for larger jumps (the cold-start mass re-sort, where the keyed prepend bumps the index by dozens) to avoid a long janky scroll.
+
+Net behaviour: (a) on cold start, after the initial-sync re-sort, the viewport snaps to the newest room; (b) once the user scrolls back to the top, they re-attach, so subsequent re-sorts keep the true top room in view instead of letting it jump above the fold.
+
+The parent `RoomListScreen` also calls `scrollToItem(0)` once when `effectiveInitialSyncComplete` transitions to `true`, as a belt-and-suspenders safety net for the initial-sync viewport shift.
 
 ### Back handler
 

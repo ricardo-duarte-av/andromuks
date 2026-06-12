@@ -164,6 +164,7 @@ import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import net.vrkknn.andromuks.ui.components.ExpressiveStatusRow
 
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -2707,6 +2708,12 @@ fun TabButton(
     }
 }
 
+/**
+ * Max firstVisibleItemIndex for which an attach-to-top re-sort animates the scroll (preserving the
+ * visible re-sort) rather than snapping. Above this, the jump is treated as a bulk re-sort and snaps.
+ */
+private const val ATTACH_ANIMATE_THRESHOLD = 8
+
 @OptIn(ExperimentalMaterial3Api::class, FlowPreview::class, ExperimentalFoundationApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun RoomListContent(
@@ -2783,17 +2790,61 @@ fun RoomListContent(
         debouncedRooms = filteredRooms
     }
     
-    // STICKY TOP: Whenever the 'top' room ID changes, snap to the top
-    // Only snap if the user is already near the top (index <= 1)
-    // This prevents "yanking" the user back if they are scrolling deep down
+    // ATTACH TO TOP: Track whether the list should stay pinned to the actual top room.
+    //
+    // The room list re-sorts when sync updates arrive (newest message floats to the top).
+    // Because the LazyColumn is keyed by room ID, prepending newer rooms above the current
+    // top keeps the *old* top anchored on screen and silently bumps firstVisibleItemIndex
+    // upward. An index-based "am I at the top?" guard therefore gives a false negative right
+    // after a re-sort, leaving the user looking at a now-stale anchor while fresh rooms pile
+    // up off-screen above the fold.
+    //
+    // Instead we keep an explicit intent flag. It starts true on cold start (so the
+    // post-initial-sync re-sort lands us on the newest room) and is updated *only* by real
+    // user drags — programmatic prepends never touch it. While attached, every change to the
+    // top room snaps the viewport back to index 0.
     val firstRoomId = remember(debouncedRooms) {
         debouncedRooms.firstOrNull()?.id
     }
-    
+
+    var attachedToTop by remember {
+        mutableStateOf(
+            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+        )
+    }
+
+    // Re-evaluate attachment after a user-initiated drag settles (ignoring the fling tail and
+    // any programmatic shifts). Landing at the very top attaches; scrolling away detaches.
+    var userDragging by remember { mutableStateOf(false) }
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) {
+                userDragging = true
+            }
+        }
+    }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (!scrolling && userDragging) {
+                userDragging = false
+                attachedToTop = listState.firstVisibleItemIndex == 0 &&
+                    listState.firstVisibleItemScrollOffset == 0
+            }
+        }
+    }
+
     LaunchedEffect(firstRoomId) {
-        if (listState.firstVisibleItemIndex <= 1) {
-            // User is near the top - animate scroll to top when first room changes
-            listState.animateScrollToItem(0)
+        if (attachedToTop) {
+            // For a short hop (the everyday case: one new message bumps a room to the top),
+            // animate the scroll so it runs alongside the rows' animateItem placement slide and
+            // the re-sort stays visible. For a large jump (cold-start mass re-sort, where the
+            // keyed prepend bumps the index by dozens) snap instead, to avoid a long janky
+            // scroll through off-screen rows the user never meaningfully sees.
+            if (listState.firstVisibleItemIndex <= ATTACH_ANIMATE_THRESHOLD) {
+                listState.animateScrollToItem(0)
+            } else {
+                listState.scrollToItem(0)
+            }
         }
     }
     
