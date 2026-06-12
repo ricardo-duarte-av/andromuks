@@ -136,6 +136,7 @@ fun RoomInfoScreen(
     var showPowerLevelsDialog by remember { mutableStateOf(false) }
     var showServerAclDialog by remember { mutableStateOf(false) }
     var showMembersDialog by remember { mutableStateOf(false) }
+    var showPushRulesDialog by remember { mutableStateOf(false) }
     var memberDialogSearchQuery by remember { mutableStateOf("") }
     
     // State for leave room confirmation dialog
@@ -520,7 +521,7 @@ fun RoomInfoScreen(
                     }
                 }
                 
-                // Members + Media Gallery Buttons
+                // Members + Media Gallery + Push Rules Buttons
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -544,7 +545,15 @@ fun RoomInfoScreen(
                             .weight(1f)
                             .height(48.dp)
                     ) {
-                        Text("Media Gallery", style = MaterialTheme.typography.labelMedium)
+                        Text("Media\nGallery", style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center)
+                    }
+                    Button(
+                        onClick = { showPushRulesDialog = true },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                    ) {
+                        Text("Push\nRules", style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center)
                     }
                 }
 
@@ -802,6 +811,16 @@ fun RoomInfoScreen(
         )
     }
     
+    // Per-room Push Rules Dialog
+    if (showPushRulesDialog) {
+        RoomPushRulesDialog(
+            roomId = roomId,
+            roomName = roomStateInfo?.name ?: roomStateInfo?.canonicalAlias ?: roomId,
+            appViewModel = appViewModel,
+            onDismiss = { showPushRulesDialog = false }
+        )
+    }
+
     // Members Dialog
     if (showMembersDialog && roomStateInfo != null) {
         MembersDialog(
@@ -820,6 +839,134 @@ fun RoomInfoScreen(
             }
         )
     }
+}
+
+/**
+ * Per-room push rules editor. Lets the user pick a notification level for this room (backed by the
+ * room-scoped push rule keyed by roomId) and review/toggle any other rules that specifically target
+ * the room. Writes go through [AppViewModel]'s push-rule forwarders; the next sync reconciles.
+ */
+@Composable
+private fun RoomPushRulesDialog(
+    roomId: String,
+    roomName: String,
+    appViewModel: AppViewModel,
+    onDismiss: () -> Unit
+) {
+    val ruleset = appViewModel.pushRuleset
+    val currentLevel = ruleset.roomNotificationLevel(roomId)
+    val allAffecting = ruleset.rulesAffectingRoom(roomId)
+    var ruleQuery by remember { mutableStateOf("") }
+    val affecting = if (ruleQuery.isBlank()) allAffecting else allAffecting.filter { rule ->
+        val q = ruleQuery.trim().lowercase()
+        rule.ruleId.lowercase().contains(q) ||
+            rule.displayTitle().lowercase().contains(q) ||
+            rule.humanSummary().lowercase().contains(q)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Push Rules") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = roomName,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "Notifications for this room",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                val levels = listOf(
+                    RoomNotificationLevel.ALL to "All messages",
+                    RoomNotificationLevel.DEFAULT to "Default (use account rules)",
+                    RoomNotificationLevel.MUTE to "Mute"
+                )
+                levels.forEach { (level, label) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { if (level != currentLevel) appViewModel.setRoomNotificationLevel(roomId, level) },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = level == currentLevel,
+                            onClick = { if (level != currentLevel) appViewModel.setRoomNotificationLevel(roomId, level) }
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(label, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+
+                if (allAffecting.isNotEmpty()) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    Text(
+                        text = "Other rules affecting this room",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = ruleQuery,
+                        onValueChange = { ruleQuery = it },
+                        placeholder = { Text("Search rules") },
+                        leadingIcon = { Icon(imageVector = Icons.Filled.Search, contentDescription = null) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 220.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (affecting.isEmpty()) {
+                            item {
+                                Text(
+                                    text = "No rules match \"$ruleQuery\".",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        items(affecting) { rule ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "${rule.displayTitle()} (${rule.kind.displayName.lowercase()})",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = rule.humanSummary(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Switch(
+                                    checked = rule.enabled,
+                                    onCheckedChange = { appViewModel.setPushRuleEnabled(rule.kind, rule.ruleId, it) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        }
+    )
 }
 
 data class PinnedEventItem(

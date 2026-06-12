@@ -1056,7 +1056,13 @@ class AppViewModel : ViewModel() {
     
     var memberUpdateCounter by mutableStateOf(0)
         internal set
-    
+
+    // Parsed m.push_rules ruleset — single source of truth for the Push Rules editor. Re-parsed from
+    // account_data on every sync that carries m.push_rules, and updated optimistically by
+    // PushRulesCoordinator on each edit (the next sync reconciles). See utils/PushRules.kt.
+    var pushRuleset by mutableStateOf(net.vrkknn.andromuks.utils.PushRuleset.EMPTY)
+        internal set
+
     var roomStateUpdateCounter by mutableStateOf(0)
         private set
     
@@ -1366,6 +1372,9 @@ class AppViewModel : ViewModel() {
 
     /** Account data (m.direct, tags, ignore, recent emojis) — see [AccountDataCoordinator]. */
     internal val accountDataCoordinator by lazy { AccountDataCoordinator(this) }
+
+    /** Push rules editor send layer — see [PushRulesCoordinator]. */
+    internal val pushRulesCoordinator by lazy { PushRulesCoordinator(this) }
 
     /** Slash commands — see [SlashCommandsCoordinator]. */
     private val slashCommandsCoordinator by lazy { SlashCommandsCoordinator(this) }
@@ -10311,6 +10320,30 @@ class AppViewModel : ViewModel() {
         val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand("set_account_data", requestId, mapOf("type" to type, "content" to content))
     }
+
+    // ── Push rules (see PushRulesCoordinator) ─────────────────────────────────
+    fun setPushRuleEnabled(kind: net.vrkknn.andromuks.utils.PushRuleKind, ruleId: String, enabled: Boolean) =
+        pushRulesCoordinator.setRuleEnabled(kind, ruleId, enabled)
+
+    fun setPushRulePreset(kind: net.vrkknn.andromuks.utils.PushRuleKind, ruleId: String, preset: net.vrkknn.andromuks.utils.NotificationPreset) =
+        pushRulesCoordinator.setRulePreset(kind, ruleId, preset)
+
+    fun setPushRuleActions(kind: net.vrkknn.andromuks.utils.PushRuleKind, ruleId: String, actions: List<Any>) =
+        pushRulesCoordinator.setRuleActions(kind, ruleId, actions)
+
+    fun putPushRule(
+        kind: net.vrkknn.andromuks.utils.PushRuleKind,
+        ruleId: String,
+        actions: List<Any>,
+        conditions: List<Map<String, Any>> = emptyList(),
+        pattern: String = ""
+    ) = pushRulesCoordinator.putRule(kind, ruleId, actions, conditions, pattern)
+
+    fun deletePushRule(kind: net.vrkknn.andromuks.utils.PushRuleKind, ruleId: String) =
+        pushRulesCoordinator.deleteRule(kind, ruleId)
+
+    fun setRoomNotificationLevel(roomId: String, level: net.vrkknn.andromuks.utils.RoomNotificationLevel) =
+        pushRulesCoordinator.setRoomNotificationLevel(roomId, level)
 
     /**
      * Set room member avatar (myroomavatar command)

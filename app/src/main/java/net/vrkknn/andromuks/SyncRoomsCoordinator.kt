@@ -26,6 +26,7 @@ private val ACCOUNT_DATA_ALLOWLIST = setOf(
     "m.image_pack.rooms",
     "im.ponies.emote_rooms",
     "fi.mau.gomuks.preferences",
+    "m.push_rules",
 )
 
 private fun filterAccountDataToAllowlist(src: JSONObject): JSONObject {
@@ -159,6 +160,15 @@ internal class SyncRoomsCoordinator(
                     // CRITICAL FIX: Store account_data in singleton cache so all ViewModel instances can access it
                     // This ensures secondary instances (e.g., opened from Contacts) can access account_data
                     AccountDataCache.setAllAccountData(accountDataJson)
+
+                    // m.push_rules is stored in AccountDataCache (above); also parse it into the
+                    // typed ruleset state that backs the Push Rules editor. This reconciles any
+                    // optimistic edit made since the last sync. See PushRulesCoordinator / utils/PushRules.kt.
+                    if (accountDataJson.has("m.push_rules")) {
+                        pushRuleset = net.vrkknn.andromuks.utils.parsePushRules(
+                            accountDataJson.optJSONObject("m.push_rules")
+                        )
+                    }
 
                     // Account data is already extracted, process it directly
                     if (BuildConfig.DEBUG) {
