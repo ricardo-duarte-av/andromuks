@@ -103,6 +103,35 @@ fun SettingsScreen(
                 }
             }
 
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Push rules",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Control which messages notify you, play a sound, or are highlighted — synced across devices via account data.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = { navController.navigate("push_rules") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Open Push Rules")
+                    }
+                }
+            }
+
             // ── Room List Section ─────────────────────────────────────────────
             Text(
                 text = "Room List",

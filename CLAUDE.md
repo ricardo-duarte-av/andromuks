@@ -165,3 +165,4 @@ When investigating protocol behaviour, message shapes, or backend fields, consul
 | Androlog (persistent release-safe event log, `Androlog(category, text)`, viewer screen) | [docs/ANDROLOG.md](docs/ANDROLOG.md) |
 | Message search (`search_local`/`search_server`, SearchResultsScreen, next_batch pagination) | [docs/SEARCH.md](docs/SEARCH.md) |
 | Location sharing (MSC3488, picker overlay, Geocoder search, Static Maps thumbnails, GCP setup) | [docs/LOCATION_SHARING.md](docs/LOCATION_SHARING.md) |
+| Push rules editor (m.push_rules ingest, global editor, per-room level selector, `update_push_rule`) | [docs/PUSH_RULES.md](docs/PUSH_RULES.md) |

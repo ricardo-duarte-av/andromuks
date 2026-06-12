@@ -1812,6 +1812,12 @@ fun AppNavigation(
                 navController = navController
             )
         }
+        composable("push_rules") {
+            PushRulesScreen(
+                appViewModel = appViewModel,
+                navController = navController
+            )
+        }
         composable(
             route = "room_preferences/{roomId}",
             arguments = listOf(androidx.navigation.navArgument("roomId") { type = androidx.navigation.NavType.StringType })
