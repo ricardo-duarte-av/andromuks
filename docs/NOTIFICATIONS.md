@@ -168,6 +168,27 @@ Two details specific to the worker's media handling:
 
 The protection window is **not** set for replies sent from other clients (Webmuks, another Andromuks instance, etc.). Those replies arrive via WebSocket sync and do not go through `NotificationReplyReceiver`, so the dismiss FCM they trigger is allowed through and correctly clears the Android notification.
 
+### Dismiss/post race — the per-room dismiss tombstone
+
+A dismiss FCM (`{ "dismiss": [{ "room_id": … }] }`) carries **only `room_id`** — no event id, no timestamp (confirmed against gomuks' `PushDismiss` struct). It is a fire-and-forget `cancel()` with no durable memory. That left two races whenever a dismiss arrived near-simultaneously with the message it was meant to clear — reproducible when another client (e.g. Webmuks) marks a DM read *faster than the FCM round-trip*, so the message FCM and the dismiss FCM land within milliseconds:
+
+- **Race 1 (in-flight post).** The dismiss is processed while `handleMessageNotification` is mid-post: the dismiss sees no active notification (the `notify()` hasn't run yet), so its `cancel()` is a no-op, and then the post lands and is never cancelled again. The old `pendingNotifications` set could not stop this — removing the pending marker doesn't halt a post already past its gate and running under `NonCancellable`.
+- **Race 2 (worker resurrection).** The dismiss cancels a posted notification, then `NotificationImageWorker` re-posts after its multi-second download window and **resurrects** it. The worker's start-of-run "still active?" check (`doWork` step 1) is not atomic with the re-post seconds later.
+
+**Fix — `NotificationDismissTracker`** (process-wide singleton, in-memory; `FCMService` and the worker share the process). It holds a per-room **dismiss timestamp** (`recordDismiss` / `isDismissedAfter`) and a per-room **monitor** (`lockFor`):
+
+- Every post site checks `isDismissedAfter(roomId, messageReceivedAt)` immediately before `notify()`; the dismiss path calls `recordDismiss(roomId)` immediately before `cancel()`.
+- **Both sides take the *same* monitor.** `EnhancedNotificationDisplay.getRoomLock` now delegates to `NotificationDismissTracker.lockFor`, and the dismiss path (`FCMService.handleDismissNotification`, all three cancel branches) and the worker re-post wrap their `record`/`cancel`/`notify` in `synchronized(lockFor(roomId))`. Two distinct locks would reopen the race, so this delegation is load-bearing.
+
+**Why a timestamp, not a flag.** The comparison is **directional**: a post is suppressed only when the dismiss was processed *after* the message that triggered it was received. `messageReceivedAt` is captured at the top of `handleMessageNotification` (before any async work, so it reflects FCM arrival order) and threaded through `showEnhancedNotification` → `NotificationImageWorker.enqueue`. Both it and the dismiss time are on-device wall-clock, so they compare directly. The tombstone is a **high-water mark** — a stale dismiss can never block a *newer* message, because the newer message's receipt time is greater. This makes quick message bursts in the same room safe: only the messages that were actually read get suppressed (TTL on the map is hygiene only, not correctness).
+
+Additional effects:
+- **Suppressed posts clear the room MessagingStyle cache.** The build appends the incoming message to `roomMessageCache` *before* the guard, so a suppressed (already-read) message would otherwise replay in a future notification's history. The suppression branch calls `clearRoomMessageCache`.
+- **The worker re-post re-checks active state *and* the tombstone under the lock** (not only at start-of-run). Besides killing resurrection, the tombstone arm stops a stale worker from clobbering a *newer* notification that re-posted during its download window.
+- **Androlog.** The dismiss subsystem previously had no `Androlog` (invisible in release). It now logs each outcome under the `Notifications` category: `dismissed (active…)`, `dismiss recorded (… in-flight guard)`, `post suppressed…`, `worker re-post skipped…`.
+
+**The one unsolved edge — dismiss-before-message.** If a dismiss FCM is *delivered before* the message it follows, the directional compare (`dismissTime > messageReceivedAt`) declines to suppress and the notification lingers. This is unsolvable locally because the dismiss payload carries nothing to order it against the message. It is also rare: the message is **high-priority** FCM (delivered immediately, bypasses Doze) while the dismiss is **normal-priority** (deferred) — so ordering normally favours the message. It only inverts if FCM downgrades the message to normal under high-priority quota pressure (e.g. a very bursty DM) and then reorders it past the dismiss. The failure mode is a lingering notification — strictly less-bad than a lost one — so it is accepted rather than fixed. The order-independent fix would be reconciliation against gomuks read state via `/exec` (the message carries `event_rowid`, and the worker already round-trips per notification), or a backend change adding a read-up-to reference to `PushDismiss`.
+
 ## Bubble integration
 
 Chat bubbles (Android 11+) are tracked via the `BubbleTracker` singleton. `FCMService` consults it before dismissing notifications to avoid collapsing an open bubble.
