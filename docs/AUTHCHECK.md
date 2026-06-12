@@ -71,6 +71,8 @@ Registered in `LaunchedEffect(Unit)` **before** `initializeWebSocketConnection()
 5. Pending user info (matrix:u/ URI) → `user_info/<id>`
 6. Default → `navigateToRoomListIfNeeded("default flow")`
 
+> **Note (direct-room, item 2):** The callback fires only *after* `checkStartupComplete()` — i.e. after the init parse. On a **cache hit** the direct room is now opened **cache-first** by the `spacesLoaded` effect *before* the parse (see [Cold-start cache-first room_timeline](#cold-start-cache-first-room_timeline)), which clears `directRoomNavigation` — so the callback's item-2 block runs only for the **cache-miss fallback** (room not yet in the hydrated `roomMap`, e.g. a brand-new room from the push). The block carries an idempotency guard: if `currentRoute == "room_timeline/<encodedRoomId>"` already, it settles flags and returns instead of re-navigating, and its `navigate("room_timeline/…")` uses `launchSingleTop = true`.
+
 ---
 
 ### `navigateToRoomListIfNeeded(reason)`
@@ -91,8 +93,11 @@ Local helper that handles the nuances of navigating to `room_list`:
 **Warm start (WebSocket already connected)**
 `LaunchedEffect(Unit)` → `appViewModel.attachToExistingWebSocketIfAvailable()` → drain sentinel processed → navigation callback fires (or `navigateToRoomListIfNeeded` called inline) → destination reached.
 
-**Deep-link / notification fast path**
+**Deep-link / notification fast path (warm)**
 WebSocket already connected **and** `getDirectRoomNavigation() != null` → skips the startup checklist UI entirely (`skipStartupScreenUi = true`, blank surface shown) → navigates directly to `room_timeline/<id>` via the navigation callback.
+
+**Deep-link / notification cache-first path (cold)**
+WebSocket **not** connected yet, `getDirectRoomNavigation() != null`, and the room is in the hydrated `roomMap` → the `spacesLoaded` effect opens `room_timeline/<id>` immediately (before the init parse). See [Cold-start cache-first room_timeline](#cold-start-cache-first-room_timeline).
 
 **Offline / cached fast path**
 `LaunchedEffect(spacesLoaded, isStartupComplete, hasCredentials)` fires when `spacesLoaded=true` and network is `NONE` → navigates to `room_list` from cached data without waiting for WebSocket.
@@ -237,6 +242,22 @@ On cold start, the app paints `RoomListScreen` from the persisted room cache **b
 4. **`MainActivity`** wraps `RoomListScreen` in `AnimatedVisibility(visible = cacheReady || (isStartupComplete && showRoomList))` where `cacheReady = spacesLoaded`. The `cacheReady` short-circuit is what allows `RoomListScreen` to compose before the WebSocket init completes. The `enter` transition is `tween(0)` (instant) for the same reason.
 5. `AuthCheck`'s main effect then **`delay(32)`** (one frame) so Compose can paint, then continues with `initializeFCM(...)` on IO and the WebSocket connect. This keeps the heavy startup work from competing with the first paint.
 6. The `auth_check ↔ room_list` `NavHost` transitions are `EnterTransition.None / ExitTransition.None` — there is no shared-element avatar to fly any more, so the fade is dead weight.
+
+### Cold-start cache-first room_timeline
+
+When a cold start carries a direct-room target (FCM tap / shortcut / widget), the room's timeline is opened **cache-first** — its header (name/avatar/bridge, from the hydrated `roomMap` + `BridgeInfoCache`) paints immediately with a "Room loading…" body, instead of holding on the startup overlay until the WebSocket finishes the init parse.
+
+The lever is the **`spacesLoaded` effect** (the same effect that paints `room_list` cache-first). Its direct-room branch previously *skipped* and deferred to the post-init navigation callback; it now opens the timeline directly when `getRoomById(directRoomId) != null` (a cache hit):
+
+1. `setCurrentRoomIdForTimeline(directRoomId)` — the `onInitComplete` deferred-paginate drain only re-fires when `currentRoomId == roomId` (else it bails, leaving `isTimelineLoading` stuck), so this must be set before navigating.
+2. `navigateToRoomWithCache(directRoomId[, ts])` — kicks the load. On a genuine cold start the cache is empty, so this routes to `requestRoomTimeline`, which (WS down) early-exits into `roomsAwaitingInitCompletePaginate`; `onInitComplete` then drains it and fires the 100-event paginate.
+3. `openedViaDirectNotification = true` — makes `navigateToRoomListIfNeeded` bail instead of redirecting back to `room_list` (Known Bug #7).
+4. `clearDirectRoomNavigation()` — right before navigating (never earlier — the stray-`room_list` race), which also makes the later post-init callback see `null` and skip its own direct block (no double-navigate).
+5. Synthesize `[room_list, room_timeline]` (`navigate("room_list") { popUpTo("auth_check") }` then `navigate("room_timeline/<id>") { launchSingleTop = true }`) and set `navigationHandled = true`.
+
+**Why the header paints while the body loads:** `RoomHeader` is the first child of `RoomTimelineScreen`'s `Column`, rendered unconditionally from `fallbackName`/`fallbackAvatarUrl` (no `isLoading`/`readinessCheckComplete` wrapper). Only the `weight(1f)` body box is gated by `shouldShowLoading` (shows "Room loading…" until `timelineEvents` lands). The screen's own `LaunchedEffect(roomId)` readiness wait is a background coroutine that gates the body only — it does **not** block the header. The `MainActivity` startup overlay is scoped inside `composable("room_list")`, so navigating to `room_timeline` leaves it uncomposed (no overlay bleed).
+
+**Cache miss (room not in `roomMap`):** the branch is skipped, `directRoomNavigation` stays set, and the post-init navigation callback (item 2 above) handles it with full sync data — the original behaviour, preserved.
 
 ### `RoomMetadataStore` v2 schema
 

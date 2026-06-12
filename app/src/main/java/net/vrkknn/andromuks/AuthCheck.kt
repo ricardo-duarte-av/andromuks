@@ -209,6 +209,12 @@ fun AuthCheckScreen(
                 }
                 
                 // Check for direct room navigation first (from notifications)
+                //
+                // NOTE: on a cache hit the spaces-loaded LaunchedEffect below has already opened
+                // room_timeline cache-first (header paints during the init parse) and cleared
+                // directRoomNavigation, so this block runs ONLY for the cache-miss fallback —
+                // a room not yet in the hydrated roomMap (e.g. a brand-new room from the push),
+                // where we must wait for sync data before we can render a real header.
                 val directRoomId = appViewModel.getDirectRoomNavigation()
                 if (directRoomId != null) {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Direct room navigation detected (notification), navigating directly to room_timeline: $directRoomId")
@@ -216,6 +222,19 @@ fun AuthCheckScreen(
                     // This bypasses RoomListScreen to avoid delays and missing rooms
                     val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
                     val encodedRoomId = java.net.URLEncoder.encode(directRoomId, "UTF-8")
+
+                    // Idempotency guard: if the cache-first effect already navigated to this room's
+                    // timeline, don't re-navigate (would push a duplicate entry / reload). Just
+                    // settle flags and bail. Defence-in-depth for the race where this callback
+                    // fires before the cache-first effect clears directRoomNavigation.
+                    val routeNow = navController.currentBackStackEntry?.destination?.route
+                    if (routeNow == "room_timeline/$encodedRoomId") {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: room_timeline/$directRoomId already open (cache-first) — skipping re-navigation")
+                        appViewModel.openedViaDirectNotification = true
+                        appViewModel.isLoading = false
+                        appViewModel.clearDirectRoomNavigation()
+                        return@setNavigationCallback
+                    }
 
                     // Set current room ID and navigate to room with cache
                     appViewModel.setCurrentRoomIdForTimeline(directRoomId)
@@ -250,7 +269,9 @@ fun AuthCheckScreen(
                         navController.navigate("room_list") {
                             popUpTo("auth_check") { inclusive = true }
                         }
-                        navController.navigate("room_timeline/$encodedRoomId")
+                        // launchSingleTop: defence-in-depth against a duplicate room_timeline entry
+                        // if the cache-first effect raced us onto the same room (see bug #10).
+                        navController.navigate("room_timeline/$encodedRoomId") { launchSingleTop = true }
                         appViewModel.openedViaDirectNotification = true
                     }
                     return@setNavigationCallback
@@ -405,13 +426,53 @@ fun AuthCheckScreen(
             val currentNetworkType = WebSocketService.getCurrentNetworkType()
 
             // Pinned shortcut / conversation widget / FCM: MainActivity stores direct room navigation.
-            // Do not navigate to room_list here — that flashes RoomListScreen before the WebSocket
-            // callback opens RoomTimelineScreen. Stay on auth_check until the callback runs.
-            if (appViewModel.getDirectRoomNavigation() != null) {
-                if (BuildConfig.DEBUG) {
+            // Open the target room's timeline CACHE-FIRST — paint its header (name/avatar/bridge
+            // from the hydrated roomMap + BridgeInfoCache) immediately, with a "Room loading..."
+            // body, instead of holding on the startup overlay until the WebSocket finishes the init
+            // parse. The body fills via RoomTimelineScreen's own load (empty cache -> requestRoomTimeline
+            // -> WS-down defer into roomsAwaitingInitCompletePaginate -> fired on onInitComplete).
+            val directRoomId = appViewModel.getDirectRoomNavigation()
+            if (directRoomId != null) {
+                // Only open cache-first when we can render a real header. On a cache miss (room not
+                // yet in the hydrated roomMap — e.g. a brand-new room from the push) fall back to the
+                // post-init WebSocket callback, which has full sync data. Leave directRoomNavigation
+                // set in that case so the callback runs its direct block.
+                if (appViewModel.getRoomById(directRoomId) != null) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "AuthCheckScreen",
+                            "Direct room target set + cached — opening room_timeline cache-first: $directRoomId",
+                        )
+                    }
+                    val ts = appViewModel.getDirectRoomNavigationTimestamp()
+                    val encodedRoomId = java.net.URLEncoder.encode(directRoomId, "UTF-8")
+                    // Set currentRoomId BEFORE navigate: the onInitComplete deferred-paginate drain
+                    // only re-fires when currentRoomId == roomId (otherwise it bails, leaving
+                    // isTimelineLoading stuck). Kick off the load via navigateToRoomWithCache.
+                    appViewModel.setCurrentRoomIdForTimeline(directRoomId)
+                    if (ts != null) {
+                        appViewModel.navigateToRoomWithCache(directRoomId, ts)
+                    } else {
+                        appViewModel.navigateToRoomWithCache(directRoomId)
+                    }
+                    // openedViaDirectNotification: makes navigateToRoomListIfNeeded bail instead of
+                    // redirecting back to room_list (bug #7).
+                    appViewModel.openedViaDirectNotification = true
+                    appViewModel.isLoading = false
+                    // Clear right before navigate (never earlier — see the post-init callback's note
+                    // on the stray-room_list race). Clearing here also makes the later post-init
+                    // callback see null and skip its own direct block, so it won't double-navigate.
+                    appViewModel.clearDirectRoomNavigation()
+                    // Synthesize [room_list, room_timeline] so Back returns to the room list.
+                    navController.navigate("room_list") {
+                        popUpTo("auth_check") { inclusive = true }
+                    }
+                    navController.navigate("room_timeline/$encodedRoomId") { launchSingleTop = true }
+                    navigationHandled = true
+                } else if (BuildConfig.DEBUG) {
                     Log.d(
                         "AuthCheckScreen",
-                        "Direct room target set — skipping early room_list; WebSocket callback will open room_timeline",
+                        "Direct room target set but not cached — deferring to WebSocket callback: $directRoomId",
                     )
                 }
                 return@LaunchedEffect
