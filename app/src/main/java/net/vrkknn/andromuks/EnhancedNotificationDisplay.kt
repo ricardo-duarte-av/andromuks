@@ -132,12 +132,25 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 nmc.cancel(SUMMARY_NOTIF_ID)
                 return
             }
+            // Tapping the collapsed summary header opens the app to RoomListScreen, just like
+            // the launcher icon. No room_id extra → MainActivity skips direct room navigation.
+            val summaryIntent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra("from_notification", true)
+            }
+            val summaryPendingIntent = PendingIntent.getActivity(
+                context,
+                SUMMARY_NOTIF_ID,
+                summaryIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
             val summary = NotificationCompat.Builder(context, DM_CHANNEL_ID)
                 .setSmallIcon(R.drawable.matrix)
                 .setContentTitle("Matrix Messages")
                 .setContentText(
                     if (childCount == 1) "1 conversation" else "$childCount conversations"
                 )
+                .setContentIntent(summaryPendingIntent)
                 .setGroup(NOTIFICATION_GROUP_KEY)
                 .setGroupSummary(true)
                 .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
