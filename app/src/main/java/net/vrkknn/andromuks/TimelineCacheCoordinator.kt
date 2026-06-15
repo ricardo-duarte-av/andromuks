@@ -519,6 +519,17 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
         }
     }
 
+    /**
+     * The event the timeline considers newest: the maximum by [TimelineEvent.timelineRowid],
+     * mirroring the timeline's sort comparator (rowid-primary, see RoomTimelineScreen's
+     * `timelineOrder`). Read receipts and m.fully_read must advance to THIS event, not the
+     * highest-timestamp one — origin_server_ts is non-monotonic (bridged/backfilled events,
+     * clock skew), so a timestamp-max target can fall short of the genuine latest event and
+     * leave the "new messages" divider stuck across re-opens. Returns null for an empty list.
+     */
+    private fun latestRowidEventId(events: List<TimelineEvent>): String? =
+        events.maxByOrNull { it.timelineRowid }?.eventId
+
     fun processCachedEvents(
         roomId: String,
         cachedEvents: List<TimelineEvent>,
@@ -795,11 +806,11 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             true
                         }
                     if (shouldMarkAsRead) {
-                        // Prefer RoomListCache.getLatestEventId — it tracks the absolute latest
-                        // event seen for this room across all sync_complete cycles, even if the room
-                        // was not actively cached when that event arrived (so the cache may lag).
-                        val cacheMaxId = cachedEvents.maxByOrNull { it.timestamp }?.eventId
-                        val latestKnownId = RoomListCache.getLatestEventId(roomId) ?: cacheMaxId
+                        // Target the newest event by rowid (what the timeline shows as latest), so
+                        // m.fully_read lands exactly where the unread divider would otherwise sit.
+                        // Fall back to RoomListCache only when the cache is empty (no rowid to use).
+                        val latestKnownId = latestRowidEventId(cachedEvents)
+                            ?: RoomListCache.getLatestEventId(roomId)
                         if (latestKnownId != null) markRoomAsRead(roomId, latestKnownId)
                     } else {
                         if (BuildConfig.DEBUG)
@@ -903,18 +914,17 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     )
                 }
 
-                // Mark room as read up to the latest known event. RoomListCache tracks the
-                // absolute latest event even for rooms that weren't actively cached during that
-                // sync, so prefer it over the cache max.
+                // Mark room as read up to the newest event by rowid (the timeline's notion of
+                // latest), so m.fully_read matches where the unread divider sits. Fall back to
+                // RoomListCache only when nothing is cached.
                 val shouldMarkAsRead = if (BubbleTracker.isBubbleOpen(roomId)) {
                     BubbleTracker.isBubbleVisible(roomId)
                 } else {
                     true
                 }
                 if (shouldMarkAsRead) {
-                    val cacheMaxId = RoomTimelineCache.getCachedEvents(roomId)
-                        ?.maxByOrNull { it.timestamp }?.eventId
-                    val latestKnownId = RoomListCache.getLatestEventId(roomId) ?: cacheMaxId
+                    val latestKnownId = latestRowidEventId(RoomTimelineCache.getCachedEvents(roomId) ?: emptyList())
+                        ?: RoomListCache.getLatestEventId(roomId)
                     if (latestKnownId != null) markRoomAsRead(roomId, latestKnownId)
                 }
 
@@ -1829,10 +1839,11 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                 // Use allEvents (includes reactions and all types) rather than
                                 // timelineList (filtered to renderable types only) so that
                                 // reactions or state events that arrive after the last message
-                                // still produce a correct, up-to-date mark_read position.
-                                val mostRecentEvent = allEvents.maxByOrNull { it.timestamp }
-                                if (mostRecentEvent != null) {
-                                    markRoomAsRead(roomId, mostRecentEvent.eventId)
+                                // still produce a correct, up-to-date mark_read position. Pick the
+                                // newest by rowid, not timestamp — origin_server_ts is non-monotonic.
+                                val mostRecentEventId = latestRowidEventId(allEvents)
+                                if (mostRecentEventId != null) {
+                                    markRoomAsRead(roomId, mostRecentEventId)
                                 }
                             } else {
                                 if (BuildConfig.DEBUG)

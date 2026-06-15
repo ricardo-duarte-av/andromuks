@@ -134,12 +134,14 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
             lastMarkReadSent[roomId] = eventId
             optimisticallyClearUnreadCounts(roomId)
 
-            if (!resolveSendReadReceipts(roomId)) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: markRoomAsRead suppressed for $roomId (send_read_receipts disabled)")
-                return
-            }
+            // When public read receipts are disabled we still advance the marker, but privately.
+            // The backend's mark_read always moves m.fully_read regardless of receipt type, so a
+            // private receipt clears our unread state (and the "new messages" divider) without
+            // leaking a visible receipt to other users. Suppressing entirely would freeze
+            // m.fully_read forever — see resolveSendReadReceipts().
+            val receiptType = if (resolveSendReadReceipts(roomId)) "m.read" else "m.read.private"
 
-            val result = markRoomAsReadInternal(roomId, eventId)
+            val result = markRoomAsReadInternal(roomId, eventId, receiptType)
 
             if (result != WebSocketResult.SUCCESS) {
                 android.util.Log.w(
@@ -200,11 +202,10 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
                 return
             }
 
-            if (!resolveSendReadReceipts(roomId)) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: markRoomAsReadFromNotification suppressed for $roomId (send_read_receipts disabled)")
-                onComplete?.invoke()
-                return
-            }
+            // Public receipts off → still advance m.fully_read with a private receipt (see the
+            // note in markRoomAsRead). Marking read from a notification should clear unread state
+            // either way; only the visibility of the receipt to others is gated.
+            val receiptType = if (resolveSendReadReceipts(roomId)) "m.read" else "m.read.private"
 
             if (BuildConfig.DEBUG)
                 android.util.Log.d(
@@ -245,7 +246,7 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
                 mapOf(
                     "room_id" to roomId,
                     "event_id" to resolvedEventId,
-                    "receipt_type" to "m.read"
+                    "receipt_type" to receiptType
                 )
 
             val result = sendWebSocketCommand("mark_read", markReadRequestId, commandData)
@@ -268,7 +269,7 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
         }
     }
 
-    fun markRoomAsReadInternal(roomId: String, eventId: String): WebSocketResult {
+    fun markRoomAsReadInternal(roomId: String, eventId: String, receiptType: String = "m.read"): WebSocketResult {
         with(vm) {
             if (BuildConfig.DEBUG)
                 android.util.Log.d("Andromuks", "AppViewModel: markRoomAsReadInternal called")
@@ -278,7 +279,7 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
                 mapOf(
                     "room_id" to roomId,
                     "event_id" to eventId,
-                    "receipt_type" to "m.read"
+                    "receipt_type" to receiptType
                 )
 
             val result = sendWebSocketCommand("mark_read", markReadRequestId, commandData)
