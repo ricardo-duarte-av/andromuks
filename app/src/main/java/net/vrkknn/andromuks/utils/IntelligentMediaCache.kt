@@ -61,6 +61,9 @@ object IntelligentMediaCache {
     // worker until WorkManager force-kills it.
     private val downloadClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            // Retry with the opposite ?encrypted= flag when the backend reports a mismatch between
+            // the room-derived flag and how the media was actually uploaded. Single-shot; no loop.
+            .addInterceptor(EncryptedMediaRetryInterceptor())
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .callTimeout(60, TimeUnit.SECONDS)

@@ -154,6 +154,9 @@ dependencies {
     // ExoPlayer for video playback
     implementation("androidx.media3:media3-exoplayer:1.2.1")
     implementation("androidx.media3:media3-ui:1.2.1")
+    // OkHttp-backed data source so video/audio streams flow through our shared OkHttpClient
+    // (and thus the EncryptedMediaRetryInterceptor's ?encrypted= flag correction).
+    implementation("androidx.media3:media3-datasource-okhttp:1.2.1")
     
     // CameraX for in-app camera preview and capture
     val cameraxVersion = "1.5.3"

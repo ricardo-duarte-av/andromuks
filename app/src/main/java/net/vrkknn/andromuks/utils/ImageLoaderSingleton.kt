@@ -100,6 +100,9 @@ object ImageLoaderSingleton {
                 } else req
                 chain.proceed(newReq)
             }
+            // Added last so it sees the fully-resolved request (cookie + encrypted flag injected
+            // above) and can retry with the opposite flag if the backend reports a mismatch.
+            .addInterceptor(EncryptedMediaRetryInterceptor())
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .writeTimeout(10, TimeUnit.SECONDS)

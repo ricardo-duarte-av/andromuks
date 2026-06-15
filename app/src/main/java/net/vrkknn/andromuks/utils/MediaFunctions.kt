@@ -12,6 +12,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -1794,8 +1796,7 @@ private fun InlineVideoPlayer(
     DisposableEffect(videoId, videoHttpUrl) {
         if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineVideoPlayer: Creating player for $videoId")
         
-        val upstreamFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
-            .setDefaultRequestProperties(mapOf("Cookie" to "gomuks_auth=$authToken"))
+        val upstreamFactory = MediaHttpDataSource.factory(authToken)
 
         val cacheDataSourceFactory = androidx.media3.datasource.cache.CacheDataSource.Factory()
             .setCache(VideoCache.get(context))
@@ -2131,9 +2132,8 @@ private fun AudioPlayer(
     // ExoPlayer instance for audio playback
     val exoPlayer = remember {
         // Create MediaItem with authentication headers
-        val dataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
-            .setDefaultRequestProperties(mapOf("Cookie" to "gomuks_auth=$authToken"))
-        
+        val dataSourceFactory = MediaHttpDataSource.factory(authToken)
+
         val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context)
             .setDataSourceFactory(dataSourceFactory)
         
@@ -2967,6 +2967,9 @@ internal fun ImageViewerDialog(
     var bypassCoilCache by remember(mediaMessage.url) { mutableStateOf(false) }
     // Set to true after the bypass retry also fails — the media is gone from the server.
     var fullImageFailed by remember(mediaMessage.url) { mutableStateOf(false) }
+    // Backend error body fetched after the image fails — Coil's onError throwable carries no
+    // response body, so we re-request the URL ourselves to surface the JSON gomuks returned.
+    var errorDetails by remember(mediaMessage.url) { mutableStateOf<String?>(null) }
     val imageUrl = remember(mediaMessage.url, isEncrypted, cachedFile) {
         val file = cachedFile
         if (file != null) {
@@ -2978,6 +2981,44 @@ internal fun ImageViewerDialog(
                 "$httpUrl$separator" + "encrypted=true"
             } else {
                 httpUrl ?: ""
+            }
+        }
+    }
+
+    // Once the image is confirmed unavailable, re-request the media URL directly so we can show
+    // the backend's error response (status line + JSON body) to the user.
+    LaunchedEffect(fullImageFailed, mediaMessage.url) {
+        if (!fullImageFailed) return@LaunchedEffect
+        val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+        if (httpUrl.isNullOrBlank()) {
+            errorDetails = "No HTTP URL for ${mediaMessage.url}"
+            return@LaunchedEffect
+        }
+        val requestUrl = if (isEncrypted) {
+            val separator = if (httpUrl.contains("?")) "&" else "?"
+            "$httpUrl${separator}encrypted=true"
+        } else {
+            httpUrl
+        }
+        errorDetails = withContext(Dispatchers.IO) {
+            try {
+                val client = OkHttpClient()
+                val request = Request.Builder()
+                    .url(requestUrl)
+                    .addHeader("Cookie", "gomuks_auth=$authToken")
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    val body = response.body?.string()?.takeIf { it.isNotBlank() }
+                    buildString {
+                        append("HTTP ${response.code} ${response.message}".trim())
+                        if (body != null) {
+                            append("\n\n")
+                            append(body)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                "Request failed: ${e.message ?: e.javaClass.simpleName}"
             }
         }
     }
@@ -3232,15 +3273,41 @@ internal fun ImageViewerDialog(
             }
                     
                     // Broken image indicator — shown when the media is unavailable on the server.
+                    // The backend's error response (status + JSON body) is shown beneath it.
                     if (fullImageFailed) {
-                        Icon(
-                            imageVector = Icons.Filled.BrokenImage,
-                            contentDescription = "Media unavailable",
-                            tint = MaterialTheme.colorScheme.error,
+                        Column(
                             modifier = Modifier
                                 .align(Alignment.Center)
-                                .size(64.dp)
-                        )
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.BrokenImage,
+                                contentDescription = "Media unavailable",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(64.dp)
+                            )
+                            val details = errorDetails
+                            if (details != null) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Surface(
+                                    color = Color.Black.copy(alpha = 0.55f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = details,
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                        modifier = Modifier
+                                            .heightIn(max = 240.dp)
+                                            .verticalScroll(rememberScrollState())
+                                            .padding(12.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     // Top toolbar with action buttons
@@ -3574,8 +3641,7 @@ fun VideoPlayerDialog(
                 factory = { ctx ->
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Creating PlayerView")
                         // Set custom request headers for authentication
-                        val upstreamFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
-                            .setDefaultRequestProperties(mapOf("Cookie" to "gomuks_auth=$authToken"))
+                        val upstreamFactory = MediaHttpDataSource.factory(authToken)
 
                         val cacheDataSourceFactory = androidx.media3.datasource.cache.CacheDataSource.Factory()
                             .setCache(VideoCache.get(ctx))

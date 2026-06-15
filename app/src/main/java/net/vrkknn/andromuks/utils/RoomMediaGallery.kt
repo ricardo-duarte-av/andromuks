@@ -37,6 +37,13 @@ import net.vrkknn.andromuks.MediaMessage
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 
+/**
+ * Keep paginating until at least this many media items have been collected, so a freshly opened
+ * gallery fills the screen (4-column grid) and becomes scrollable even when recent history holds
+ * little or no media. Once exceeded, pagination is driven purely by scrolling.
+ */
+private const val GALLERY_PREFETCH_THRESHOLD = 40
+
 data class GalleryMediaItem(
     /** mxc:// URL of the full-size media – passed to ImageViewerDialog */
     val fullMxcUrl: String,
@@ -248,8 +255,16 @@ fun RoomMediaGalleryScreen(
     }
     LaunchedEffect(lastVisibleIndex, totalItems, hasMore, isLoadingMore) {
         if (net.vrkknn.andromuks.BuildConfig.DEBUG) android.util.Log.d("GalleryPaginate", "Scroll check: lastVisible=$lastVisibleIndex, total=$totalItems, hasMore=$hasMore, isLoading=$isLoadingMore")
-        if (totalItems > 0 && lastVisibleIndex >= totalItems - 20 && hasMore && !isLoadingMore) {
-            if (net.vrkknn.andromuks.BuildConfig.DEBUG) android.util.Log.d("GalleryPaginate", "Scroll condition met -> calling loadMore()")
+        // Two reasons to keep paginating:
+        //  1. The grid hasn't filled the screen yet (totalItems too small to scroll). This also
+        //     covers the case where a batch came back with zero media items (totalItems == 0):
+        //     the user can't scroll an empty/short grid, so we must keep searching history back
+        //     to the start until we find media or hasMore becomes false.
+        //  2. The user scrolled within 20 items of the end of a populated grid.
+        val notYetScrollable = totalItems < GALLERY_PREFETCH_THRESHOLD
+        val scrolledNearEnd = totalItems > 0 && lastVisibleIndex >= totalItems - 20
+        if ((notYetScrollable || scrolledNearEnd) && hasMore && !isLoadingMore) {
+            if (net.vrkknn.andromuks.BuildConfig.DEBUG) android.util.Log.d("GalleryPaginate", "Load condition met (notYetScrollable=$notYetScrollable, scrolledNearEnd=$scrolledNearEnd) -> calling loadMore()")
             loadMore()
         }
     }
