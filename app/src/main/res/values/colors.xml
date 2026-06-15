@@ -9,4 +9,8 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <!-- Window background used for the startup window and the FLAG_SECURE recents placeholder.
+         Day/night variants so a locked app's task-switcher thumbnail matches the active theme
+         (see values-night/colors.xml). Approximates the Material 3 default background tokens. -->
+    <color name="window_background">#FFFFFBFE</color>
 </resources>

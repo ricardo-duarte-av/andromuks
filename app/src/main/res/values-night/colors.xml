@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark-mode window background — matches the Material 3 dark default so the FLAG_SECURE
+         recents placeholder is dark (not white) when the app is in dark mode. -->
+    <color name="window_background">#FF1C1B1F</color>
+</resources>

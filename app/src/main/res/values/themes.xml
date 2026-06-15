@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.Andromuks" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.Andromuks" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- Day/night window background (see values/colors.xml + values-night/colors.xml). Drives
+             the startup window and, importantly, the placeholder Android paints in the recents
+             task switcher when FLAG_SECURE is set (biometric lock) instead of the real content. -->
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
 </resources>

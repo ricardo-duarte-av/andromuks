@@ -175,9 +175,18 @@ class MainActivity : FragmentActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
         // Initialize crash handler
         CrashHandler.initialize(this)
+
+        // Apply FLAG_SECURE from the persisted biometric-lock setting before the first frame, so a
+        // locked app never exposes its content in the task switcher (or to screenshots) even during
+        // the brief window before the ViewModel has loaded settings. The reactive effect in
+        // AndromuksApp keeps it in sync afterwards (incl. runtime toggles).
+        if (getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                .getBoolean("require_biometric_unlock", false)) {
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        }
 
         // Battery-saver mode: if the service was suspended in the background, clear the
         // user-disconnected flag now that the user is actively opening the app.
@@ -1148,6 +1157,20 @@ fun AppNavigation(
     val navController = rememberNavController()
     val appViewModel: AppViewModel = viewModel()
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    // When biometric lock is enabled, mark the window FLAG_SECURE so Android shows a blank
+    // placeholder (not the app's content) in the task switcher, and blocks screenshots, while the
+    // content is sensitive. Keyed on the setting so it reacts to a runtime toggle, not just startup.
+    val requireBiometricUnlock = appViewModel.requireBiometricUnlock
+    LaunchedEffect(requireBiometricUnlock) {
+        findActivity(context)?.window?.let { window ->
+            if (requireBiometricUnlock) {
+                window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+            } else {
+                window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
+    }
 
     // Notify the parent about the ViewModel creation
     onViewModelCreated(appViewModel)
