@@ -3,6 +3,10 @@ package net.vrkknn.andromuks.utils
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -15,18 +19,29 @@ import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.animation.core.Spring
 import androidx.navigation.NavController
+import net.vrkknn.andromuks.ui.theme.scaledSpring
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.animation.core.animate
 import coil.compose.AsyncImage
+import kotlin.math.roundToInt
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import coil.request.ImageRequest
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +58,11 @@ import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
  * little or no media. Once exceeded, pagination is driven purely by scrolling.
  */
 private const val GALLERY_PREFETCH_THRESHOLD = 40
+
+/** Pinch-to-zoom column bounds for the gallery grid. */
+private const val GALLERY_MIN_COLUMNS = 1
+private const val GALLERY_MAX_COLUMNS = 10
+private const val GALLERY_DEFAULT_COLUMNS = 4
 
 data class GalleryMediaItem(
     /** mxc:// URL of the full-size media – passed to ImageViewerDialog */
@@ -201,9 +221,22 @@ fun RoomMediaGalleryScreen(
 
     var selectedItem by remember { mutableStateOf<GalleryMediaItem?>(null) }
 
+    // Pinch-to-zoom column count: fewer columns = larger thumbnails, more columns = smaller.
+    var columns by rememberSaveable { mutableStateOf(GALLERY_DEFAULT_COLUMNS) }
+
     val gridState = rememberLazyGridState()
     val homeserverUrl = appViewModel.homeserverUrl
     val authToken = appViewModel.authToken
+
+    // Google-Photos-style continuous pinch zoom. During a pinch the whole grid scales under the
+    // fingers (displayScale, anchored at zoomOrigin); on release we commit the nearest column count
+    // and spring the residual scale back to 1f so the new layout settles in without a size jump.
+    // displayScale is a plain Float (written synchronously from the restricted pointer scope, which
+    // can't call suspending animation APIs); the release settle drives it via animate() off-scope.
+    var displayScale by remember { mutableFloatStateOf(1f) }
+    var zoomOrigin by remember { mutableStateOf(TransformOrigin.Center) }
+    val zoomScope = rememberCoroutineScope()
+    var settleJob by remember { mutableStateOf<Job?>(null) }
 
     fun loadMore() {
         if (net.vrkknn.andromuks.BuildConfig.DEBUG) android.util.Log.d("GalleryPaginate", "loadMore called: isLoadingMore=$isLoadingMore, hasMore=$hasMore, nextMaxTimelineId=$nextMaxTimelineId")
@@ -305,9 +338,79 @@ fun RoomMediaGalleryScreen(
                 }
                 else -> {
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(4),
+                        columns = GridCells.Fixed(columns),
                         state = gridState,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            // Pinch to zoom the column count, Google-Photos style. We only consume
+                            // events once a second finger is down, so single-finger vertical
+                            // scrolling still reaches the grid untouched. pointerInput is placed
+                            // before graphicsLayer so the centroid/size it reads are in the grid's
+                            // untransformed space.
+                            .pointerInput(Unit) {
+                                awaitEachGesture {
+                                    awaitFirstDown(requireUnconsumed = false)
+                                    // pinchTotal == 1.0 means "the layout as it is now"; >1 zoomed
+                                    // in (fewer cols), <1 zoomed out (more cols).
+                                    var pinchTotal = 1f
+                                    var pinching = false
+                                    do {
+                                        val event = awaitPointerEvent()
+                                        val pressed = event.changes.count { it.pressed }
+                                        if (pressed >= 2) {
+                                            if (!pinching) {
+                                                pinching = true
+                                                settleJob?.cancel() // grab control mid-settle
+                                            }
+                                            // Clamp so the live scale can't run past the column
+                                            // bounds: projected columns = columns / pinchTotal must
+                                            // stay within [MIN, MAX].
+                                            pinchTotal = (pinchTotal * event.calculateZoom()).coerceIn(
+                                                columns.toFloat() / GALLERY_MAX_COLUMNS,
+                                                columns.toFloat() / GALLERY_MIN_COLUMNS
+                                            )
+                                            if (size.width > 0 && size.height > 0) {
+                                                val centroid = event.calculateCentroid(useCurrent = true)
+                                                zoomOrigin = TransformOrigin(
+                                                    (centroid.x / size.width).coerceIn(0f, 1f),
+                                                    (centroid.y / size.height).coerceIn(0f, 1f)
+                                                )
+                                            }
+                                            // Plain state write — allowed in the restricted pointer
+                                            // scope. settleJob was cancelled above so nothing fights
+                                            // these live updates.
+                                            displayScale = pinchTotal
+                                            event.changes.forEach { it.consume() }
+                                        }
+                                    } while (event.changes.any { it.pressed })
+
+                                    if (pinching) {
+                                        // Commit the nearest column count and settle the residual
+                                        // scale to 1f, keeping cell size continuous at the swap.
+                                        val targetCols = (columns / pinchTotal).roundToInt()
+                                            .coerceIn(GALLERY_MIN_COLUMNS, GALLERY_MAX_COLUMNS)
+                                        settleJob = zoomScope.launch {
+                                            if (targetCols != columns) {
+                                                // Keep cell size continuous across the swap, then
+                                                // settle to 1f.
+                                                displayScale = displayScale * targetCols / columns
+                                                columns = targetCols
+                                            }
+                                            animate(
+                                                initialValue = displayScale,
+                                                targetValue = 1f,
+                                                animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)
+                                            ) { value, _ -> displayScale = value }
+                                        }
+                                    }
+                                }
+                            }
+                            .graphicsLayer {
+                                scaleX = displayScale
+                                scaleY = displayScale
+                                transformOrigin = zoomOrigin
+                                clip = true // keep the scaled grid inside its own bounds
+                            },
                         contentPadding = PaddingValues(6.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -319,7 +422,15 @@ fun RoomMediaGalleryScreen(
                             GalleryThumbnail(
                                 item = item,
                                 authToken = authToken,
-                                onClick = { selectedItem = item }
+                                onClick = { selectedItem = item },
+                                // Glide each thumbnail to its new cell when a pinch changes the
+                                // column count, instead of snapping the whole grid instantly.
+                                modifier = Modifier.animateItem(
+                                    placementSpec = scaledSpring(
+                                        stiffness = Spring.StiffnessMediumLow,
+                                        visibilityThreshold = IntOffset(1, 1)
+                                    )
+                                )
                             )
                         }
                         if (isLoadingMore) {
@@ -372,7 +483,8 @@ fun RoomMediaGalleryScreen(
 private fun GalleryThumbnail(
     item: GalleryMediaItem,
     authToken: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val imageLoader = remember { net.vrkknn.andromuks.utils.ImageLoaderSingleton.get(context) }
@@ -417,7 +529,7 @@ private fun GalleryThumbnail(
     }
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .aspectRatio(1f)
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
