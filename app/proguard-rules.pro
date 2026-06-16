@@ -32,6 +32,14 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
+# JLaTeXMath (MSC2191 maths rendering). The library loads fonts and TeX symbol/glyph
+# definitions reflectively from bundled resources; keep its classes and members so R8
+# doesn't strip the font loaders or the resource-backed symbol tables.
+-keep class ru.noties.jlatexmath.** { *; }
+-keep class org.scilab.forge.jlatexmath.** { *; }
+-dontwarn ru.noties.jlatexmath.**
+-dontwarn org.scilab.forge.jlatexmath.**
+
 # OkHttp
 -dontwarn okhttp3.**
 -dontwarn okio.**

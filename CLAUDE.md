@@ -155,7 +155,7 @@ When investigating protocol behaviour, message shapes, or backend fields, consul
 | Room display name & avatar resolution (m.heroes) | [docs/ROOM_DISPLAY.md](docs/ROOM_DISPLAY.md) |
 | RoomListScreen composable reference | [docs/ROOMLISTSCREEN.md](docs/ROOMLISTSCREEN.md) |
 | Sticky date indicator | [docs/STICKY_DATE_INDICATOR.md](docs/STICKY_DATE_INDICATOR.md) |
-| HTML rendering (`HtmlMessageText`, tables) | [docs/HTML_RENDERING.md](docs/HTML_RENDERING.md) |
+| HTML rendering (`HtmlMessageText`, tables, MSC2191 maths) | [docs/HTML_RENDERING.md](docs/HTML_RENDERING.md) |
 | Offline connection indicator (CloudOff, placement per screen) | [docs/OFFLINE_INDICATOR.md](docs/OFFLINE_INDICATOR.md) |
 | Timeline media loading (Coil vs IntelligentMediaCache split, ImageRequest stability, BlurHash) | [docs/MEDIA_LOADING.md](docs/MEDIA_LOADING.md) |
 | Settings & preferences (4-scope gomuks prefs, resolution order, reactivity, UI screens) | [docs/SETTINGS_PREFS.md](docs/SETTINGS_PREFS.md) |

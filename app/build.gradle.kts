@@ -32,7 +32,7 @@ android {
 
 
         // Update versionName for each release (e.g., 1.0, 1.1, 1.2, 2.0)
-        versionName = "1.0.98"
+        versionName = "1.0.99"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -150,6 +150,9 @@ dependencies {
     implementation("io.coil-kt:coil-svg:2.6.0")
     // BlurHash - using local implementation
     // implementation("com.github.woltapp:blurhashkt:1.0.0")
+
+    // LaTeX math rendering (MSC2191) - native JLaTeXMath port, renders to a Drawable (no WebView)
+    implementation("ru.noties:jlatexmath-android:0.2.0")
     
     // ExoPlayer for video playback
     implementation("androidx.media3:media3-exoplayer:1.2.1")

@@ -311,8 +311,13 @@ class NotificationImageWorker(
         // the generic Phase-1 text. Null when nothing should override (e.g. captionless image).
         val mediaCaption = eventJson?.let { captionForMedia(it) }
 
+        // Formatted text for a plain m.text/m.notice message, rendered from sanitized_html (only when
+        // it carries real formatting). Piggybacks on the get_event fetch above; media/audio captions
+        // take precedence since those msgtypes never produce richText.
+        val richText = eventJson?.let { richTextForTextMessage(it) }
+
         val anyApplied = imageUri != null || senderIcon != null || meIcon != null || dl.room != null ||
-            audioUri != null || audioCaption != null || mediaCaption != null
+            audioUri != null || audioCaption != null || mediaCaption != null || richText != null
         if (!anyApplied) {
             // Nothing to apply. Only retry if something was actually *requested* and failed —
             // a plain text message (event fetched, not audio) is a legitimate no-op, not a failure.
@@ -345,7 +350,7 @@ class NotificationImageWorker(
         // mutually exclusive for a single event, so they share one target and one media slot.
         val targetMediaUri = imageUri ?: audioUri
         val targetMediaMime = if (imageUri != null) imageMime else (audio?.mime ?: "")
-        val targetCaption = audioCaption ?: mediaCaption   // real caption replaces the Phase-1 text
+        val targetCaption = audioCaption ?: mediaCaption ?: richText   // caption / formatted text replaces the Phase-1 text
         val hasTargetChange = targetMediaUri != null || targetCaption != null
         val targetIndex = if (hasTargetChange) {
             if (messageTimestamp > 0L) {
@@ -507,11 +512,11 @@ class NotificationImageWorker(
 
         if (BuildConfig.DEBUG) Log.d(
             TAG,
-            "Notification updated for room $roomId (image=${imageUri != null}, audio=${audioUri != null}, caption=${audioCaption != null}, room=${dl.room != null}, sender=${dl.sender != null}, me=${dl.me != null})"
+            "Notification updated for room $roomId (image=${imageUri != null}, audio=${audioUri != null}, caption=${audioCaption != null}, richText=${richText != null}, room=${dl.room != null}, sender=${dl.sender != null}, me=${dl.me != null})"
         )
         Androlog(
             "Notifications",
-            "Room $roomId: notification updated (image=${imageUri != null}, audio=${audioUri != null}, room=${dl.room != null}, sender=${dl.sender != null}, me=${dl.me != null})."
+            "Room $roomId: notification updated (image=${imageUri != null}, audio=${audioUri != null}, richText=${richText != null}, room=${dl.room != null}, sender=${dl.sender != null}, me=${dl.me != null})."
         )
 
         // Retry transient media failures so they land on a later attempt (other parts may have
@@ -686,6 +691,37 @@ class NotificationImageWorker(
             }
             else -> null
         }
+    }
+
+    /**
+     * For a plain text message (m.text / m.notice), render the event's
+     * `local_content.sanitized_html` into a formatted notification CharSequence — real
+     * bold/italic/underline/strikethrough/code/link/quote/list spans, via [htmlToNotificationText]
+     * — replacing the markdown-guessing that Phase 1 applies to the plain `body`. This piggybacks
+     * on the `get_event` fetch the worker already performs (no extra network).
+     *
+     * Returns null when the event isn't a plain text message, has no sanitized_html, or renders to
+     * *unstyled* text. The unstyled case matters: plain prose renders identically to the Phase-1
+     * body, so overriding it would force a silent re-post for no visible change. Requiring at least
+     * one span means we only upgrade messages that actually carry formatting (which includes
+     * MSC2191 maths — rendered as a monospace `<code>` span — so the markdown parser can no longer
+     * mangle e.g. `$a*b*c$` into italics).
+     */
+    private fun richTextForTextMessage(eventJson: JSONObject): CharSequence? {
+        val content = decryptedContent(eventJson) ?: return null
+        val msgtype = content.optString("msgtype")
+        if (msgtype != "m.text" && msgtype != "m.notice") return null
+        val sanitized = eventJson.optJSONObject("local_content")
+            ?.optString("sanitized_html")?.takeIf { it.isNotBlank() } ?: return null
+        val rendered = try {
+            htmlToNotificationText(sanitized)
+        } catch (e: Exception) {
+            Log.w(TAG, "richTextForTextMessage: failed to render sanitized_html", e)
+            return null
+        }
+        if (rendered.isEmpty()) return null
+        val hasSpans = rendered.getSpans(0, rendered.length, Any::class.java).isNotEmpty()
+        return if (hasSpans) rendered else null
     }
 
     /** Human-readable byte size (B / KB / MB / GB), or null when unknown. */

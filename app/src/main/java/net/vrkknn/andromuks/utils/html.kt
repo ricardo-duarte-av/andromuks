@@ -8,9 +8,13 @@ import android.util.Log
 import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,6 +51,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextLayoutResult
@@ -82,6 +89,7 @@ import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.utils.extractRoomLink
 import net.vrkknn.andromuks.utils.RoomLink
 import net.vrkknn.andromuks.AppViewModel
+import ru.noties.jlatexmath.JLatexMathDrawable
 
 
 
@@ -182,7 +190,9 @@ private val ALLOWED_HTML_TAGS = setOf(
     "del", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "p", "a", "ul", "ol",
     "sup", "sub", "li", "b", "i", "u", "strong", "em", "s", "strike", "ins", "code", "hr", "br",
     "div", "table", "thead", "tbody", "tr", "th", "td", "caption", "pre", "span",
-    "font", "img", "details", "summary"
+    "font", "img", "details", "summary",
+    // MSC2191 maths: gomuks emits <hicli-math displaymode="inline|block" latex="...">
+    "hicli-math"
 )
 
 /**
@@ -436,7 +446,10 @@ data class InlineImageData(
     val src: String,
     val alt: String,
     val height: Int,
-    val isHidden: Boolean = false
+    val isHidden: Boolean = false,
+    // MSC2191 maths: when non-null, this entry is a LaTeX equation rendered via JLaTeXMath
+    // instead of a network image. `alt` holds the raw LaTeX (used as the text fallback).
+    val latex: String? = null
 )
 
 data class InlineMatrixUserChip(
@@ -627,6 +640,7 @@ private fun AnnotatedString.Builder.appendHtmlTag(
         "ol" -> appendOrderedList(tag, styledBase, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, inlineCodeBlocks)
         "a" -> appendAnchor(tag, styledBase, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, inlineCodeBlocks)
         "img" -> appendImage(tag, inlineImages, hideContent)
+        "hicli-math" -> appendInlineMath(tag, styledBase, inlineImages, hideContent)
         "pre" -> {
             // Check if this is a code block (has <code> inside <pre>)
             val hasCodeTag = tag.children.any { child ->
@@ -1357,6 +1371,44 @@ private fun AnnotatedString.Builder.appendImage(
     }
 }
 
+/**
+ * MSC2191: extract the LaTeX source from a <hicli-math> tag. Prefers the `latex` attribute
+ * (decoded form gomuks provides), falling back to the raw text of the inner <code> element.
+ */
+private fun extractMathLatex(tag: HtmlNode.Tag): String {
+    // sanitized_html isn't entity-decoded upstream, so LaTeX that legitimately contains
+    // '&' (matrix/align column separators), '<', or '>' arrives escaped — decode it here.
+    val attr = tag.attributes["latex"]?.takeIf { it.isNotBlank() }
+    if (attr != null) return decodeHtmlEntities(attr)
+    return decodeHtmlEntities(buildString { collectRawText(tag, this) }.trim())
+}
+
+/**
+ * Render a <hicli-math> node as inline content (baseline-aligned, sized to the surrounding text).
+ * The actual LaTeX-to-bitmap rendering happens in HtmlMessageText's inlineContent map via
+ * JLaTeXMath; here we only register the placeholder. Top-level *block* math is pulled out and
+ * centered before this is reached, so anything arriving here is treated as inline.
+ */
+private fun AnnotatedString.Builder.appendInlineMath(
+    tag: HtmlNode.Tag,
+    baseStyle: SpanStyle,
+    inlineImages: MutableMap<String, InlineImageData>,
+    hideContent: Boolean
+) {
+    val latex = extractMathLatex(tag)
+    if (latex.isBlank()) return
+    if (hideContent) {
+        // Inside a hidden spoiler: don't reveal the equation, mask its source length.
+        withStyle(baseStyle.copy(fontFamily = FontFamily.Monospace)) {
+            append(maskSpoilerText(latex))
+        }
+        return
+    }
+    val id = "inline_math_${inlineImages.size}"
+    inlineImages[id] = InlineImageData(src = "", alt = latex, height = 0, latex = latex)
+    appendInlineContent(id, "\u200B")
+}
+
 private fun collectPlainText(node: HtmlNode, builder: StringBuilder) {
     when (node) {
         is HtmlNode.Text -> builder.append(node.content)
@@ -1618,9 +1670,21 @@ fun HtmlMessageText(
     val tableNodes = remember(nodes) {
         nodes.filterIsInstance<HtmlNode.Tag>().filter { it.name == "table" }
     }
+    // MSC2191: pull top-level *block* maths out of the text flow so they can be rendered
+    // centered on their own line (like tables). Inline maths (and any maths nested deeper)
+    // stay in the AnnotatedString as inline content.
+    val blockMathLatex = remember(nodes) {
+        nodes.filterIsInstance<HtmlNode.Tag>()
+            .filter { it.name == "hicli-math" && !it.attributes["displaymode"].equals("inline", ignoreCase = true) }
+            .map { extractMathLatex(it) }
+            .filter { it.isNotBlank() }
+    }
     val nonTableNodes = remember(nodes) {
-        if (tableNodes.isEmpty()) nodes
-        else nodes.filter { !(it is HtmlNode.Tag && it.name == "table") }
+        if (tableNodes.isEmpty() && blockMathLatex.isEmpty()) nodes
+        else nodes.filter {
+            !(it is HtmlNode.Tag && (it.name == "table" ||
+                (it.name == "hicli-math" && !it.attributes["displaymode"].equals("inline", ignoreCase = true))))
+        }
     }
     val tableDatas = remember(tableNodes) {
         tableNodes.map { parseTableNode(it) }
@@ -1780,15 +1844,60 @@ fun HtmlMessageText(
     
     val roomChipColor = MaterialTheme.colorScheme.tertiary
     val roomChipTextColor = MaterialTheme.colorScheme.onTertiary
-    
+
+    // MSC2191 maths: colour equations to match surrounding text and follow the theme.
+    val fallbackTextColor = MaterialTheme.colorScheme.onSurface
+    val mathColor = if (color != Color.Unspecified) color else fallbackTextColor
+    val mathColorArgb = mathColor.toArgb()
+    // Inline maths render at the body text size so they sit naturally on the line.
+    val mathTextSizePx = with(density) { bodyTextStyle.fontSize.toPx() }
+
     // CRITICAL FIX: Use inlineImages.size as a dependency to ensure recomputation when images are added/removed
     // This fixes the issue where inline images don't load after timeline orientation changes
     val inlineImagesSnapshot = remember(inlineImages.size, annotatedString) {
         inlineImages.toMap()
     }
-    val inlineContentMap = remember(annotatedString, inlineImagesSnapshot, inlineMatrixUsers.toMap(), inlineMatrixRooms.toMap(), inlineCodeBlocks.toMap(), onMatrixUserClick, onRoomLinkClick, onCodeBlockClick, density, chipTextStyle, textMeasurer, textLineHeight, primaryColor, isEmojiOnly, color, bodyTextStyle, roomChipColor, roomChipTextColor, homeserverUrl, authToken) {
+    val inlineContentMap = remember(annotatedString, inlineImagesSnapshot, inlineMatrixUsers.toMap(), inlineMatrixRooms.toMap(), inlineCodeBlocks.toMap(), onMatrixUserClick, onRoomLinkClick, onCodeBlockClick, density, chipTextStyle, textMeasurer, textLineHeight, primaryColor, isEmojiOnly, color, bodyTextStyle, roomChipColor, roomChipTextColor, homeserverUrl, authToken, mathColorArgb, mathTextSizePx) {
         val map = mutableMapOf<String, InlineTextContent>()
         inlineImagesSnapshot.forEach { (id, imageData) ->
+            // MSC2191 maths: render the LaTeX to a JLaTeXMath drawable instead of a network image.
+            val latex = imageData.latex
+            if (latex != null) {
+                val drawable = runCatching {
+                    JLatexMathDrawable.builder(latex)
+                        .textSize(mathTextSizePx)
+                        .color(mathColorArgb)
+                        .align(JLatexMathDrawable.ALIGN_LEFT)
+                        .build()
+                }.getOrNull()
+                if (drawable != null) {
+                    val widthSp = with(density) { drawable.intrinsicWidth.toDp().value.sp }
+                    val heightSp = with(density) { drawable.intrinsicHeight.toDp().value.sp }
+                    map[id] = InlineTextContent(
+                        Placeholder(
+                            width = widthSp,
+                            height = heightSp,
+                            placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
+                        )
+                    ) {
+                        LatexDrawableImage(drawable = drawable, modifier = Modifier.fillMaxSize())
+                    }
+                } else {
+                    // Malformed LaTeX: fall back to monospace source so nothing blanks out.
+                    val fallbackStyle = bodyTextStyle.copy(fontFamily = FontFamily.Monospace, color = mathColor)
+                    val textLayout = textMeasurer.measure(text = AnnotatedString(latex), style = fallbackStyle)
+                    map[id] = InlineTextContent(
+                        Placeholder(
+                            width = with(density) { textLayout.size.width.toDp().value.sp },
+                            height = with(density) { textLayout.size.height.toDp().value.sp },
+                            placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
+                        )
+                    ) {
+                        Text(text = latex, style = fallbackStyle)
+                    }
+                }
+                return@forEach
+            }
             // Limit image height to text line height, but use 2x size for emoji-only messages
             val baseMaxHeight = minOf(imageData.height, textLineHeight)
             val maxHeight = if (isEmojiOnly) {
@@ -1883,8 +1992,11 @@ fun HtmlMessageText(
         }
     }
 
-    if (tableNodes.isNotEmpty()) {
-        // Message contains HTML tables: render text (if any) + tap-to-open table cards
+    // Block ("display") maths are rendered slightly larger than the body text.
+    val blockMathTextSizePx = mathTextSizePx * 1.3f
+
+    if (tableNodes.isNotEmpty() || blockMathLatex.isNotEmpty()) {
+        // Message contains HTML tables and/or block maths: render text (if any) + tables + centered equations
         var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
         Column(modifier = modifier) {
             if (annotatedString.text.isNotBlank()) {
@@ -1955,6 +2067,16 @@ fun HtmlMessageText(
                         onDismiss = { tableDialogStates[idx] = false }
                     )
                 }
+            }
+            blockMathLatex.forEachIndexed { idx, latex ->
+                if (idx > 0 || tableDatas.isNotEmpty() || annotatedString.text.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                }
+                BlockMath(
+                    latex = latex,
+                    colorArgb = mathColorArgb,
+                    textSizePx = blockMathTextSizePx
+                )
             }
         }
         return
@@ -2151,6 +2273,81 @@ fun HtmlMessageText(
             onTextLayout = { layoutResult ->
                 textLayoutResult = layoutResult
             }
+        )
+    }
+}
+
+/**
+ * Draws an already-built JLaTeXMath drawable, scaled to fill the given box while preserving
+ * the drawable's aspect ratio. Used both for inline maths (box sized to the drawable's
+ * intrinsics) and block maths (box sized for display).
+ */
+@Composable
+private fun LatexDrawableImage(
+    drawable: android.graphics.drawable.Drawable,
+    modifier: Modifier = Modifier
+) {
+    val intrinsicWidth = drawable.intrinsicWidth.coerceAtLeast(1)
+    val intrinsicHeight = drawable.intrinsicHeight.coerceAtLeast(1)
+    Canvas(modifier = modifier) {
+        val scale = minOf(size.width / intrinsicWidth, size.height / intrinsicHeight)
+        val drawW = intrinsicWidth * scale
+        val drawH = intrinsicHeight * scale
+        val left = ((size.width - drawW) / 2f)
+        val top = ((size.height - drawH) / 2f)
+        drawIntoCanvas { canvas ->
+            val nc = canvas.nativeCanvas
+            val save = nc.save()
+            nc.translate(left, top)
+            nc.scale(scale, scale)
+            drawable.setBounds(0, 0, intrinsicWidth, intrinsicHeight)
+            drawable.draw(nc)
+            nc.restoreToCount(save)
+        }
+    }
+}
+
+/**
+ * MSC2191 block ("display") maths: render the equation centered on its own line, with
+ * horizontal scrolling so very wide formulae (e.g. the quadratic formula) aren't clipped.
+ */
+@Composable
+private fun BlockMath(
+    latex: String,
+    colorArgb: Int,
+    textSizePx: Float,
+    modifier: Modifier = Modifier
+) {
+    val density = LocalDensity.current
+    val drawable = remember(latex, textSizePx, colorArgb) {
+        runCatching {
+            JLatexMathDrawable.builder(latex)
+                .textSize(textSizePx)
+                .color(colorArgb)
+                .align(JLatexMathDrawable.ALIGN_CENTER)
+                .build()
+        }.getOrNull()
+    }
+    if (drawable == null) {
+        // Malformed LaTeX: show the raw source rather than nothing.
+        Text(
+            text = latex,
+            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace, color = Color(colorArgb)),
+            modifier = modifier
+        )
+        return
+    }
+    val widthDp = with(density) { drawable.intrinsicWidth.toDp() }
+    val heightDp = with(density) { drawable.intrinsicHeight.toDp() }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.Center
+    ) {
+        LatexDrawableImage(
+            drawable = drawable,
+            modifier = Modifier.size(width = widthDp, height = heightDp)
         )
     }
 }
