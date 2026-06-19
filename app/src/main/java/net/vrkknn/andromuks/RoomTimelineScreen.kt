@@ -2330,11 +2330,18 @@ fun RoomTimelineScreen(
     // round cap is hit). It reuses the same anchor-capture and scroll-restoration path as
     // pull-to-refresh.
     //
-    // Why a target (hysteresis) instead of a single "<= 60" fetch: a duplicate-heavy paginate
-    // response (most events already cached) adds only a handful of *renderable* items, which
-    // would nudge itemsAbove just past 60 and end the chain after one low-yield round. The user
-    // can then out-scroll the pager and hit the literal top, where each subsequent round still
-    // yields little. Refilling to a deeper target rebuilds a real buffer underneath the user.
+    // Why a target (hysteresis) instead of a single "<= REFILL_TRIGGER" fetch: a duplicate-heavy
+    // paginate response (most events already cached) adds only a handful of *renderable* items,
+    // which would nudge itemsAbove just past the trigger and end the chain after one low-yield
+    // round. The user can then out-scroll the pager and hit the literal top, where each subsequent
+    // round still yields little. Refilling to a deeper target rebuilds a real buffer underneath
+    // the user.
+    //
+    // "Renderable" is exactly what these counts measure: itemsAbove derives from
+    // layoutInfo.totalItemsCount, i.e. the LazyColumn's rendered items (timelineItems), which is
+    // already post-filter — so it automatically reflects whether hidden/membership events are being
+    // shown. With show_hidden_events off, hidden events don't count toward the buffer (and aren't
+    // fetched toward the target); with it on, they do.
     //
     // isPaginating and pendingScrollRestoration are in the snapshot so the chain re-checks both
     // when a paginate batch finishes (isPaginating: true→false) and when its scroll restoration
@@ -2345,8 +2352,8 @@ fun RoomTimelineScreen(
     // The total > 0 guard is intentionally absent: with hasLoadedInitialBatch and
     // hasInitialSnapCompleted already gating the effect, total == 0 with hasMoreMessages == true
     // is exactly the case we need to paginate through (room with no renderable initial events).
-    val REFILL_TRIGGER = 60          // start refilling when this few items remain above the viewport
-    val REFILL_TARGET = 180          // keep fetching until at least this many sit above the viewport
+    val REFILL_TRIGGER = 10          // start refilling when this few renderable items remain above the viewport
+    val REFILL_TARGET = 50           // keep fetching until at least this many renderable items sit above the viewport
     val MAX_REFILL_ROUNDS = 20       // safety valve against a backend that keeps advancing with no real yield
     LaunchedEffect(listState, roomId) {
         snapshotFlow {
