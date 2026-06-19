@@ -300,6 +300,23 @@ sealed class TimelineItem {
 }
 
 /**
+ * Latched, per-room decision for the "new messages" divider. The divider's fate is decided once,
+ * when the timeline first has content after the room is opened, from the m.fully_read position at
+ * entry:
+ *  - If an event already sorts after the fully-read marker, [anchorEventId] is frozen to that first
+ *    unread event and the divider renders above it (Element-style; it doesn't chase the user).
+ *  - If we were caught up on entry (nothing sorts after the marker), [anchorEventId] stays null and
+ *    the divider is suppressed for the whole session — so a message sent or received afterwards
+ *    can't spawn a spurious "new messages" line above it.
+ * Re-created (via remember(roomId)) on each room open, so reopening re-decides against the current
+ * marker.
+ */
+private class ReadMarkerDecision {
+    var decided = false
+    var anchorEventId: String? = null
+}
+
+/**
  * Snapshot of the values the auto-paginate effect reacts to. pendingScrollRestoration is
  * included so the refill chain re-checks the instant a round's scroll restoration completes:
  * restoration clears that flag in a separate effect, and a bare boolean read there would not
@@ -1865,6 +1882,10 @@ fun RoomTimelineScreen(
         net.vrkknn.andromuks.RoomAccountDataCache.getFullyReadEventId(roomId)
     }
 
+    // Decided once per room open (see ReadMarkerDecision). Survives produceState recomputes so a
+    // later sent/received event can't flip a "caught up on entry" room into showing the divider.
+    val readMarkerDecision = remember(roomId) { ReadMarkerDecision() }
+
     val timelineItems by produceState<List<TimelineItem>>(initialValue = emptyList(), sortedEvents, fullyReadMarkerEventId) {
         value = withContext(Dispatchers.Default) {
             val items = mutableListOf<TimelineItem>()
@@ -1886,6 +1907,17 @@ fun RoomTimelineScreen(
             val fullyReadEvent = fullyReadMarkerEventId?.let { id ->
                 timelineEvents.firstOrNull { it.eventId == id }
             }
+            // Latch the divider decision the first time we have both a non-empty timeline and the
+            // fully-read event loaded. anchorEventId is the first rendered event that sorts after
+            // the marker, or null if we entered caught up. Once decided, the anchor is frozen — new
+            // events arriving after entry never re-open the decision.
+            if (!readMarkerDecision.decided && sortedEvents.isNotEmpty() && fullyReadEvent != null) {
+                readMarkerDecision.anchorEventId = sortedEvents
+                    .firstOrNull { timelineOrder.compare(it, fullyReadEvent) > 0 }
+                    ?.eventId
+                readMarkerDecision.decided = true
+            }
+            val readMarkerAnchorId = readMarkerDecision.anchorEventId
             var readMarkerInserted = false
 
             for (event in sortedEvents) {
@@ -1905,9 +1937,10 @@ fun RoomTimelineScreen(
                     previousEvent = null
                 }
 
-                // Unread divider: the first rendered event that sorts after the read-up-to event
-                // starts the unread run.
-                if (!readMarkerInserted && fullyReadEvent != null && timelineOrder.compare(event, fullyReadEvent) > 0) {
+                // Unread divider: render it only above the anchor frozen at room open. If the room
+                // was entered caught up, readMarkerAnchorId is null and the divider never appears —
+                // even after we send/receive events that sort after the fully-read marker.
+                if (!readMarkerInserted && readMarkerAnchorId != null && event.eventId == readMarkerAnchorId) {
                     items.add(TimelineItem.ReadMarker(event.eventId))
                     readMarkerInserted = true
                     // The marker breaks consecutive grouping so the first unread message
