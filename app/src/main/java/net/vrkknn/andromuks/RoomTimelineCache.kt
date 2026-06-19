@@ -1500,21 +1500,6 @@ object RoomTimelineCache {
             try {
                 val event = TimelineEvent.fromJson(eventJson)
                 
-                // Define allowed event types that should appear in timeline
-                // These match the allowedEventTypes in RoomTimelineScreen and BubbleTimelineScreen
-                val allowedEventTypes = setOf(
-                    "m.room.message",
-                    "m.room.encrypted",
-                    "m.room.member",
-                    "m.room.name",
-                    "m.room.topic",
-                    "m.room.avatar",
-                    "m.room.pinned_events",
-                    "m.room.tombstone",
-                    "m.sticker",
-                    "io.element.call.encryption_keys"
-                )
-                
                 // Check if this is a kick (leave event where sender != state_key)
                 // Kicks should appear in timeline even with negative timelineRowid
                 val isKick = event.type == "m.room.member" &&
@@ -1523,34 +1508,22 @@ object RoomTimelineCache {
                             event.sender != event.stateKey &&
                             event.content?.optString("membership") == "leave"
 
-                // Filtering logic:
-                // 1. Store reaction events separately (they're filtered from timeline but needed to restore reactions)
-                // 2. Filter out member state/profile-hint events (timelineRowid <= 0) UNLESS they're kicks
-                //    timelineRowid=0 means the event was not in the timeline mapping (profile hint);
-                //    timelineRowid<0 is the old sentinel for state-only events.
-                // 3. Store redaction events separately (they're needed to show deleted messages)
-                // 4. Allow all other allowed event types with a positive timelineRowid
+                // Structural filtering only — the cache is deliberately type-agnostic. What is
+                // *displayed* is decided downstream by the render filter + the show_hidden_events
+                // switch; the cache must stay faithful so that switch can actually reveal hidden /
+                // unknown types (e.g. m.policy.rule.*, custom events). A hardcoded type allow-list
+                // here would silently drop those before they ever reached the cache.
+                // 1. Reactions / redactions / bridge send-status are routed into side-buckets by
+                //    addEventsToCache, so they are always passed through here.
+                // 2. m.room.member state/profile-hint events (timelineRowid <= 0) are dropped UNLESS
+                //    they're kicks. rowid=0 means "not in the timeline mapping" (profile hint);
+                //    rowid=-1 is the old state-only sentinel.
+                // 3. Everything else is cached and left to the render layer to show or hide.
                 val shouldCache = when {
-                    event.type == "m.reaction" -> {
-                        // Store reaction events separately - they're needed to restore reactions when reopening a room
-                        true // Will be handled separately in addEventsToCache
-                    }
-                    event.type == "com.beeper.message_send_status" -> {
-                        // Bridge delivery confirmation events — cached so processCachedEvents can
-                        // repopulate messageBridgeSendStatus when a fresh VM opens the room
-                        // (e.g. opened from FCM notification, pinned shortcut, conversation widget).
-                        true
-                    }
+                    event.type == "m.reaction" -> true // handled separately in addEventsToCache
+                    event.type == "com.beeper.message_send_status" -> true // bridge delivery confirmations
                     event.type == "m.room.member" && event.timelineRowid <= 0 && !isKick -> false
-                    event.type == "m.room.redaction" ||
-                    (event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction") -> {
-                        // Store redaction events separately - they're needed to show deleted messages
-                        // Similar to how we store edit events
-                        // Handle both encrypted and non-encrypted redactions for E2EE rooms
-                        true // Will be handled separately
-                    }
-                    allowedEventTypes.contains(event.type) -> true  // Allow all allowed types regardless of timelineRowid
-                    else -> false
+                    else -> true
                 }
                 
                 if (shouldCache) {
@@ -1577,12 +1550,9 @@ object RoomTimelineCache {
                         }
                     }
                 } else {
-                    // Log why event was filtered
-                    val reason = when {
-                        event.type == "m.reaction" -> "type = m.reaction"
-                        event.type == "m.room.member" && event.timelineRowid <= 0 -> "type = m.room.member (state/profile-hint event, not a kick)"
-                        else -> "type not in allowed event types"
-                    }
+                    // Log why event was filtered. The only structural drop left is a non-kick
+                    // m.room.member profile-hint/state event with no timeline position (rowid <= 0).
+                    val reason = "m.room.member state/profile-hint event (rowid <= 0, not a kick)"
                     filteredCount++
                     filteredReasons[reason] = (filteredReasons[reason] ?: 0) + 1
                     if (BuildConfig.DEBUG) Log.d(TAG, "Filtered event: ${event.eventId} type=${event.type} sender=${event.sender} timelineRowid=${event.timelineRowid} reason=[$reason]")

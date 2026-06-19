@@ -481,10 +481,13 @@ fun SystemEventNarrator(
                     appViewModel.requestUserProfile(event.sender, roomId)
                 }
 
-                val annotatedText = remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
+                val annotatedText = remember(displayName, event.sender, senderDisplayName, eventType, memberMap, userMentionColor) {
                     buildAnnotatedString {
                         appendClickableUser(event.sender, senderDisplayName, userMentionColor)
-                        append(" performed an action")
+                        append(" sent an unknown event: ")
+                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                            append(eventType)
+                        }
                     }
                 }
 

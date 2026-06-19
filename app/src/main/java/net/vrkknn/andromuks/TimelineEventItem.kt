@@ -3683,20 +3683,21 @@ fun TimelineEventItem(
     // (works for both unencrypted + encrypted messages; excludes nothing beyond "no user id").
     val mentionsMe = isMentioningUser(event, myUserId)
 
-    // Check if this is a narrator event (system event)
+    // Narrator (compact "system event" row) vs full message bubble. Anything that is NOT a
+    // content-bearing type renders as a narrator. The state types below get a tailored line in
+    // SystemEventNarrator's `when`; any other/unknown type (e.g. m.policy.rule.*, custom events)
+    // falls through to its generic "unknown event" narrator fallback. Such unknown types only
+    // reach this point once they've passed the timeline filter — i.e. when "Show hidden events"
+    // is on — so no extra gating is needed here. Messages, stickers, reactions and redactions
+    // stay on the full-bubble path (handled by MessageTypeContent).
     val isNarratorEvent =
-        event.type in
+        event.type !in
             setOf(
-                "m.room.member",
-                "m.room.name",
-                "m.room.topic",
-                "m.room.avatar",
-                "m.room.pinned_events",
-                "m.room.server_acl",
-                "m.room.power_levels",
-                "m.room.tombstone",
-                "m.space.parent",
-                "org.matrix.msc3401.call.member"
+                "m.room.message",
+                "m.room.encrypted",
+                "m.sticker",
+                "m.reaction",
+                "m.room.redaction"
             )
 
     // Check if this message is being edited by another event (moved to function start)

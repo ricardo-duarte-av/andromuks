@@ -1508,45 +1508,15 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                 }
                                 filteredByType++
                             } else {
-                                // Define allowed event types that should appear in timeline
-                                // These match the allowedEventTypes in RoomTimelineScreen and
-                                // BubbleTimelineScreen
-                                val allowedEventTypes =
-                                    setOf(
-                                        "m.room.message",
-                                        "m.room.encrypted",
-                                        "m.room.member",
-                                        "m.room.name",
-                                        "m.room.topic",
-                                        "m.room.avatar",
-                                        "m.room.pinned_events",
-                                        "m.room.tombstone",
-                                        "m.sticker",
-                                        "m.room.redaction", // Needed so redaction events reach cache (addEventsToCache stores them in cache.redactionEvents for sender lookup)
-                                        "org.matrix.msc3401.call.member",
-                                    )
-
-                                // Only rowId 0 and -1 are state-only sentinels for m.room.member.
-                                // Events with rowId == -1 are already handled above (profile hints).
-                                // Events with any other rowId (positive or negative < -1) are real
-                                // timeline entries (joins, leaves, avatar/displayname changes, kicks).
-                                val shouldAdd =
-                                    when {
-                                        allowedEventTypes.contains(event.type) -> true
-                                        else -> false
-                                    }
-
-                                if (shouldAdd) {
-                                    timelineList.add(event)
-                                } else {
-                                    filteredByRowId++
-                                    if (BuildConfig.DEBUG && filteredByRowId <= 5) {
-                                        android.util.Log.d(
-                                            "Andromuks",
-                                            "AppViewModel: Filtered event ${event.eventId} type=${event.type} timelineRowid=${event.timelineRowid}",
-                                        )
-                                    }
-                                }
+                                // Type-agnostic cache: reactions, bridge send-status and m.room.member
+                                // profile-hints (rowid 0/-1) are already handled above, so everything
+                                // reaching here is a real paginated timeline entry and is cached as-is.
+                                // Visibility of hidden/unknown types (m.policy.rule.*, custom events) is
+                                // decided downstream by the render filter + the show_hidden_events switch
+                                // — no hardcoded allow-list here, since that would silently drop those
+                                // types before they could ever be shown. (Matches the structural-only
+                                // rule in RoomTimelineCache.parseEventsFromArray.)
+                                timelineList.add(event)
                             }
                         }
                     }
