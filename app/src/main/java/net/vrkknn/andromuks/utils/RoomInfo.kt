@@ -37,6 +37,7 @@ import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import org.json.JSONObject
 import androidx.compose.foundation.shape.RoundedCornerShape
 import net.vrkknn.andromuks.utils.navigateToUserInfo
+import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.Animatable
@@ -380,14 +381,22 @@ fun RoomInfoScreen(
                         val isDmRoom = heroMember != null ||
                             appViewModel.isDirectMessageFromAccountData(roomId)
                         if (isDmRoom && selfProfile != null) {
-                            // Delay the fade-in so the shared-element transition from RT's header
-                            // avatar can settle before the badge appears on top of it. 500 ms
-                            // covers the StiffnessLow spring settle, 100 ms fade is just enough to
-                            // not look like a pop.
+                            // Badge alpha is driven by the screen's enter/exit transition state.
+                            //  • Entry: delay so the shared-element avatar from RT's header can
+                            //    settle (500 ms covers the StiffnessLow spring), then fade in 125 ms.
+                            //  • Exit: fade out fast (125 ms) the instant the screen starts leaving.
+                            //    Without this the badge — which is hoisted into the shared-transition
+                            //    overlay (zIndex 2f) and is NOT itself a shared element — stays frozen
+                            //    at full alpha on top while the room avatar flies back to the header.
                             val badgeAlpha = remember { Animatable(0f) }
-                            LaunchedEffect(Unit) {
-                                kotlinx.coroutines.delay(500)
-                                badgeAlpha.animateTo(1f, animationSpec = tween(durationMillis = scaledTweenMs(100)))
+                            val isExiting = animatedVisibilityScope?.transition?.targetState == EnterExitState.PostExit
+                            LaunchedEffect(isExiting) {
+                                if (isExiting) {
+                                    badgeAlpha.animateTo(0f, animationSpec = tween(durationMillis = scaledTweenMs(125)))
+                                } else {
+                                    kotlinx.coroutines.delay(500)
+                                    badgeAlpha.animateTo(1f, animationSpec = tween(durationMillis = scaledTweenMs(125)))
+                                }
                             }
                             // While the shared-element transition runs, the room avatar is hoisted
                             // into the SharedTransitionScope overlay (zIndexInOverlay=1f), which
