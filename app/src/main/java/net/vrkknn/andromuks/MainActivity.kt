@@ -35,6 +35,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.material3.Scaffold
+import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
@@ -53,6 +54,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Matrix
@@ -1443,14 +1446,17 @@ fun AppNavigation(
                 }
             },
             exitTransition = {
-                // UX: Fade the list out so it remains softly visible behind the flying avatar
-                fadeOut(tween(scaledTweenMs(500)))
+                // Opening a room: no fade — the list stays solid behind the flying avatar so the
+                // shared-element flight is the only motion. Fade only for other exits.
+                if (targetState.destination.route?.startsWith("room_timeline") == true) null
+                else fadeOut(tween(scaledTweenMs(200)))
             },
             popEnterTransition = {
-                // UX: Fade the list back in when returning from a room
-                fadeIn(tween(scaledTweenMs(500)))
+                // Returning from a room: appear instantly under the avatar (shared-element flight only).
+                if (initialState.destination.route?.startsWith("room_timeline") == true) null
+                else fadeIn(tween(scaledTweenMs(200)))
             },
-            popExitTransition = { fadeOut(tween(scaledTweenMs(500))) }
+            popExitTransition = { fadeOut(tween(scaledTweenMs(200))) }
         ) { backStackEntry ->
             val navigationScope = this
             // CRITICAL FIX: Always show StartupLoadingScreen initially to prevent white flash during navigation
@@ -1683,59 +1689,77 @@ fun AppNavigation(
             // Fades only = Smooth Shared Element flight
             // IMPORTANT: When transitioning to/from user_info or room_info, disable route fades so
             // shared-element avatar motion remains the only animation.
+            // A null transition means "no route fade — let the shared-element avatar flight be the
+            // only animation". We do this for user_info/room_info (as before) AND for room_list, so
+            // closing/opening a room no longer overlays a 500ms full-screen fade that steals taps
+            // (see exitInputBlocker below, which also guards the shared-flight overlap window).
+            // Routes that still fade are shortened 500→200ms to shrink any remaining overlap.
             enterTransition = {
-                val fromUserInfo = initialState.destination.route?.startsWith("user_info") == true
-                val fromRoomInfo = initialState.destination.route?.startsWith("room_info") == true
+                val from = initialState.destination.route
+                val noFade = from?.startsWith("user_info") == true ||
+                    from?.startsWith("room_info") == true ||
+                    from == "room_list"
                 if (BuildConfig.DEBUG) {
-                    Log.d(
-                        "Andromuks",
-                        "MainActivity room_timeline enterTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, fromUserInfo=$fromUserInfo, fromRoomInfo=$fromRoomInfo"
-                    )
+                    Log.d("Andromuks", "MainActivity room_timeline enterTransition: initial=$from, target=${targetState.destination.route}, noFade=$noFade")
                 }
-                if (fromUserInfo || fromRoomInfo) null else fadeIn(tween(scaledTweenMs(500)))
+                if (noFade) null else fadeIn(tween(scaledTweenMs(200)))
             },
             exitTransition = {
-                val toUserInfo = targetState.destination.route?.startsWith("user_info") == true
-                val toRoomInfo = targetState.destination.route?.startsWith("room_info") == true
+                val to = targetState.destination.route
+                val noFade = to?.startsWith("user_info") == true ||
+                    to?.startsWith("room_info") == true ||
+                    to == "room_list"
                 if (BuildConfig.DEBUG) {
-                    Log.d(
-                        "Andromuks",
-                        "MainActivity room_timeline exitTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, toUserInfo=$toUserInfo, toRoomInfo=$toRoomInfo"
-                    )
+                    Log.d("Andromuks", "MainActivity room_timeline exitTransition: initial=${initialState.destination.route}, target=$to, noFade=$noFade")
                 }
-                if (toUserInfo || toRoomInfo) null else fadeOut(tween(scaledTweenMs(500)))
+                if (noFade) null else fadeOut(tween(scaledTweenMs(200)))
             },
             popEnterTransition = {
-                val fromUserInfo = initialState.destination.route?.startsWith("user_info") == true
-                val fromRoomInfo = initialState.destination.route?.startsWith("room_info") == true
+                val from = initialState.destination.route
+                val noFade = from?.startsWith("user_info") == true ||
+                    from?.startsWith("room_info") == true ||
+                    from == "room_list"
                 if (BuildConfig.DEBUG) {
-                    Log.d(
-                        "Andromuks",
-                        "MainActivity room_timeline popEnterTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, fromUserInfo=$fromUserInfo, fromRoomInfo=$fromRoomInfo"
-                    )
+                    Log.d("Andromuks", "MainActivity room_timeline popEnterTransition: initial=$from, target=${targetState.destination.route}, noFade=$noFade")
                 }
-                if (fromUserInfo || fromRoomInfo) null else fadeIn(tween(scaledTweenMs(500)))
+                if (noFade) null else fadeIn(tween(scaledTweenMs(200)))
             },
             popExitTransition = {
-                val toUserInfo = targetState.destination.route?.startsWith("user_info") == true
-                val toRoomInfo = targetState.destination.route?.startsWith("room_info") == true
+                val to = targetState.destination.route
+                val noFade = to?.startsWith("user_info") == true ||
+                    to?.startsWith("room_info") == true ||
+                    to == "room_list"
                 if (BuildConfig.DEBUG) {
-                    Log.d(
-                        "Andromuks",
-                        "MainActivity room_timeline popExitTransition: initial=${initialState.destination.route}, target=${targetState.destination.route}, toUserInfo=$toUserInfo, toRoomInfo=$toRoomInfo"
-                    )
+                    Log.d("Andromuks", "MainActivity room_timeline popExitTransition: initial=${initialState.destination.route}, target=$to, noFade=$noFade")
                 }
-                if (toUserInfo || toRoomInfo) null else fadeOut(tween(scaledTweenMs(500)))
+                if (noFade) null else fadeOut(tween(scaledTweenMs(200)))
             }
         ) { backStackEntry ->
             val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
             val roomName = appViewModel.getRoomById(roomId)?.name ?: ""
             
+            // While this timeline is animating OUT (popping back to the room list), it stays
+            // composed and on top — fully or partially transparent — for the duration of the
+            // shared-element avatar flight. Without this guard its full-screen hit targets would
+            // swallow taps meant for the room list underneath. Consume all pointer events on the
+            // Initial pass during PostExit so input falls through to the entering list instead.
+            val exitInputBlocker = if (transition.targetState == EnterExitState.PostExit) {
+                Modifier.pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                        }
+                    }
+                }
+            } else {
+                Modifier
+            }
+
             RoomTimelineScreen(
                 roomId = roomId,
                 roomName = roomName,
                 navController = navController,
-                modifier = modifier,
+                modifier = modifier.then(exitInputBlocker),
                 appViewModel = appViewModel,
                 sharedTransitionScope = this@SharedTransitionLayout,
                 animatedVisibilityScope = this  // ✓ Correct scope - matches RoomListScreen
