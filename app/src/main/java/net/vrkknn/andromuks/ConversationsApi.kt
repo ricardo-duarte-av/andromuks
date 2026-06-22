@@ -30,6 +30,7 @@ import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
+import net.vrkknn.andromuks.utils.RoomMetadataStore
 import net.vrkknn.andromuks.BuildConfig
 
 import java.io.IOException
@@ -83,10 +84,26 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     private var lastShortcutStableIds: Set<String> = emptySet()
     private var lastNameAvatar: Map<String, Pair<String, String?>> = emptyMap()
     private val lastAvatarCachePresence: MutableMap<String, Boolean> = mutableMapOf()
-    // Track whether shortcut was created with avatar icon (true) or fallback icon (false)
-    // This helps detect when shortcuts need to be refreshed to get avatars
+    // Track whether shortcut was created with avatar icon (true) or fallback icon (false).
+    // In-memory L1 cache; the authoritative cross-instance value is persisted in RoomMetadataStore
+    // so a freshly-constructed instance (e.g. NotificationImageWorker) doesn't needlessly rebuild
+    // the shortcut icon on every notification. Always go through the helpers below.
     private val shortcutHasAvatarIcon: MutableMap<String, Boolean> = mutableMapOf()
     private var cacheInitialized: Boolean = false
+
+    /** Read whether this room's shortcut already carries a real avatar icon. L1 map → persisted store. */
+    private fun shortcutHadAvatarIcon(roomId: String): Boolean {
+        shortcutHasAvatarIcon[roomId]?.let { return it }
+        val persisted = RoomMetadataStore.getRow(roomId)?.shortcutHasAvatar ?: false
+        shortcutHasAvatarIcon[roomId] = persisted
+        return persisted
+    }
+
+    /** Record whether this room's shortcut carries a real avatar icon (writes through to disk). */
+    private fun setShortcutHasAvatarIcon(roomId: String, hasAvatar: Boolean) {
+        shortcutHasAvatarIcon[roomId] = hasAvatar
+        RoomMetadataStore.upsertShortcutHasAvatar(roomId, hasAvatar)
+    }
     
     /**
      * Build a Person object from notification data (like the working Gomuks app)
@@ -524,7 +541,10 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     // When shortcut is updated later, it will check and refresh if avatar becomes available
                     val avatarInCache = false // Can't determine from existing shortcut
                     lastAvatarCachePresence[roomId] = avatarInCache
-                    shortcutHasAvatarIcon[roomId] = false // Assume no avatar until we update and check
+                    // Seed the icon-avatar flag from the persisted store rather than assuming false,
+                    // so we don't needlessly rebuild a shortcut icon that already has its avatar.
+                    RoomMetadataStore.initialize(context)
+                    shortcutHasAvatarIcon[roomId] = RoomMetadataStore.getRow(roomId)?.shortcutHasAvatar ?: false
                 }
                 
                 lastShortcutData = shortcutsMap
@@ -602,6 +622,10 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         // Process the room synchronously
         withContext(Dispatchers.IO) {
             try {
+                // Ensure the persisted shortcut-icon state is hydrated. This runs on a background
+                // thread (worker path) and is idempotent — in the main process it's already done.
+                RoomMetadataStore.initialize(context)
+
                 // Get current shortcut count from our cache
                 val currentShortcutCount = lastShortcutStableIds.size
                 
@@ -745,8 +769,8 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             canCreateAvatarIcon(url)
         } ?: false
         
-        val previouslyHadAvatar = shortcutHasAvatarIcon[room.id] ?: false
-        
+        val previouslyHadAvatar = shortcutHadAvatarIcon(room.id)
+
         // Refresh icon if:
         // 1. Avatar transitions from not-available -> available (canCreateAvatar && !previouslyHadAvatar)
         // 2. Avatar was previously available but shortcut might have been created with fallback
@@ -759,13 +783,11 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         val createdWithAvatar = canCreateAvatar
         
         if (needsUpdate || shouldRefreshIcon) {
-            // Remove shortcut if avatar became available (to force icon refresh)
-            if (shouldRefreshIcon) {
-                if (BuildConfig.DEBUG) Log.d(TAG, "Removing old shortcut to refresh icon (avatar cache became available)")
-                ShortcutManagerCompat.removeDynamicShortcuts(context, listOf(room.id))
-            }
-            
-            // pushDynamicShortcut() automatically moves shortcut to top
+            // NOTE: Do NOT removeDynamicShortcuts() here to "force" an icon refresh.
+            // pushDynamicShortcut() updates an existing shortcut's icon in place, and removing
+            // the shortcut first momentarily drops the conversation's status in the People Space
+            // service — which blanks any pinned Conversation widget bound to this room even though
+            // the notification itself survives. Just push; the new icon is picked up.
             ShortcutManagerCompat.pushDynamicShortcut(context, shortcutInfoCompat)
             
             // Update cache
@@ -773,10 +795,10 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             lastShortcutStableIds = lastShortcutStableIds + room.id
             lastNameAvatar = lastNameAvatar + (room.id to (room.name to room.avatarUrl))
             lastAvatarCachePresence[room.id] = canCreateAvatar
-            shortcutHasAvatarIcon[room.id] = createdWithAvatar
-            
+            setShortcutHasAvatarIcon(room.id, createdWithAvatar)
+
             lastShortcutUpdateCompletedTime = System.currentTimeMillis()
-            
+
             if (BuildConfig.DEBUG) {
                 if (shouldRefreshIcon && !needsUpdate) {
                     Log.d(TAG, "Refreshed shortcut icon for room: ${room.name} (avatar became available)")
@@ -791,8 +813,8 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             // Update tracking even if we're not refreshing the icon
             // This ensures tracking stays accurate
             lastAvatarCachePresence[room.id] = canCreateAvatar
-            shortcutHasAvatarIcon[room.id] = createdWithAvatar
-            
+            setShortcutHasAvatarIcon(room.id, createdWithAvatar)
+
             if (BuildConfig.DEBUG) Log.d(TAG, "Moved shortcut to top for room: ${room.name} (no update needed)")
         }
     }
@@ -816,8 +838,8 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             canCreateAvatarIcon(url)
         } ?: false
         lastAvatarCachePresence[room.id] = avatarInCache
-        shortcutHasAvatarIcon[room.id] = avatarInCache
-        
+        setShortcutHasAvatarIcon(room.id, avatarInCache)
+
         lastShortcutUpdateCompletedTime = System.currentTimeMillis()
         
         if (BuildConfig.DEBUG) Log.d(TAG, "Added shortcut for room: ${room.name}")
@@ -1125,21 +1147,14 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                         canCreateAvatarIcon(url)
                     } ?: false
                     
-                    val previouslyHadAvatar = shortcutHasAvatarIcon[shortcut.roomId] ?: false
-                    
-                    // Refresh icon if avatar transitions from not-available -> available
-                    val shouldRefreshIcon = canCreateAvatar && !previouslyHadAvatar
-                    
                     // Create ShortcutInfoCompat (AndroidX version)
                     // This will now download and cache the avatar if not already cached
                     val shortcutInfoCompat = createShortcutInfoCompat(shortcut)
-                    
-                    // Remove shortcut if avatar became available (to force icon refresh)
-                    if (shouldRefreshIcon) {
-                        if (BuildConfig.DEBUG) Log.d(TAG, "  Removing old shortcut to refresh icon (avatar became available)")
-                        ShortcutManagerCompat.removeDynamicShortcuts(context, listOf(shortcut.roomId))
-                    }
-                    
+
+                    // NOTE: Do NOT removeDynamicShortcuts() here to "force" an icon refresh — see
+                    // updateSingleShortcut(). pushDynamicShortcut() refreshes the icon in place;
+                    // removing first blanks any pinned Conversation widget bound to this room.
+
                     // Push/update the shortcut (conversation-optimized API)
                     // This preserves other shortcuts automatically!
                     ShortcutManagerCompat.pushDynamicShortcut(context, shortcutInfoCompat)
@@ -1147,7 +1162,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
 
                     // Record tracking for next comparison
                     lastAvatarCachePresence[shortcut.roomId] = canCreateAvatar
-                    shortcutHasAvatarIcon[shortcut.roomId] = canCreateAvatar
+                    setShortcutHasAvatarIcon(shortcut.roomId, canCreateAvatar)
                     
                 } catch (e: Exception) {
                     Log.e(TAG, "Error updating shortcut for room: ${shortcut.roomName}", e)

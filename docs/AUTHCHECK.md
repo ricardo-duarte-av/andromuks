@@ -263,6 +263,12 @@ The lever is the **`spacesLoaded` effect** (the same effect that paints `room_li
 
 Adds `sort_ts INTEGER NOT NULL DEFAULT 0`. `RoomListCache.persistMetadata` calls `RoomMetadataStore.upsertSortTs(roomId, ts)` for every `RoomItem` carrying a `sortingTimestamp`; `hydrateFromDisk` restores it. The cached room list therefore sorts by last activity even before the WS lands, and the user's most recently active room naturally floats to the top.
 
+### `RoomMetadataStore` v3 schema
+
+Adds `shortcut_has_avatar INTEGER NOT NULL DEFAULT 0` (`0`/unknown = lettermark fallback, `1` = real avatar icon). It records whether the conversation shortcut for a room was last published with its real avatar icon. `ConversationsApi` reads/writes it via `RoomMetadataStore.getRow(...).shortcutHasAvatar` / `upsertShortcutHasAvatar(...)`, fronted by an in-memory L1 map.
+
+The point is cross-instance persistence: `NotificationImageWorker` constructs a throwaway `ConversationsApi` per notification, so without persistence it always thinks the shortcut needs its avatar (re)applied. Combined with dropping the old `removeDynamicShortcuts()`→`pushDynamicShortcut()` "force icon refresh" churn (which momentarily dropped the conversation's People Space status and **blanked any pinned Conversation widget** bound to the room), the worker now refreshes the shortcut icon in place and skips the rebuild entirely when the avatar is already published. The flag is wiped on logout by `RoomMetadataStore.clearAll()`.
+
 ### `clear_state` staleness handled by diff-prune (not purge)
 
 On WS open the first `sync_complete` arrives with `clear_state=true`. Historically this called `handleClearStateReset()` to wipe `roomMap`/caches and rebuild from the batch — but that wipe blanks the just-painted cache-first list (a flash), so it is **not** wired into the sync path. `handleClearStateReset()` survives only as a reusable hard-reset utility (e.g. logout); `processSyncCompleteAtomic` no longer calls it.

@@ -31,7 +31,7 @@ object RoomMetadataStore {
     private const val TAG = "RoomMetadataStore"
 
     private const val DB_NAME = "room_metadata.db"
-    private const val DB_VERSION = 2
+    private const val DB_VERSION = 3
 
     private const val TABLE = "room_metadata"
     private const val COL_ROOM_ID = "room_id"
@@ -44,6 +44,12 @@ object RoomMetadataStore {
     // cached room list can be sorted descending on cold start, before sync_complete updates.
     // 0 = unknown; the room list sort treats unknown rooms as oldest.
     private const val COL_SORT_TS = "sort_ts"
+    // v3: whether the conversation shortcut for this room was last published with a real avatar
+    // icon (1) vs a lettermark fallback (0/unknown). Persisted so a freshly-constructed
+    // ConversationsApi (e.g. in NotificationImageWorker) knows the shortcut already carries its
+    // avatar and skips a redundant in-place icon rebuild on every notification. See
+    // ConversationsApi.updateSingleShortcut().
+    private const val COL_SHORTCUT_HAS_AVATAR = "shortcut_has_avatar"
 
     data class Row(
         val roomId: String,
@@ -52,6 +58,7 @@ object RoomMetadataStore {
         val bridgeAvatarMxc: String?,
         val bridgeDisplayName: String?,
         val sortTs: Long = 0L,
+        val shortcutHasAvatar: Boolean = false,
     )
 
     private val initialized = AtomicBoolean(false)
@@ -86,7 +93,7 @@ object RoomMetadataStore {
     private fun hydrateMirrorFromDisk(db: SQLiteDatabase) {
         db.query(
             TABLE,
-            arrayOf(COL_ROOM_ID, COL_NAME, COL_AVATAR_MXC, COL_BRIDGE_AVATAR_MXC, COL_BRIDGE_DISPLAY_NAME, COL_SORT_TS),
+            arrayOf(COL_ROOM_ID, COL_NAME, COL_AVATAR_MXC, COL_BRIDGE_AVATAR_MXC, COL_BRIDGE_DISPLAY_NAME, COL_SORT_TS, COL_SHORTCUT_HAS_AVATAR),
             null, null, null, null, null
         ).use { c ->
             val iRoomId = c.getColumnIndexOrThrow(COL_ROOM_ID)
@@ -95,6 +102,7 @@ object RoomMetadataStore {
             val iBridgeAvatar = c.getColumnIndexOrThrow(COL_BRIDGE_AVATAR_MXC)
             val iBridgeName = c.getColumnIndexOrThrow(COL_BRIDGE_DISPLAY_NAME)
             val iSortTs = c.getColumnIndexOrThrow(COL_SORT_TS)
+            val iShortcutAvatar = c.getColumnIndexOrThrow(COL_SHORTCUT_HAS_AVATAR)
             while (c.moveToNext()) {
                 val roomId = c.getString(iRoomId) ?: continue
                 mirror[roomId] = Row(
@@ -104,6 +112,7 @@ object RoomMetadataStore {
                     bridgeAvatarMxc = if (c.isNull(iBridgeAvatar)) null else c.getString(iBridgeAvatar),
                     bridgeDisplayName = if (c.isNull(iBridgeName)) null else c.getString(iBridgeName),
                     sortTs = if (c.isNull(iSortTs)) 0L else c.getLong(iSortTs),
+                    shortcutHasAvatar = !c.isNull(iShortcutAvatar) && c.getInt(iShortcutAvatar) != 0,
                 )
             }
         }
@@ -170,6 +179,23 @@ object RoomMetadataStore {
         ioScope.launch {
             writePartial(roomId) { values ->
                 values.put(COL_SORT_TS, sortTs)
+            }
+        }
+    }
+
+    /**
+     * Upsert whether the conversation shortcut for this room currently carries a real avatar
+     * icon (true) or a lettermark fallback (false). Lets the notification worker avoid a
+     * redundant icon rebuild when the shortcut already has its avatar.
+     */
+    fun upsertShortcutHasAvatar(roomId: String, hasAvatar: Boolean) {
+        val existing = mirror[roomId]
+        if (existing != null && existing.shortcutHasAvatar == hasAvatar) return
+        mergeIntoMirror(roomId, shortcutHasAvatar = hasAvatar)
+        if (helper == null) return
+        ioScope.launch {
+            writePartial(roomId) { values ->
+                values.put(COL_SHORTCUT_HAS_AVATAR, if (hasAvatar) 1 else 0)
             }
         }
     }
@@ -260,6 +286,7 @@ object RoomMetadataStore {
         bridgeAvatarMxc: String? = null,
         bridgeDisplayName: String? = null,
         sortTs: Long? = null,
+        shortcutHasAvatar: Boolean? = null,
     ): Row {
         return mirror.compute(roomId) { _, existing ->
             Row(
@@ -269,6 +296,7 @@ object RoomMetadataStore {
                 bridgeAvatarMxc = bridgeAvatarMxc ?: existing?.bridgeAvatarMxc,
                 bridgeDisplayName = bridgeDisplayName ?: existing?.bridgeDisplayName,
                 sortTs = sortTs ?: existing?.sortTs ?: 0L,
+                shortcutHasAvatar = shortcutHasAvatar ?: existing?.shortcutHasAvatar ?: false,
             )
         }!!
     }
@@ -304,7 +332,8 @@ object RoomMetadataStore {
                     $COL_BRIDGE_AVATAR_MXC TEXT,
                     $COL_BRIDGE_DISPLAY_NAME TEXT,
                     $COL_UPDATED_AT INTEGER NOT NULL,
-                    $COL_SORT_TS INTEGER NOT NULL DEFAULT 0
+                    $COL_SORT_TS INTEGER NOT NULL DEFAULT 0,
+                    $COL_SHORTCUT_HAS_AVATAR INTEGER NOT NULL DEFAULT 0
                 )
                 """.trimIndent()
             )
@@ -314,6 +343,11 @@ object RoomMetadataStore {
             // v1 → v2: add sort_ts column for cached room list ordering.
             if (oldVersion < 2) {
                 db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_SORT_TS INTEGER NOT NULL DEFAULT 0")
+            }
+            // v2 → v3: add shortcut_has_avatar so the notification worker can skip redundant
+            // shortcut icon rebuilds when the avatar is already published.
+            if (oldVersion < 3) {
+                db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_SHORTCUT_HAS_AVATAR INTEGER NOT NULL DEFAULT 0")
             }
         }
     }
