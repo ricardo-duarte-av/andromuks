@@ -154,7 +154,9 @@ import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.automirrored.filled.AddToHomeScreen
 import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.SmallFloatingActionButton
@@ -1003,9 +1005,58 @@ fun RoomListScreen(
                     }
                 }
 
-                // Offline indicator - shows when websocket is not connected
+                // Connection indicator — three-way split across the 7 ConnectionState states:
+                //  • Ready                                  → static green CloudDone (connected)
+                //  • Connecting/Initializing/*Reconnecting  → neutral pulsing CloudSync (working on it)
+                //  • Disconnected/WaitingForNetwork         → red pulsing CloudOff (genuine problem)
+                // Transient startup/resume no longer flashes the alarming red icon.
+                val isConnecting = connectionState.isDialOrSyncing() ||
+                    connectionState is ConnectionState.QuickReconnecting ||
+                    connectionState is ConnectionState.FullReconnecting
+                val isOffline = connectionState is ConnectionState.Disconnected ||
+                    connectionState is ConnectionState.WaitingForNetwork
+
+                // Connected indicator - static confirmation that the websocket is ready
                 AnimatedVisibility(
-                    visible = !connectionState.isReady(),
+                    visible = connectionState.isReady(),
+                    enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
+                    exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.CloudDone,
+                        contentDescription = "Server connected",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                // Connecting indicator - transient dial / initial sync / reconnect
+                AnimatedVisibility(
+                    visible = isConnecting,
+                    enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
+                    exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+                ) {
+                    val connectingPulse = rememberInfiniteTransition(label = "connecting_pulse")
+                    val connectingAlpha by connectingPulse.animateFloat(
+                        initialValue = 0.5f,
+                        targetValue = 1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(1000, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "connecting_alpha"
+                    )
+                    Icon(
+                        imageVector = Icons.Filled.CloudSync,
+                        contentDescription = "Connecting to server",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = connectingAlpha),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                // Offline indicator - genuinely disconnected or waiting for network
+                AnimatedVisibility(
+                    visible = isOffline,
                     enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
                     exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
                 ) {
