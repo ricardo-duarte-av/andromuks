@@ -19,6 +19,7 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -158,6 +159,7 @@ import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.SmallFloatingActionButton
 import net.vrkknn.andromuks.ui.components.AvatarImage
@@ -988,9 +990,7 @@ fun RoomListScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                             SyncBatchIndicator(
-                                appViewModel = appViewModel,
-                                isProcessingPendingItems = uiState.isProcessingPendingItems,
-                                roomListUpdateCounter = uiState.roomListUpdateCounter
+                                appViewModel = appViewModel
                             )
                         }
                         if (!me?.displayName.isNullOrBlank() && appViewModel.currentUserId.isNotBlank()) {
@@ -1005,119 +1005,65 @@ fun RoomListScreen(
                     }
                 }
 
-                // Connection indicator — three-way split across the 7 ConnectionState states:
-                //  • Ready                                  → static green CloudDone (connected)
-                //  • Connecting/Initializing/*Reconnecting  → neutral pulsing CloudSync (working on it)
-                //  • Disconnected/WaitingForNetwork         → red pulsing CloudOff (genuine problem)
-                // Transient startup/resume no longer flashes the alarming red icon.
-                val isConnecting = connectionState.isDialOrSyncing() ||
-                    connectionState is ConnectionState.QuickReconnecting ||
-                    connectionState is ConnectionState.FullReconnecting
-                val isOffline = connectionState is ConnectionState.Disconnected ||
-                    connectionState is ConnectionState.WaitingForNetwork
+                // Connection indicator — three-way split across the 7 ConnectionState states.
+                // Tapping it opens the WebSocket activity log. Extracted into its own composable so
+                // the inner AnimatedVisibility calls resolve to the generic (non-RowScope) overload.
+                ConnectionStatusIndicator(
+                    connectionState = connectionState,
+                    roomListUpdateCounter = uiState.roomListUpdateCounter,
+                    onClick = { navController.navigate("reconnection_log") }
+                )
 
-                // Connected indicator - static confirmation that the websocket is ready
-                AnimatedVisibility(
-                    visible = connectionState.isReady(),
-                    enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
-                    exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.CloudDone,
-                        contentDescription = "Server connected",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                // Breathing room so the (untargeted, 20dp) connection icon doesn't crowd the
+                // overflow button's touch area and make it hard to press.
+                Spacer(modifier = Modifier.width(12.dp))
 
-                // Connecting indicator - transient dial / initial sync / reconnect
-                AnimatedVisibility(
-                    visible = isConnecting,
-                    enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
-                    exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
-                ) {
-                    val connectingPulse = rememberInfiniteTransition(label = "connecting_pulse")
-                    val connectingAlpha by connectingPulse.animateFloat(
-                        initialValue = 0.5f,
-                        targetValue = 1f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(1000, easing = FastOutSlowInEasing),
-                            repeatMode = RepeatMode.Reverse
-                        ),
-                        label = "connecting_alpha"
-                    )
-                    Icon(
-                        imageVector = Icons.Filled.CloudSync,
-                        contentDescription = "Connecting to server",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = connectingAlpha),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                // Offline indicator - genuinely disconnected or waiting for network
-                AnimatedVisibility(
-                    visible = isOffline,
-                    enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
-                    exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
-                ) {
-                    val offlinePulse = rememberInfiniteTransition(label = "offline_pulse")
-                    val offlineAlpha by offlinePulse.animateFloat(
-                        initialValue = 0.4f,
-                        targetValue = 1f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(800, easing = FastOutSlowInEasing),
-                            repeatMode = RepeatMode.Reverse
-                        ),
-                        label = "offline_alpha"
-                    )
-                    Icon(
-                        imageVector = Icons.Filled.CloudOff,
-                        contentDescription = "No server connection",
-                        tint = MaterialTheme.colorScheme.error.copy(alpha = offlineAlpha),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                // Create Room button
-                IconButton(
-                    onClick = {
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        navController.navigate("room_maker")
+                // "More" overflow menu (3-dot). Hosts New room, Mentions, and Settings to keep the
+                // header compact now that it also carries the connection indicator.
+                var moreExpanded by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { moreExpanded = true }) {
+                        Icon(
+                            imageVector = Icons.Filled.MoreVert,
+                            contentDescription = "More",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.AddCircle,
-                        contentDescription = "Create Room",
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                // Notifications button (Bell icon)
-                IconButton(
-                    onClick = {
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        navController.navigate("mentions")
+                    DropdownMenu(
+                        expanded = moreExpanded,
+                        onDismissRequest = { moreExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("New room") },
+                            onClick = {
+                                moreExpanded = false
+                                navController.navigate("room_maker")
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Filled.AddCircle, contentDescription = null)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Mentions") },
+                            onClick = {
+                                moreExpanded = false
+                                navController.navigate("mentions")
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Filled.Notifications, contentDescription = null)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Settings") },
+                            onClick = {
+                                moreExpanded = false
+                                navController.navigate("settings")
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Filled.Settings, contentDescription = null)
+                            }
+                        )
                     }
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Notifications,
-                        contentDescription = "Notifications",
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                
-                // Settings button
-                IconButton(
-                    onClick = { 
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        navController.navigate("settings") 
-                    }
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Settings,
-                        contentDescription = "Settings",
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
                 }
             }
             
@@ -2542,46 +2488,125 @@ fun formatTimeAgo(timestamp: Long?): String {
     }
 }
 
+/**
+ * Header WebSocket connection indicator. Three-way split across the 7 ConnectionState states:
+ *  • Ready                                  → static green CloudDone, plus a one-shot scale
+ *                                             "heartbeat" each time a sync_complete is applied
+ *                                             (roomListUpdateCounter bumps once per applied sync).
+ *  • Connecting/Initializing/Quick/FullReconnecting → neutral pulsing CloudSync (working on it).
+ *  • Disconnected/WaitingForNetwork         → red pulsing CloudOff (genuine problem).
+ *
+ * The three states are mutually exclusive and overlap inside a 40dp clickable Box, which gives a
+ * comfortable touch target around the 20dp icons and opens the WebSocket activity log on tap.
+ * Lives in its own composable (not inline in the header Row) so the inner AnimatedVisibility calls
+ * resolve to the generic overload instead of the shadowed RowScope one.
+ */
 @Composable
-private fun SyncBatchIndicator(
-    appViewModel: AppViewModel,
-    isProcessingPendingItems: Boolean,
-    roomListUpdateCounter: Int
+private fun ConnectionStatusIndicator(
+    connectionState: ConnectionState,
+    roomListUpdateCounter: Int,
+    onClick: () -> Unit
 ) {
-    val isProcessingBatch by appViewModel.isProcessingSyncBatch.collectAsState()
-    val processingBatchSize by appViewModel.processingBatchSize.collectAsState()
-    var showSyncIndicator by remember { mutableStateOf(false) }
-    LaunchedEffect(roomListUpdateCounter) {
-        if (roomListUpdateCounter > 0) {
-            showSyncIndicator = true
-            kotlinx.coroutines.delay(500)
-            showSyncIndicator = false
+    val isConnecting = connectionState.isDialOrSyncing() ||
+        connectionState is ConnectionState.QuickReconnecting ||
+        connectionState is ConnectionState.FullReconnecting
+    val isOffline = connectionState is ConnectionState.Disconnected ||
+        connectionState is ConnectionState.WaitingForNetwork
+
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        // Connected indicator - ready, with a scale heartbeat per applied sync_complete.
+        AnimatedVisibility(
+            visible = connectionState.isReady(),
+            enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
+            exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+        ) {
+            val syncPulse = remember { Animatable(1f) }
+            LaunchedEffect(roomListUpdateCounter) {
+                // Skip the initial composition value; only pulse on real sync updates.
+                if (roomListUpdateCounter > 0) {
+                    syncPulse.snapTo(1f)
+                    syncPulse.animateTo(1.35f, tween(scaledTweenMs(120), easing = FastOutSlowInEasing))
+                    syncPulse.animateTo(1f, tween(scaledTweenMs(220), easing = FastOutSlowInEasing))
+                }
+            }
+            Icon(
+                imageVector = Icons.Filled.CloudDone,
+                contentDescription = "Server connected",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .size(20.dp)
+                    .graphicsLayer {
+                        scaleX = syncPulse.value
+                        scaleY = syncPulse.value
+                    }
+            )
+        }
+
+        // Connecting indicator - transient dial / initial sync / reconnect.
+        AnimatedVisibility(
+            visible = isConnecting,
+            enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
+            exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+        ) {
+            val connectingPulse = rememberInfiniteTransition(label = "connecting_pulse")
+            val connectingAlpha by connectingPulse.animateFloat(
+                initialValue = 0.5f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1000, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "connecting_alpha"
+            )
+            Icon(
+                imageVector = Icons.Filled.CloudSync,
+                contentDescription = "Connecting to server",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = connectingAlpha),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        // Offline indicator - genuinely disconnected or waiting for network.
+        AnimatedVisibility(
+            visible = isOffline,
+            enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
+            exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+        ) {
+            val offlinePulse = rememberInfiniteTransition(label = "offline_pulse")
+            val offlineAlpha by offlinePulse.animateFloat(
+                initialValue = 0.4f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(800, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "offline_alpha"
+            )
+            Icon(
+                imageVector = Icons.Filled.CloudOff,
+                contentDescription = "No server connection",
+                tint = MaterialTheme.colorScheme.error.copy(alpha = offlineAlpha),
+                modifier = Modifier.size(20.dp)
+            )
         }
     }
-    AnimatedVisibility(
-        visible = isProcessingPendingItems || showSyncIndicator || isProcessingBatch,
-        enter = fadeIn(animationSpec = tween(scaledTweenMs(200))) + scaleIn(initialScale = 0.5f, animationSpec = tween(scaledTweenMs(200))),
-        exit = fadeOut(animationSpec = tween(scaledTweenMs(200))) + scaleOut(targetScale = 0.5f, animationSpec = tween(scaledTweenMs(200)))
-    ) {
-        val infiniteTransition = rememberInfiniteTransition(label = "sync_pulse")
-        val alpha by infiniteTransition.animateFloat(
-            initialValue = 0.3f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(1000, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "sync_pulse_alpha"
-        )
-        Box(
-            modifier = Modifier
-                .size(10.dp)
-                .background(
-                    MaterialTheme.colorScheme.primary.copy(alpha = alpha),
-                    CircleShape
-                )
-        )
-    }
+}
+
+@Composable
+private fun SyncBatchIndicator(
+    appViewModel: AppViewModel
+) {
+    // The sync_complete "pulse" now lives on the header's CloudDone connection icon (it gives a
+    // scale heartbeat per applied sync). This indicator only surfaces the battery-saver RUSH
+    // batch-size readout.
+    val isProcessingBatch by appViewModel.isProcessingSyncBatch.collectAsState()
+    val processingBatchSize by appViewModel.processingBatchSize.collectAsState()
     if (isProcessingBatch) {
         Text(
             text = if (processingBatchSize > 0) "$processingBatchSize RUSH" else "RUSH",
