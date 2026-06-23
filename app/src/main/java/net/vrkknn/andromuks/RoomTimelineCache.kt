@@ -98,6 +98,12 @@ object RoomTimelineCache {
         val replyContextEvents: MutableList<TimelineEvent> = mutableListOf(),
         val replyContextEventIds: MutableSet<String> = mutableSetOf(),
         var lastAccessedAt: Long = System.currentTimeMillis(),
+        // Per-room freshness tracking (see the freshness-probe APIs below). [mightBeStale] is
+        // flipped TRUE for every cached room on an intentional WebSocket drop; only a successful
+        // freshness probe clears it. [staleEpoch] records which markAllStale() generation set it,
+        // so a probe that raced a *subsequent* drop cannot falsely clear the newer staleness.
+        var mightBeStale: Boolean = false,
+        var staleEpoch: Int = 0,
         // Processed timeline state (event chains, edits, and redactions) for quick room switching
         val processedState: ProcessedTimelineState = ProcessedTimelineState()
     )
@@ -179,6 +185,12 @@ object RoomTimelineCache {
     // When a room is opened and paginated, it's marked as cached. When WebSocket reconnects, all are marked as needing pagination.
     private val activelyCachedRooms = mutableSetOf<String>()
     private val cacheStateLock = Any()
+
+    // Monotonic generation counter for the per-room freshness-probe mechanism. Bumped by every
+    // markAllStale() (each intentional WebSocket drop). A probe captures the room's staleEpoch
+    // when it starts and only clears mightBeStale if that epoch still matches — so a probe whose
+    // response lands after a newer drop cannot mark the room fresh. Mutated/read under cacheLock.
+    private var globalStaleEpoch = 0
 
     /**
      * Set the currently opened room (unlimited events allowed for this room)
@@ -1367,7 +1379,65 @@ object RoomTimelineCache {
             }
         }
     }
-    
+
+    /**
+     * Mark every currently cached room as possibly stale and advance the staleness generation.
+     * Called on an intentional WebSocket drop (battery-saver standby/linger, WS-down-at-open),
+     * where we can no longer trust that incoming sync_completes are keeping the caches fresh.
+     *
+     * The caches themselves are kept (so a re-open can render instantly and then probe); only the
+     * flag is flipped. Returns the new epoch for callers that want to log it.
+     */
+    fun markAllStale(): Int {
+        synchronized(cacheLock) {
+            globalStaleEpoch++
+            for (cache in roomEventsCache.values) {
+                cache.mightBeStale = true
+                cache.staleEpoch = globalStaleEpoch
+            }
+            if (BuildConfig.DEBUG) Log.d(TAG, "markAllStale: flagged ${roomEventsCache.size} cached room(s) stale (epoch $globalStaleEpoch)")
+            return globalStaleEpoch
+        }
+    }
+
+    /**
+     * Whether [roomId]'s cache should be probed for freshness before being trusted. TRUE only for a
+     * room that currently holds a cache AND was flagged by [markAllStale]. An uncached room returns
+     * FALSE here — it has nothing to trust, so the open path's cache-miss branch paginates it anyway.
+     */
+    fun isMightBeStale(roomId: String): Boolean {
+        synchronized(cacheLock) {
+            return roomEventsCache[roomId]?.mightBeStale ?: false
+        }
+    }
+
+    /**
+     * The staleness epoch currently recorded for [roomId], to be captured when a freshness probe is
+     * sent and passed back to [clearStaleIfEpoch] when its response lands. 0 if the room is uncached.
+     */
+    fun staleEpochFor(roomId: String): Int {
+        synchronized(cacheLock) {
+            return roomEventsCache[roomId]?.staleEpoch ?: 0
+        }
+    }
+
+    /**
+     * Clear [roomId]'s might-be-stale flag, but ONLY if its epoch still matches [expectedEpoch].
+     * This is the race guard: if another intentional drop bumped the epoch while a probe was in
+     * flight, the (now outdated) probe must not mark the room fresh. Returns true if it cleared.
+     */
+    fun clearStaleIfEpoch(roomId: String, expectedEpoch: Int): Boolean {
+        synchronized(cacheLock) {
+            val cache = roomEventsCache[roomId] ?: return false
+            if (cache.mightBeStale && cache.staleEpoch == expectedEpoch) {
+                cache.mightBeStale = false
+                if (BuildConfig.DEBUG) Log.d(TAG, "clearStaleIfEpoch: room $roomId marked fresh (epoch $expectedEpoch)")
+                return true
+            }
+            return false
+        }
+    }
+
     /**
      * Trim all non-opened rooms to MAX_EVENTS_PER_ROOM events.
      * This is a lighter-weight operation than clearing entire rooms - it keeps
