@@ -107,7 +107,6 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
 
     fun setCallMiniPip(active: Boolean, roomId: String = "") = with(vm) {
         callMiniPipActive = active
-        callMiniPipRoomId = if (active) roomId else ""
         if (!active) callPersistentWebView = null
     }
 
@@ -144,7 +143,6 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
         callActiveInternal = false
         callReadyForPipInternal = false
         callMiniPipActive = false
-        callMiniPipRoomId = ""
         callActiveRoomId = ""
         callPersistentWebView = null
         incomingCallInfo = null

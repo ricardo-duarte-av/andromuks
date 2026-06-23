@@ -585,7 +585,6 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // editToOriginal is computed from messageVersions, no need to clear separately
             MessageReactionsCache.clear()
             messageReactions = emptyMap()
-            roomsWithLoadedReceipts.remove(roomId)
             roomsWithLoadedReactions.remove(roomId)
 
             // Reset pagination state

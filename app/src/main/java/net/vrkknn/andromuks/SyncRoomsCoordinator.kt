@@ -714,7 +714,6 @@ internal class SyncRoomsCoordinator(
                         readReceipts.clear()
                         readReceiptsIndex.clear()
                     }
-                    roomsWithLoadedReceipts.clear()
                     roomsWithLoadedReactions.clear()
                     MessageReactionsCache.clear()
                     messageReactions = emptyMap()
