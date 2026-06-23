@@ -65,7 +65,12 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.unit.toIntRect
 import androidx.compose.ui.window.PopupProperties
@@ -1038,16 +1043,7 @@ fun MessageBubbleWithMenu(
     // Detect dark mode for custom shadow/glow
     val isDarkMode = isSystemInDarkTheme()
     val highlightColor = MaterialTheme.colorScheme.tertiary
-    val highlightBorder =
-        if (highlightValue > 0.01f) {
-            BorderStroke(
-                width = (2.dp + 3.dp * highlightValue),
-                color = highlightColor.copy(alpha = 0.45f * highlightValue)
-            )
-        } else {
-            null
-        }
-    
+
     // Mentions: Google Messages style accent border with a continuous slow pulse.
     // This matches the "active bubble" vibe from long-press, but stays subtle/permanent.
     val isMentioned = mentionBorder != null
@@ -1123,7 +1119,15 @@ fun MessageBubbleWithMenu(
         null
     }
 
-    val combinedBorder = menuPulseBorder ?: mentionPulseBorder ?: threadBorderStroke ?: highlightBorder
+    // NOTE: highlightBorder is intentionally NOT folded into combinedBorder. The reply-jump
+    // highlight is drawn as an *outset* ring outside the bubble bounds (see drawWithContent
+    // below) so it never overlaps media content — an image fills the bubble to within 2dp, and
+    // a semi-transparent border drawn over the photo washes out, making the glow look thinner.
+    val combinedBorder = menuPulseBorder ?: mentionPulseBorder ?: threadBorderStroke
+    // Match the previous precedence: only show the highlight ring when no other border is active.
+    val showHighlightRing = combinedBorder == null && highlightValue > 0.01f
+    val highlightRingColor = highlightColor.copy(alpha = 0.45f * highlightValue)
+    val highlightRingWidth = 2.dp + 3.dp * highlightValue
     
     // Adjust bubble color based on local echo state, animating transitions (Sending/Sent → Confirmed
     // happens via item swap, but Sent → Failed animates in place).
@@ -1147,6 +1151,28 @@ fun MessageBubbleWithMenu(
     Box {
         Surface(
             modifier = modifier
+                .drawWithContent {
+                    drawContent()
+                    // Reply-jump highlight: draw the glow as a ring *outside* the bubble bounds so
+                    // it never overlaps the (clipped) media content. The stroke is centred on an
+                    // outline expanded by half its width, then translated out by the same amount,
+                    // leaving the whole stroke just beyond the bubble edge (inner edge flush with it).
+                    if (showHighlightRing) {
+                        val ringPx = highlightRingWidth.toPx()
+                        if (ringPx > 0f) {
+                            val outset = ringPx / 2f
+                            val expanded = Size(size.width + ringPx, size.height + ringPx)
+                            val outline = bubbleShape.createOutline(expanded, layoutDirection, this)
+                            translate(left = -outset, top = -outset) {
+                                drawOutline(
+                                    outline = outline,
+                                    color = highlightRingColor,
+                                    style = Stroke(width = ringPx)
+                                )
+                            }
+                        }
+                    }
+                }
                 .onGloballyPositioned { layoutCoordinates ->
                     // Capture the bubble's position on screen
                     bubbleBounds = layoutCoordinates.boundsInWindow()
