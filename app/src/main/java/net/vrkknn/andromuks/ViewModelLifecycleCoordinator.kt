@@ -238,6 +238,9 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 WebSocketService.consumeForceFreshTimelinePaginatePending(ctx, vm)
                 if (useBatterySaverMode && WebSocketService.isBatterySaverUserDisconnected(ctx)) {
                     markForceFreshPaginateAfterWsDown()
+                    // Per-room equivalent of the line above: flag every surviving cache stale so the
+                    // next open probes it (step 2 — read by the open path in a later step).
+                    RoomTimelineCache.markAllStale()
                     WebSocketService.setBatterySaverUserDisconnected(ctx, false)
                     // Reschedule the health-check worker that was suspended when the batterySaver
                     // linger fired. Without this, persistent-WS mode gets no periodic watchdog

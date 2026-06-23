@@ -592,6 +592,9 @@ class WebSocketService : Service() {
         fun consumeForceFreshTimelinePaginatePending(context: Context, vm: AppViewModel) {
             if (isForceFreshTimelinePaginatePending(context)) {
                 vm.markForceFreshPaginateAfterWsDown()
+                // Per-room equivalent: the drop happened with no VM attached, so flag the surviving
+                // caches stale now, on resume (step 2 — read by the open path in a later step).
+                RoomTimelineCache.markAllStale()
                 setForceFreshTimelinePaginatePending(context, false)
             }
         }
@@ -631,6 +634,9 @@ class WebSocketService : Service() {
                 // Flag the next room open to paginate fresh instead of trusting a cache that
                 // may predate this disconnect. The cache itself is kept — paginate on open
                 // will merge/replace via the normal response handlers.
+                // Per-room equivalent (step 2): flag every cached room stale now, regardless of
+                // whether a VM is attached — RoomTimelineCache is process-global.
+                RoomTimelineCache.markAllStale()
                 val primaryVm = SyncRepository.getPrimaryViewModelId()
                     ?.let { SyncRepository.getViewModel(it) }
                     ?: SyncRepository.getAttachedViewModels().firstOrNull()

@@ -2797,6 +2797,8 @@ fun RoomTimelineScreen(
         appViewModel.consumePendingForceFreshPaginate()
         if (!appViewModel.isWebSocketConnected()) {
             appViewModel.markForceFreshPaginateAfterWsDown()
+            // Per-room equivalent (step 2 — read by the open path in a later step).
+            RoomTimelineCache.markAllStale()
         }
         val mustFetchFreshTimeline = appViewModel.needsFreshTimelinePaginate()
         
