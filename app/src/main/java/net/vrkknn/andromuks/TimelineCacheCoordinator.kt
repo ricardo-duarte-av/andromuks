@@ -2815,6 +2815,10 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // A mere (1)-fail with no gap just needs a full merge-paginate to pull the pushed event
             // into the contiguous window. The escalated request carries no expectedEventId, so a
             // second miss won't loop.
+            // True when this response escalated to a larger window (gap or pushed-event miss): the
+            // cache is not yet final, so a pending freshness probe must NOT be cleared this round —
+            // the escalated paginate's own (terminal) response will clear it.
+            var escalatedToFullWindow = false
             val expectedEventId = hydrateExpectedEventIds.remove(requestId)
             if (expectedEventId != null) {
                 val responseIds = timelineList.mapTo(HashSet()) { it.eventId }
@@ -2843,6 +2847,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         )
                         if (purge) RoomTimelineCache.clearRoomCache(roomId)
                         paginateViaExec(roomId, maxTimelineId = 0L, limit = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT)
+                        escalatedToFullWindow = true
                     }
                     else -> { // contiguous, but the pushed event fell outside the small window
                         android.util.Log.i(
@@ -2851,7 +2856,20 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                 "in ${timelineList.size}-event window (contiguous) — escalating to full merge-paginate",
                         )
                         paginateViaExec(roomId, maxTimelineId = 0L, limit = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT)
+                        escalatedToFullWindow = true
                     }
+                }
+            }
+
+            // Per-room freshness probe completion: if this room had a pending probe and we did NOT
+            // just escalate, the cache is now current — clear its mightBeStale flag. clearStaleIfEpoch
+            // is epoch-guarded, so a probe whose response landed after a *newer* intentional drop will
+            // not falsely mark the room fresh (the entry is still consumed; the next open re-probes).
+            // The escalated full-window paginate carries no expectedEventId, so its terminal response
+            // reaches here with escalatedToFullWindow=false and clears the flag then.
+            if (!escalatedToFullWindow) {
+                freshnessProbePendingEpoch.remove(roomId)?.let { epoch ->
+                    RoomTimelineCache.clearStaleIfEpoch(roomId, epoch)
                 }
             }
 

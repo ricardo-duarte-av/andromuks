@@ -229,8 +229,12 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                 // Require a full page of cached events before bypassing requestRoomTimeline.
                 // Rooms with fewer than INITIAL_ROOM_PAGINATE_LIMIT events must go through
                 // requestRoomTimeline so a background paginate is issued for the missing history.
+                // A rich cache is always rendered instantly (no loading flash). If it was flagged
+                // mightBeStale by an intentional WS drop, we render it AND fire a cheap freshness
+                // probe below — instead of the old behaviour of skipping the fast path and doing a
+                // foreground full paginate. needsFreshTimelinePaginate() no longer gates this branch.
                 val cacheSufficientThreshold = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT
-                if (cachedEventCount >= cacheSufficientThreshold && !mustFetchFreshTimeline) {
+                if (cachedEventCount >= cacheSufficientThreshold) {
                     android.util.Log.d(
                         "Andromuks",
                         "🔵 navigateToRoomWithCache: Using cache (>=${cacheSufficientThreshold} events) - roomId=$roomId, cachedEventCount=$cachedEventCount",
@@ -265,16 +269,34 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
 
                         roomOpenTimestamps[roomId] = System.currentTimeMillis()
 
-                        if (!isWebSocketConnected()) {
+                        // Freshness. While the WebSocket is up, SyncIngestor keeps every actively-
+                        // cached room's timeline fresh (delta replay on unintentional reconnects too),
+                        // so a non-stale cache hit needs no paginate. An intentional drop (battery-saver
+                        // standby) flags every cache mightBeStale; we keep + render it instantly above,
+                        // then verify with a cheap probe: paginateViaExec(FRESHNESS_PROBE_LIMIT) over
+                        // the HTTP /exec endpoint, passing the youngest cached event as expectedEventId.
+                        // handlePaginationMerge then merges the few newer events (youngest present =
+                        // contiguous) or escalates to a full INITIAL_ROOM_PAGINATE_LIMIT window (gap),
+                        // and clears the flag (epoch-guarded) on the terminal merge.
+                        if (RoomTimelineCache.isMightBeStale(roomId)) {
+                            val youngestCachedId =
+                                RoomTimelineCache.getLatestCachedEventMetadata(roomId)?.eventId
+                            freshnessProbePendingEpoch[roomId] = RoomTimelineCache.staleEpochFor(roomId)
+                            android.util.Log.d(
+                                "Andromuks",
+                                "🔵 navigateToRoomWithCache: cache flagged might-be-stale — firing freshness probe (limit=${AppViewModel.FRESHNESS_PROBE_LIMIT}, expecting=$youngestCachedId) for $roomId",
+                            )
+                            paginateViaExec(
+                                roomId,
+                                maxTimelineId = 0L,
+                                limit = AppViewModel.FRESHNESS_PROBE_LIMIT,
+                                expectedEventId = youngestCachedId,
+                            )
+                        } else if (!isWebSocketConnected()) {
+                            // Not stale but WS momentarily down (unintentional blip): keep the prior
+                            // behaviour of deferring a paginate to onInitComplete as a safety net.
                             roomsAwaitingInitCompletePaginate.add(roomId)
                         }
-
-                        // No defensive paginate here. The backend's resume contract guarantees the
-                        // cache is current for any opened room: unintentional WS drops reconnect
-                        // with last_received_event (delta replay, never clear_state), so
-                        // SyncIngestor keeps the cache in sync; intentional batterySaver standby wipes
-                        // the timeline cache at linger expiry, so a stale-but-non-empty cache
-                        // cannot reach this branch. A cache hit at this threshold is fresh.
 
                         android.util.Log.d(
                             "Andromuks",

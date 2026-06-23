@@ -197,6 +197,12 @@ class AppViewModel : ViewModel() {
         // handlePaginationMerge escalates to a full INITIAL_ROOM_PAGINATE_LIMIT paginate.
         const val NOTIFICATION_HYDRATE_PAGINATE_LIMIT = 10
 
+        // Small "fetch latest" window used by the per-room freshness probe when re-opening a cache
+        // that was flagged mightBeStale by an intentional WebSocket drop. Like the FCM hydrate, a hit
+        // (youngest cached event present) merges the few newer events; a miss escalates to a full
+        // INITIAL_ROOM_PAGINATE_LIMIT paginate via handlePaginationMerge.
+        const val FRESHNESS_PROBE_LIMIT = 10
+
         // FCM registration debounce window to prevent duplicate registrations
         internal const val FCM_REGISTRATION_DEBOUNCE_MS = 5000L // 5 seconds debounce window
         
@@ -4899,6 +4905,9 @@ class AppViewModel : ViewModel() {
     // window), handlePaginationMerge escalates to a full INITIAL_ROOM_PAGINATE_LIMIT paginate.
     internal val hydrateExpectedEventIds = java.util.concurrent.ConcurrentHashMap<Int, String>()
     internal val freshnessCheckRequests = java.util.concurrent.ConcurrentHashMap<Int, String>() // requestId -> roomId (single-event freshness probe sent on warm room open)
+    // roomId -> staleEpoch captured when a per-room freshness probe was fired. handlePaginationMerge
+    // clears RoomTimelineCache.mightBeStale (epoch-guarded) once the probe's terminal merge lands.
+    internal val freshnessProbePendingEpoch = java.util.concurrent.ConcurrentHashMap<String, Int>()
     private val roomStateWithMembersRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit>() // requestId -> callback
     // Gallery paginate: requestId -> callback(events, hasMore, minTimelineRowId)
     internal val galleryPaginateRequests = mutableMapOf<Int, (List<TimelineEvent>, Boolean, Long) -> Unit>()
