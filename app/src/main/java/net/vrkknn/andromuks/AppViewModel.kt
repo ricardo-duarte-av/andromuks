@@ -1084,6 +1084,11 @@ class AppViewModel : ViewModel() {
     // SYNC OPTIMIZATION: Selective update flags
     internal var needsRoomListUpdate = false
     internal var needsMemberUpdate = false
+    // Coalesces per-message roomSummaryUpdateCounter bumps during a reconnect burst: instead of
+    // bumping directly (one RoomListScreen recomposition per sync_complete, ~10 on a battery-saver
+    // resume), the sync apply sets this flag and routes through scheduleUIUpdate's debounce so the
+    // ~10 bumps collapse into one. Drained by performBatchedUIUpdates.
+    internal var needsRoomSummaryUpdate = false
     
     // NAVIGATION PERFORMANCE: Prefetch and caching system
     // Touched from Main and IO dispatchers (room nav state updates from coordinators, reads
@@ -2881,9 +2886,11 @@ class AppViewModel : ViewModel() {
             needsMemberUpdate = false
 
         }
-        
 
-
+        if (needsRoomSummaryUpdate) {
+            roomSummaryUpdateCounter++
+            needsRoomSummaryUpdate = false
+        }
     }
 
     // NAVIGATION PERFORMANCE: Helper functions for prefetching and navigation caching

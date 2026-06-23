@@ -585,14 +585,20 @@ internal class SyncRoomsCoordinator(
                             }
                             vm.needsRoomListUpdate = true
                             if (visible) {
-                                vm.roomListUpdateCounter++
+                                // Route through the scheduleUIUpdate debounce instead of bumping
+                                // directly, so a reconnect burst of N sync_completes coalesces into
+                                // one RoomListScreen recomposition (see needsRoomSummaryUpdate).
+                                vm.scheduleUIUpdate("roomList")
                             }
                         }
 
-                        // Keep existing behavior: if cached-room events arrived, bump summary counter (foreground).
+                        // If cached-room events arrived, refresh room summaries (foreground only).
+                        // Coalesced via the debounce so the resume burst doesn't recompose the room
+                        // list once per message.
                         val roomsWithEvents = ingestResult?.roomsWithEvents ?: emptySet()
                         if (roomsWithEvents.isNotEmpty() && visible) {
-                            vm.roomSummaryUpdateCounter++
+                            vm.needsRoomSummaryUpdate = true
+                            vm.scheduleUIUpdate("roomSummary")
                         }
 
                         SyncRepository.emitEvent(
