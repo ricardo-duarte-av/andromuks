@@ -166,24 +166,6 @@ object RoomMetadataStore {
     }
 
     /**
-     * Upsert the last-known sorting timestamp for this room. Used so the cached room list
-     * can render in the correct order on cold start, before sync_complete arrives.
-     * Only advances forward — older timestamps are ignored.
-     */
-    fun upsertSortTs(roomId: String, sortTs: Long) {
-        if (sortTs <= 0L) return
-        val existing = mirror[roomId]
-        if (existing != null && existing.sortTs >= sortTs) return
-        mergeIntoMirror(roomId, sortTs = sortTs)
-        if (helper == null) return
-        ioScope.launch {
-            writePartial(roomId) { values ->
-                values.put(COL_SORT_TS, sortTs)
-            }
-        }
-    }
-
-    /**
      * Upsert whether the conversation shortcut for this room currently carries a real avatar
      * icon (true) or a lettermark fallback (false). Lets the notification worker avoid a
      * redundant icon rebuild when the shortcut already has its avatar.
@@ -196,6 +178,76 @@ object RoomMetadataStore {
         ioScope.launch {
             writePartial(roomId) { values ->
                 values.put(COL_SHORTCUT_HAS_AVATAR, if (hasAvatar) 1 else 0)
+            }
+        }
+    }
+
+    /**
+     * One room's metadata update for [upsertMetadataBatchAsync]. Mirrors the columns
+     * [RoomListCache] persists per sync_complete. Null [name]/[avatarMxc] means "leave that
+     * column untouched"; [sortTs] only advances forward (older/zero values are dropped).
+     */
+    data class MetaUpdate(
+        val roomId: String,
+        val name: String? = null,
+        val avatarMxc: String? = null,
+        val sortTs: Long? = null,
+    )
+
+    /**
+     * Hot-path batched upsert: merges every update into the in-memory mirror synchronously
+     * (so reads see new values immediately), then persists ALL changed rows in a SINGLE
+     * background transaction.
+     *
+     * This replaces the per-room fan-out of [upsertNameAvatar] + [upsertSortTs] — each of which
+     * launches its own coroutine and runs its own INSERT/UPDATE. On a battery-saver reconnect
+     * that re-sends ~500 rooms, that fan-out meant ~1000 individual SQLite writes hammering the
+     * IO writer in the exact window the user wants responsiveness; this collapses it to one
+     * transaction. Forward-only [sortTs] semantics match [upsertSortTs].
+     */
+    fun upsertMetadataBatchAsync(updates: List<MetaUpdate>) {
+        if (updates.isEmpty()) return
+        // Merge into the mirror synchronously, applying the forward-only sortTs guard. Collect
+        // the rows that actually need a disk write (mirror-merge is cheap; a non-advancing sortTs
+        // with no name/avatar is a pure no-op and is skipped entirely).
+        val toPersist = ArrayList<MetaUpdate>(updates.size)
+        for (u in updates) {
+            val existing = mirror[u.roomId]
+            val effectiveSortTs = u.sortTs?.takeIf { it > 0L && (existing == null || existing.sortTs < it) }
+            if (u.name == null && u.avatarMxc == null && effectiveSortTs == null) continue
+            mergeIntoMirror(
+                roomId = u.roomId,
+                name = u.name,
+                avatarMxc = u.avatarMxc,
+                sortTs = effectiveSortTs,
+            )
+            toPersist.add(if (effectiveSortTs == u.sortTs) u else u.copy(sortTs = effectiveSortTs))
+        }
+        if (toPersist.isEmpty() || helper == null) return
+        ioScope.launch {
+            val db = helper?.writableDatabase ?: return@launch
+            val now = System.currentTimeMillis()
+            db.beginTransaction()
+            try {
+                for (u in toPersist) {
+                    val values = ContentValues().apply {
+                        put(COL_ROOM_ID, u.roomId)
+                        put(COL_UPDATED_AT, now)
+                        if (u.name != null) put(COL_NAME, u.name)
+                        if (u.avatarMxc != null) put(COL_AVATAR_MXC, u.avatarMxc)
+                        if (u.sortTs != null) put(COL_SORT_TS, u.sortTs)
+                    }
+                    val inserted = db.insertWithOnConflict(TABLE, null, values, SQLiteDatabase.CONFLICT_IGNORE)
+                    if (inserted == -1L) {
+                        values.remove(COL_ROOM_ID)
+                        db.update(TABLE, values, "$COL_ROOM_ID = ?", arrayOf(u.roomId))
+                    }
+                }
+                db.setTransactionSuccessful()
+            } catch (t: Throwable) {
+                Log.w(TAG, "upsertMetadataBatchAsync failed (${toPersist.size} rows)", t)
+            } finally {
+                db.endTransaction()
             }
         }
     }

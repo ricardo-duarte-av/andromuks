@@ -30,13 +30,18 @@ object RoomListCache {
     private val latestEventCache = ConcurrentHashMap<String, Pair<String, Long>>()
     
     /**
-     * Update or add a room to the cache
+     * Update or add a room to the cache.
+     *
+     * [persist] = false skips the metadata write — used by the sync_complete apply loop, which
+     * mutates the cache per-room but defers persistence to a single [persistMetadataBatch] flush
+     * at the end of the batch (see SyncRoomsCoordinator.processParsedSyncResult). All other
+     * callers leave it true and persist immediately.
      */
-    fun updateRoom(room: RoomItem) {
+    fun updateRoom(room: RoomItem, persist: Boolean = true) {
         synchronized(cacheLock) {
             roomCache[room.id] = room
         }
-        persistMetadata(room)
+        if (persist) persistMetadata(room)
     }
 
     /**
@@ -46,29 +51,42 @@ object RoomListCache {
         synchronized(cacheLock) {
             roomCache.putAll(rooms)
         }
-        rooms.values.forEach { persistMetadata(it) }
+        persistMetadataBatch(rooms.values)
     }
 
     /**
-     * Mirror room display name + avatar into the persistent metadata store so that
-     * cold-start UIs (notifications, bubbles, shortcuts) can render something
-     * meaningful before the first sync_complete arrives.
+     * Build the persistable metadata for a room, or null if there's nothing worth persisting.
      *
-     * Skips the write when the parser couldn't resolve a real name (it falls back
-     * to the raw roomId in that case — persisting that would be misleading).
+     * Skips the name when the parser couldn't resolve a real one (it falls back to the raw
+     * roomId in that case — persisting that would be misleading). The sorting timestamp lets the
+     * cached room list render in the correct order on cold start; [RoomMetadataStore] applies the
+     * forward-only guard so a stale value is dropped there.
      */
-    private fun persistMetadata(room: RoomItem) {
+    private fun metaUpdateFor(room: RoomItem): RoomMetadataStore.MetaUpdate? {
         val name = room.name.takeIf { it.isNotBlank() && it != room.id }
         val avatar = room.avatarUrl
-        if (name != null || avatar != null) {
-            RoomMetadataStore.upsertNameAvatar(room.id, name, avatar)
-        }
-        // Always try to persist the sorting timestamp — it lets the cached room list
-        // render in the correct order on cold start. upsertSortTs is a no-op for
-        // null/zero/older values, so this is safe to call unconditionally.
-        room.sortingTimestamp?.let { ts ->
-            if (ts > 0L) RoomMetadataStore.upsertSortTs(room.id, ts)
-        }
+        val sortTs = room.sortingTimestamp?.takeIf { it > 0L }
+        if (name == null && avatar == null && sortTs == null) return null
+        return RoomMetadataStore.MetaUpdate(room.id, name, avatar, sortTs)
+    }
+
+    /**
+     * Mirror one room's name/avatar/sort-ts into the persistent metadata store so cold-start UIs
+     * (notifications, bubbles, shortcuts) can render something before the first sync_complete.
+     */
+    private fun persistMetadata(room: RoomItem) {
+        val update = metaUpdateFor(room) ?: return
+        RoomMetadataStore.upsertMetadataBatchAsync(listOf(update))
+    }
+
+    /**
+     * Persist metadata for many rooms in a single background SQLite transaction. Lets the
+     * sync_complete apply loop coalesce ~500 per-room writes into one transaction on reconnect.
+     */
+    fun persistMetadataBatch(rooms: Collection<RoomItem>) {
+        if (rooms.isEmpty()) return
+        val updates = rooms.mapNotNull { metaUpdateFor(it) }
+        if (updates.isNotEmpty()) RoomMetadataStore.upsertMetadataBatchAsync(updates)
     }
     
     /**

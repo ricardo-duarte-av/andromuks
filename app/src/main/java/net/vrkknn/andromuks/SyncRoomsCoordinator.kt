@@ -1005,9 +1005,14 @@ internal class SyncRoomsCoordinator(
                         return memberStateChangedResult
                     }
 
-                    // BATTERY OPTIMIZATION: This loop only processes rooms that actually changed in this sync (not all 588 rooms)
-                    // syncResult.updatedRooms typically contains 1-10 rooms per sync, not all rooms
-                    // Total cost: ~0.01-0.1ms per sync (much better than processing all 588 rooms)
+                    // This loop processes rooms that changed in this sync. In steady state that's
+                    // 1-10 rooms; on a battery-saver RECONNECT the backend re-sends every room, so
+                    // updatedRooms can be ~100 per message / ~500 across the resume batch — all applied
+                    // here on Dispatchers.Main. To avoid a thundering herd of per-room SQLite writes in
+                    // that case, metadata persistence is deferred: updateRoom(persist = false) mutates
+                    // only the in-memory cache, and dirtyRooms is flushed in ONE batched transaction
+                    // after the new-rooms loop below.
+                    val dirtyRooms = ArrayList<RoomItem>(syncResult.updatedRooms.size + syncResult.newRooms.size)
                     // Update existing rooms
                     syncResult.updatedRooms.forEach { room ->
                         val existingRoom = roomMap[room.id]
@@ -1068,8 +1073,9 @@ internal class SyncRoomsCoordinator(
                                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Preserved isFavourite=true for room ${room.id} (sync didn't include account_data.m.tag)")
                             }
                             roomMap[room.id] = updatedRoom
-                            // Update singleton cache
-                            RoomListCache.updateRoom(updatedRoom)
+                            // Update singleton cache (persistence deferred to the batch flush below)
+                            RoomListCache.updateRoom(updatedRoom, persist = false)
+                            dirtyRooms.add(updatedRoom)
                             updatedRoom.latestEventId?.let { eid ->
                                 RoomListCache.updateLatestEvent(room.id, eid, room.sortingTimestamp ?: 0L)
                             }
@@ -1091,8 +1097,9 @@ internal class SyncRoomsCoordinator(
                             }
                 
                             roomMap[room.id] = roomWithBridgeInfo
-                            // Update singleton cache
-                            RoomListCache.updateRoom(roomWithBridgeInfo)
+                            // Update singleton cache (persistence deferred to the batch flush below)
+                            RoomListCache.updateRoom(roomWithBridgeInfo, persist = false)
+                            dirtyRooms.add(roomWithBridgeInfo)
                             roomWithBridgeInfo.latestEventId?.let { eid ->
                                 RoomListCache.updateLatestEvent(room.id, eid, room.sortingTimestamp ?: 0L)
                             }
@@ -1146,9 +1153,10 @@ internal class SyncRoomsCoordinator(
                         }
 
                         roomMap[room.id] = roomWithBridgeInfo
-                        // Update singleton cache
-                        RoomListCache.updateRoom(roomWithBridgeInfo)
-            
+                        // Update singleton cache (persistence deferred to the batch flush below)
+                        RoomListCache.updateRoom(roomWithBridgeInfo, persist = false)
+                        dirtyRooms.add(roomWithBridgeInfo)
+
                         // CRITICAL FIX: Only mark as "newly joined" if initial sync is complete
                         // During initial sync, all rooms are "new" because roomMap is empty, but they're not actually newly joined
                         // Only mark as newly joined for real-time updates after initial sync is complete
@@ -1162,6 +1170,11 @@ internal class SyncRoomsCoordinator(
             
                     }
         
+                    // Flush all deferred metadata writes from the updated/new room loops in a single
+                    // background SQLite transaction (see updateRoom(persist = false) above). On a
+                    // battery-saver reconnect this collapses ~1000 individual per-room writes into one.
+                    RoomListCache.persistMetadataBatch(dirtyRooms)
+
                     // CRITICAL: If we have newly joined rooms, force immediate sort to show them at the top
                     if (syncResult.newRooms.isNotEmpty()) {
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: New rooms detected - forcing immediate sort to show them at the top")
