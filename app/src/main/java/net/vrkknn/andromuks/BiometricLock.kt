@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -220,6 +221,12 @@ fun BiometricLockGate(
         }
         onDispose { appViewModel.setBiometricReauthCallback(null) }
     }
+
+    // Publish whether content is actually visible (not covered by the lock overlay) so deferrable
+    // UI — e.g. the notification-jump highlight pulse — can wait until the user can see it.
+    // Same-value writes to a MutableState are no-ops, so this won't churn recomposition.
+    val contentVisible = !gateActive || unlocked
+    SideEffect { appViewModel.isContentVisible = contentVisible }
 
     Box(modifier = Modifier.fillMaxSize()) {
         content()

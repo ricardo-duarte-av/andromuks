@@ -3131,10 +3131,15 @@ fun RoomTimelineScreen(
     LaunchedEffect(
         pendingNotificationJumpEventId,
         timelineItems,
-        readinessCheckComplete
+        readinessCheckComplete,
+        appViewModel.isContentVisible
     ) {
         val targetEventId = pendingNotificationJumpEventId ?: return@LaunchedEffect
-        if (!readinessCheckComplete || timelineItems.isEmpty()) {
+        // Defer the highlight (and its 1600ms auto-clear timer) until the content is actually
+        // visible. When opened from a notification under the biometric lock, the timeline composes
+        // beneath the lock overlay; firing the pulse now would burn most of it before the user
+        // unlocks. pendingNotificationJumpEventId is left set, so this re-runs once unlocked.
+        if (!readinessCheckComplete || timelineItems.isEmpty() || !appViewModel.isContentVisible) {
             return@LaunchedEffect
         }
         val isLoaded = timelineItems.any { item ->

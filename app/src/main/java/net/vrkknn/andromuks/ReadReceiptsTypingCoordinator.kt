@@ -120,6 +120,24 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
                     "AppViewModel: markRoomAsRead called with roomId: '$roomId', eventId: '$eventId'"
                 )
 
+            // Don't advance the read marker while the app is backgrounded. currentRoomId is kept
+            // in memory across background (for fast resume — see onAppBecameInvisible) and the
+            // WebSocket stays live in always-on mode, so both sync_complete processing AND the
+            // paginate-response handler (triggered by FCM cache hydration, paginateViaExec) keep
+            // flowing through here for the previously-open room. Auto-marking it read makes the
+            // backend emit a `dismiss` push that wipes the notification we just posted from FCM.
+            // A visible bubble is the exception — it is genuinely user-facing. Notification actions
+            // (Mark-read button / reply) go through markRoomAsReadFromNotification, which bypasses
+            // this path entirely and is intentionally NOT gated.
+            if (!isAppVisible && !BubbleTracker.isBubbleVisible(roomId)) {
+                if (BuildConfig.DEBUG)
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Skipping mark_read for $roomId — app backgrounded and no visible bubble"
+                    )
+                return
+            }
+
             val lastSentEventId = lastMarkReadSent[roomId]
             if (lastSentEventId == eventId) {
                 if (BuildConfig.DEBUG)

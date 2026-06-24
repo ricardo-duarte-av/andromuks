@@ -3897,6 +3897,12 @@ class AppViewModel : ViewModel() {
     // App lifecycle state
     var isAppVisible by mutableStateOf(true)
 
+    // True when app content is actually visible to the user — i.e. NOT covered by the biometric
+    // lock overlay (BiometricLockGate composes content beneath the overlay, so "composed" != "seen").
+    // Defaults true (no lock); BiometricLockGate keeps it in sync. Used to defer transient UI such
+    // as the notification-jump highlight pulse until the user can actually see it.
+    var isContentVisible by mutableStateOf(true)
+
     // True once MainActivity.onResume has ever fired in this process. Used to
     // disambiguate the default-true [isAppVisible] from "main UI has actually
     // become visible at least once" — needed for the batterySaver-mode bubble path,
@@ -9537,11 +9543,14 @@ class AppViewModel : ViewModel() {
         
         // Mark room as read for the newest event only if room is actually visible (not just a minimized bubble)
         // Check if this is a bubble and if it's visible
+        // The actual "don't advance the read marker while backgrounded" gate lives centrally in
+        // markRoomAsRead (it covers every auto-mark path, including the paginate-response handler
+        // that FCM cache-hydration triggers). Here we only keep the bubble-visibility check.
         val shouldMarkAsRead = if (BubbleTracker.isBubbleOpen(roomId)) {
             // Bubble exists - only mark as read if it's visible/maximized
             BubbleTracker.isBubbleVisible(roomId)
         } else {
-            // Not a bubble - mark as read (normal room view)
+            // Not a bubble - normal room view
             true
         }
         

@@ -128,7 +128,12 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // least one even if activeNotifications hasn't caught up yet.
             if (justPostedChild && childCount == 0) childCount = 1
 
-            if (childCount == 0) {
+            // A group summary is only meaningful with 2+ children. With a single child, Android
+            // collapses the group to show the *summary* (not the child) on most OEMs/versions, so a
+            // summary contentIntent (-> room_list) would steal the tap from the lone child's
+            // per-room intent. Don't post a summary until there are 2+ children — a single grouped
+            // child displays standalone and keeps its own createRoomIntent (-> the room).
+            if (childCount < 2) {
                 nmc.cancel(SUMMARY_NOTIF_ID)
                 return
             }
@@ -147,9 +152,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val summary = NotificationCompat.Builder(context, DM_CHANNEL_ID)
                 .setSmallIcon(R.drawable.matrix)
                 .setContentTitle("Matrix Messages")
-                .setContentText(
-                    if (childCount == 1) "1 conversation" else "$childCount conversations"
-                )
+                .setContentText("$childCount conversations")
                 .setContentIntent(summaryPendingIntent)
                 .setGroup(NOTIFICATION_GROUP_KEY)
                 .setGroupSummary(true)
