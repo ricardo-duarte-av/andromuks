@@ -4840,7 +4840,11 @@ class AppViewModel : ViewModel() {
     internal val profileRequestRooms = mutableMapOf<Int, String>() // requestId -> roomId (for profile requests initiated from a specific room)
     internal val roomStateRequests = mutableMapOf<Int, String>() // requestId -> roomId
     internal val messageRequests = mutableMapOf<Int, String>() // requestId -> roomId
-    internal val pendingEchoMap = mutableMapOf<String, String>() // transactionId -> pending ~eventId
+    // transactionId -> pending ~eventId. Written by the `response` path (LocalEchoCoordinator.onResponse
+    // / handleMessageResponse fallback) and read+removed by the `send_complete` (processSendCompleteEvent)
+    // and `sync_complete` (addNewEventToChain) paths — which run on independent collectors/threads, so
+    // this must be concurrent (was a plain mutableMapOf; matched eventChainMap's ConcurrentHashMap choice).
+    internal val pendingEchoMap = ConcurrentHashMap<String, String>()
     
     // PERFORMANCE: Track pending room state requests to prevent duplicate WebSocket commands
     internal val pendingRoomStateRequests = mutableSetOf<String>() // roomId that have pending state requests

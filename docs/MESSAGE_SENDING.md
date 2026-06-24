@@ -98,6 +98,20 @@ Write order matters (race-condition guard): `eventChainMap` is written **before*
 
 **Fix (applied in `RoomTimelineScreen.kt` and `BubbleTimelineScreen.kt` `stableKey`)**: Changed from `transactionId ?: ... ?: eventId` to simply `eventId`. Since `eventId` is unique per event, duplicate `LazyColumn` keys are structurally impossible even if both a `~` echo and its `$` confirmation are transiently present in the list.
 
+### Race condition — `response` arrives last (echo stranded forever)
+
+The `send` is always processed first (the placeholder is inserted synchronously). The reordering happens only among `response` / `send_complete` / `sync_complete`, because `response`+`send_complete` ride `SyncRepository.ackEvents` while `sync_complete` rides `syncCompleteChannel` — **two independent collectors with no mutual ordering**.
+
+`pendingEchoMap` has exactly **one producer** (the `response` path: `LocalEchoCoordinator.onResponse` / the `handleMessageResponse` fallback) and **two consumers** (`processSendCompleteEvent`, `addNewEventToChain`, both doing `pendingEchoMap.remove(txId)`). If a *consumer* runs last, the echo is evicted normally. But if the *producer* (`response`) runs last:
+
+1. `send_complete` runs first: `pendingEchoMap.remove(txId)` → null (not registered yet) → no eviction; the `$` event is inserted.
+2. `sync_complete` runs: `addNewEventToChain` finds the `$` event already present → dedup return; `pendingEchoMap.remove(txId)` → null again.
+3. `response` runs last: `onResponse` upgrades the echo to *Sent* and registers `pendingEchoMap[txId] = localId` — but **nothing comes after to consume it**. The `~local-…` echo and the `$` event coexist forever (the `CONFIRM_BACKSTOP_MS` watchdog recolors the echo to *Failed* at 90 s but never removes it), until the room is reopened and the chain is rebuilt from cache.
+
+**Fix (applied in `LocalEchoCoordinator.onResponse`)**: before upgrading-and-registering, scan `eventChainMap` for an already-present confirmed (`$`-prefixed) entry whose `transactionId` matches. If found, the confirmation already arrived — evict the echo and return **without** registering `pendingEchoMap`. A foreign `transaction_id` (an event sent from another of the user's own sessions) is minted by that client and never equals our send's txId, so the scan can only match our own confirmed event. The symmetric guard for `sync_complete`/`send_complete` arriving before `response` is already covered by `addNewEventToChain`'s event_id dedup.
+
+**Concurrency fix**: `pendingEchoMap` is a `ConcurrentHashMap` (was a plain `mutableMapOf`) — it is written from the `response` collector and read/removed from the `send_complete`/`sync_complete` paths on independent threads, the same reason `eventChainMap` is concurrent.
+
 ## Send-time placeholders & the lifecycle state machine
 
 `send_message` is **non-idempotent**: the backend mints a fresh `transaction_id` on every call and there is **no client-supplied idempotency key** (confirmed against the gomuks RPC spec — `SendMessageParams` has no txn field). Re-sending therefore creates a *duplicate* event. Two consequences:
@@ -176,7 +190,7 @@ Applied in both `RoomTimelineScreen.kt` (`processTimelineEvents`) and `BubbleTim
 
 | File | Role |
 |------|------|
-| `LocalEchoCoordinator.kt` | Send-time placeholders + `Sending→Sent→Confirmed/Failed` state machine, response/confirm watchdog timers |
+| `LocalEchoCoordinator.kt` | Send-time placeholders + `Sending→Sent→Confirmed/Failed` state machine, response/confirm watchdog timers; `onResponse` race guard evicts the echo when the confirmed event already arrived (response-processed-last) |
 | `PersistenceCoordinator.kt` | Layer 1: drops timed-out `command_send_message` instead of re-sending (non-idempotent) |
 | `MessageSendCoordinator.kt` | Inserts the placeholder for every send variant (`textContent`/`insertMediaEcho` helpers); `buildMediaRelatesTo` builds reply/thread `relates_to` shared by sends and echoes |
 | `AppViewModel.kt` | `pendingEchoMap` declaration; `handleMessageResponse` / `handleOutgoingRequestResponse` (upgrade Sending→Sent, legacy echo fallback); `processSendCompleteEvent` (eviction/failure + watchdog cancel); `dismissPendingEcho` |
