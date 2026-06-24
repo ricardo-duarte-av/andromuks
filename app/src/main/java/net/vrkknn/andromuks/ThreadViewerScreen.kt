@@ -796,7 +796,7 @@ fun ThreadViewerScreen(
 
     fun handleMentionSelection(userId: String, displayName: String?, originalText: String, startIndex: Int, endIndex: Int): String {
         // Escape square brackets in display name to prevent regex issues
-        val escapedDisplayName = (displayName ?: userId.removePrefix("@"))
+        val escapedDisplayName = (displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix("@").substringBefore(":"))
             .replace("[", "\\[")
             .replace("]", "\\]")
         val mentionText = "[$escapedDisplayName](https://matrix.to/#/$userId)"
@@ -2460,7 +2460,7 @@ fun ThreadViewerScreen(
                                 
                                 // Calculate the new cursor position after the inserted mention
                                 // The cursor should be positioned right after the inserted mention text
-                                val escapedDisplayName = (displayName ?: userId.removePrefix("@"))
+                                val escapedDisplayName = (displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix("@").substringBefore(":"))
                                     .replace("[", "\\[")
                                     .replace("]", "\\]")
                                 val mentionText = "[$escapedDisplayName](https://matrix.to/#/$userId)"
