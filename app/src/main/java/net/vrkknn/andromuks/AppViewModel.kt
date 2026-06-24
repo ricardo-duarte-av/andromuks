@@ -10209,7 +10209,11 @@ class AppViewModel : ViewModel() {
     }
     
     fun setIgnoredUser(userId: String, ignore: Boolean) = accountDataCoordinator.setIgnoredUser(userId, ignore)
-    
+
+    /** Set an arbitrary account_data key from raw JSON — see [AccountDataCoordinator.setAccountDataRaw]. */
+    fun setAccountDataRaw(type: String, content: org.json.JSONObject, roomId: String? = null) =
+        accountDataCoordinator.setAccountDataRaw(type, content, roomId)
+
     /**
      * Pin or unpin an event in a room
      * @param roomId The room ID

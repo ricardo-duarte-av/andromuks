@@ -133,6 +133,37 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         )
     }
 
+    /**
+     * Set an arbitrary account_data key from raw JSON (used by the Account data editor).
+     *
+     * [content] is the inner `content` object that `set_account_data` expects. When [roomId] is
+     * non-null the update is scoped to that room's account data. The local cache is updated
+     * optimistically (wrapped as `{ "content": ... }` to match the shape stored from sync) so the
+     * viewer reflects the change immediately; the server echoes it back on the next sync_complete.
+     */
+    fun setAccountDataRaw(type: String, content: org.json.JSONObject, roomId: String? = null) = with(vm) {
+        val requestId = WebSocketService.allocateRequestId()
+        val commandData = mutableMapOf<String, Any>(
+            "type" to type,
+            "content" to content
+        )
+        if (roomId != null) commandData["room_id"] = roomId
+
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AccountDataCoordinator: setAccountDataRaw type=$type roomId=$roomId content=${content.toString().take(200)}")
+        }
+
+        sendWebSocketCommand("set_account_data", requestId, commandData)
+
+        // Optimistic local update so the editor's view mode shows the saved value right away.
+        val wrapper = org.json.JSONObject().put("content", content)
+        if (roomId != null) {
+            RoomAccountDataCache.setRoomAccountData(roomId, type, wrapper)
+        } else {
+            AccountDataCache.setAccountData(type, wrapper)
+        }
+    }
+
     fun setIgnoredUser(userId: String, ignore: Boolean) = with(vm) {
         val currentIgnored = ignoredUsers.toMutableSet()
 

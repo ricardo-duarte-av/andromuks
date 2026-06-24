@@ -1889,7 +1889,7 @@ fun AppNavigation(
             )
         }
         composable("account_data_visualizer") {
-            AccountDataVisualizerScreen(navController = navController)
+            AccountDataVisualizerScreen(appViewModel = appViewModel, navController = navController)
         }
         composable("reconnection_log") {
             ReconnectionLogScreen(
