@@ -4166,31 +4166,36 @@ fun TimelineEventItem(
                         } ?: fakeDisplayName // Fallback to display name if no ID
                         
                         val plainText = "$fakeDisplayName, sent by $bridgeDisplayName"
-                        
+
+                        // Resolve colors in composable scope (buildAnnotatedString is not composable)
+                        val fakeSenderColor = net.vrkknn.andromuks.utils.rememberUserColor(fakeSenderId, appViewModel)
+                        val bridgeSenderColor = net.vrkknn.andromuks.utils.rememberUserColor(bridgeSender, appViewModel)
+                        val sentByColor = MaterialTheme.colorScheme.onSurface
+
                         // Create annotated string with different colors for each part
                         val annotatedString = buildAnnotatedString {
                             // Fake display name (bridge name) - use fake sender's color
                             withStyle(
                                 style = SpanStyle(
-                                    color = net.vrkknn.andromuks.utils.UserColorUtils.getUserColor(fakeSenderId)
+                                    color = fakeSenderColor
                                 )
                             ) {
                                 append(fakeDisplayName)
                             }
-                            
+
                             // ", sent by " text - use Material3 colors
                             withStyle(
                                 style = SpanStyle(
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = sentByColor
                                 )
                             ) {
                                 append(", sent by ")
                             }
-                            
+
                             // Real display name (actual sender) - use real sender's color
                             withStyle(
                                 style = SpanStyle(
-                                    color = net.vrkknn.andromuks.utils.UserColorUtils.getUserColor(bridgeSender)
+                                    color = bridgeSenderColor
                                 )
                             ) {
                                 append(bridgeDisplayName)
@@ -4213,7 +4218,7 @@ fun TimelineEventItem(
                         Text(
                             text = headerText,
                             style = MaterialTheme.typography.labelMedium,
-                            color = net.vrkknn.andromuks.utils.UserColorUtils.getUserColor(event.sender),
+                            color = net.vrkknn.andromuks.utils.rememberUserColor(event.sender, appViewModel),
                             modifier = Modifier.clickable { onUserClick(profileTapUserId) }
                         )
                     }

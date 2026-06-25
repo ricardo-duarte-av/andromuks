@@ -634,7 +634,7 @@ fun ReplyPreviewInput(
                 Text(
                     text = finalDisplayName,
                     style = MaterialTheme.typography.labelMedium,
-                    color = net.vrkknn.andromuks.utils.UserColorUtils.getUserColor(event.sender),
+                    color = net.vrkknn.andromuks.utils.rememberUserColor(event.sender, appViewModel),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )

@@ -250,6 +250,55 @@ fun SettingsScreen(
                 }
             }
 
+            // Display name colors
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Display name colors",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    val currentMode = appViewModel.displayNameColorMode
+                    Text(
+                        text = when (currentMode) {
+                            net.vrkknn.andromuks.utils.DisplayNameColorMode.DYNAMIC ->
+                                "Per-user colors derived from your current Material You theme and harmonized to match it."
+                            net.vrkknn.andromuks.utils.DisplayNameColorMode.FIXED ->
+                                "Per-user colors from a fixed palette (matches the web app)."
+                            net.vrkknn.andromuks.utils.DisplayNameColorMode.THEME ->
+                                "No per-user colors: a single theme color, one for your messages and one for everyone else."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        SegmentedButton(
+                            selected = currentMode == net.vrkknn.andromuks.utils.DisplayNameColorMode.DYNAMIC,
+                            onClick = { appViewModel.setDisplayNameColorMode(net.vrkknn.andromuks.utils.DisplayNameColorMode.DYNAMIC) },
+                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3)
+                        ) { Text("Dynamic") }
+                        SegmentedButton(
+                            selected = currentMode == net.vrkknn.andromuks.utils.DisplayNameColorMode.FIXED,
+                            onClick = { appViewModel.setDisplayNameColorMode(net.vrkknn.andromuks.utils.DisplayNameColorMode.FIXED) },
+                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3)
+                        ) { Text("Fixed") }
+                        SegmentedButton(
+                            selected = currentMode == net.vrkknn.andromuks.utils.DisplayNameColorMode.THEME,
+                            onClick = { appViewModel.setDisplayNameColorMode(net.vrkknn.andromuks.utils.DisplayNameColorMode.THEME) },
+                            shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3)
+                        ) { Text("Theme") }
+                    }
+                }
+            }
+
             // ── Animations ───────────────────────────────────────────────────
             Text(
                 text = "Animations",

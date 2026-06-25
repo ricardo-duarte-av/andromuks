@@ -542,6 +542,9 @@ class AppViewModel : ViewModel() {
     // Trim long display names in timeline: if true, names longer than 40 chars are trimmed with "..."
     var trimLongDisplayNames by mutableStateOf(true)
         internal set
+    // How display names are colored in the timeline (per-user dynamic/fixed, or a single theme color).
+    var displayNameColorMode by mutableStateOf(net.vrkknn.andromuks.utils.DisplayNameColorMode.DYNAMIC)
+        internal set
     // Show link previews (com.beeper.linkpreviews) below text message bubbles
     var showLinkPreviews by mutableStateOf(true)
         internal set
@@ -10833,6 +10836,9 @@ class AppViewModel : ViewModel() {
     fun toggleMoveReadReceiptsToEdge() = settingsCoordinator.toggleMoveReadReceiptsToEdge()
 
     fun toggleTrimLongDisplayNames() = settingsCoordinator.toggleTrimLongDisplayNames()
+
+    fun setDisplayNameColorMode(mode: net.vrkknn.andromuks.utils.DisplayNameColorMode) =
+        settingsCoordinator.setDisplayNameColorMode(mode)
 
     fun setRequireBiometricUnlock(enabled: Boolean) = settingsCoordinator.setRequireBiometricUnlock(enabled)
 
