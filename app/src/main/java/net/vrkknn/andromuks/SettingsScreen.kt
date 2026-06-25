@@ -66,73 +66,7 @@ fun SettingsScreen(
                 }
             }
 
-            // ── Client Preferences Section (top — gomuks cross-device prefs) ──
-            Text(
-                text = "Client Preferences",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = "Gomuks preferences",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "Fine-grained preferences synced across devices (via account data) or kept local to this device.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Button(
-                        onClick = { navController.navigate("client_preferences") },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Open Client Preferences")
-                    }
-                }
-            }
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = "Push rules",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "Control which messages notify you, play a sound, or are highlighted — synced across devices via account data.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Button(
-                        onClick = { navController.navigate("push_rules") },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Open Push Rules")
-                    }
-                }
-            }
-
-            // ── Room List Section ─────────────────────────────────────────────
+            // ── Room List Section (inline settings come first) ────────────────
             Text(
                 text = "Room List",
                 style = MaterialTheme.typography.headlineSmall,
@@ -179,7 +113,8 @@ fun SettingsScreen(
                 text = "Room Timeline",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = 16.dp)
             )
 
             // Move read receipts to the edge
@@ -587,6 +522,73 @@ fun SettingsScreen(
                 }
             }
             
+            // ── Client Preferences Section (opens dedicated screens) ──────────
+            Text(
+                text = "Client Preferences",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Gomuks preferences",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Fine-grained preferences synced across devices (via account data) or kept local to this device.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = { navController.navigate("client_preferences") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Open Client Preferences")
+                    }
+                }
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Push rules",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Control which messages notify you, play a sound, or are highlighted — synced across devices via account data.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = { navController.navigate("push_rules") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Open Push Rules")
+                    }
+                }
+            }
+
             // FCM Information Section
             Text(
                 text = "Push Notifications",
