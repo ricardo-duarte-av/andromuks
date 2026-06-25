@@ -93,6 +93,7 @@ internal class ExecCommandCoordinator(private val vm: AppViewModel) {
         maxTimelineId: Long,
         limit: Int = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT,
         expectedEventId: String? = null,
+        freshnessProbeAnchor: String? = null,
     ) {
         val data = JSONObject().apply {
             put("room_id", roomId)
@@ -103,9 +104,16 @@ internal class ExecCommandCoordinator(private val vm: AppViewModel) {
         execute("paginate", data) { requestId ->
             vm.paginateRequests[requestId] = roomId
             vm.paginateRequestMaxTimelineIds[requestId] = maxTimelineId
-            // When set, handlePaginationMerge verifies this event_id landed in the response and
-            // escalates to a full paginate if it didn't (small FCM-hydration window overflow).
-            if (expectedEventId != null) vm.hydrateExpectedEventIds[requestId] = expectedEventId
+            // A freshness probe routes its response into handlePaginationMerge's freshness-probe fast
+            // path, which decides contiguous-vs-gap against this anchor BEFORE any merge/render.
+            // Mutually exclusive with the FCM-hydrate expectedEventId path below.
+            if (freshnessProbeAnchor != null) {
+                vm.freshnessProbeAnchors[requestId] = freshnessProbeAnchor
+            } else if (expectedEventId != null) {
+                // When set, handlePaginationMerge verifies this event_id landed in the response and
+                // escalates to a full paginate if it didn't (small FCM-hydration window overflow).
+                vm.hydrateExpectedEventIds[requestId] = expectedEventId
+            }
         }
     }
 }

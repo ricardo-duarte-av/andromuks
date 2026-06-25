@@ -104,6 +104,13 @@ object RoomTimelineCache {
         // so a probe that raced a *subsequent* drop cannot falsely clear the newer staleness.
         var mightBeStale: Boolean = false,
         var staleEpoch: Int = 0,
+        // The youngest cached event_id at the instant markAllStale() ran (the last event the live
+        // WebSocket delivered before the intentional drop). This is the freshness anchor: on a fresh
+        // *connect* (no last_received_id) the backend pushes the latest event per room, which
+        // [addEventsFromSync] appends to the cache top — so getLatestCachedEventMetadata() no longer
+        // reflects "where we left off" and can't be trusted by the probe. The probe instead checks
+        // whether THIS frozen id reappears in its small window: present ⇒ contiguous, absent ⇒ gap.
+        var staleAnchorEventId: String? = null,
         // Processed timeline state (event chains, edits, and redactions) for quick room switching
         val processedState: ProcessedTimelineState = ProcessedTimelineState()
     )
@@ -1093,6 +1100,31 @@ object RoomTimelineCache {
             if (BuildConfig.DEBUG) Log.d(TAG, "Cleared processed timeline state for room $roomId")
         }
     }
+
+    /**
+     * Empty a room's timeline (events, reactions, redactions, reply-context, processed state) WITHOUT
+     * tearing down the room entry or its sibling caches (members, profiles, receipts) and WITHOUT
+     * dropping its actively-cached/opened status. Used by the freshness-probe gap path: the cache
+     * sits above a silent gap, so we drop the events and immediately reseed via a full paginate while
+     * the room stays open and keeps receiving live updates. Lighter than [clearRoomCache], which
+     * removes the whole entry and forces member/profile/receipt refetches on the open room.
+     */
+    fun clearTimelineEventsForReseed(roomId: String) {
+        synchronized(cacheLock) {
+            val cache = roomEventsCache[roomId] ?: return
+            cache.events.clear()
+            cache.eventIds.clear()
+            cache.redactionEvents.clear()
+            cache.reactionEvents.clear()
+            cache.replyContextEvents.clear()
+            cache.replyContextEventIds.clear()
+            synchronized(cacheStateLock) {
+                cache.processedState.eventChainMap.clear()
+                cache.processedState.editEventsMap.clear()
+            }
+            if (BuildConfig.DEBUG) Log.d(TAG, "Cleared timeline events for reseed: room $roomId (entry, membership and opened-status preserved)")
+        }
+    }
     
     /**
      * Add a redaction event to the cache (stored separately from main events)
@@ -1394,6 +1426,9 @@ object RoomTimelineCache {
             for (cache in roomEventsCache.values) {
                 cache.mightBeStale = true
                 cache.staleEpoch = globalStaleEpoch
+                // Freeze the current cache top as the freshness anchor. The WS was up and delivering
+                // until this drop, so the youngest cached event IS the genuine last-known-good top.
+                cache.staleAnchorEventId = cache.events.lastOrNull()?.eventId
             }
             if (BuildConfig.DEBUG) Log.d(TAG, "markAllStale: flagged ${roomEventsCache.size} cached room(s) stale (epoch $globalStaleEpoch)")
             return globalStaleEpoch
@@ -1418,6 +1453,18 @@ object RoomTimelineCache {
     fun staleEpochFor(roomId: String): Int {
         synchronized(cacheLock) {
             return roomEventsCache[roomId]?.staleEpoch ?: 0
+        }
+    }
+
+    /**
+     * The freshness anchor for [roomId] — the youngest cached event_id frozen by [markAllStale] at
+     * the intentional WS drop. Null if the room is uncached or had no events at the drop. The
+     * freshness probe passes this as its expected event_id; its presence/absence in the probe window
+     * is what distinguishes a contiguous cache from a gap (see the probe-completion path).
+     */
+    fun staleAnchorFor(roomId: String): String? {
+        synchronized(cacheLock) {
+            return roomEventsCache[roomId]?.staleAnchorEventId
         }
     }
 

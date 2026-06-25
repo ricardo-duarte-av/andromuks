@@ -4918,6 +4918,12 @@ class AppViewModel : ViewModel() {
     // roomId -> staleEpoch captured when a per-room freshness probe was fired. handlePaginationMerge
     // clears RoomTimelineCache.mightBeStale (epoch-guarded) once the probe's terminal merge lands.
     internal val freshnessProbePendingEpoch = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    // requestId -> freshness anchor event_id for a per-room freshness probe. Presence of a request
+    // in this map routes its response into handlePaginationMerge's freshness-probe fast path (the
+    // gap decision happens BEFORE the cache is merged/rendered, so a gap purges + reseeds without
+    // ever exposing the stale tail). Distinct from hydrateExpectedEventIds so the FCM-hydrate branch
+    // is not taken.
+    internal val freshnessProbeAnchors = java.util.concurrent.ConcurrentHashMap<Int, String>()
     private val roomStateWithMembersRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit>() // requestId -> callback
     // Gallery paginate: requestId -> callback(events, hasMore, minTimelineRowId)
     internal val galleryPaginateRequests = mutableMapOf<Int, (List<TimelineEvent>, Boolean, Long) -> Unit>()
@@ -9890,8 +9896,9 @@ class AppViewModel : ViewModel() {
         maxTimelineId: Long,
         limit: Int = INITIAL_ROOM_PAGINATE_LIMIT,
         expectedEventId: String? = null,
+        freshnessProbeAnchor: String? = null,
     ) =
-        execCommandCoordinator.paginate(roomId, maxTimelineId, limit, expectedEventId)
+        execCommandCoordinator.paginate(roomId, maxTimelineId, limit, expectedEventId, freshnessProbeAnchor)
     
     /**
      * Request pagination from backend using the smallest row ID from cache only (no DB).

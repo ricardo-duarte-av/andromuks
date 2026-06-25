@@ -2625,6 +2625,46 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
     fun handlePaginationMerge(roomId: String, timelineList: List<TimelineEvent>, requestId: Int) {
         with(vm) {
+            // Freshness-probe fast path. A per-room probe (fired by navigateToRoomWithCache for a
+            // mightBeStale cache) decides contiguous-vs-gap against the anchor frozen at the WS drop
+            // BEFORE the cache is merged or rendered — so a gap never momentarily paints the stale
+            // tail that the fresh-connect 2-event push left sitting above a hole. (This is distinct
+            // from the FCM-hydrate path further down, which renders first then verifies.)
+            val freshnessAnchor = freshnessProbeAnchors.remove(requestId)
+            if (freshnessAnchor != null) {
+                val probeIds = timelineList.mapTo(HashSet()) { it.eventId }
+                if (probeIds.contains(freshnessAnchor)) {
+                    if (BuildConfig.DEBUG)
+                        android.util.Log.d(
+                            "Andromuks",
+                            "AppViewModel: freshness probe OK for $roomId — anchor $freshnessAnchor present in ${timelineList.size}-event window; merging newer events and rendering",
+                        )
+                    // Contiguous: fall through to the normal merge+render below. It rebuilds the full
+                    // timeline from cache (existing tail + the few newer events) and clears the stale
+                    // flag at the end via freshnessProbePendingEpoch. No expectedEventId was set, so
+                    // the FCM-hydrate block is skipped and escalatedToFullWindow stays false.
+                } else {
+                    // Gap: the anchor fell outside the small window, so more than FRESHNESS_PROBE_LIMIT
+                    // events accrued since the drop (or the fresh-connect push advanced the top past a
+                    // hole). Purge BEFORE exposing the stale tail and reseed with one full window. The
+                    // reseed carries no anchor/expectedEventId, so its terminal merge renders fresh and
+                    // clears the still-pending stale flag (epoch-guarded). Leave isTimelineLoading=true
+                    // (set at navigation start) so the spinner holds until that render lands.
+                    android.util.Log.i(
+                        "Andromuks",
+                        "AppViewModel: freshness probe GAP for $roomId — anchor $freshnessAnchor absent from " +
+                            "${timelineList.size}-event window. Purging timeline and reseeding with full paginate.",
+                    )
+                    paginateRequestMaxTimelineIds.remove(requestId)
+                    // Light clear (keeps the room entry, membership and opened status): the reseed
+                    // merges into the emptied cache and the room keeps receiving live updates. The
+                    // still-pending freshnessProbePendingEpoch[roomId] is cleared by the reseed's
+                    // terminal merge below (epoch-guarded).
+                    RoomTimelineCache.clearTimelineEventsForReseed(roomId)
+                    paginateViaExec(roomId, maxTimelineId = 0L, limit = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT)
+                    return@with
+                }
+            }
             if (BuildConfig.DEBUG) {
                 // Extra safety: detect any events whose roomId doesn't match the target room.
                 val mismatched = timelineList.filter { it.roomId != roomId }

@@ -258,12 +258,6 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                             return@launch
                         }
 
-                        processCachedEvents(
-                            roomId,
-                            RoomTimelineCache.getCachedEventsForTimeline(roomId),
-                            openingFromNotification = notificationTimestamp != null,
-                        )
-
                         RoomTimelineCache.markRoomAsCached(roomId)
                         RoomTimelineCache.markRoomAccessed(roomId)
 
@@ -271,28 +265,60 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
 
                         // Freshness. While the WebSocket is up, SyncIngestor keeps every actively-
                         // cached room's timeline fresh (delta replay on unintentional reconnects too),
-                        // so a non-stale cache hit needs no paginate. An intentional drop (battery-saver
-                        // standby) flags every cache mightBeStale; we keep + render it instantly above,
-                        // then verify with a cheap probe: paginateViaExec(FRESHNESS_PROBE_LIMIT) over
-                        // the HTTP /exec endpoint, passing the youngest cached event as expectedEventId.
-                        // handlePaginationMerge then merges the few newer events (youngest present =
-                        // contiguous) or escalates to a full INITIAL_ROOM_PAGINATE_LIMIT window (gap),
-                        // and clears the flag (epoch-guarded) on the terminal merge.
+                        // so a non-stale cache hit needs no paginate and renders instantly below.
+                        //
+                        // An intentional drop (battery-saver standby) flags every cache mightBeStale.
+                        // We do NOT render the cached tail in that case: a fresh *connect* (no
+                        // last_received_id) makes the backend push the latest event per room, which
+                        // gets appended to the cache top — so the cached tail may now sit BELOW a
+                        // silent gap, and rendering it would show stale content we then have to wipe.
+                        // Instead we keep the loading state and fire a cheap freshness probe
+                        // (paginateViaExec, FRESHNESS_PROBE_LIMIT) anchored on the event frozen at the
+                        // drop. handlePaginationMerge's freshness-probe fast path decides BEFORE any
+                        // render: anchor present ⇒ contiguous, merge the few newer events and render;
+                        // anchor absent ⇒ gap, purge and reseed with a full INITIAL_ROOM_PAGINATE_LIMIT
+                        // window. Either way the user only ever sees the loading indicator then the
+                        // final, correct timeline — never the stale tail.
                         if (RoomTimelineCache.isMightBeStale(roomId)) {
-                            val youngestCachedId =
-                                RoomTimelineCache.getLatestCachedEventMetadata(roomId)?.eventId
+                            val anchorEventId = RoomTimelineCache.staleAnchorFor(roomId)
                             freshnessProbePendingEpoch[roomId] = RoomTimelineCache.staleEpochFor(roomId)
+                            // isTimelineLoading was set true at navigation start; leave it true and
+                            // blank any prior room's events so the user sees the loading state until
+                            // the probe (or its reseed) builds the verified timeline — never the
+                            // unverified cached tail. (This launch runs on the Main dispatcher, same
+                            // as the cache-miss timelineEvents reset below.)
+                            timelineEvents = emptyList()
                             android.util.Log.d(
                                 "Andromuks",
-                                "🔵 navigateToRoomWithCache: cache flagged might-be-stale — firing freshness probe (limit=${AppViewModel.FRESHNESS_PROBE_LIMIT}, expecting=$youngestCachedId) for $roomId",
+                                "🔵 navigateToRoomWithCache: cache flagged might-be-stale — firing freshness probe (limit=${AppViewModel.FRESHNESS_PROBE_LIMIT}, anchor=$anchorEventId) for $roomId BEFORE rendering",
                             )
-                            paginateViaExec(
-                                roomId,
-                                maxTimelineId = 0L,
-                                limit = AppViewModel.FRESHNESS_PROBE_LIMIT,
-                                expectedEventId = youngestCachedId,
-                            )
-                        } else if (!isWebSocketConnected()) {
+                            if (anchorEventId != null) {
+                                paginateViaExec(
+                                    roomId,
+                                    maxTimelineId = 0L,
+                                    limit = AppViewModel.FRESHNESS_PROBE_LIMIT,
+                                    freshnessProbeAnchor = anchorEventId,
+                                )
+                            } else {
+                                // No anchor (cache had no events at the drop) — nothing to verify
+                                // against, so reseed directly with a full window.
+                                paginateViaExec(
+                                    roomId,
+                                    maxTimelineId = 0L,
+                                    limit = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT,
+                                )
+                            }
+                            return@launch
+                        }
+
+                        // Fresh cache: render instantly from cache (no loading flash).
+                        processCachedEvents(
+                            roomId,
+                            RoomTimelineCache.getCachedEventsForTimeline(roomId),
+                            openingFromNotification = notificationTimestamp != null,
+                        )
+
+                        if (!isWebSocketConnected()) {
                             // Not stale but WS momentarily down (unintentional blip): keep the prior
                             // behaviour of deferring a paginate to onInitComplete as a safety net.
                             roomsAwaitingInitCompletePaginate.add(roomId)
