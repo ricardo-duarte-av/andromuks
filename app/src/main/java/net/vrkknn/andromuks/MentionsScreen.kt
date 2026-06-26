@@ -37,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +45,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -231,12 +234,28 @@ fun MentionsScreen(
                     }
                     
                     // Content
+                    // clipToBounds ensures the date pill slides from behind the header rather than over it
                     Box(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
+                            .clipToBounds()
                             .pullRefresh(pullRefreshState)
                     ) {
+                        // Top-down layout, but sorted newest-first, so scrolling toward older
+                        // content *increases* firstVisibleItemIndex — same direction convention
+                        // as the reverseLayout timelines, hence reverseScrollLayout = true.
+                        val oldestVisibleDate by remember(timelineItems) {
+                            derivedStateOf {
+                                when (val item = timelineItems.getOrNull(listState.firstVisibleItemIndex)) {
+                                    is MentionTimelineItem.Event -> net.vrkknn.andromuks.formatDate(item.mentionEvent.event.timestamp)
+                                    is MentionTimelineItem.DateDivider -> item.date
+                                    else -> null
+                                }
+                            }
+                        }
+                        val scrollKey by remember { derivedStateOf { listState.firstVisibleItemIndex } }
+
                         if (isLoading && mentionEvents.isEmpty()) {
                             Box(
                                 modifier = Modifier.fillMaxSize(),
@@ -315,6 +334,17 @@ fun MentionsScreen(
                             refreshing = isRefreshing,
                             state = pullRefreshState,
                             modifier = Modifier.align(Alignment.TopCenter)
+                        )
+
+                        // Sticky date pill — shows date of the top visible event while scrolling
+                        net.vrkknn.andromuks.utils.StickyDateIndicator(
+                            oldestVisibleDate = oldestVisibleDate,
+                            scrollPositionKey = scrollKey,
+                            reverseScrollLayout = true,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(top = 8.dp)
+                                .zIndex(1f)
                         )
                     }
                 }
