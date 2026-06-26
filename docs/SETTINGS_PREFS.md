@@ -74,7 +74,7 @@ The content is always accessed via `data.optJSONObject("content") ?: data` to to
 ### ClientPreferencesScreen
 
 Route: `client_preferences`  
-Entry: "Client Preferences" button at the top of `SettingsScreen`.
+Entry: "Open Client Preferences" button in the Client Preferences section of `SettingsScreen` (grouped with the other screen-launcher sections).
 
 Shows two `GomuksPreferenceCard`s — Global (all devices) and Global (this device).
 
@@ -90,6 +90,45 @@ Room account state is loaded via `remember(roomId, roomPrefsVersion)` — the ve
 ### GomuksPreferenceCard
 
 Reusable composable in `SettingsScreen.kt`. Renders a `Card` with a title, description, and a `SingleChoiceSegmentedButtonRow` with three buttons: **On** (`true`) / **Default** (`null`) / **Off** (`false`).
+
+## Local UI preferences (AndromuksAppPrefs)
+
+Separate from the 4-scope gomuks preferences above, a number of device-local UI toggles are stored in the `AndromuksAppPrefs` SharedPreferences file, surfaced as plain `mutableStateOf` fields on `AppViewModel`, written via `SettingsCoordinator`, and loaded in `SettingsCoordinator.loadSettings`. Examples: `trim_long_display_names`, `move_read_receipts_to_edge`, `show_all_room_list_tabs`.
+
+### Crash reporting opt-in (`crash_reporting_enabled`)
+
+| Key | Type | Default |
+|---|---|---|
+| `crash_reporting_enabled` | `Boolean` | `false` |
+
+Controls Firebase Crashlytics collection. Automatic collection is **disabled in the manifest** (`firebase_crashlytics_collection_enabled = false`), so nothing is sent until the user opts in via the **Crash Reporting** section of `SettingsScreen`. That section also has a **Crash the app** test button (enabled only while reporting is on) that throws an uncaught `RuntimeException` to verify the pipeline — Crashlytics batches the report and uploads it on the next app launch, so reopen the app after it crashes.
+
+- **State field:** `AppViewModel.crashReportingEnabled`.
+- **Write:** `AppViewModel.setCrashReportingEnabled` → `SettingsCoordinator.setCrashReportingEnabled`, which persists the pref **and** calls `ErrorReportingCoordinator.setEnabled` (→ `FirebaseCrashlytics.setCrashlyticsCollectionEnabled`).
+- **Startup:** `SettingsCoordinator.loadSettings` reloads the pref and calls `ErrorReportingCoordinator.applyPersistedState`, re-asserting it into Crashlytics on every launch so the SharedPref remains the single source of truth.
+- **Reporting API:** `ErrorReportingCoordinator` has a companion `report(throwable, message?)` (logs an optional breadcrumb, then `recordException`), plus `log` (breadcrumbs) and `setKey` (custom keys). These are `companion object` functions so layers without an `AppViewModel` handle (`WebSocketService`, `SyncRepository`) can call them. All are no-ops while collection is disabled, so callers need no guard.
+- **Instrumented call sites (non-fatal):** sync/connection failure points that already `Log.e` — `WebSocketService` (service-initiated reconnect, `sendCommand`, `connectWebSocket`), `SyncRepository` (`sync_complete` pipeline), and `AppViewModel` (incoming/ack message apply, the three `processInitialSyncComplete` crash paths, per-message `onInitComplete` crashes, `reconnectAfterReauth`). Uncaught crashes are captured automatically with no call site.
+- **Deobfuscation:** R8 mapping-file upload is set explicitly (`mappingFileUploadEnabled = true` on `release`, `false` on `debug`) in `app/build.gradle.kts` so release stack traces are readable in the Crashlytics console.
+
+### Display name color mode
+
+| Key | Type | Values | Default |
+|---|---|---|---|
+| `displayname_color_mode` | `String` | `dynamic` / `fixed` / `theme` | `dynamic` |
+
+Controls how sender display names are colored in the timeline (`RoomTimelineScreen`, `BubbleTimelineScreen`, `ThreadViewerScreen`, `EventContextScreen`) and reply previews.
+
+- **State field:** `AppViewModel.displayNameColorMode: DisplayNameColorMode` (enum in `utils/UserColorUtils.kt`; `DisplayNameColorMode.fromPref` maps the stored string back, falling back to `DYNAMIC`).
+- **Write:** `AppViewModel.setDisplayNameColorMode` → `SettingsCoordinator.setDisplayNameColorMode` (persists `mode.prefValue`).
+- **UI:** "Display name colors" card in `SettingsScreen` → Room Timeline section, a `SingleChoiceSegmentedButtonRow` with **Dynamic / Fixed / Theme**.
+
+The three modes are resolved by the `@Composable rememberUserColor(userID, appViewModel)` dispatcher in `utils/UserColorUtils.kt`, which reads the active `MaterialTheme.colorScheme` so the result reacts to dynamic color and light/dark:
+
+- **Dynamic** (default) — per-user color via the HCT color space (`getUserColorHct`): the user ID hashes to a stable hue, chroma/tone are pinned to the scheme, then `harmonize`d toward `colorScheme.primary` (requires `com.materialkolor:material-kolor`).
+- **Fixed** — per-user color from the fixed Catppuccin palette (`getUserColor`), matching the web app.
+- **Theme** — no per-user color: `colorScheme.primary` for your own messages, `colorScheme.tertiary` for everyone else (decided by `appViewModel.currentUserId == userID`).
+
+Avatar-fallback background colors (`AvatarUtils.getUserColor`) are a separate path and are **not** affected by this setting.
 
 ## Effect on media rendering
 

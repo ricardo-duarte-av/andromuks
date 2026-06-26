@@ -279,6 +279,22 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved anim stiffnessFactor=$clamped")
     }
 
+    fun setCrashReportingEnabled(enabled: Boolean) = with(vm) {
+        crashReportingEnabled = enabled
+        errorReportingCoordinator.setEnabled(enabled)
+
+        appContext?.let { context ->
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("crash_reporting_enabled", enabled)
+                .apply()
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Saved crashReportingEnabled setting: $enabled"
+            )
+        }
+    }
+
     private fun booleanPrefOrNull(prefs: android.content.SharedPreferences, key: String): Boolean? =
         if (prefs.contains(key)) prefs.getBoolean(key, false) else null
 
@@ -524,6 +540,10 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             sendLinkPreviews = prefs.getBoolean("send_link_previews", true)
             elementCallBaseUrl = prefs.getString("element_call_base_url", "") ?: ""
             useBatterySaverMode = prefs.getBoolean("use_battery_saver_mode", false)
+            crashReportingEnabled = prefs.getBoolean("crash_reporting_enabled", false)
+            // Re-assert the persisted opt-in into Crashlytics on every launch so our SharedPref
+            // stays the single source of truth for collection state.
+            errorReportingCoordinator.applyPersistedState()
             deviceGlobalShowMediaPreviews = booleanPrefOrNull(prefs, "gomuks_device_show_media_previews")
             deviceGlobalRenderUrlPreviews = booleanPrefOrNull(prefs, "gomuks_device_render_url_previews")
             deviceGlobalSendBundledUrlPreviews = booleanPrefOrNull(prefs, "gomuks_device_send_bundled_url_previews")

@@ -318,6 +318,7 @@ class AppViewModel : ViewModel() {
                             applyIncomingWebSocketMessageForViewModel(json, this@AppViewModel, event.hint)
                         } catch (e: Exception) {
                             android.util.Log.e("Andromuks", "AppViewModel: IncomingWebSocketMessage apply failed", e)
+                            ErrorReportingCoordinator.report(e, "IncomingWebSocketMessage apply failed")
                         }
                     }
                 }
@@ -335,6 +336,7 @@ class AppViewModel : ViewModel() {
                         applyIncomingWebSocketMessageForViewModel(json, this@AppViewModel, event.hint)
                     } catch (e: Exception) {
                         android.util.Log.e("Andromuks", "AppViewModel: ack IncomingWebSocketMessage apply failed", e)
+                        ErrorReportingCoordinator.report(e, "ack IncomingWebSocketMessage apply failed")
                     }
                 }
             }
@@ -556,6 +558,10 @@ class AppViewModel : ViewModel() {
     // Connection mode: false = persistent always-on WebSocket (default), true = use HTTP batterySaver
     // for reply/mark_read from notifications and close the WebSocket while backgrounded.
     var useBatterySaverMode by mutableStateOf(false)
+        internal set
+    // Opt-in crash / non-fatal error reporting via Firebase Crashlytics. Default false (collection is
+    // disabled in the manifest until the user turns this on). See ErrorReportingCoordinator.
+    var crashReportingEnabled by mutableStateOf(false)
         internal set
 
     // ── Gomuks preferences ────────────────────────────────────────────────────
@@ -1386,6 +1392,8 @@ class AppViewModel : ViewModel() {
 
     /** UI prefs toggles — see [SettingsCoordinator]. */
     private val settingsCoordinator by lazy { SettingsCoordinator(this) }
+
+    internal val errorReportingCoordinator by lazy { ErrorReportingCoordinator(this) }
 
     /** `to_device` normalization + widget bridge — see [ToDeviceCoordinator]. */
     private val toDeviceCoordinator by lazy { ToDeviceCoordinator(this) }
@@ -3127,6 +3135,7 @@ class AppViewModel : ViewModel() {
                             onComplete?.invoke()
                         } catch (e: Exception) {
                             android.util.Log.e("Andromuks", "🟣 processInitialSyncComplete: CRASH in processParsedSyncResult - ${e.message}", e)
+                            ErrorReportingCoordinator.report(e, "processInitialSyncComplete: processParsedSyncResult crashed")
                             // Still invoke callback even on error to update counter
                             onComplete?.invoke()
                             // Don't rethrow - continue processing other messages
@@ -3134,6 +3143,7 @@ class AppViewModel : ViewModel() {
                     }
                 } catch (e: Exception) {
                     android.util.Log.e("Andromuks", "🟣 processInitialSyncComplete: CRASH in background parsing - ${e.message}", e)
+                    ErrorReportingCoordinator.report(e, "processInitialSyncComplete: background parsing crashed")
                     // Still invoke callback even on error to update counter
                     onComplete?.invoke()
                     // Don't rethrow - continue processing other messages
@@ -3146,6 +3156,7 @@ class AppViewModel : ViewModel() {
             accountDataProcessingJob
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "🟣 processInitialSyncComplete: CRASH at start - ${e.message}", e)
+            ErrorReportingCoordinator.report(e, "processInitialSyncComplete: crashed at start")
             // Return null to indicate failure, but don't crash the app
             null
         }
@@ -3333,6 +3344,7 @@ class AppViewModel : ViewModel() {
                                         }
                                     } catch (e: Exception) {
                                         android.util.Log.e("Andromuks", "🟣 onInitComplete: CRASH processing message $indexForLog: ${e.message}", e)
+                                        ErrorReportingCoordinator.report(e, "onInitComplete: crashed processing message $indexForLog")
                                         null
                                     }
                                 }
@@ -3861,6 +3873,7 @@ class AppViewModel : ViewModel() {
                 initializeWebSocketConnection(homeserverUrl, token, isReconnection = false)
             } catch (e: Exception) {
                 android.util.Log.e("Andromuks", "AppViewModel: reconnectAfterReauth failed", e)
+                ErrorReportingCoordinator.report(e, "reconnectAfterReauth failed")
             }
         }
     }
@@ -10849,6 +10862,8 @@ class AppViewModel : ViewModel() {
     fun updateElementCallBaseUrl(url: String) = settingsCoordinator.updateElementCallBaseUrl(url)
 
     fun toggleUseBatterySaverMode() = settingsCoordinator.toggleUseBatterySaverMode()
+
+    fun setCrashReportingEnabled(enabled: Boolean) = settingsCoordinator.setCrashReportingEnabled(enabled)
 
     fun updateBackgroundPurgeInterval(minutes: Int) = settingsCoordinator.updateBackgroundPurgeInterval(minutes)
 

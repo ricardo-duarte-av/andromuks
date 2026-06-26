@@ -522,6 +522,71 @@ fun SettingsScreen(
                 }
             }
             
+            // ── Crash Reporting Section ──────────────────────────────────────
+            Text(
+                text = "Crash Reporting",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Send crash reports",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "Off by default. When enabled, crashes and handled errors are sent to " +
+                                    "Firebase Crashlytics (Google) to help diagnose problems. Reports include the " +
+                                    "stack trace, device model, OS version, and app state — never your messages, " +
+                                    "room names, or account details. You can turn this off at any time.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Switch(
+                            checked = appViewModel.crashReportingEnabled,
+                            onCheckedChange = { appViewModel.setCrashReportingEnabled(it) }
+                        )
+                    }
+
+                    // Test trigger: forces an uncaught crash so you can verify the pipeline.
+                    // The report is uploaded on the NEXT app launch (Crashlytics batches on
+                    // restart), so reopen the app after it crashes to send it. Only enabled while
+                    // reporting is on, otherwise the crash would happen but never be reported.
+                    OutlinedButton(
+                        onClick = {
+                            ErrorReportingCoordinator.log("Manual test crash triggered from Settings")
+                            throw RuntimeException("Andromuks test crash (triggered from Settings)")
+                        },
+                        enabled = appViewModel.crashReportingEnabled,
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text("Crash the app")
+                    }
+                }
+            }
+
             // ── Client Preferences Section (opens dedicated screens) ──────────
             Text(
                 text = "Client Preferences",

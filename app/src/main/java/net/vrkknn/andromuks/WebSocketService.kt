@@ -404,6 +404,7 @@ class WebSocketService : Service() {
                     connectWebSocket(homeserverUrl, authToken, viewModelToUse, trigger, resolvedLastReceivedId, isReconnection = isReconnection)
                 } catch (e: Exception) {
                     android.util.Log.e("WebSocketService", "Error during service-initiated reconnection", e)
+                    ErrorReportingCoordinator.report(e, "service-initiated reconnection failed: ${trigger.toLogString()}")
                 }
             }
         }
@@ -1542,6 +1543,7 @@ class WebSocketService : Service() {
                 ws.send(jsonString)
             } catch (e: Exception) {
                 android.util.Log.e("WebSocketService", "Failed to send WebSocket command: $command", e)
+                ErrorReportingCoordinator.report(e, "WebSocket send failed: command=$command")
                 false
             }
         }
@@ -1696,6 +1698,7 @@ class WebSocketService : Service() {
                     if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "NetworkUtils.connectToWebsocket() call completed")
                 } catch (e: Exception) {
                     android.util.Log.e("WebSocketService", "Error in connectWebSocket()", e)
+                    ErrorReportingCoordinator.report(e, "connectWebSocket() failed")
                     clearWebSocket("Connection error: ${e.message}")
                     // clearWebSocket() updates [ConnectionState] (e.g. Disconnected); no duplicate reset here
                 }

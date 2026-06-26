@@ -126,6 +126,7 @@ object SyncRepository {
                     processSyncCompletePipeline(msg)
                 } catch (e: Exception) {
                     Log.e(TAG, "sync_complete pipeline failed", e)
+                    ErrorReportingCoordinator.report(e, "sync_complete pipeline failed")
                 }
             }
         }

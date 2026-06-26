@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     id("org.jetbrains.kotlin.plugin.serialization") version "2.2.20"
     id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
     alias(libs.plugins.baselineprofile)  // use alias
 }
 
@@ -65,9 +66,20 @@ android {
                 "proguard-rules.pro"
             )
             signingConfig = signingConfigs.getByName("release")
+            // R8 obfuscates release stack traces; the Crashlytics Gradle plugin uploads the
+            // mapping file so Crashlytics can deobfuscate them. This defaults to true, but we
+            // set it explicitly so an accidental flip can't silently ship unreadable crashes.
+            configure<com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension> {
+                mappingFileUploadEnabled = true
+            }
         }
         debug {
             isDebuggable = true
+            // Debug builds aren't minified and carry symbol info already, so skip the upload
+            // (it would otherwise slow every debug build for no benefit).
+            configure<com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension> {
+                mappingFileUploadEnabled = false
+            }
         }
     }
     compileOptions {
@@ -174,6 +186,9 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
     implementation("com.google.firebase:firebase-messaging-ktx")
     implementation("com.google.firebase:firebase-analytics-ktx")
+    // Crash + non-fatal error reporting. Collection is opt-in (disabled by default in the
+    // manifest) and toggled at runtime via ErrorReportingCoordinator. BOM-managed version.
+    implementation("com.google.firebase:firebase-crashlytics-ktx")
     
     // WorkManager for periodic background tasks
     implementation("androidx.work:work-runtime-ktx:2.9.0")
