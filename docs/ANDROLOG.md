@@ -4,6 +4,8 @@
 
 It is *not* a replacement for logcat. Use it sparingly, for the handful of events you actually want to inspect after the fact on a real device.
 
+Androlog is **on-device and offline** — nothing leaves the phone. For *remote*, opt-in crash and performance reporting (Firebase Crashlytics / Performance), see [OBSERVABILITY.md](OBSERVABILITY.md).
+
 ## API
 
 `Androlog` is a process-wide singleton object (`app/src/main/java/net/vrkknn/andromuks/Androlog.kt`). Call it from anywhere via the invoke operator:

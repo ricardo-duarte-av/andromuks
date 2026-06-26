@@ -95,6 +95,8 @@ Reusable composable in `SettingsScreen.kt`. Renders a `Card` with a title, descr
 
 Separate from the 4-scope gomuks preferences above, a number of device-local UI toggles are stored in the `AndromuksAppPrefs` SharedPreferences file, surfaced as plain `mutableStateOf` fields on `AppViewModel`, written via `SettingsCoordinator`, and loaded in `SettingsCoordinator.loadSettings`. Examples: `trim_long_display_names`, `move_read_receipts_to_edge`, `show_all_room_list_tabs`.
 
+> The two subsections below cover the **pref mechanics** for the Firebase observability toggles. For the subsystem architecture (opt-in/privacy model, instrumented call sites, the `ws_connect` trace, mapping-file upload, where to monitor, Android vitals) see [OBSERVABILITY.md](OBSERVABILITY.md).
+
 ### Crash reporting opt-in (`crash_reporting_enabled`)
 
 | Key | Type | Default |
