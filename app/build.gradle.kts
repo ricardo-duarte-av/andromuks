@@ -4,7 +4,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    id("org.jetbrains.kotlin.plugin.serialization") version "2.2.20"
+    id("org.jetbrains.kotlin.plugin.serialization") version "2.3.20"
     id("com.google.gms.google-services")
     id("com.google.firebase.crashlytics")
     id("com.google.firebase.firebase-perf")
@@ -194,12 +194,6 @@ dependencies {
 
     implementation("androidx.webkit:webkit:1.10.0")
 
-    // Accompanist for navigation animations
-    // implementation("com.google.accompanist:accompanist-navigation-animation:0.34.0")
-    // Accompanist for system UI controller (status/navigation bars)
-    implementation("com.google.accompanist:accompanist-systemuicontroller:0.34.0")
-
-    
     // Image loading
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("io.coil-kt:coil-gif:2.6.0")
