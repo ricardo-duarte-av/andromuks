@@ -12,6 +12,8 @@ android {
         minSdk = 24
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // :app now has product flavors; generate the baseline profile against the base flavor only.
+        missingDimensionStrategy("variant", "base")
     }
 
     targetProjectPath = ":app"

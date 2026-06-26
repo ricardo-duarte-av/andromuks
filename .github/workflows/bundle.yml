@@ -1,46 +1,52 @@
-name: Bundle and upload to Play Console 
-
-env:
-  # The name of the main module repository
-  main_project_module: pt.aguiarvieira.andromuks
-
-  # The name of the Play Store
-  playstore_name: Andromuks
+name: Bundle and upload to Play Console
 
 on:
-
-  #pull_request:
-  #merge_group:
   push:
     branches: [ main, develop, master ]
-
-  # Allows you to run this workflow manually from the Actions tab
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   workflow_dispatch:
+
+concurrency:
+  group: bundle-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-bundle:
-
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set App ID
-        run: echo "APP_ID=pt.aguiarvieira.andromuks" >> $GITHUB_ENV
-
       - name: Set Up JDK
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu' # See 'Supported distributions' for available options
+          distribution: 'zulu'
           java-version: '21'
-          cache: 'gradle'
-        
-            
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Change wrapper permissions
         run: chmod +x ./gradlew
 
-      - name: Build Bundle
-        run: ./gradlew bundle --stacktrace --no-daemon --parallel --build-cache
+      - name: Decode release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_BASE64" | base64 -d > app/gomuks.keystore
+
+      # Only the base flavor is published to the Play Console (package pt.aguiarvieira.andromuks).
+      - name: Build Bundle (base flavor)
+        env:
+          KEYSTORE_FILE: gomuks.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew bundleBaseRelease --stacktrace --no-daemon --parallel --build-cache
+
+      - name: Locate AAB
+        run: echo "AAB_PATH=$(find app/build/outputs/bundle/baseRelease -name '*.aab' | head -1)" >> $GITHUB_ENV
 
       - name: Upload .aab to Internal Track
         id: upload_internal
@@ -48,7 +54,6 @@ jobs:
         with:
           service_account_json: ${{ secrets.SERVICE_ACCOUNT_JSON }}
           package_name: "pt.aguiarvieira.andromuks"
-          aab_file_path: "app/build/outputs/bundle/release/app-release.aab"
+          aab_file_path: ${{ env.AAB_PATH }}
           track: "internal"
-          release_status: "draft"        
-
+          release_status: "draft"

@@ -1,96 +1,127 @@
 name: AV Andromuks
 
-env:
-  # The name of the main module repository
-  main_project_module: pt.aguiarvieira.andromuks
-
-  # The name of the Play Store
-  playstore_name: Andromuks
-
 on:
-
-  #pull_request:
-  #merge_group:
   push:
     branches: [ main, develop, master ]
-
-  # Allows you to run this workflow manually from the Actions tab
+    # Don't burn CI on doc-only changes.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   workflow_dispatch:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
+
+    # One job per product flavor (replaces the old build / build-a / build-b / build-c files and
+    # their sed hacks — variant identity now lives in product flavors in app/build.gradle.kts).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - flavor: base
+            gradleFlavor: Base
+            tag: ''            # asset/artifact suffix; empty for base
+            id_debug: 248878640
+            id_release: 249916670
+          - flavor: a
+            gradleFlavor: A
+            tag: '-A'
+            id_debug: 281695944
+            id_release: 281695559
+          - flavor: b
+            gradleFlavor: B
+            tag: '-B'
+            id_debug: 281696400
+            id_release: 281696024
+          - flavor: c
+            gradleFlavor: C
+            tag: '-C'
+            id_debug: 281696518
+            id_release: 281696449
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set App ID
-        run: echo "APP_ID=pt.aguiarvieira.andromuks" >> $GITHUB_ENV
-
       - name: Set Up JDK
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu' # See 'Supported distributions' for available options
+          distribution: 'zulu'
           java-version: '21'
-          cache: 'gradle'
-          
-      - name: Cache Gradle build cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.gradle/caches/build-cache
-          key: ${{ runner.os }}-gradle-build-cache-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-build-cache-
-            
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Change wrapper permissions
         run: chmod +x ./gradlew
 
-      - name: Build release APK
-        run: ./gradlew assemble --stacktrace --no-daemon --parallel --build-cache
+      # Release signing: decode the keystore from a base64 Secret; passwords come from Secrets via
+      # env in the build step (app/build.gradle.kts reads KEYSTORE_*/KEY_* from the environment).
+      - name: Decode release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_BASE64" | base64 -d > app/gomuks.keystore
 
-      - name: List all APKs
+      - name: Build ${{ matrix.flavor }} flavor (debug + release)
+        env:
+          KEYSTORE_FILE: gomuks.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assemble${{ matrix.gradleFlavor }} --stacktrace --no-daemon --parallel --build-cache
+
+      # Resolve the actual APK paths instead of hardcoding the flavor/ABI/build-type filename order.
+      - name: Locate built APKs
         run: |
-          echo "### Built APKs" >> $GITHUB_STEP_SUMMARY
-          find app/ -name "*.apk" | tee -a $GITHUB_STEP_SUMMARY
-          
-      - name: Upload R8 Missing Rules
+          DEBUG_APK=$(find app/build/outputs/apk/${{ matrix.flavor }}/debug -name "*.apk" | head -1)
+          RELEASE_APK=$(find app/build/outputs/apk/${{ matrix.flavor }}/release -name "*.apk" | head -1)
+          echo "DEBUG_APK=$DEBUG_APK" >> $GITHUB_ENV
+          echo "RELEASE_APK=$RELEASE_APK" >> $GITHUB_ENV
+          echo "### Built APKs (${{ matrix.flavor }} flavor)" >> $GITHUB_STEP_SUMMARY
+          echo "- $DEBUG_APK" >> $GITHUB_STEP_SUMMARY
+          echo "- $RELEASE_APK" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload R8 missing rules
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: r8-missing-rules
-          path: app/build/outputs/mapping/release/missing_rules.txt
+          name: r8-missing-rules-${{ matrix.flavor }}
+          path: app/build/outputs/mapping/${{ matrix.flavor }}Release/missing_rules.txt
+          if-no-files-found: ignore
 
-      # Upload Artifact Build
-      # Noted For Output [main_project_module]/build/outputs/apk/debug/
-      - name: Upload debug APK 
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: pt.aguiarvieira.andromuks-debug
-          path: app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+          name: pt.aguiarvieira.andromuks${{ matrix.tag }}-debug
+          path: ${{ env.DEBUG_APK }}
 
-      - name: Upload release APK 
+      - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: pt.aguiarvieira.andromuks-release
-          path: app/build/outputs/apk/release/app-arm64-v8a-release.apk
+          name: pt.aguiarvieira.andromuks${{ matrix.tag }}-release
+          path: ${{ env.RELEASE_APK }}
 
       - name: Deploy Nightly Debug
         uses: WebFreak001/deploy-nightly@v3.1.0
         with:
-          upload_url: https://uploads.github.com/repos/ricardo-duarte-av/andromuks/releases/248878640/assets{?name,label} # find out this value by opening https://api.github.com/repos/<owner>/<repo>/releases in your browser and copy the full "upload_url" value including the {?name,label} part
-          release_id: 248878640 # same as above (id can just be taken out the upload_url, it's used to find old releases)
-          asset_path: app/build/outputs/apk/debug/app-arm64-v8a-debug.apk # path to archive to upload
-          asset_name: andromuks.aguiarvieira.pt-debug-$$.apk # name to upload the release as, use $$ to insert date (YYYYMMDD) and 6 letter commit hash
-          asset_content_type: application/vnd.android.package-archive # required by GitHub API
-          max_releases: 1 # optional, if there are more releases than this matching the asset_name, the oldest ones are going to be deleted
+          upload_url: https://uploads.github.com/repos/ricardo-duarte-av/andromuks/releases/${{ matrix.id_debug }}/assets{?name,label}
+          release_id: ${{ matrix.id_debug }}
+          asset_path: ${{ env.DEBUG_APK }}
+          asset_name: andromuks.aguiarvieira.pt-debug${{ matrix.tag }}-$$.apk
+          asset_content_type: application/vnd.android.package-archive
+          max_releases: 1
 
       - name: Deploy Nightly Release
         uses: WebFreak001/deploy-nightly@v3.1.0
         with:
-          upload_url: https://uploads.github.com/repos/ricardo-duarte-av/andromuks/releases/249916670/assets{?name,label} # find out this value by opening https://api.github.com/repos/<owner>/<repo>/releases in your browser and copy the full "upload_url" value including the {?name,label} part
-          release_id: 249916670 # same as above (id can just be taken out the upload_url, it's used to find old releases)
-          asset_path: app/build/outputs/apk/release/app-arm64-v8a-release.apk # path to archive to upload
-          asset_name: andromuks.aguiarvieira.pt-release-$$.apk # name to upload the release as, use $$ to insert date (YYYYMMDD) and 6 letter commit hash
-          asset_content_type: application/vnd.android.package-archive # required by GitHub API
-          max_releases: 1 # optional, if there are more releases than this matching the asset_name, the oldest ones are going to be deleted
+          upload_url: https://uploads.github.com/repos/ricardo-duarte-av/andromuks/releases/${{ matrix.id_release }}/assets{?name,label}
+          release_id: ${{ matrix.id_release }}
+          asset_path: ${{ env.RELEASE_APK }}
+          asset_name: andromuks.aguiarvieira.pt-release${{ matrix.tag }}-$$.apk
+          asset_content_type: application/vnd.android.package-archive
+          max_releases: 1

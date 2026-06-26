@@ -13,15 +13,16 @@ Andromuks is a Matrix protocol chat client for Android, built with Jetpack Compo
 ## Build Commands
 
 ```bash
-# Debug build + install to connected device
+# Debug build + install to connected device (base flavor)
 ./debug-build.sh
-# Equivalent: ./gradlew assembleDebug && adb install app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+# Equivalent: ./gradlew assembleBaseDebug && adb install app/build/outputs/apk/base/debug/app-base-arm64-v8a-debug.apk
 
-# App Bundle (for Play Store)
-./bundle-build.sh
+# App Bundle for Play Store (base flavor)
+./bundle-build.sh   # ./gradlew bundleBaseRelease
 
-# Full assemble
+# Full assemble (all flavors × build types)
 ./gradlew assemble --stacktrace --no-daemon --parallel --build-cache
+# Single flavor: ./gradlew assembleBase   (or assembleA / assembleB / assembleC)
 
 # Unit tests
 ./gradlew test
@@ -34,6 +35,14 @@ Andromuks is a Matrix protocol chat client for Android, built with Jetpack Compo
 ```
 
 Build produces arm64-v8a only (ABI splits enabled). JVM heap is configured at 4GB (`-Xmx4096m`).
+
+### Product flavors (side-by-side installs)
+
+`app/build.gradle.kts` defines four flavors on the `variant` dimension so multiple copies can be installed at once: **base** (`pt.aguiarvieira.andromuks`), **a**/**b**/**c** (`…andromuks.a/.b/.c`). Each flavor sets its own `applicationIdSuffix`, `app_name` (`resValue`), FileProvider authority (manifest `${applicationId}.fileprovider`; Kotlin derives it from `context.packageName`), and Matrix-contacts authority (manifest `${contactsAuthority}` placeholder + `BuildConfig.CONTACTS_AUTHORITY`). This replaced the CI `sed` hacks — variants are now real Gradle variants, buildable locally. The baseline-profile module pins to `base` via `missingDimensionStrategy`. CI builds all flavors via a single matrix workflow (`.github/workflows/build.yml`); only `base` is published to the Play Console.
+
+### Release signing
+
+Release signing credentials are **not** in the repo. `app/build.gradle.kts` resolves `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` from environment variables (CI Secrets) or a gitignored `keystore.properties` at the repo root (local; see `keystore.properties.example`). The keystore file itself is gitignored; CI decodes it from the `KEYSTORE_BASE64` secret. Debug builds need none of this.
 
 ### Logging in release builds
 

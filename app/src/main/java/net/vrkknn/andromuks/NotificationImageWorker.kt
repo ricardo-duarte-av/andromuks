@@ -842,7 +842,7 @@ class NotificationImageWorker(
 
     /** Wrap a file in a content:// URI and grant read to systemui, Android Auto, and ourselves. */
     private fun contentUriForFile(file: File): android.net.Uri? = try {
-        val uri = FileProvider.getUriForFile(applicationContext, "pt.aguiarvieira.andromuks.fileprovider", file)
+        val uri = FileProvider.getUriForFile(applicationContext, "${applicationContext.packageName}.fileprovider", file)
         listOf("com.android.systemui", "com.google.android.projection.gearhead", applicationContext.packageName)
             .forEach { pkg ->
                 try {

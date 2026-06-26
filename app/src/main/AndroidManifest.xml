@@ -232,7 +232,7 @@
         <!-- FileProvider for content:// URIs (used for bubble icons) -->
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="pt.aguiarvieira.andromuks.fileprovider"
+            android:authorities="${applicationId}.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data
@@ -243,7 +243,7 @@
         <!-- Matrix Contacts Content Provider for custom MIME type -->
         <provider
             android:name=".MatrixContactsProvider"
-            android:authorities="net.vrkknn.andromuks.matrix.contacts"
+            android:authorities="${contactsAuthority}"
             android:exported="true"
             android:readPermission="android.permission.READ_CONTACTS">
         </provider>

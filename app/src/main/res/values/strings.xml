@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">Andromuks</string>
+    <!-- app_name is provided per product flavor via resValue() in app/build.gradle.kts -->
     <string name="google_maps_api_key">AIzaSyAAGwca7l1BN9uatWbC3TsYrPphjdVb4BA</string>
 </resources>

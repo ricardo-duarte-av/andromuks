@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -8,6 +10,16 @@ plugins {
     id("com.google.firebase.firebase-perf")
     alias(libs.plugins.baselineprofile)  // use alias
 }
+
+// Release signing credentials are resolved from (in order): environment variables (CI Secrets),
+// then a gitignored keystore.properties at the repo root (local). No secrets are committed.
+// Keys: KEYSTORE_FILE, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD. See keystore.properties.example.
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun signingSecret(key: String, default: String? = null): String? =
+    System.getenv(key) ?: keystoreProps.getProperty(key) ?: default
 
 android {
     namespace = "net.vrkknn.andromuks"
@@ -41,10 +53,12 @@ android {
 
     signingConfigs {
         create("release") {
-            keyAlias = "habitica"         // Alias of the key in the keystore
-            keyPassword = "12345678"   // Password for the key
-            storeFile = file("./gomuks.keystore")  // Keystore file path
-            storePassword = "12345678"  // Keystore password
+            // Resolved from env (CI) or keystore.properties (local); never hardcoded. storeFile is
+            // evaluated lazily, so debug builds work without any signing credentials present.
+            storeFile = file(signingSecret("KEYSTORE_FILE", "gomuks.keystore")!!)
+            storePassword = signingSecret("KEYSTORE_PASSWORD")
+            keyAlias = signingSecret("KEY_ALIAS", "habitica")
+            keyPassword = signingSecret("KEY_PASSWORD")
         }
     }
 
@@ -54,6 +68,40 @@ android {
             reset()
             include("arm64-v8a")
             isUniversalApk = false
+        }
+    }
+
+    // Side-by-side installable variants. Replaces the old CI `sed` hacks: each flavor sets its own
+    // applicationId suffix, app name, FileProvider authority (via ${applicationId} in the manifest)
+    // and Matrix-contacts authority (via the ${contactsAuthority} placeholder + BuildConfig field).
+    flavorDimensions += "variant"
+    productFlavors {
+        create("base") {
+            dimension = "variant"
+            resValue("string", "app_name", "Andromuks")
+            manifestPlaceholders["contactsAuthority"] = "net.vrkknn.andromuks.matrix.contacts"
+            buildConfigField("String", "CONTACTS_AUTHORITY", "\"net.vrkknn.andromuks.matrix.contacts\"")
+        }
+        create("a") {
+            dimension = "variant"
+            applicationIdSuffix = ".a"
+            resValue("string", "app_name", "Andromuks A")
+            manifestPlaceholders["contactsAuthority"] = "net.vrkknn.andromuks.matrix.contacts.a"
+            buildConfigField("String", "CONTACTS_AUTHORITY", "\"net.vrkknn.andromuks.matrix.contacts.a\"")
+        }
+        create("b") {
+            dimension = "variant"
+            applicationIdSuffix = ".b"
+            resValue("string", "app_name", "Andromuks B")
+            manifestPlaceholders["contactsAuthority"] = "net.vrkknn.andromuks.matrix.contacts.b"
+            buildConfigField("String", "CONTACTS_AUTHORITY", "\"net.vrkknn.andromuks.matrix.contacts.b\"")
+        }
+        create("c") {
+            dimension = "variant"
+            applicationIdSuffix = ".c"
+            resValue("string", "app_name", "Andromuks C")
+            manifestPlaceholders["contactsAuthority"] = "net.vrkknn.andromuks.matrix.contacts.c"
+            buildConfigField("String", "CONTACTS_AUTHORITY", "\"net.vrkknn.andromuks.matrix.contacts.c\"")
         }
     }
 

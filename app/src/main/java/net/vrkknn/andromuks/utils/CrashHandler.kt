@@ -228,7 +228,7 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
                 // Attach crash log file using FileProvider
                 val fileUri = androidx.core.content.FileProvider.getUriForFile(
                     context,
-                    "pt.aguiarvieira.andromuks.fileprovider",
+                    "${context.packageName}.fileprovider",
                     crashFile
                 )
                 putExtra(Intent.EXTRA_STREAM, fileUri)

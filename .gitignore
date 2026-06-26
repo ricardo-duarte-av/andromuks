@@ -18,3 +18,8 @@ local.properties
 .kotlin/errors
 init.log
 /claude.session
+
+# Release signing — keep credentials and keystore out of the repo (resolved from env/Secrets in CI)
+keystore.properties
+app/gomuks.keystore
+*.keystore

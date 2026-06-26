@@ -1,2 +1,1 @@
-./gradlew bundle
-
+./gradlew bundleBaseRelease

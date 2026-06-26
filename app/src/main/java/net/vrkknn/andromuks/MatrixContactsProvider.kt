@@ -19,7 +19,9 @@ class MatrixContactsProvider : ContentProvider() {
     
     companion object {
         private const val TAG = "MatrixContactsProvider"
-        private const val AUTHORITY = "net.vrkknn.andromuks.matrix.contacts"
+        // Per-flavor authority (see productFlavors in app/build.gradle.kts). Not `const` because
+        // BuildConfig fields are Java static finals, not Kotlin compile-time constants.
+        private val AUTHORITY = BuildConfig.CONTACTS_AUTHORITY
         private const val MATRIX_USERS = 1
         
         // Custom MIME type for Matrix user contacts
