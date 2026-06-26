@@ -1291,6 +1291,7 @@ private fun RoomMessageContent(
             event = event,
             finalBody = displayBody,
             format = finalFormat,
+            msgType = finalMsgType,
             actualIsMine = actualIsMine,
             mentionsMe = mentionsMe,
             readReceipts = readReceipts,
@@ -1859,6 +1860,7 @@ private fun RoomTextMessageContent(
     event: TimelineEvent,
     finalBody: String,
     format: String?,
+    msgType: String,
     actualIsMine: Boolean,
     mentionsMe: Boolean,
     readReceipts: List<ReadReceipt>,
@@ -1940,9 +1942,15 @@ private fun RoomTextMessageContent(
     val bubbleColor = bubbleColors.container
     val isPendingEcho = event.eventId.startsWith("~")
     val isFailedEcho = event.localContent?.optString("send_error")?.isNotBlank() == true
+    // m.notice is the convention bots use to mark automated messages. We keep the bubble
+    // colour identical to a regular message (bots are still participants) but mute the base
+    // text colour so notices read as a quieter voice. We don't touch inline formatting — a
+    // bot may colour/bold its own HTML spans and muting those would fight the bot's intent.
+    val isNotice = msgType == "m.notice" && !isRedacted
     val textColor = when {
         isFailedEcho -> colorScheme.onErrorContainer
         isPendingEcho -> colorScheme.onTertiaryContainer
+        isNotice -> bubbleColors.content.copy(alpha = 0.7f)
         else -> bubbleColors.content
     }
 
