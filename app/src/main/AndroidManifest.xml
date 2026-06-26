@@ -69,6 +69,13 @@
             android:name="firebase_crashlytics_collection_enabled"
             android:value="false" />
 
+        <!-- Performance Monitoring is opt-in too. _enabled=false (NOT _deactivated, which would
+             permanently disable it) lets PerformanceMonitoringCoordinator turn it on at runtime
+             when the user enables it in Settings; the choice is persisted by the SDK. -->
+        <meta-data
+            android:name="firebase_performance_collection_enabled"
+            android:value="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -563,6 +563,10 @@ class AppViewModel : ViewModel() {
     // disabled in the manifest until the user turns this on). See ErrorReportingCoordinator.
     var crashReportingEnabled by mutableStateOf(false)
         internal set
+    // Opt-in performance monitoring via Firebase Performance. Default false (collection is disabled
+    // in the manifest until the user turns this on). See PerformanceMonitoringCoordinator.
+    var performanceMonitoringEnabled by mutableStateOf(false)
+        internal set
 
     // ── Gomuks preferences ────────────────────────────────────────────────────
     var accountGlobalShowMediaPreviews: Boolean? by mutableStateOf(null)
@@ -1394,6 +1398,8 @@ class AppViewModel : ViewModel() {
     private val settingsCoordinator by lazy { SettingsCoordinator(this) }
 
     internal val errorReportingCoordinator by lazy { ErrorReportingCoordinator(this) }
+
+    internal val performanceMonitoringCoordinator by lazy { PerformanceMonitoringCoordinator(this) }
 
     /** `to_device` normalization + widget bridge — see [ToDeviceCoordinator]. */
     private val toDeviceCoordinator by lazy { ToDeviceCoordinator(this) }
@@ -10864,6 +10870,8 @@ class AppViewModel : ViewModel() {
     fun toggleUseBatterySaverMode() = settingsCoordinator.toggleUseBatterySaverMode()
 
     fun setCrashReportingEnabled(enabled: Boolean) = settingsCoordinator.setCrashReportingEnabled(enabled)
+
+    fun setPerformanceMonitoringEnabled(enabled: Boolean) = settingsCoordinator.setPerformanceMonitoringEnabled(enabled)
 
     fun updateBackgroundPurgeInterval(minutes: Int) = settingsCoordinator.updateBackgroundPurgeInterval(minutes)
 

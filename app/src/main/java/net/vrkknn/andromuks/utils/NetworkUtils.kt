@@ -20,6 +20,7 @@ import okio.ByteString
 import okio.IOException
 import org.json.JSONObject
 import net.vrkknn.andromuks.AppViewModel
+import net.vrkknn.andromuks.PerformanceMonitoringCoordinator
 import net.vrkknn.andromuks.IncomingWebSocketHint
 import net.vrkknn.andromuks.SyncRepository
 import net.vrkknn.andromuks.WebSocketService
@@ -543,6 +544,11 @@ fun connectToWebsocket(
     
     var streamingDecompressor: StreamingDeflateDecompressor? = null
 
+    // Custom Firebase Performance trace for WebSocket connection establishment (auto-instrumentation
+    // covers HTTP but not WebSockets). Started just before newWebSocket(), stopped in onOpen
+    // (success) or onFailure (failure). No-op unless the user opted into performance monitoring.
+    var connectTrace: com.google.firebase.perf.metrics.Trace? = null
+
     val webSocketUrl = trimWebsocketHost(url)
     
     // Cold start: no run_id or last_received_event in URL; backend will send run_id in a message.
@@ -711,6 +717,8 @@ fun connectToWebsocket(
 
     val websocketListener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
+            PerformanceMonitoringCoordinator.stopTrace(connectTrace, "outcome" to "success")
+            connectTrace = null
             if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: onOpen: ws opened on "+response.message)
             
             // Toast notification is handled by WebSocketService.setWebSocket() which has access to context
@@ -732,6 +740,8 @@ fun connectToWebsocket(
         }
         
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            PerformanceMonitoringCoordinator.stopTrace(connectTrace, "outcome" to "failure")
+            connectTrace = null
             Log.e("Andromuks", "NetworkUtils: WebSocket connection failed", t)
             Log.e("Andromuks", "NetworkUtils: Failure reason: ${t.message}, response: ${response?.code}")
             
@@ -879,6 +889,7 @@ fun connectToWebsocket(
         }
     }
 
+    connectTrace = PerformanceMonitoringCoordinator.startTrace("ws_connect")
     client.newWebSocket(request, websocketListener)
 }
 

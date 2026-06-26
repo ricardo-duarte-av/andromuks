@@ -110,6 +110,20 @@ Controls Firebase Crashlytics collection. Automatic collection is **disabled in 
 - **Instrumented call sites (non-fatal):** sync/connection failure points that already `Log.e` — `WebSocketService` (service-initiated reconnect, `sendCommand`, `connectWebSocket`), `SyncRepository` (`sync_complete` pipeline), and `AppViewModel` (incoming/ack message apply, the three `processInitialSyncComplete` crash paths, per-message `onInitComplete` crashes, `reconnectAfterReauth`). Uncaught crashes are captured automatically with no call site.
 - **Deobfuscation:** R8 mapping-file upload is set explicitly (`mappingFileUploadEnabled = true` on `release`, `false` on `debug`) in `app/build.gradle.kts` so release stack traces are readable in the Crashlytics console.
 
+### Performance monitoring opt-in (`performance_monitoring_enabled`)
+
+| Key | Type | Default |
+|---|---|---|
+| `performance_monitoring_enabled` | `Boolean` | `false` |
+
+Controls Firebase Performance Monitoring collection — same opt-in shape as crash reporting. Automatic collection is **disabled in the manifest** (`firebase_performance_collection_enabled = false`, not `_deactivated` which would be permanent), so nothing is sent until the user opts in via the **Performance Monitoring** section of `SettingsScreen` (grouped with the other switches).
+
+- **State field:** `AppViewModel.performanceMonitoringEnabled`.
+- **Write:** `AppViewModel.setPerformanceMonitoringEnabled` → `SettingsCoordinator.setPerformanceMonitoringEnabled`, which persists the pref **and** calls `PerformanceMonitoringCoordinator.setEnabled` (→ `FirebasePerformance.isPerformanceCollectionEnabled`).
+- **Startup:** `SettingsCoordinator.loadSettings` reloads the pref and calls `PerformanceMonitoringCoordinator.applyPersistedState`, re-asserting it into the SDK on every launch.
+- **What's collected:** Firebase auto-instruments app start, foreground/background, HTTP requests (OkHttp), and screen rendering. It does **not** instrument OkHttp WebSockets, so `PerformanceMonitoringCoordinator.startTrace`/`stopTrace` (companion, callable without an `AppViewModel`) provide a custom `ws_connect` trace in `NetworkUtils.connectToWebsocket` — started before `newWebSocket()`, stopped in `onOpen` (`outcome=success`) or `onFailure` (`outcome=failure`). No-ops while collection is off.
+- **Sampling note:** Firebase Performance samples in production (not every session reports), so it surfaces aggregate trends, not per-incident timings.
+
 ### Display name color mode
 
 | Key | Type | Values | Default |

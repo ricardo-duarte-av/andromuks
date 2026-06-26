@@ -295,6 +295,22 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         }
     }
 
+    fun setPerformanceMonitoringEnabled(enabled: Boolean) = with(vm) {
+        performanceMonitoringEnabled = enabled
+        performanceMonitoringCoordinator.setEnabled(enabled)
+
+        appContext?.let { context ->
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("performance_monitoring_enabled", enabled)
+                .apply()
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Saved performanceMonitoringEnabled setting: $enabled"
+            )
+        }
+    }
+
     private fun booleanPrefOrNull(prefs: android.content.SharedPreferences, key: String): Boolean? =
         if (prefs.contains(key)) prefs.getBoolean(key, false) else null
 
@@ -541,9 +557,11 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             elementCallBaseUrl = prefs.getString("element_call_base_url", "") ?: ""
             useBatterySaverMode = prefs.getBoolean("use_battery_saver_mode", false)
             crashReportingEnabled = prefs.getBoolean("crash_reporting_enabled", false)
-            // Re-assert the persisted opt-in into Crashlytics on every launch so our SharedPref
-            // stays the single source of truth for collection state.
+            performanceMonitoringEnabled = prefs.getBoolean("performance_monitoring_enabled", false)
+            // Re-assert the persisted opt-ins into Crashlytics / Performance on every launch so our
+            // SharedPrefs stay the single source of truth for collection state.
             errorReportingCoordinator.applyPersistedState()
+            performanceMonitoringCoordinator.applyPersistedState()
             deviceGlobalShowMediaPreviews = booleanPrefOrNull(prefs, "gomuks_device_show_media_previews")
             deviceGlobalRenderUrlPreviews = booleanPrefOrNull(prefs, "gomuks_device_render_url_previews")
             deviceGlobalSendBundledUrlPreviews = booleanPrefOrNull(prefs, "gomuks_device_send_bundled_url_previews")

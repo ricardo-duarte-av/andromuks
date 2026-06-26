@@ -5,6 +5,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization") version "2.2.20"
     id("com.google.gms.google-services")
     id("com.google.firebase.crashlytics")
+    id("com.google.firebase.firebase-perf")
     alias(libs.plugins.baselineprofile)  // use alias
 }
 
@@ -189,6 +190,9 @@ dependencies {
     // Crash + non-fatal error reporting. Collection is opt-in (disabled by default in the
     // manifest) and toggled at runtime via ErrorReportingCoordinator. BOM-managed version.
     implementation("com.google.firebase:firebase-crashlytics-ktx")
+    // Performance Monitoring (startup, network, screen rendering, custom traces). Also opt-in,
+    // toggled at runtime via PerformanceMonitoringCoordinator. BOM-managed version.
+    implementation("com.google.firebase:firebase-perf-ktx")
     
     // WorkManager for periodic background tasks
     implementation("androidx.work:work-runtime-ktx:2.9.0")

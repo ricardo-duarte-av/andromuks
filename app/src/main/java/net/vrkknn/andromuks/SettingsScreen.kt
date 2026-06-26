@@ -587,6 +587,49 @@ fun SettingsScreen(
                 }
             }
 
+            // ── Performance Monitoring Section ───────────────────────────────
+            Text(
+                text = "Performance Monitoring",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Send performance data",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Off by default. When enabled, app startup time, network request " +
+                                "timing, screen rendering, and WebSocket connection times are sent to " +
+                                "Firebase Performance Monitoring (Google) to help find slow paths. This is " +
+                                "aggregate timing data — never your messages, room names, or account details.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Switch(
+                        checked = appViewModel.performanceMonitoringEnabled,
+                        onCheckedChange = { appViewModel.setPerformanceMonitoringEnabled(it) }
+                    )
+                }
+            }
+
             // ── Client Preferences Section (opens dedicated screens) ──────────
             Text(
                 text = "Client Preferences",
