@@ -189,8 +189,8 @@ import kotlinx.coroutines.FlowPreview
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
-import coil.request.ImageRequest
-import coil.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.request.CachePolicy
 
 private const val ROOM_LIST_VERBOSE_LOGGING = false
 private const val STARTUP_SHARED_AVATAR_KEY = "startup-current-user-avatar"
@@ -543,7 +543,7 @@ fun RoomListScreen(
     // otherwise Coil's memory-cache key (URL + size + transformations) misses and
     // the preload writes into a slot no one ever reads. Two real bugs the previous
     // implementation had:
-    //   1. Size mismatch: preload used .size(256) but AvatarImage computes
+    //   1. Size mismatch: preload used .size(256, 256) but AvatarImage computes
     //      targetPx = max(48dp*density, 64).coerceAtMost(256) which is ~144 on a
     //      typical xxhdpi phone.
     //   2. URL mismatch (historical): both preload and AvatarImage now resolve to the same
@@ -1880,13 +1880,14 @@ fun RoomListItem(
                                     ),
                                 contentAlignment = Alignment.Center
                             ) {
-                                coil.compose.AsyncImage(
-                                    model = coil.request.ImageRequest.Builder(context)
+                                coil3.compose.AsyncImage(
+                                    model = coil3.request.ImageRequest.Builder(context)
                                         .data(badgeUrl)
-                                        .size(48) // Small icon, minimal decode
-                                        .addHeader("Cookie", "gomuks_auth=$authToken")
-                                        .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                                        .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                                        .size(48, 48) // Small icon, minimal decode
+                                        // Coil 3 removed Builder.addHeader; auth cookie comes from
+                                        // ImageLoaderSingleton's OkHttp interceptor.
+                                        .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
+                                        .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
                                         .build(),
                                     imageLoader = remember { net.vrkknn.andromuks.utils.ImageLoaderSingleton.get(context) },
                                     contentDescription = "Bridge protocol",

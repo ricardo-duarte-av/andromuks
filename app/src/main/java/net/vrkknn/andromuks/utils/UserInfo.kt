@@ -54,11 +54,11 @@ import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material.icons.automirrored.filled.RotateLeft
 import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.ui.layout.ContentScale
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import coil.size.Size
-import coil.size.Precision
-import coil.request.CachePolicy
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.size.Size
+import coil3.size.Precision
+import coil3.request.CachePolicy
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
@@ -1254,7 +1254,6 @@ fun UserInfoScreen(
                                 AsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(bannerHttpUrl)
-                                        .addHeader("Cookie", "gomuks_auth=${appViewModel.authToken}")
                                         .memoryCachePolicy(CachePolicy.ENABLED)
                                         .diskCachePolicy(CachePolicy.ENABLED)
                                         .build(),
@@ -3344,7 +3343,6 @@ fun AvatarViewerDialog(
                         .data(finalImageUrl)
                         .apply {
                             if (cachedFile == null && finalImageUrl.startsWith("http")) {
-                                addHeader("Cookie", "gomuks_auth=$authToken")
                             }
                         }
                         .size(Size.ORIGINAL)

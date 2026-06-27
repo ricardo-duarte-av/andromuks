@@ -18,8 +18,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-import coil.request.ImageRequest
-import coil.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
+import coil3.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -232,9 +233,9 @@ fun CachedMediaItem(
                         model = ImageRequest.Builder(context)
                             .data(entry.file)
                             .crossfade(true)
-                            .size(coil.size.Size(200, 200)) // Limit size to reduce memory usage
-                            .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                            .diskCachePolicy(coil.request.CachePolicy.DISABLED) // Already on disk
+                            .size(coil3.size.Size(200, 200)) // Limit size to reduce memory usage
+                            .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
+                            .diskCachePolicy(coil3.request.CachePolicy.DISABLED) // Already on disk
                             .build(),
                         contentDescription = resolvedMxcUrl ?: "Cached media",
                         contentScale = ContentScale.Crop,

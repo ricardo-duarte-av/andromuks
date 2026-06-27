@@ -194,10 +194,13 @@ dependencies {
 
     implementation("androidx.webkit:webkit:1.10.0")
 
-    // Image loading
-    implementation("io.coil-kt:coil-compose:2.6.0")
-    implementation("io.coil-kt:coil-gif:2.6.0")
-    implementation("io.coil-kt:coil-svg:2.6.0")
+    // Image loading (Coil 3 — coordinates io.coil-kt.coil3, package coil3). coil-network-okhttp
+    // is required: Coil 3 core no longer loads from the network by default, and it routes image
+    // requests through our shared OkHttpClient (auth cookie + ?encrypted= interceptor).
+    implementation("io.coil-kt.coil3:coil-compose:3.5.0")
+    implementation("io.coil-kt.coil3:coil-gif:3.5.0")
+    implementation("io.coil-kt.coil3:coil-svg:3.5.0")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.5.0")
     // BlurHash - using local implementation
     // implementation("com.github.woltapp:blurhashkt:1.0.0")
 

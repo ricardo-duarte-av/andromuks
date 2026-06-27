@@ -41,12 +41,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import coil.ImageLoader
-import coil.compose.AsyncImage
-import coil.decode.GifDecoder
-import coil.decode.ImageDecoderDecoder
-import coil.request.CachePolicy
-import coil.request.ImageRequest
+import coil3.ImageLoader
+import coil3.compose.AsyncImage
+import coil3.gif.GifDecoder
+import coil3.gif.AnimatedImageDecoder
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.MediaMessage
@@ -435,7 +435,6 @@ private fun StickerContent(
                     .apply {
                         // Only add auth header for HTTP(S) URLs, not for file:// URIs
                         if (imageUrl?.startsWith("http") == true) {
-                            addHeader("Cookie", "gomuks_auth=$authToken")
                         }
                     }
                     .memoryCachePolicy(CachePolicy.ENABLED)
@@ -577,7 +576,6 @@ private fun StickerViewerDialog(
                     .apply {
                         // Only add auth header for HTTP(S) URLs, not for file:// URIs
                         if (imageUrl?.startsWith("http") == true) {
-                            addHeader("Cookie", "gomuks_auth=$authToken")
                         }
                     }
                     .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)

@@ -105,13 +105,13 @@ import java.util.Locale
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import android.os.Build
-import coil.compose.AsyncImage
-import coil.compose.AsyncImagePainter
-import coil.decode.GifDecoder
-import coil.decode.ImageDecoderDecoder
-import coil.ImageLoader
-import coil.size.Size
-import coil.size.Precision
+import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.gif.GifDecoder
+import coil3.gif.AnimatedImageDecoder
+import coil3.ImageLoader
+import coil3.size.Size
+import coil3.size.Precision
 import java.io.File
 import java.security.MessageDigest
 import java.net.URL
@@ -121,8 +121,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.LaunchedEffect
-import coil.request.CachePolicy
-import coil.request.ImageRequest
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import net.vrkknn.andromuks.MediaMessage
 import net.vrkknn.andromuks.utils.BlurHashUtils
 import net.vrkknn.andromuks.utils.MediaUtils
@@ -1258,7 +1259,6 @@ private fun MediaContent(
                             val imageRequest = remember(imageUrl, bypassCoilCache, authToken) {
                                 ImageRequest.Builder(context)
                                     .data(imageUrl ?: "")
-                                    .addHeader("Cookie", "gomuks_auth=$authToken")
                                     .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
                                     .diskCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
                                     .crossfade(300)
@@ -1497,7 +1497,6 @@ private fun MediaContent(
                                 val videoThumbnailRequest = remember(thumbnailFinalUrl, bypassCoilCacheForVideoThumb, authToken) {
                                     ImageRequest.Builder(context)
                                         .data(thumbnailFinalUrl)
-                                        .addHeader("Cookie", "gomuks_auth=$authToken")
                                         .memoryCachePolicy(if (bypassCoilCacheForVideoThumb) CachePolicy.DISABLED else CachePolicy.ENABLED)
                                         .diskCachePolicy(if (bypassCoilCacheForVideoThumb) CachePolicy.DISABLED else CachePolicy.ENABLED)
                                         .crossfade(300)
@@ -3206,7 +3205,6 @@ internal fun ImageViewerDialog(
                                 .data(thumbnailUrl)
                                 .apply {
                                     if (cachedFile == null && thumbnailUrl.startsWith("http")) {
-                                        addHeader("Cookie", "gomuks_auth=$authToken")
                                     }
                                 }
                                 .memoryCachePolicy(CachePolicy.ENABLED)

@@ -36,8 +36,8 @@ import net.vrkknn.andromuks.ui.components.LocalIsScrollingFast
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
-import coil.request.ImageRequest
-import coil.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.request.CachePolicy
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.filterNotNull
@@ -264,7 +264,7 @@ fun EventContextScreen(
                     if (!prefetchedTimelineMemoryKeys.add(httpUrl)) return
                     val request = ImageRequest.Builder(context)
                         .data(httpUrl)
-                        .size(256)
+                        .size(256, 256)
                         .memoryCachePolicy(CachePolicy.ENABLED)
                         .diskCachePolicy(CachePolicy.ENABLED)
                         .build()

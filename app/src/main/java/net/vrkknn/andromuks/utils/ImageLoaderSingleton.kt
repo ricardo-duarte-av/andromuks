@@ -5,14 +5,15 @@ import android.os.Build
 import android.util.Log
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.getUserAgent
-import coil.ImageLoader
-import coil.decode.GifDecoder
-import coil.decode.ImageDecoderDecoder
-import coil.disk.DiskCache
-import coil.memory.MemoryCache
-import coil.request.CachePolicy
+import coil3.ImageLoader
+import coil3.gif.GifDecoder
+import coil3.gif.AnimatedImageDecoder
+import coil3.disk.DiskCache
+import coil3.memory.MemoryCache
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import okhttp3.OkHttpClient
 import okhttp3.Dispatcher
+import okio.Path.Companion.toOkioPath
 import java.util.concurrent.TimeUnit
 
 /**
@@ -109,27 +110,31 @@ object ImageLoaderSingleton {
             .build()
 
         return ImageLoader.Builder(context)
-            .okHttpClient(okHttpClient)
             .components {
+                // Coil 3: network loading is opt-in; route it through our shared OkHttpClient so the
+                // auth-cookie / ?encrypted= interceptors apply. Replaces the old .okHttpClient(...).
+                add(OkHttpNetworkFetcherFactory(callFactory = { okHttpClient }))
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    add(ImageDecoderDecoder.Factory())
+                    add(AnimatedImageDecoder.Factory())
                 } else {
                     add(GifDecoder.Factory())
                 }
             }
             .memoryCache {
-                MemoryCache.Builder(context)
-                    .maxSizePercent(MEMORY_CACHE_PERCENT)
+                // Coil 3: Builder() no longer takes a context; maxSizePercent does.
+                MemoryCache.Builder()
+                    .maxSizePercent(context, MEMORY_CACHE_PERCENT)
                     .strongReferencesEnabled(true)
                     .build()
             }
             .diskCache {
+                // Coil 3: DiskCache.directory takes an okio.Path, not a java.io.File.
                 DiskCache.Builder()
-                    .directory(context.filesDir.resolve("image_cache"))
+                    .directory(context.filesDir.resolve("image_cache").toOkioPath())
                     .maxSizeBytes(DISK_CACHE_SIZE_MB * 1024 * 1024)
                     .build()
             }
-            .respectCacheHeaders(false)
+            // Coil 3 no longer respects network cache headers by default (was respectCacheHeaders(false)).
             .build()
     }
 }

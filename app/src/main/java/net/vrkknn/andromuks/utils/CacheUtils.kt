@@ -4,9 +4,9 @@ package net.vrkknn.andromuks.utils
 
 import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
-import coil.ImageLoader
-import coil.annotation.ExperimentalCoilApi
-import coil.memory.MemoryCache
+import coil3.ImageLoader
+import coil3.annotation.ExperimentalCoilApi
+import coil3.memory.MemoryCache
 import okhttp3.internal.http2.StreamResetException
 import java.io.IOException
 
