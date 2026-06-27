@@ -40,14 +40,28 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
     private var defaultHandler: Thread.UncaughtExceptionHandler? = null
     private var context: Context? = null
     @Volatile private var isHandlingException = false // Guard against infinite recursion
-    
+    @Volatile private var initialized = false // Guard against double-init (called from multiple Activities)
+
     /**
-     * Initialize the crash handler. Should be called in Application.onCreate() or MainActivity.onCreate()
+     * Initialize the crash handler. Called from MainActivity/ShortcutActivity onCreate().
+     *
+     * Idempotent: this is a process-wide singleton invoked from several entry points. Without the
+     * guard, a second call captures the *already-installed* CrashHandler as [defaultHandler], so the
+     * chain in [uncaughtException] would call back into ourselves forever — spamming logcat and
+     * wedging the main thread (ANR) instead of terminating, which also prevented Crashlytics' handler
+     * (sitting further down the real chain) from ever recording the crash.
      */
     fun initialize(context: Context) {
         this.context = context.applicationContext
-        defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        if (initialized) return
+        val current = Thread.getDefaultUncaughtExceptionHandler()
+        // Chain to the existing handler (Crashlytics' + ultimately the OS terminator) — but never
+        // to ourselves.
+        if (current !== this) {
+            defaultHandler = current
+        }
         Thread.setDefaultUncaughtExceptionHandler(this)
+        initialized = true
         if (BuildConfig.DEBUG) Log.d(TAG, "Crash handler initialized")
     }
     
@@ -103,18 +117,33 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
                 }
             }
         } finally {
-            // Always reset the flag and call default handler, even if something failed
-            isHandlingException = false
-            
-            // Call default handler to show system crash dialog
-            try {
-                defaultHandler?.uncaughtException(thread, throwable)
-            } catch (e: Throwable) {
-                // If default handler also fails, print to stderr as last resort
-                System.err.println("Fatal: Default crash handler failed")
-                throwable.printStackTrace(System.err)
+            // Do NOT reset isHandlingException here — this is a fatal uncaught exception and the
+            // process is going down. Keeping the guard set means any re-entry (via the chained
+            // handler) is suppressed by the check at the top of this method.
+
+            // Chain to the previously-installed handler: Crashlytics (records the crash as a fatal)
+            // and ultimately the OS handler (terminates the process). Never call ourselves.
+            val handler = defaultHandler
+            if (handler != null && handler !== this) {
+                try {
+                    handler.uncaughtException(thread, throwable)
+                } catch (e: Throwable) {
+                    System.err.println("Fatal: Default crash handler failed")
+                    throwable.printStackTrace(System.err)
+                    killSelf()
+                }
+            } else {
+                // No delegate to terminate us — kill the process ourselves so we don't wedge the
+                // main thread into an ANR.
+                killSelf()
             }
         }
+    }
+
+    /** Last-resort process termination when no terminating handler is available to chain to. */
+    private fun killSelf() {
+        android.os.Process.killProcess(android.os.Process.myPid())
+        kotlin.system.exitProcess(10)
     }
     
     /**
