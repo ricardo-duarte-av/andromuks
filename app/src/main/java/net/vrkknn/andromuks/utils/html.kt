@@ -82,6 +82,8 @@ import java.net.URLDecoder
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
+import net.vrkknn.andromuks.MediaInfo
+import net.vrkknn.andromuks.MediaMessage
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.CacheUtils
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
@@ -1605,7 +1607,8 @@ fun HtmlMessageText(
     appViewModel: AppViewModel? = null,
     isEmojiOnly: Boolean = false,
     htmlContent: String? = null, // Optional HTML content (e.g., from edit) to override event extraction
-    onCodeBlockClick: (String) -> Unit = {} // Callback for code block clicks
+    onCodeBlockClick: (String) -> Unit = {}, // Callback for code block clicks
+    onInlineImageClick: (InlineImageData) -> Unit = {} // Callback for tapping an mxc-backed inline image (custom emoji / inline <img>)
 ) {
     // Don't render HTML for redacted messages
     // The parent composable should handle showing the deletion message
@@ -1857,7 +1860,38 @@ fun HtmlMessageText(
     val inlineImagesSnapshot = remember(inlineImages.size, annotatedString) {
         inlineImages.toMap()
     }
-    val inlineContentMap = remember(annotatedString, inlineImagesSnapshot, inlineMatrixUsers.toMap(), inlineMatrixRooms.toMap(), inlineCodeBlocks.toMap(), onMatrixUserClick, onRoomLinkClick, onCodeBlockClick, density, chipTextStyle, textMeasurer, textLineHeight, primaryColor, isEmojiOnly, color, bodyTextStyle, roomChipColor, roomChipTextColor, homeserverUrl, authToken, mathColorArgb, mathTextSizePx) {
+    // Tapping an mxc-backed inline image (custom emoji / inline <img>) opens it in the
+    // shared fullscreen ImageViewerDialog. Pure unicode emoji (e.g. 👍) are plain text and
+    // never reach this path, so they stay inert. The handler is remembered so it stays a
+    // stable key for the inlineContentMap below.
+    var inlineImageViewer by remember { mutableStateOf<InlineImageData?>(null) }
+    val handleInlineImageClick = remember(onInlineImageClick) {
+        { data: InlineImageData ->
+            onInlineImageClick(data)
+            inlineImageViewer = data
+        }
+    }
+    // Fullscreen viewer for a tapped inline image. Defined as a local composable so it can be
+    // hosted in every render branch below (the table/block-math branch returns early).
+    @Composable
+    fun InlineImageViewerHost() {
+        inlineImageViewer?.let { data ->
+            val media = remember(data) { inlineImageToMediaMessage(data) }
+            if (media != null) {
+                ImageViewerDialog(
+                    mediaMessage = media.first,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    isEncrypted = media.second,
+                    onDismiss = { inlineImageViewer = null }
+                )
+            } else {
+                // Unconvertible src (shouldn't happen for mxc-backed images) — clear the request.
+                LaunchedEffect(data) { inlineImageViewer = null }
+            }
+        }
+    }
+    val inlineContentMap = remember(annotatedString, inlineImagesSnapshot, inlineMatrixUsers.toMap(), inlineMatrixRooms.toMap(), inlineCodeBlocks.toMap(), onMatrixUserClick, onRoomLinkClick, onCodeBlockClick, handleInlineImageClick, density, chipTextStyle, textMeasurer, textLineHeight, primaryColor, isEmojiOnly, color, bodyTextStyle, roomChipColor, roomChipTextColor, homeserverUrl, authToken, mathColorArgb, mathTextSizePx) {
         val map = mutableMapOf<String, InlineTextContent>()
         inlineImagesSnapshot.forEach { (id, imageData) ->
             // MSC2191 maths: render the LaTeX to a JLaTeXMath drawable instead of a network image.
@@ -1918,7 +1952,8 @@ fun HtmlMessageText(
                     height = maxHeight,
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
-                    isHidden = imageData.isHidden
+                    isHidden = imageData.isHidden,
+                    onClick = { handleInlineImageClick(imageData) }
                 )
             }
         }
@@ -2079,6 +2114,7 @@ fun HtmlMessageText(
                 )
             }
         }
+        InlineImageViewerHost()
         return
     }
 
@@ -2275,6 +2311,34 @@ fun HtmlMessageText(
             }
         )
     }
+    InlineImageViewerHost()
+}
+
+/**
+ * Convert an mxc-backed [InlineImageData] into a [MediaMessage] for [ImageViewerDialog].
+ * Returns the message paired with whether the media is encrypted, or null if the src can't
+ * be resolved to an mxc:// URL. `src` may be a raw `mxc://server/id` or a gomuks
+ * `_gomuks/media/server/id?encrypted=…` path; the query carries the encryption flag.
+ */
+private fun inlineImageToMediaMessage(data: InlineImageData): Pair<MediaMessage, Boolean>? {
+    val raw = data.src
+    val encrypted = raw.contains("encrypted=true")
+    val mxc = when {
+        raw.startsWith("mxc://") -> raw.substringBefore("?")
+        raw.startsWith("_gomuks/media/") -> {
+            val parts = raw.removePrefix("_gomuks/media/").substringBefore("?").split("/", limit = 2)
+            if (parts.size == 2) "mxc://${parts[0]}/${parts[1]}" else return null
+        }
+        else -> return null
+    }
+    val media = MediaMessage(
+        url = mxc,
+        filename = data.alt.ifBlank { mxc.substringAfterLast("/") },
+        caption = null,
+        info = MediaInfo(width = 0, height = 0, size = 0L, mimeType = "image/png", blurHash = null),
+        msgType = "m.image"
+    )
+    return media to encrypted
 }
 
 /**
@@ -2362,7 +2426,8 @@ private fun InlineImage(
     height: Int,
     homeserverUrl: String,
     authToken: String,
-    isHidden: Boolean
+    isHidden: Boolean,
+    onClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -2456,7 +2521,9 @@ private fun InlineImage(
                 .build(),
             imageLoader = imageLoader,
             contentDescription = alt,
-            modifier = Modifier.size(height.dp),
+            modifier = Modifier
+                .size(height.dp)
+                .let { if (onClick != null) it.clickable { onClick() } else it },
             onError = { errorState ->
                 // CRITICAL FIX: Use existing error handling utility for consistent error handling
                 // This logs the error and invalidates cache if appropriate
