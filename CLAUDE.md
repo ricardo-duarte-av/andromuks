@@ -173,6 +173,7 @@ When investigating protocol behaviour, message shapes, or backend fields, consul
 | Element Call (WebView/WebRTC, call state, incoming banners, timeline narrator, widget protocol) | [docs/ELEMENT_CALL.md](docs/ELEMENT_CALL.md) |
 | Androlog (persistent release-safe event log, `Androlog(category, text)`, viewer screen) | [docs/ANDROLOG.md](docs/ANDROLOG.md) |
 | Observability (opt-in Firebase Crashlytics + Performance, `ws_connect` trace, mapping upload, Android vitals) | [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) |
+| Dependencies & toolchain (version catalog, single-Compose-BOM rule, AGP 9 migration walls, Coil 3 notes, Firebase `-ktx` removal, upgrade workflow) | [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) |
 | Message search (`search_local`/`search_server`, SearchResultsScreen, next_batch pagination) | [docs/SEARCH.md](docs/SEARCH.md) |
 | Location sharing (MSC3488, picker overlay, Geocoder search, Static Maps thumbnails, GCP setup) | [docs/LOCATION_SHARING.md](docs/LOCATION_SHARING.md) |
 | Push rules editor (m.push_rules ingest, global editor, per-room level selector, `update_push_rule`) | [docs/PUSH_RULES.md](docs/PUSH_RULES.md) |
