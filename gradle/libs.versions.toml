@@ -11,7 +11,7 @@ composeBom = "2026.06.00"
 navigationCompose = "2.9.4"
 lifecycleViewmodelCompose = "2.9.3"
 okhttp = "5.4.0"
-material3 = "1.5.0-alpha10"
+material3 = "1.5.0-alpha19"
 baselineprofile = "1.5.0-alpha06"
 materialKolor = "4.1.1"
 

@@ -28,7 +28,13 @@ us once: explicit `foundation`/`ui` `1.7.8` + an `animation` alpha were overridi
 app actually ran a late-2024 Compose. If you need a Compose artifact, add it BOM-managed (no version),
 e.g. `implementation(libs.androidx.compose.foundation)`.
 
-`material3` is the one deliberate exception: it's pinned to an alpha in the catalog for alpha-only APIs.
+`material3` is the one deliberate exception: it's pinned to a `1.5.0-alpha` in the catalog (currently
+`1.5.0-alpha19`) because the app uses Material 3 **Expressive** components — `ExpressiveLoadingIndicator`,
+`ExpressiveStatusRow`, `ExpressiveAvatarMaskModifier`, etc., under `@OptIn(ExperimentalMaterial3ExpressiveApi)`
+(50+ usages). These are alpha-only and absent from the BOM's stable material3 (~1.4.x), so the pin is
+**higher** than the BOM and must stay — dropping it breaks compilation. Bump it to the newest `1.5.0-alphaNN`
+when convenient (Dependabot proposes newer pre-releases automatically since the pinned version is already a
+pre-release); validate locally because alpha APIs can shift between alphas.
 
 ## AGP 9 migration constraints (learned the hard way)
 
@@ -90,6 +96,26 @@ Validate **locally before CI** — much faster than the 4-flavor matrix (~15 min
 
 Then push and trigger the matrix (the workflows only auto-run on master/develop/main, so for a feature
 branch use `gh workflow run build.yml --ref <branch>`). Docs-only commits are skipped by `paths-ignore`.
+
+## Automated updates (Dependabot)
+
+`.github/dependabot.yml` runs **weekly** and opens PRs for two ecosystems:
+
+- **`gradle`** — app deps and version-catalog entries. Minor/patch updates are **grouped** into one PR
+  (`gradle-minor-patch`); **majors get their own PR** because they usually need migration work (Coil 2→3,
+  AGP 9, etc. — Dependabot opens the PR but a human does the migration; the build will be red until then).
+  Because `material3` is pinned to a pre-release, Dependabot also proposes newer `material3` alphas.
+- **`github-actions`** — bumps action versions; this is what gradually clears the Node 20 deprecation.
+
+Every PR (Dependabot or human) is validated by **`.github/workflows/pr-check.yml`** — a lightweight job
+that builds **only the `base` flavor** (`assembleBaseDebug` + `compileBaseReleaseKotlin`). It is
+deliberately **secret-free** (debug auto-keystore + a release *compile*, no R8 signing) because
+Dependabot PR runs don't get the regular Actions secrets. The full 4-flavor matrix + signing stays on
+push to master (`build.yml`).
+
+**Merges are manual.** Review each green PR and merge it yourself. (Auto-merge of patch/minor is possible
+via `dependabot/fetch-metadata` + `gh pr merge --auto` plus a branch-protection rule requiring the
+PR check, but we deliberately keep it manual for now.)
 
 ## Known "latest stable" ceilings (mid-2026)
 
