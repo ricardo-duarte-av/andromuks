@@ -1,0 +1,41 @@
+name: PR Check (base flavor)
+
+# Fast validation for pull requests (incl. Dependabot). Builds only the base flavor and is
+# deliberately secret-free — debug uses the auto debug keystore, and the release side is a Kotlin
+# compile (no R8 packaging/signing) — so it works under Dependabot's restricted permissions, which
+# don't expose the regular Actions secrets. The full 4-flavor matrix + signing runs on push to
+# master/develop/main (build.yml).
+on:
+  pull_request:
+    branches: [ main, develop, master ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+concurrency:
+  group: pr-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  base-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set Up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Change wrapper permissions
+        run: chmod +x ./gradlew
+
+      # Debug APK exercises compile + resources + manifest + packaging; the release Kotlin compile
+      # catches release-only breakages (removed APIs, etc.) without needing signing secrets.
+      - name: Build base flavor (debug APK + release compile)
+        run: ./gradlew :app:assembleBaseDebug :app:compileBaseReleaseKotlin --stacktrace --no-daemon --build-cache

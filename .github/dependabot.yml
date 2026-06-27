@@ -1,0 +1,29 @@
+version: 2
+updates:
+  # App + Gradle dependencies (reads the version catalog at gradle/libs.versions.toml).
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    # Roll up the low-risk updates into a single PR; majors still come as their own PRs
+    # (they usually need migration work — see docs/DEPENDENCIES.md).
+    groups:
+      gradle-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "chore(deps)"
+
+  # Keep the GitHub Actions current (this is what gradually clears the Node 20 deprecation).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "ci"
