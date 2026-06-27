@@ -48,6 +48,19 @@ Uncaught exceptions (hard crashes) are captured with no code, and **uploaded on 
 launch** (Crashlytics batches the report as the process dies). So after a crash, reopen the app to
 send it.
 
+### Collection must be primed at process start (not just on the late VM path)
+Crashlytics only fetches and caches its backend **settings config** once collection is *enabled*,
+and it cannot send (nor, on a fresh install, finalize) a crash report until that config is cached.
+Our opt-in `applyPersistedState()` runs late and off-main (inside `loadSettings` on `Dispatchers.IO`),
+which left no time for the async settings fetch before an early crash — the on-crash send blocked
+~3 s on the crashing thread and then bailed with `Cannot send reports. Timed out while fetching
+settings.` (a release-only symptom, because debug builds usually had the config cached from a prior
+session). To fix this, `AndromuksApplication.onCreate` → `primeFirebaseObservability()` asserts the
+persisted `crash_reporting_enabled` / `performance_monitoring_enabled` flags into the SDKs
+**synchronously at process start** (prefs are pre-warmed just before), giving the settings fetch the
+whole session to complete. The per-VM `applyPersistedState()` calls still run later and remain
+authoritative; they're idempotent.
+
 ### Instrumented non-fatals (`report(...)`)
 Added at existing `Log.e` failure points where an exception is caught and swallowed:
 

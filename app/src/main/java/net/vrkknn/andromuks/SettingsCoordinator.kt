@@ -53,7 +53,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("enter_key_sends_message", enterKeySendsMessage)
-                .apply()
+                .commit()
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved enterKeySendsMessage setting: $enterKeySendsMessage")
         }
     }
@@ -65,7 +65,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("load_thumbnails_if_available", loadThumbnailsIfAvailable)
-                .apply()
+                .commit()
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
                 "AppViewModel: Saved loadThumbnailsIfAvailable setting: $loadThumbnailsIfAvailable"
@@ -80,7 +80,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("render_thumbnails_always", renderThumbnailsAlways)
-                .apply()
+                .commit()
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
                 "AppViewModel: Saved renderThumbnailsAlways setting: $renderThumbnailsAlways"
@@ -93,7 +93,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         syncBatchProcessor.batterySaverModeEnabled = useBatterySaverMode
         appContext?.let { context ->
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            prefs.edit().putBoolean("use_battery_saver_mode", useBatterySaverMode).apply()
+            prefs.edit().putBoolean("use_battery_saver_mode", useBatterySaverMode).commit()
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
                 "AppViewModel: Saved useBatterySaverMode setting: $useBatterySaverMode"
@@ -111,7 +111,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("show_all_room_list_tabs", showAllRoomListTabs)
-                .apply()
+                .commit()
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
                 "AppViewModel: Saved showAllRoomListTabs setting: $showAllRoomListTabs"
@@ -126,7 +126,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("require_biometric_unlock", enabled)
-                .apply()
+                .commit()
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
                 "AppViewModel: Saved requireBiometricUnlock setting: $enabled"
@@ -141,7 +141,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("move_read_receipts_to_edge", moveReadReceiptsToEdge)
-                .apply()
+                .commit()
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
                 "AppViewModel: Saved moveReadReceiptsToEdge setting: $moveReadReceiptsToEdge"
@@ -156,7 +156,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("trim_long_display_names", trimLongDisplayNames)
-                .apply()
+                .commit()
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
                 "AppViewModel: Saved trimLongDisplayNames setting: $trimLongDisplayNames"
@@ -171,7 +171,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putString("displayname_color_mode", mode.prefValue)
-                .apply()
+                .commit()
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
                 "AppViewModel: Saved displayNameColorMode setting: ${mode.prefValue}"
@@ -186,7 +186,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("show_link_previews", showLinkPreviews)
-                .apply()
+                .commit()
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
                 "AppViewModel: Saved showLinkPreviews setting: $showLinkPreviews"
@@ -201,7 +201,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("send_link_previews", sendLinkPreviews)
-                .apply()
+                .commit()
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
                 "AppViewModel: Saved sendLinkPreviews setting: $sendLinkPreviews"
@@ -287,7 +287,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("crash_reporting_enabled", enabled)
-                .apply()
+                .commit()
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
                 "AppViewModel: Saved crashReportingEnabled setting: $enabled"
@@ -303,7 +303,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("performance_monitoring_enabled", enabled)
-                .apply()
+                .commit()
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
                 "AppViewModel: Saved performanceMonitoringEnabled setting: $enabled"
@@ -321,7 +321,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val editor = prefs.edit()
             if (value == null) editor.remove("gomuks_device_show_media_previews")
             else editor.putBoolean("gomuks_device_show_media_previews", value)
-            editor.apply()
+            editor.commit()
         }
     }
 
@@ -337,7 +337,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val editor = prefs.edit()
             val key = "gomuks_room_show_media_previews_$roomId"
             if (value == null) editor.remove(key) else editor.putBoolean(key, value)
-            editor.apply()
+            editor.commit()
         }
         gomuksRoomPrefsVersion++
     }
@@ -349,7 +349,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val editor = prefs.edit()
             if (value == null) editor.remove("gomuks_device_render_url_previews")
             else editor.putBoolean("gomuks_device_render_url_previews", value)
-            editor.apply()
+            editor.commit()
         }
     }
 
@@ -365,7 +365,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val editor = prefs.edit()
             val key = "gomuks_room_render_url_previews_$roomId"
             if (value == null) editor.remove(key) else editor.putBoolean(key, value)
-            editor.apply()
+            editor.commit()
         }
         gomuksRoomPrefsVersion++
     }
@@ -377,7 +377,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val editor = prefs.edit()
             if (value == null) editor.remove("gomuks_device_send_bundled_url_previews")
             else editor.putBoolean("gomuks_device_send_bundled_url_previews", value)
-            editor.apply()
+            editor.commit()
         }
     }
 
@@ -393,7 +393,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val editor = prefs.edit()
             val key = "gomuks_room_send_bundled_url_previews_$roomId"
             if (value == null) editor.remove(key) else editor.putBoolean(key, value)
-            editor.apply()
+            editor.commit()
         }
         gomuksRoomPrefsVersion++
     }
@@ -405,7 +405,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val editor = prefs.edit()
             if (value == null) editor.remove("gomuks_device_send_read_receipts")
             else editor.putBoolean("gomuks_device_send_read_receipts", value)
-            editor.apply()
+            editor.commit()
         }
     }
 
@@ -421,7 +421,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val editor = prefs.edit()
             val key = "gomuks_room_send_read_receipts_$roomId"
             if (value == null) editor.remove(key) else editor.putBoolean(key, value)
-            editor.apply()
+            editor.commit()
         }
         gomuksRoomPrefsVersion++
     }
@@ -433,7 +433,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val editor = prefs.edit()
             if (value == null) editor.remove("gomuks_device_send_typing_notifications")
             else editor.putBoolean("gomuks_device_send_typing_notifications", value)
-            editor.apply()
+            editor.commit()
         }
     }
 
@@ -449,7 +449,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val editor = prefs.edit()
             val key = "gomuks_room_send_typing_notifications_$roomId"
             if (value == null) editor.remove(key) else editor.putBoolean(key, value)
-            editor.apply()
+            editor.commit()
         }
         gomuksRoomPrefsVersion++
     }
@@ -461,7 +461,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val editor = prefs.edit()
             if (value == null) editor.remove("gomuks_device_display_read_receipts")
             else editor.putBoolean("gomuks_device_display_read_receipts", value)
-            editor.apply()
+            editor.commit()
         }
     }
 
@@ -477,7 +477,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val editor = prefs.edit()
             val key = "gomuks_room_display_read_receipts_$roomId"
             if (value == null) editor.remove(key) else editor.putBoolean(key, value)
-            editor.apply()
+            editor.commit()
         }
         gomuksRoomPrefsVersion++
     }
@@ -489,7 +489,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val editor = prefs.edit()
             if (value == null) editor.remove("gomuks_device_show_hidden_events")
             else editor.putBoolean("gomuks_device_show_hidden_events", value)
-            editor.apply()
+            editor.commit()
         }
     }
 
@@ -505,7 +505,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val editor = prefs.edit()
             val key = "gomuks_room_show_hidden_events_$roomId"
             if (value == null) editor.remove(key) else editor.putBoolean(key, value)
-            editor.apply()
+            editor.commit()
         }
         gomuksRoomPrefsVersion++
     }
@@ -517,7 +517,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val editor = prefs.edit()
             if (value == null) editor.remove("gomuks_device_show_membership_events")
             else editor.putBoolean("gomuks_device_show_membership_events", value)
-            editor.apply()
+            editor.commit()
         }
     }
 
@@ -533,7 +533,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val editor = prefs.edit()
             val key = "gomuks_room_show_membership_events_$roomId"
             if (value == null) editor.remove(key) else editor.putBoolean(key, value)
-            editor.apply()
+            editor.commit()
         }
         gomuksRoomPrefsVersion++
     }

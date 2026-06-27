@@ -48,6 +48,18 @@ class AndromuksApplication : Application() {
         // because this is the canonical one-time startup load; everything afterwards is
         // pure memory.
         prewarmSharedPreferences()
+        // Prime Firebase Crashlytics / Performance collection from our persisted opt-in flags here,
+        // at process start, instead of waiting for the late off-main applyPersistedState() call in
+        // loadSettings. Crashlytics only fetches and caches its backend "settings" config once
+        // collection is enabled, and it cannot send (or, on a fresh install, finalize) a crash
+        // report until that config is cached. Enabling collection this early gives the async
+        // settings fetch the whole session to complete before any crash, so the on-crash send
+        // doesn't block-then-time-out ("Cannot send reports. Timed out while fetching settings.")
+        // and the next launch already has the config cached to upload the persisted report. The
+        // SharedPrefs were just warmed above, so these reads are in-memory hits. The per-VM
+        // applyPersistedState() calls still run later and remain authoritative — these are
+        // idempotent.
+        primeFirebaseObservability()
         // Pre-load the session token so Coil's interceptor has it before the first image request,
         // even before AppViewModel.updateAuthToken is called.
         ImageLoaderSingleton.initFromStorage(this)
@@ -61,6 +73,30 @@ class AndromuksApplication : Application() {
             val prefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
             net.vrkknn.andromuks.utils.CredentialStore.migratePlaintextTokenIfNeeded(prefs)
             net.vrkknn.andromuks.utils.CredentialStore.warmTokenCache(prefs)
+        }
+    }
+
+    /**
+     * Assert the persisted Crashlytics / Performance opt-in flags into the Firebase SDKs as early as
+     * possible (process start), so Crashlytics fetches and caches its settings config before any
+     * crash can occur. See the call site in [onCreate] for the full rationale. Firebase is already
+     * initialised by [com.google.firebase.provider.FirebaseInitProvider] (a ContentProvider that
+     * runs before Application.onCreate), so getInstance() is safe here.
+     */
+    private fun primeFirebaseObservability() {
+        try {
+            val prefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+            val crashEnabled = prefs.getBoolean("crash_reporting_enabled", false)
+            val perfEnabled = prefs.getBoolean("performance_monitoring_enabled", false)
+            com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance()
+                .setCrashlyticsCollectionEnabled(crashEnabled)
+            com.google.firebase.perf.FirebasePerformance.getInstance()
+                .isPerformanceCollectionEnabled = perfEnabled
+            if (BuildConfig.DEBUG) {
+                Log.d("Andromuks", "AndromuksApplication: primed Firebase observability (crash=$crashEnabled, perf=$perfEnabled)")
+            }
+        } catch (e: Exception) {
+            Log.w("Andromuks", "AndromuksApplication: failed to prime Firebase observability", e)
         }
     }
 
