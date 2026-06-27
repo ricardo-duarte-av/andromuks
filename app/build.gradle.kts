@@ -194,7 +194,7 @@ dependencies {
     implementation("androidx.compose.animation:animation")
     implementation("androidx.graphics:graphics-shapes:1.0.1")
 
-    implementation("androidx.webkit:webkit:1.10.0")
+    implementation("androidx.webkit:webkit:1.16.0")
 
     // Image loading (Coil 3 — coordinates io.coil-kt.coil3, package coil3). coil-network-okhttp
     // is required: Coil 3 core no longer loads from the network by default, and it routes image
@@ -240,8 +240,8 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.11.2")
 
     // Google Maps for location sharing (MSC3488)
-    implementation("com.google.android.gms:play-services-maps:19.0.0")
-    implementation("com.google.maps.android:maps-compose:6.1.0")
+    implementation("com.google.android.gms:play-services-maps:19.2.0")
+    implementation("com.google.maps.android:maps-compose:8.3.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     
     testImplementation(libs.junit)
