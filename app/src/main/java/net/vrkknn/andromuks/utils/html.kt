@@ -71,12 +71,12 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.ImageLoader
-import coil.compose.AsyncImage
-import coil.decode.GifDecoder
-import coil.decode.ImageDecoderDecoder
-import coil.request.CachePolicy
-import coil.request.ImageRequest
+import coil3.ImageLoader
+import coil3.compose.AsyncImage
+import coil3.gif.GifDecoder
+import coil3.gif.AnimatedImageDecoder
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
 import java.io.File
 import java.net.URLDecoder
 import kotlinx.coroutines.launch
@@ -2449,7 +2449,6 @@ private fun InlineImage(
                 .data(imageUrl)
                 .apply {
                     if (cachedFile == null) {
-                        addHeader("Cookie", "gomuks_auth=$authToken")
                     }
                 }
                 .memoryCachePolicy(CachePolicy.ENABLED)

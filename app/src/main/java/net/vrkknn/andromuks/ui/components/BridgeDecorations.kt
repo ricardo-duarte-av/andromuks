@@ -21,9 +21,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import coil.size.Size
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.size.Size
 import net.vrkknn.andromuks.BridgeInfo
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
@@ -109,9 +109,8 @@ fun BridgeBackgroundLayer(
             model = ImageRequest.Builder(context)
                 .data(imageUrl)
                 .apply {
-                    size(coil.size.Size.ORIGINAL)
+                    size(coil3.size.Size.ORIGINAL)
                     if (imageUrl.startsWith("http")) {
-                        addHeader("Cookie", "gomuks_auth=$authToken")
                     }
                 }
                 .build(),

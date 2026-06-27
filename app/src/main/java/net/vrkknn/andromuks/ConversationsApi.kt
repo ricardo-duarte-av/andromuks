@@ -17,10 +17,12 @@ import androidx.core.content.FileProvider
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
-import coil.ImageLoader
-import coil.decode.GifDecoder
-import coil.decode.ImageDecoderDecoder
-import coil.request.ImageRequest
+import coil3.ImageLoader
+import coil3.gif.GifDecoder
+import coil3.gif.AnimatedImageDecoder
+import coil3.request.ImageRequest
+import coil3.request.SuccessResult
+import coil3.asDrawable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -178,12 +180,13 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 .data(imageUrl)
                 .apply {
                     if (cachedFile == null) {
-                        addHeader("Cookie", "gomuks_auth=$authToken")
+                        // Coil 3 removed Builder.addHeader; the auth cookie is injected by
+                        // ImageLoaderSingleton's shared OkHttp interceptor for /_gomuks/media/.
                     }
                 }
                 .build()
             
-            val drawable = imageLoader.execute(request).drawable
+            val drawable = (imageLoader.execute(request) as? SuccessResult)?.image?.asDrawable(context.resources)
             if (drawable is android.graphics.drawable.BitmapDrawable) {
                 drawable.bitmap
             } else {
@@ -280,12 +283,13 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 .data(imageUrl)
                 .apply {
                     if (cachedFile == null) {
-                        addHeader("Cookie", "gomuks_auth=$authToken")
+                        // Coil 3 removed Builder.addHeader; the auth cookie is injected by
+                        // ImageLoaderSingleton's shared OkHttp interceptor for /_gomuks/media/.
                     }
                 }
                 .build()
             
-            val drawable = imageLoader.execute(request).drawable
+            val drawable = (imageLoader.execute(request) as? SuccessResult)?.image?.asDrawable(context.resources)
             //Log.d(TAG, "Loaded drawable type: ${drawable?.javaClass?.simpleName ?: "null"}")
             val bitmap = when (drawable) {
                 is android.graphics.drawable.BitmapDrawable -> {
@@ -1499,12 +1503,13 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 .data(imageUrl)
                 .apply {
                     if (cachedFile == null) {
-                        addHeader("Cookie", "gomuks_auth=$authToken")
+                        // Coil 3 removed Builder.addHeader; the auth cookie is injected by
+                        // ImageLoaderSingleton's shared OkHttp interceptor for /_gomuks/media/.
                     }
                 }
                 .build()
             
-            val drawable = imageLoader.execute(request).drawable
+            val drawable = (imageLoader.execute(request) as? SuccessResult)?.image?.asDrawable(context.resources)
             if (drawable is android.graphics.drawable.BitmapDrawable) {
                 drawable.bitmap
             } else {

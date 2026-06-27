@@ -155,9 +155,9 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import coil.request.ImageRequest
-import coil.request.CachePolicy
-import coil.memory.MemoryCache
+import coil3.request.ImageRequest
+import coil3.request.CachePolicy
+import coil3.memory.MemoryCache
 import net.vrkknn.andromuks.LocalScrollHighlightState
 import net.vrkknn.andromuks.ScrollHighlightState
 import net.vrkknn.andromuks.ui.components.AvatarImage

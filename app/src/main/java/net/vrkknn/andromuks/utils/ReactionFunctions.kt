@@ -34,12 +34,12 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
-import coil.decode.GifDecoder
-import coil.decode.ImageDecoderDecoder
-import coil.request.ImageRequest
-import coil.request.CachePolicy
-import coil.ImageLoader
+import coil3.compose.AsyncImage
+import coil3.gif.GifDecoder
+import coil3.gif.AnimatedImageDecoder
+import coil3.request.ImageRequest
+import coil3.request.CachePolicy
+import coil3.ImageLoader
 import net.vrkknn.andromuks.MessageReaction
 import net.vrkknn.andromuks.ReactionEvent
 import net.vrkknn.andromuks.TimelineEvent
@@ -194,7 +194,6 @@ fun ImageReaction(
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(httpUrl)
-                .addHeader("Cookie", "gomuks_auth=$authToken")
                 .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
                 .diskCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
                 .build(),

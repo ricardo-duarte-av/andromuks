@@ -35,8 +35,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import android.graphics.Color as AndroidColor
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -721,8 +721,7 @@ private fun RoomSummaryContent(
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(avatarUrl)
-                    .addHeader("Cookie", "gomuks_auth=$authToken")
-                    .size(512) // QUALITY IMPROVEMENT: Request higher quality for room avatars
+                    .size(512, 512) // QUALITY IMPROVEMENT: Request higher quality for room avatars
                     .build(),
                 contentDescription = "Room avatar",
                 modifier = Modifier

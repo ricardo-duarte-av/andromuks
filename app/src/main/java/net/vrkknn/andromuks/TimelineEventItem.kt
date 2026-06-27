@@ -128,9 +128,10 @@ import android.net.Uri
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import coil.compose.AsyncImage
-import coil.request.CachePolicy
-import coil.request.ImageRequest
+import coil3.compose.AsyncImage
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.asImage
 import net.vrkknn.andromuks.utils.BlurHashUtils
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import net.vrkknn.andromuks.utils.MediaUtils
@@ -875,7 +876,7 @@ private fun LinkPreviewBubble(
                 AsyncImage(
                     model = ImageRequest.Builder(context)
                         .data(imageHttpUrl)
-                        .apply { if (blurHashBitmap != null) placeholder(android.graphics.drawable.BitmapDrawable(context.resources, blurHashBitmap)) }
+                        .apply { if (blurHashBitmap != null) placeholder(android.graphics.drawable.BitmapDrawable(context.resources, blurHashBitmap).asImage()) }
                         .memoryCachePolicy(CachePolicy.ENABLED)
                         .diskCachePolicy(CachePolicy.ENABLED)
                         .build(),

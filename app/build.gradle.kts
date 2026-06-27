@@ -2,9 +2,9 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+    // AGP 9 provides built-in Kotlin; the standalone kotlin.android plugin is removed.
     alias(libs.plugins.kotlin.compose)
-    id("org.jetbrains.kotlin.plugin.serialization") version "2.2.20"
+    id("org.jetbrains.kotlin.plugin.serialization") version "2.3.20"
     id("com.google.gms.google-services")
     id("com.google.firebase.crashlytics")
     id("com.google.firebase.firebase-perf")
@@ -138,6 +138,8 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        // AGP 9 disables resValues by default; flavors set app_name via resValue(...).
+        resValues = true
     }
 }
 
@@ -163,7 +165,7 @@ if (project.hasProperty("compose.metrics")) {
 }
 
 dependencies {
-    implementation("androidx.profileinstaller:profileinstaller:1.3.1")
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.biometric:biometric:1.1.0")
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -182,34 +184,25 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.okhttp)
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation(libs.androidx.compose.foundation.layout)
 
-    // Keep your existing BOM but ensure it's a 2024/2025 version
-    implementation(platform("androidx.compose:compose-bom:2026.01.01"))
-
-    // Force these to 1.7.0 or 1.8.0 to get Shared Elements
-    val compose_version = "1.7.0" 
-    implementation("androidx.compose.animation:animation:1.8.0-alpha05")
-    implementation("androidx.compose.foundation:foundation:1.7.8")
-    implementation("androidx.compose.ui:ui:1.7.8")
+    // Compose foundation/animation are driven by the single compose-bom above (declared via the
+    // version catalog). The previous explicit 1.7.8 / 1.8.0-alpha05 pins were obsolete — shared
+    // element transitions are stable in the BOM — and were overriding the BOM with old versions.
+    implementation(libs.androidx.compose.foundation)
+    implementation("androidx.compose.animation:animation")
     implementation("androidx.graphics:graphics-shapes:1.0.1")
 
+    implementation("androidx.webkit:webkit:1.16.0")
 
-
-
-    implementation("androidx.webkit:webkit:1.10.0")
-
-    // Accompanist for navigation animations
-    // implementation("com.google.accompanist:accompanist-navigation-animation:0.34.0")
-    // Accompanist for system UI controller (status/navigation bars)
-    implementation("com.google.accompanist:accompanist-systemuicontroller:0.34.0")
-
-    
-    // Image loading
-    implementation("io.coil-kt:coil-compose:2.6.0")
-    implementation("io.coil-kt:coil-gif:2.6.0")
-    implementation("io.coil-kt:coil-svg:2.6.0")
+    // Image loading (Coil 3 — coordinates io.coil-kt.coil3, package coil3). coil-network-okhttp
+    // is required: Coil 3 core no longer loads from the network by default, and it routes image
+    // requests through our shared OkHttpClient (auth cookie + ?encrypted= interceptor).
+    implementation("io.coil-kt.coil3:coil-compose:3.5.0")
+    implementation("io.coil-kt.coil3:coil-gif:3.5.0")
+    implementation("io.coil-kt.coil3:coil-svg:3.5.0")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.5.0")
     // BlurHash - using local implementation
     // implementation("com.github.woltapp:blurhashkt:1.0.0")
 
@@ -217,11 +210,11 @@ dependencies {
     implementation("ru.noties:jlatexmath-android:0.2.0")
     
     // ExoPlayer for video playback
-    implementation("androidx.media3:media3-exoplayer:1.2.1")
-    implementation("androidx.media3:media3-ui:1.2.1")
+    implementation("androidx.media3:media3-exoplayer:1.10.1")
+    implementation("androidx.media3:media3-ui:1.10.1")
     // OkHttp-backed data source so video/audio streams flow through our shared OkHttpClient
     // (and thus the EncryptedMediaRetryInterceptor's ?encrypted= flag correction).
-    implementation("androidx.media3:media3-datasource-okhttp:1.2.1")
+    implementation("androidx.media3:media3-datasource-okhttp:1.10.1")
     
     // CameraX for in-app camera preview and capture
     val cameraxVersion = "1.5.3"
@@ -231,23 +224,24 @@ dependencies {
     implementation("androidx.camera:camera-view:$cameraxVersion")
     implementation("androidx.camera:camera-video:$cameraxVersion")
 
-    // Firebase Cloud Messaging
-    implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
-    implementation("com.google.firebase:firebase-messaging-ktx")
-    implementation("com.google.firebase:firebase-analytics-ktx")
+    // Firebase Cloud Messaging. NOTE: the -ktx artifacts were removed in Firebase BOM 33+; the
+    // Kotlin APIs are now in the main modules, so these are the plain (non-ktx) coordinates.
+    implementation(platform("com.google.firebase:firebase-bom:34.14.0"))
+    implementation("com.google.firebase:firebase-messaging")
+    implementation("com.google.firebase:firebase-analytics")
     // Crash + non-fatal error reporting. Collection is opt-in (disabled by default in the
     // manifest) and toggled at runtime via ErrorReportingCoordinator. BOM-managed version.
-    implementation("com.google.firebase:firebase-crashlytics-ktx")
+    implementation("com.google.firebase:firebase-crashlytics")
     // Performance Monitoring (startup, network, screen rendering, custom traces). Also opt-in,
     // toggled at runtime via PerformanceMonitoringCoordinator. BOM-managed version.
-    implementation("com.google.firebase:firebase-perf-ktx")
+    implementation("com.google.firebase:firebase-perf")
     
     // WorkManager for periodic background tasks
-    implementation("androidx.work:work-runtime-ktx:2.9.0")
+    implementation("androidx.work:work-runtime-ktx:2.11.2")
 
     // Google Maps for location sharing (MSC3488)
-    implementation("com.google.android.gms:play-services-maps:19.0.0")
-    implementation("com.google.maps.android:maps-compose:6.1.0")
+    implementation("com.google.android.gms:play-services-maps:19.2.0")
+    implementation("com.google.maps.android:maps-compose:8.3.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     
     testImplementation(libs.junit)
