@@ -80,6 +80,23 @@ The **Crash Reporting** Settings card has a **"Crash the app"** button (enabled 
 is on) that throws an uncaught `RuntimeException` to verify the pipeline end-to-end. Reopen the app
 afterwards to upload the report.
 
+### Troubleshooting: reports never arrive (esp. release-only)
+If a crash logs `Cannot send reports. Timed out while fetching settings.` (and, earlier in startup,
+`Settings request failed … java.net.ConnectException: Failed to connect to
+firebase-settings.crashlytics.com/[::]:443`), the cause is almost always **DNS-level blocking** of
+Crashlytics endpoints — a Pi-hole / AdGuard / NextDNS / blocking VPN / hosts-file blocklist on the
+device or network. The tell is the resolved address **`[::]`** (or `0.0.0.0`): a real DNS answer
+would be a routable IP; `[::]` is a sinkhole null-route. `*.crashlytics.com` is on most tracker
+blocklists. This is **not** an app bug, a signing/SHA-1 problem, or an API-key restriction — **FCM
+keeps working** because push uses different endpoints (`fcm.googleapis.com`, `mtalk.google.com`),
+which is exactly why this presents as "Crashlytics broken, notifications fine." Confirm with
+`adb shell ping -c1 firebase-settings.crashlytics.com`. To use Crashlytics on such a network,
+allowlist:
+
+- `firebase-settings.crashlytics.com` (settings fetch — blocks everything else if unreachable)
+- `firebaseinstallations.googleapis.com` (identity)
+- `firebaselogging-pa.googleapis.com` / `crashlyticsreports-pa.googleapis.com` (report upload)
+
 ## Performance monitoring (`PerformanceMonitoringCoordinator`)
 
 `app/src/main/java/net/vrkknn/andromuks/PerformanceMonitoringCoordinator.kt`
