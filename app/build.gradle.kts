@@ -23,7 +23,7 @@ fun signingSecret(key: String, default: String? = null): String? =
 
 android {
     namespace = "net.vrkknn.andromuks"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "pt.aguiarvieira.andromuks"

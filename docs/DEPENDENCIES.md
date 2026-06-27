@@ -36,6 +36,13 @@ e.g. `implementation(libs.androidx.compose.foundation)`.
 when convenient (Dependabot proposes newer pre-releases automatically since the pinned version is already a
 pre-release); validate locally because alpha APIs can shift between alphas.
 
+⚠️ **Cascade to compileSdk:** a material3 alpha can transitively drag the whole Compose stack to a newer
+alpha that requires a higher `compileSdk`. `1.5.0-alpha19` pulled Compose `1.12.0-alpha02`, which requires
+**compileSdk 37** (`CheckAarMetadata` fails otherwise). `compileSdk` is set to 37 in both `app` and
+`baselineprofile`; `targetSdk` stays 36 (compileSdk only controls what APIs you compile against — no runtime
+behaviour change). So bumping the material3 alpha may also require bumping `compileSdk` and having that
+platform installed.
+
 ## AGP 9 migration constraints (learned the hard way)
 
 AGP 9 is a real migration, not a bump. In order, the walls and their fixes:
