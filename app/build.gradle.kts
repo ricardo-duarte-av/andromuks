@@ -2,7 +2,7 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+    // AGP 9 provides built-in Kotlin; the standalone kotlin.android plugin is removed.
     alias(libs.plugins.kotlin.compose)
     id("org.jetbrains.kotlin.plugin.serialization") version "2.3.20"
     id("com.google.gms.google-services")
@@ -138,6 +138,8 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        // AGP 9 disables resValues by default; flavors set app_name via resValue(...).
+        resValues = true
     }
 }
 
@@ -163,7 +165,7 @@ if (project.hasProperty("compose.metrics")) {
 }
 
 dependencies {
-    implementation("androidx.profileinstaller:profileinstaller:1.3.1")
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.biometric:biometric:1.1.0")
     implementation(libs.androidx.lifecycle.runtime.ktx)
