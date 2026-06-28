@@ -36,6 +36,10 @@ fun SettingsScreen(
     appViewModel: AppViewModel,
     navController: NavController
 ) {
+    // TEMP DIAG: which AppViewModel instance does the Settings screen bind to?
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        android.util.Log.i("Andromuks", "settingsDiag: SettingsScreen bound to vm=${System.identityHashCode(appViewModel)} viewModelId=${appViewModel.viewModelId} showAllRoomListTabs=${appViewModel.showAllRoomListTabs}")
+    }
     Scaffold(
         topBar = {
             TopAppBar(
