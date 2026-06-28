@@ -291,7 +291,20 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
                     }
                 }
                 else -> {
-                    android.util.Log.i("Andromuks", "AppViewModel: FCM registration response (unknown type): $data")
+                    // gomuks replies to register_push with an empty body on success: the WebSocket
+                    // layer surfaces a null "data" as org.json.JSONObject.NULL (toString() == "null"),
+                    // and a missing "data" as a bare Any() placeholder. Both are the normal success
+                    // shape, not anomalies — log them as such so a release logcat doesn't read like a
+                    // failure. Anything genuinely unexpected still lands here too, hence the type tag.
+                    val isEmptyResponse = data === org.json.JSONObject.NULL || data::class == Any::class
+                    if (isEmptyResponse) {
+                        android.util.Log.i("Andromuks", "AppViewModel: FCM registration successful (empty response)")
+                    } else {
+                        android.util.Log.i(
+                            "Andromuks",
+                            "AppViewModel: FCM registration response (unexpected type ${data::class.java.simpleName}): $data — treating as success"
+                        )
+                    }
                     webClientPushIntegration?.markPushRegistrationCompleted()
                     appContext?.let { context ->
                         context

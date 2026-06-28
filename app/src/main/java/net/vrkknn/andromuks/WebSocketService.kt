@@ -512,7 +512,7 @@ class WebSocketService : Service() {
                 serviceInstance.pingJob?.isActive == true -> "Running"
                 else -> "Unknown state"
             }
-            android.util.Log.i("WebSocketService", "Pinger status: $status (lastKnownLag: ${serviceInstance.lastKnownLagMs}ms)")
+            android.util.Log.d("WebSocketService", "Pinger status: $status (lastKnownLag: ${serviceInstance.lastKnownLagMs}ms)")
         }
         
         /**
@@ -3338,7 +3338,7 @@ class WebSocketService : Service() {
         if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Sending ping (requestId: $reqId)")
         
         // Log ping status before sending
-        android.util.Log.i("WebSocketService", "Pinger status: Sending ping (requestId: $reqId)")
+        android.util.Log.d("WebSocketService", "Pinger status: Sending ping (requestId: $reqId)")
         
         // Send ping directly via WebSocket
         try {

@@ -872,7 +872,10 @@ fun connectToWebsocket(
         }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-            Log.i("Andromuks", "NetworkUtils: WebSocket Closing ($code): $reason")
+            // Code 1000 is a clean, intentional shutdown (e.g. suspendApp's background timer) — keep it
+            // out of release logs. Any other code is an abnormal close worth seeing in a logcat dump.
+            if (code == 1000) Log.d("Andromuks", "NetworkUtils: WebSocket Closing ($code): $reason")
+            else Log.i("Andromuks", "NetworkUtils: WebSocket Closing ($code): $reason")
             
             // REFACTORING: Service handles close events and reconnection strategy.
             // Only the active socket triggers clearWebSocket/scheduleReconnection — stale sockets
@@ -882,7 +885,8 @@ fun connectToWebsocket(
         }
         
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-            Log.i("Andromuks", "NetworkUtils: WebSocket Closed ($code): $reason")
+            if (code == 1000) Log.d("Andromuks", "NetworkUtils: WebSocket Closed ($code): $reason")
+            else Log.i("Andromuks", "NetworkUtils: WebSocket Closed ($code): $reason")
             streamingDecompressor?.close()
             parseQueue.close()
             resultQueue.close()

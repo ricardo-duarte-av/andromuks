@@ -519,6 +519,16 @@ internal class SyncRoomsCoordinator(
             // Line 453 — declare result holder before withContext block
             var syncResultForCaller: SyncUpdateResult? = null
 
+            // Timing instrumentation for the initial-sync message-1 timeout (the 30s
+            // withTimeoutOrNull abandon in onInitComplete). The apply runs on the single Main
+            // thread, so a >30s budget blow is either (a) Main-queue STARVATION — the apply sits
+            // queued behind Compose first-frame / cache-first paint / animation — or (b) raw COMPUTE
+            // in processParsedSyncResult/processAccountData. parseMs (Default), queueWaitMs (time the
+            // Main job waited to start), and applyMs (Main execution) separate the two. Logged at
+            // Log.i (survives R8) only for clear_state msg 1 or any message that crosses 1s, so it's
+            // visible in a release logcat dump without spamming the common fast path.
+            val tParseStart = android.os.SystemClock.elapsedRealtime()
+
             // Previously this block ran ingestSyncComplete and parseSyncUpdate as two
             // async coroutines on IO and Default dispatchers, each with its own
             // JSONObject(syncJson.toString()) copy. The motivation was thread safety
@@ -548,11 +558,18 @@ internal class SyncRoomsCoordinator(
                 )
                 ir to sr
             }
+            val parseMs = android.os.SystemClock.elapsedRealtime() - tParseStart
+
+            // Captured just before requesting the Main dispatcher; the gap to tMainStart (measured
+            // as the first line inside the Main block) is how long the apply waited in the queue.
+            val tBeforeMain = android.os.SystemClock.elapsedRealtime()
 
             kotlinx.coroutines.coroutineScope {
 
                 // Apply UI state changes on main thread (Compose safety)
                 withContext(Dispatchers.Main) {
+                    val tMainStart = android.os.SystemClock.elapsedRealtime()
+                    val queueWaitMs = tMainStart - tBeforeMain
                     try {
                         // Captured so we can include it in the
                         // RoomListSingletonReplicated event below. Default false
@@ -608,6 +625,24 @@ internal class SyncRoomsCoordinator(
                                 roomsWithEvents = roomsWithEvents,
                             )
                         )
+
+                        // See tParseStart note above. applyMs is Main execution time; queueWaitMs is
+                        // Main-queue starvation. roomCount is the batch size (apply effort proxy).
+                        val applyMs = android.os.SystemClock.elapsedRealtime() - tMainStart
+                        val totalMs = parseMs + queueWaitMs + applyMs
+                        val roomCount = syncJson.optJSONObject("data")?.optJSONObject("rooms")?.length() ?: 0
+                        if (isClearState || totalMs > 1000) {
+                            android.util.Log.i(
+                                "Andromuks",
+                                "syncTiming: request_id=$requestId clearState=$isClearState rooms=$roomCount " +
+                                    "parseMs=$parseMs queueWaitMs=$queueWaitMs applyMs=$applyMs totalMs=$totalMs"
+                            )
+                        } else if (BuildConfig.DEBUG) {
+                            android.util.Log.d(
+                                "Andromuks",
+                                "syncTiming: request_id=$requestId rooms=$roomCount parseMs=$parseMs queueWaitMs=$queueWaitMs applyMs=$applyMs totalMs=$totalMs"
+                            )
+                        }
                         onComplete?.invoke()
                     } catch (e: Exception) {
                         android.util.Log.e("Andromuks", "AppViewModel: Crash applying sync_complete on main: ${e.message}", e)
