@@ -572,6 +572,13 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                     "require_biometric_unlock=${prefs.all["require_biometric_unlock"]} " +
                     "crash_reporting_enabled=${prefs.all["crash_reporting_enabled"]}"
             )
+            // ROOT-CAUSE FIX (settings-revert bug): loadSettings is launched on Dispatchers.IO
+            // (MainActivity:414). Writes to mutableStateOf from a background thread are NOT observed by
+            // Compose under the current runtime — diag-proven: a worker-thread write set the value true
+            // while the same VM instance read false on main, whereas the on-main toggle write was seen
+            // immediately. Marshal every snapshot-state assignment onto Main. SharedPreferences is
+            // pre-warmed at process start (AndromuksApplication), so these getBoolean reads are in-memory.
+            vm.viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main.immediate) {
             try {
             enableCompression = prefs.getBoolean("enable_compression", false)
             enterKeySendsMessage = prefs.getBoolean("enter_key_sends_message", true)
@@ -634,6 +641,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 // default with no visible crash. Surface it instead of swallowing.
                 android.util.Log.e("Andromuks", "settingsDiag: loadSettings THREW mid-assignment — remaining settings left at defaults", e)
             }
+            } // end Main-dispatched snapshot-state writes
         }
     }
 }
