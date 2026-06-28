@@ -119,7 +119,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val readBack = prefs.getBoolean("show_all_room_list_tabs", !showAllRoomListTabs)
             android.util.Log.i(
                 "Andromuks",
-                "settingsDiag: toggleShowAllRoomListTabs wrote=$showAllRoomListTabs commit=$committed readBack=$readBack"
+                "settingsDiag: toggleShowAllRoomListTabs vm=${System.identityHashCode(vm)} viewModelId=$viewModelId wrote=$showAllRoomListTabs commit=$committed readBack=$readBack"
             )
         } ?: android.util.Log.e(
             "Andromuks",
@@ -547,6 +547,9 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
     }
 
     fun loadSettings(context: Context? = null) = with(vm) {
+        // Instance identity of the VM loadSettings writes into. Compare with the toggle log: if these
+        // differ, loadSettings is populating a different AppViewModel than the screens observe.
+        android.util.Log.i("Andromuks", "settingsDiag: loadSettings vm=${System.identityHashCode(vm)} viewModelId=$viewModelId")
         val contextToUse = context ?: appContext
         if (contextToUse == null) {
             // Release-visible: if this ever fires, no settings get loaded for the session and the
