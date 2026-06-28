@@ -562,20 +562,23 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             // / these read as defaults while the user set them, the writes never persisted (write-side
             // bug). If they read correctly here but the UI still shows defaults, it's a load-application
             // / timing bug. Splits the two hypotheses in one cold-start capture.
+            val rawTabs = prefs.all["show_all_room_list_tabs"]
             android.util.Log.i(
                 "Andromuks",
                 "settingsDiag: loadSettings reading disk — keyCount=${prefs.all.size} " +
-                    "show_all_room_list_tabs=${prefs.all["show_all_room_list_tabs"]} " +
+                    "show_all_room_list_tabs=$rawTabs (type=${rawTabs?.javaClass?.simpleName}) " +
                     "enable_compression=${prefs.all["enable_compression"]} " +
                     "trim_long_display_names=${prefs.all["trim_long_display_names"]} " +
                     "require_biometric_unlock=${prefs.all["require_biometric_unlock"]} " +
                     "crash_reporting_enabled=${prefs.all["crash_reporting_enabled"]}"
             )
+            try {
             enableCompression = prefs.getBoolean("enable_compression", false)
             enterKeySendsMessage = prefs.getBoolean("enter_key_sends_message", true)
             loadThumbnailsIfAvailable = prefs.getBoolean("load_thumbnails_if_available", true)
             renderThumbnailsAlways = prefs.getBoolean("render_thumbnails_always", true)
             showAllRoomListTabs = prefs.getBoolean("show_all_room_list_tabs", false)
+            android.util.Log.i("Andromuks", "settingsDiag: loadSettings ASSIGNED showAllRoomListTabs=$showAllRoomListTabs on vm=${System.identityHashCode(vm)}")
             moveReadReceiptsToEdge = prefs.getBoolean("move_read_receipts_to_edge", false)
             trimLongDisplayNames = prefs.getBoolean("trim_long_display_names", true)
             displayNameColorMode = net.vrkknn.andromuks.utils.DisplayNameColorMode
@@ -624,6 +627,12 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded sendLinkPreviews setting: $sendLinkPreviews")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded elementCallBaseUrl setting: $elementCallBaseUrl")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded backgroundPurgeIntervalMinutes=$backgroundPurgeIntervalMinutes, backgroundPurgeMessageThreshold=$backgroundPurgeMessageThreshold")
+            }
+            } catch (e: Exception) {
+                // TEMP DIAG: a ClassCastException here (e.g. a value stored as String/Int instead of
+                // Boolean) would abort loadSettings mid-assignment, leaving every later setting at its
+                // default with no visible crash. Surface it instead of swallowing.
+                android.util.Log.e("Andromuks", "settingsDiag: loadSettings THREW mid-assignment — remaining settings left at defaults", e)
             }
         }
     }

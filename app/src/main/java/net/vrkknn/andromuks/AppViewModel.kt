@@ -524,8 +524,19 @@ class AppViewModel : ViewModel() {
     var renderThumbnailsAlways by mutableStateOf(true)
         internal set
     // Room list bottom bar layout: false = compact (4 tabs), true = full (6 tabs: +Favs, +Bridges)
-    var showAllRoomListTabs by mutableStateOf(false)
-        internal set
+    // TEMP DIAG: explicit backing + logging setter to catch what resets this to default after
+    // loadSettings sets it from disk (settings-revert bug). Reads stay snapshot-observable via .value.
+    private val _showAllRoomListTabs = mutableStateOf(false)
+    var showAllRoomListTabs: Boolean
+        get() = _showAllRoomListTabs.value
+        internal set(v) {
+            android.util.Log.i(
+                "Andromuks",
+                "settingsDiag: SET showAllRoomListTabs=$v vm=${System.identityHashCode(this)} thread=${Thread.currentThread().name} from=" +
+                    Throwable().stackTrace.take(8).joinToString(" <- ") { "${it.className.substringAfterLast('.')}.${it.methodName}:${it.lineNumber}" }
+            )
+            _showAllRoomListTabs.value = v
+        }
     // Room timeline read receipts layout: false = inline next to bubble, true = moved to opposite screen edge
     var moveReadReceiptsToEdge by mutableStateOf(false)
         internal set
