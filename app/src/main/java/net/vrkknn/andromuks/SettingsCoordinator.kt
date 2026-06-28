@@ -109,14 +109,22 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
 
         appContext?.let { context ->
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            prefs.edit()
+            val committed = prefs.edit()
                 .putBoolean("show_all_room_list_tabs", showAllRoomListTabs)
                 .commit()
-            if (BuildConfig.DEBUG) android.util.Log.d(
+            // Release-visible write-side diagnostic for the "settings revert" report: did commit()
+            // succeed and does an immediate re-read see the new value? Paired with the loadSettings
+            // snapshot, a successful write here + a default read next launch means the file is being
+            // reset between sessions; a failed/absent write here means persistence itself is broken.
+            val readBack = prefs.getBoolean("show_all_room_list_tabs", !showAllRoomListTabs)
+            android.util.Log.i(
                 "Andromuks",
-                "AppViewModel: Saved showAllRoomListTabs setting: $showAllRoomListTabs"
+                "settingsDiag: toggleShowAllRoomListTabs wrote=$showAllRoomListTabs commit=$committed readBack=$readBack"
             )
-        }
+        } ?: android.util.Log.e(
+            "Andromuks",
+            "settingsDiag: toggleShowAllRoomListTabs — appContext is NULL, write SKIPPED (in-memory only, will revert on restart)"
+        )
     }
 
     fun setRequireBiometricUnlock(enabled: Boolean) = with(vm) {
@@ -540,8 +548,26 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
 
     fun loadSettings(context: Context? = null) = with(vm) {
         val contextToUse = context ?: appContext
+        if (contextToUse == null) {
+            // Release-visible: if this ever fires, no settings get loaded for the session and the
+            // UI shows in-memory defaults. Diagnostic for the "settings revert on cold start" report.
+            android.util.Log.e("Andromuks", "settingsDiag: loadSettings called with NULL context (param=${context != null}, appContext=${appContext != null}) — settings NOT loaded")
+        }
         contextToUse?.let { ctx ->
             val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            // Release-visible snapshot of what is actually on disk at load time. If keyCount is small
+            // / these read as defaults while the user set them, the writes never persisted (write-side
+            // bug). If they read correctly here but the UI still shows defaults, it's a load-application
+            // / timing bug. Splits the two hypotheses in one cold-start capture.
+            android.util.Log.i(
+                "Andromuks",
+                "settingsDiag: loadSettings reading disk — keyCount=${prefs.all.size} " +
+                    "show_all_room_list_tabs=${prefs.all["show_all_room_list_tabs"]} " +
+                    "enable_compression=${prefs.all["enable_compression"]} " +
+                    "trim_long_display_names=${prefs.all["trim_long_display_names"]} " +
+                    "require_biometric_unlock=${prefs.all["require_biometric_unlock"]} " +
+                    "crash_reporting_enabled=${prefs.all["crash_reporting_enabled"]}"
+            )
             enableCompression = prefs.getBoolean("enable_compression", false)
             enterKeySendsMessage = prefs.getBoolean("enter_key_sends_message", true)
             loadThumbnailsIfAvailable = prefs.getBoolean("load_thumbnails_if_available", true)
