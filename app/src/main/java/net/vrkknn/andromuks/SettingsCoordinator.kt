@@ -109,22 +109,14 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
 
         appContext?.let { context ->
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            val committed = prefs.edit()
+            prefs.edit()
                 .putBoolean("show_all_room_list_tabs", showAllRoomListTabs)
                 .commit()
-            // Release-visible write-side diagnostic for the "settings revert" report: did commit()
-            // succeed and does an immediate re-read see the new value? Paired with the loadSettings
-            // snapshot, a successful write here + a default read next launch means the file is being
-            // reset between sessions; a failed/absent write here means persistence itself is broken.
-            val readBack = prefs.getBoolean("show_all_room_list_tabs", !showAllRoomListTabs)
-            android.util.Log.i(
+            if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
-                "settingsDiag: toggleShowAllRoomListTabs vm=${System.identityHashCode(vm)} viewModelId=$viewModelId wrote=$showAllRoomListTabs commit=$committed readBack=$readBack"
+                "AppViewModel: Saved showAllRoomListTabs setting: $showAllRoomListTabs"
             )
-        } ?: android.util.Log.e(
-            "Andromuks",
-            "settingsDiag: toggleShowAllRoomListTabs — appContext is NULL, write SKIPPED (in-memory only, will revert on restart)"
-        )
+        }
     }
 
     fun setRequireBiometricUnlock(enabled: Boolean) = with(vm) {
@@ -547,45 +539,22 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
     }
 
     fun loadSettings(context: Context? = null) = with(vm) {
-        // Instance identity of the VM loadSettings writes into. Compare with the toggle log: if these
-        // differ, loadSettings is populating a different AppViewModel than the screens observe.
-        android.util.Log.i("Andromuks", "settingsDiag: loadSettings vm=${System.identityHashCode(vm)} viewModelId=$viewModelId")
         val contextToUse = context ?: appContext
-        if (contextToUse == null) {
-            // Release-visible: if this ever fires, no settings get loaded for the session and the
-            // UI shows in-memory defaults. Diagnostic for the "settings revert on cold start" report.
-            android.util.Log.e("Andromuks", "settingsDiag: loadSettings called with NULL context (param=${context != null}, appContext=${appContext != null}) — settings NOT loaded")
-        }
         contextToUse?.let { ctx ->
             val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            // Release-visible snapshot of what is actually on disk at load time. If keyCount is small
-            // / these read as defaults while the user set them, the writes never persisted (write-side
-            // bug). If they read correctly here but the UI still shows defaults, it's a load-application
-            // / timing bug. Splits the two hypotheses in one cold-start capture.
-            val rawTabs = prefs.all["show_all_room_list_tabs"]
-            android.util.Log.i(
-                "Andromuks",
-                "settingsDiag: loadSettings reading disk — keyCount=${prefs.all.size} " +
-                    "show_all_room_list_tabs=$rawTabs (type=${rawTabs?.javaClass?.simpleName}) " +
-                    "enable_compression=${prefs.all["enable_compression"]} " +
-                    "trim_long_display_names=${prefs.all["trim_long_display_names"]} " +
-                    "require_biometric_unlock=${prefs.all["require_biometric_unlock"]} " +
-                    "crash_reporting_enabled=${prefs.all["crash_reporting_enabled"]}"
-            )
-            // ROOT-CAUSE FIX (settings-revert bug): loadSettings is launched on Dispatchers.IO
-            // (MainActivity:414). Writes to mutableStateOf from a background thread are NOT observed by
-            // Compose under the current runtime — diag-proven: a worker-thread write set the value true
-            // while the same VM instance read false on main, whereas the on-main toggle write was seen
-            // immediately. Marshal every snapshot-state assignment onto Main. SharedPreferences is
-            // pre-warmed at process start (AndromuksApplication), so these getBoolean reads are in-memory.
+            // loadSettings is launched on Dispatchers.IO (MainActivity:414). Writes to mutableStateOf
+            // from a background thread are NOT observed by Compose under the current runtime — the value
+            // lands in the state object but main-thread readers keep seeing the old value (no apply
+            // notification advances the composition's snapshot). This caused settings to always render
+            // their defaults despite being correctly read from disk. Marshal every snapshot-state
+            // assignment onto Main. SharedPreferences is pre-warmed at process start
+            // (AndromuksApplication), so these getBoolean reads are in-memory.
             vm.viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main.immediate) {
-            try {
             enableCompression = prefs.getBoolean("enable_compression", false)
             enterKeySendsMessage = prefs.getBoolean("enter_key_sends_message", true)
             loadThumbnailsIfAvailable = prefs.getBoolean("load_thumbnails_if_available", true)
             renderThumbnailsAlways = prefs.getBoolean("render_thumbnails_always", true)
             showAllRoomListTabs = prefs.getBoolean("show_all_room_list_tabs", false)
-            android.util.Log.i("Andromuks", "settingsDiag: loadSettings ASSIGNED showAllRoomListTabs=$showAllRoomListTabs on vm=${System.identityHashCode(vm)}")
             moveReadReceiptsToEdge = prefs.getBoolean("move_read_receipts_to_edge", false)
             trimLongDisplayNames = prefs.getBoolean("trim_long_display_names", true)
             displayNameColorMode = net.vrkknn.andromuks.utils.DisplayNameColorMode
@@ -634,12 +603,6 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded sendLinkPreviews setting: $sendLinkPreviews")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded elementCallBaseUrl setting: $elementCallBaseUrl")
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded backgroundPurgeIntervalMinutes=$backgroundPurgeIntervalMinutes, backgroundPurgeMessageThreshold=$backgroundPurgeMessageThreshold")
-            }
-            } catch (e: Exception) {
-                // TEMP DIAG: a ClassCastException here (e.g. a value stored as String/Int instead of
-                // Boolean) would abort loadSettings mid-assignment, leaving every later setting at its
-                // default with no visible crash. Surface it instead of swallowing.
-                android.util.Log.e("Andromuks", "settingsDiag: loadSettings THREW mid-assignment — remaining settings left at defaults", e)
             }
             } // end Main-dispatched snapshot-state writes
         }

@@ -2626,12 +2626,6 @@ fun TabBar(
 ) {
     val isProcessingBatch by appViewModel.isProcessingSyncBatch.collectAsState()
     val showAllRoomListTabs = appViewModel.showAllRoomListTabs
-    // TEMP DIAG: which AppViewModel instance does the tab bar read? Compare with the loadSettings
-    // / setter instance hashes — if they differ, the room list is bound to a different VM than the
-    // one settings are loaded into (settings-revert root cause).
-    androidx.compose.runtime.LaunchedEffect(showAllRoomListTabs) {
-        android.util.Log.i("Andromuks", "settingsDiag: RoomList tab bar reads showAllRoomListTabs=$showAllRoomListTabs vm=${System.identityHashCode(appViewModel)} viewModelId=${appViewModel.viewModelId}")
-    }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
