@@ -67,13 +67,21 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: echo "$KEYSTORE_BASE64" | base64 -d > app/gomuks.keystore
 
-      - name: Build ${{ matrix.flavor }} flavor (debug + release)
+      # For the base flavor we additionally build the Play Store AAB in the SAME Gradle invocation
+      # so the compile + R8 task outputs are shared with the APKs (no double compilation). Only base
+      # is published to the Play Console, so the other flavors build APKs only.
+      - name: Build ${{ matrix.flavor }} flavor (debug + release APKs, +AAB for base)
         env:
           KEYSTORE_FILE: gomuks.keystore
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assemble${{ matrix.gradleFlavor }} --stacktrace --no-daemon --parallel --build-cache
+        run: |
+          TASKS="assemble${{ matrix.gradleFlavor }}"
+          if [ "${{ matrix.flavor }}" = "base" ]; then
+            TASKS="$TASKS bundleBaseRelease"
+          fi
+          ./gradlew $TASKS --stacktrace --no-daemon --parallel --build-cache
 
       # Resolve the actual APK paths instead of hardcoding the flavor/ABI/build-type filename order.
       - name: Locate built APKs
@@ -125,3 +133,29 @@ jobs:
           asset_name: andromuks.aguiarvieira.pt-release${{ matrix.tag }}-$$.apk
           asset_content_type: application/vnd.android.package-archive
           max_releases: 1
+
+      # --- Play Store publishing (base flavor only) ---
+      # The AAB was built above in the same Gradle invocation as the base APKs.
+      - name: Locate AAB
+        if: matrix.flavor == 'base'
+        run: echo "AAB_PATH=$(find app/build/outputs/bundle/baseRelease -name '*.aab' | head -1)" >> $GITHUB_ENV
+
+      - name: Upload AAB artifact
+        if: matrix.flavor == 'base'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pt.aguiarvieira.andromuks-release-aab
+          path: ${{ env.AAB_PATH }}
+
+      # r0adkll/upload-google-play handles the resumable upload with retries/timeouts internally,
+      # replacing the previous KevinRohn action whose single-shot .execute() failed on a transient
+      # socket read timeout.
+      - name: Upload .aab to Internal Track
+        if: matrix.flavor == 'base'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+          packageName: pt.aguiarvieira.andromuks
+          releaseFiles: ${{ env.AAB_PATH }}
+          track: internal
+          status: draft
