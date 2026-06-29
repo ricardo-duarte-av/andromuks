@@ -374,7 +374,7 @@ class NotificationImageWorker(
             val updatePerson = senderIcon != null && person != null && person.key == senderId
             val applyTarget = hasTargetChange && idx == targetIndex
             if (updatePerson || applyTarget) {
-                val newPerson = if (updatePerson) rebuildPerson(person!!, senderIcon!!) else person
+                val newPerson = if (updatePerson) rebuildPerson(person, senderIcon) else person
                 val newText = if (applyTarget && targetCaption != null) targetCaption else msg.text
                 val rebuilt = MessagingStyle.Message(newText, msg.timestamp, newPerson)
                 if (applyTarget && targetMediaUri != null) {
@@ -847,7 +847,7 @@ class NotificationImageWorker(
                     Log.w(TAG, "Audio download HTTP ${resp.code} for $mxc")
                     return@withContext null
                 }
-                val respBody = resp.body ?: return@withContext null
+                val respBody = resp.body
                 val tmp = File(dir, "${out.name}.tmp")
                 tmp.outputStream().use { o -> respBody.byteStream().use { it.copyTo(o) } }
                 if (tmp.length() == 0L) {

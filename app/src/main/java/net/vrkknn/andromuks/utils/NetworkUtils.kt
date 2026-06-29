@@ -867,8 +867,8 @@ fun connectToWebsocket(
                 
                 try {
                     if (streamingDecompressor != null) {
-                        streamingDecompressor!!.write(bytesCopy)
-                        val decompressedText = streamingDecompressor!!.readAvailable()
+                        streamingDecompressor.write(bytesCopy)
+                        val decompressedText = streamingDecompressor.readAvailable()
                         if (decompressedText != null) {
                             if (BuildConfig.DEBUG) {
                                 Log.d("Andromuks", "NetworkUtils: Decompressed (length=${decompressedText.length}), splitting and enqueueing")

@@ -2731,8 +2731,8 @@ class AppViewModel : ViewModel() {
                         when (membership) {
                             "join" -> {
                                 // Add/update only joined members to room cache for mention lists
-                                val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
-                                val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
+                                val displayName = content.optString("displayname").takeIf { it.isNotBlank() && it != "null" } ?: ""
+                                val avatarUrl = content.optString("avatar_url").takeIf { it.isNotBlank() && it != "null" } ?: ""
                                 
                                 val profile = MemberProfile(displayName, avatarUrl)
                                 val previousProfile = memberMap[userId]
@@ -2771,8 +2771,8 @@ class AppViewModel : ViewModel() {
                             "invite" -> {
                                 // Store invited members in global cache only (for profile lookups) but not in room member cache
                                 // This prevents them from appearing in mention lists but allows profile display if they send messages
-                                val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
-                                val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
+                                val displayName = content.optString("displayname").takeIf { it.isNotBlank() && it != "null" } ?: ""
+                                val avatarUrl = content.optString("avatar_url").takeIf { it.isNotBlank() && it != "null" } ?: ""
 
                                 val profile = MemberProfile(displayName, avatarUrl)
                                 ProfileCache.setGlobalProfile(userId, ProfileCache.CachedProfileEntry(profile, System.currentTimeMillis()))
@@ -3038,7 +3038,7 @@ class AppViewModel : ViewModel() {
                 try {
                     // Pass isAppVisible to SyncIngestor for battery optimizations
                     // Returns IngestResult with rooms that had events and parsed invites
-                    val ingestResult = syncIngestor?.ingestSyncComplete(jsonForPersistence!!, requestId, currentRunId, isAppVisible)
+                    val ingestResult = syncIngestor?.ingestSyncComplete(jsonForPersistence, requestId, currentRunId, isAppVisible)
                     val roomsWithEvents = ingestResult?.roomsWithEvents ?: emptySet()
                     val invites = ingestResult?.invites ?: emptyList()
                     
@@ -5945,7 +5945,7 @@ class AppViewModel : ViewModel() {
         var updatedRoomItem = currentRoomItem
         if (currentRoomItem != null) {
             if (eventName != null && eventName != currentRoomItem.name) {
-                updatedRoomItem = updatedRoomItem?.copy(name = eventName)
+                updatedRoomItem = updatedRoomItem.copy(name = eventName)
                 updated = true
             }
             if (eventAvatarUrl != null && eventAvatarUrl != currentRoomItem.avatarUrl) {
@@ -6010,7 +6010,7 @@ class AppViewModel : ViewModel() {
         }
         
         val content = event.content ?: return
-        val membership = content.optString("membership")?.takeIf { it.isNotBlank() }
+        val membership = content.optString("membership").takeIf { it.isNotBlank() }
         
         // Only update profile for joined members (membership == "join")
         // Leave/ban events don't have profile info to extract
@@ -7787,15 +7787,15 @@ class AppViewModel : ViewModel() {
             
             when (eventType) {
                 "m.room.name" -> {
-                    name = content.optString("name")?.takeIf { it.isNotBlank() }
+                    name = content.optString("name").takeIf { it.isNotBlank() }
                 }
                 "m.room.canonical_alias" -> {
-                    canonicalAlias = content.optString("alias")?.takeIf { it.isNotBlank() }
+                    canonicalAlias = content.optString("alias").takeIf { it.isNotBlank() }
                 }
                 "m.room.topic" -> {
                     // OPTIMIZED: Cache parsed topic to avoid re-parsing
                     if (topic.isNullOrBlank()) {
-                        topic = content.optString("topic")?.takeIf { it.isNotBlank() }
+                        topic = content.optString("topic").takeIf { it.isNotBlank() }
                         
                         // Fallback to structured format if simple topic not found
                         if (topic.isNullOrBlank()) {
@@ -7809,11 +7809,11 @@ class AppViewModel : ViewModel() {
                     }
                 }
                 "m.room.avatar" -> {
-                    avatarUrl = content.optString("url")?.takeIf { it.isNotBlank() }
+                    avatarUrl = content.optString("url").takeIf { it.isNotBlank() }
                 }
                 "m.room.encryption" -> {
                     // OPTIMIZED: Early exit once encryption detected
-                    if (!isEncrypted && content.optString("algorithm")?.isNotBlank() == true) {
+                    if (!isEncrypted && content.optString("algorithm").isNotBlank()) {
                         isEncrypted = true
                     }
                 }
@@ -7823,7 +7823,7 @@ class AppViewModel : ViewModel() {
                         val usersObj = content.optJSONObject("users")
                         val usersMap = if (usersObj != null) {
                             mutableMapOf<String, Int>().apply {
-                                usersObj.keys()?.forEach { userId ->
+                                usersObj.keys().forEach { userId ->
                                     put(userId, usersObj.optInt(userId, 0))
                                 }
                             }
@@ -7834,7 +7834,7 @@ class AppViewModel : ViewModel() {
                         val eventsObj = content.optJSONObject("events")
                         val eventsMap = if (eventsObj != null) {
                             mutableMapOf<String, Int>().apply {
-                                eventsObj.keys()?.forEach { ev ->
+                                eventsObj.keys().forEach { ev ->
                                     put(ev, eventsObj.optInt(ev, 0))
                                 }
                             }
@@ -8813,8 +8813,8 @@ class AppViewModel : ViewModel() {
                         val event = data.getJSONObject(0)
                         val content = event.optJSONObject("content")
                         if (content != null) {
-                            val displayName = content.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" }
-                            val avatarUrl = content.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" }
+                            val displayName = content.optString("displayname").takeIf { it.isNotBlank() && it != "null" }
+                            val avatarUrl = content.optString("avatar_url").takeIf { it.isNotBlank() && it != "null" }
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Per-room profile callback - displayName: $displayName, avatarUrl: $avatarUrl")
                             profileCallback(displayName, avatarUrl)
                         } else {
@@ -9035,8 +9035,8 @@ class AppViewModel : ViewModel() {
                     if (membership == "join") {
                         // Process joined members - update their profile data
                         // "" = confirmed absent (fetched, backend said none); null = not yet fetched
-                        val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
-                        val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
+                        val displayName = content.optString("displayname").takeIf { it.isNotBlank() && it != "null" } ?: ""
+                        val avatarUrl = content.optString("avatar_url").takeIf { it.isNotBlank() && it != "null" } ?: ""
                         
                         val newProfile = MemberProfile(displayName, avatarUrl)
                         val previousProfile = memberMap[stateKey]
@@ -9221,7 +9221,7 @@ class AppViewModel : ViewModel() {
             var latestTs = -1L
             for (i in 0 until events.length()) {
                 val ev = events.optJSONObject(i) ?: continue
-                val eid = ev.optString("event_id")?.takeIf { it.isNotBlank() } ?: continue
+                val eid = ev.optString("event_id").takeIf { it.isNotBlank() } ?: continue
                 val ts = ev.optLong("timestamp", 0L)
                 if (ts > latestTs) { latestTs = ts; latestEventId = eid }
             }
@@ -9238,10 +9238,10 @@ class AppViewModel : ViewModel() {
                     // Update room state if present
                     val meta = roomData.optJSONObject("meta")
                     if (meta != null) {
-                        val name = meta.optString("name")?.takeIf { it.isNotBlank() }
-                        val canonicalAlias = meta.optString("canonical_alias")?.takeIf { it.isNotBlank() }
-                        val topic = meta.optString("topic")?.takeIf { it.isNotBlank() }
-                        val avatarUrl = meta.optString("avatar")?.takeIf { it.isNotBlank() }
+                        val name = meta.optString("name").takeIf { it.isNotBlank() }
+                        val canonicalAlias = meta.optString("canonical_alias").takeIf { it.isNotBlank() }
+                        val topic = meta.optString("topic").takeIf { it.isNotBlank() }
+                        val avatarUrl = meta.optString("avatar").takeIf { it.isNotBlank() }
                         
                         if (name != null || canonicalAlias != null || topic != null || avatarUrl != null) {
                             val roomState = RoomState(
@@ -9334,8 +9334,8 @@ class AppViewModel : ViewModel() {
                 val userId = event.stateKey ?: event.sender
                 val content = event.content
                 if (content != null) {
-                    val displayName = content.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
-                    val avatarUrl = content.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
+                    val displayName = content.optString("displayname").takeIf { it.isNotBlank() && it != "null" } ?: ""
+                    val avatarUrl = content.optString("avatar_url").takeIf { it.isNotBlank() && it != "null" } ?: ""
                     val profile = MemberProfile(displayName, avatarUrl)
                     storeMemberProfile(roomId, userId, profile)
                 }
@@ -9882,7 +9882,7 @@ class AppViewModel : ViewModel() {
                 this@AppViewModel.timelineEvents = sortedTimelineEvents
                 timelineUpdateCounter++
                 isTimelineLoading = false
-                currentRoomId?.let { persistRenderableEvents(it, sortedTimelineEvents) }
+                currentRoomId.let { persistRenderableEvents(it, sortedTimelineEvents) }
                 rebuildComplete?.complete(Unit)
             }
         } catch (e: Exception) {
@@ -11582,11 +11582,11 @@ class AppViewModel : ViewModel() {
         // Handle profile response separately
         val tempProfileCallback: (JSONObject?) -> Unit = { profileData ->
             if (profileData != null) {
-                displayName = profileData.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" }
-                avatarUrl = profileData.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" }
+                displayName = profileData.optString("displayname").takeIf { it.isNotBlank() && it != "null" }
+                avatarUrl = profileData.optString("avatar_url").takeIf { it.isNotBlank() && it != "null" }
                 // Support both timezone field formats: prefer m.tz (standardized) over us.cloke.msc4175.tz (legacy)
-                timezone = profileData.optString("m.tz")?.takeIf { it.isNotBlank() }
-                    ?: profileData.optString("us.cloke.msc4175.tz")?.takeIf { it.isNotBlank() }
+                timezone = profileData.optString("m.tz").takeIf { it.isNotBlank() }
+                    ?: profileData.optString("us.cloke.msc4175.tz").takeIf { it.isNotBlank() }
                 
                 // Extract pronouns from io.fsky.nyx.pronouns array
                 val pronounsArray = profileData.optJSONArray("io.fsky.nyx.pronouns")
