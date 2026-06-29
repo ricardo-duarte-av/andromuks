@@ -10367,6 +10367,38 @@ class AppViewModel : ViewModel() {
     internal fun sendWebSocketCommand(command: String, requestId: Int, data: Map<String, Any>): WebSocketResult =
         webSocketCommands.send(command, requestId, data)
 
+    /**
+     * Handle the backend's `sync_status` frame. gomuks emits it on every connect — before the initial
+     * `sync_complete` stream — and whenever its upstream `/sync` loop starts or stops erroring;
+     * `data.type == "ok"` means the backend's homeserver sync is healthy and can serve room data.
+     *
+     * The backend accepts and answers commands sent *before* `init_complete` (the gomuks web client
+     * relies on exactly this — it fires `paginate`/`get_room_state` around `init_complete` and the
+     * responses arrive afterwards). So there is no protocol reason to keep commands queued until
+     * `init_complete`; the only reason to hold them is if the backend's sync is unhealthy. We therefore
+     * unblock the command queue as soon as we see `type == "ok"`. This fires ~1 ms after connect, so a
+     * room opened directly (shortcut/widget) can issue its `paginate` immediately and have the
+     * round-trip overlap the multi-second initial payload instead of being serialized behind it.
+     *
+     * Additive and idempotent: every existing unblock site (the msg-1 early-unblock in [onInitComplete],
+     * the end-of-batch path, and [attachToExistingWebSocketIfAvailable]) remains as a fallback and
+     * no-ops once [canSendCommandsToBackend] is already true. On a resume reconnection
+     * [canSendCommandsToBackend] is already true (set in [setWebSocket]), so this no-ops there too.
+     *
+     * The not-"ok" (erroring) case is intentionally a no-op for now: commands stay queued and the
+     * existing fallbacks still apply (and `init_complete` won't arrive while the backend is erroring,
+     * so nothing unblocks prematurely). Driving the offline indicator from this signal is future work.
+     *
+     * Must run on Main: it flushes the queue (sends commands) and mutates VM command-gate state.
+     */
+    fun onSyncStatus(type: String) {
+        if (type == "ok" && !canSendCommandsToBackend) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sync_status=ok — unblocking command queue early (pre-init_complete)")
+            canSendCommandsToBackend = true
+            flushPendingCommandsQueue()
+        }
+    }
+
     private fun flushPendingCommandsQueue() {
         webSocketCommands.flushPendingQueue()
         // Drain offline ops queued while the WebSocket was fully down.

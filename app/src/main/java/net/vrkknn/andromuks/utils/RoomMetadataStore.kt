@@ -105,6 +105,13 @@ object RoomMetadataStore {
             val iShortcutAvatar = c.getColumnIndexOrThrow(COL_SHORTCUT_HAS_AVATAR)
             while (c.moveToNext()) {
                 val roomId = c.getString(iRoomId) ?: continue
+                // Skip-existing: never clobber a Row a backend write already populated. hydrate runs
+                // once per process at initialize() (mirror is normally empty here, so this is free on
+                // the common path); the guard only matters if a sync/command write raced ahead of
+                // initialize(), in which case the fresh in-memory value must win over the stale disk
+                // row rather than be overwritten by this unconditional load. Mirrors the skip-existing
+                // semantics of RoomListCache.hydrateFromDisk so the two hydrators behave consistently.
+                if (mirror.containsKey(roomId)) continue
                 mirror[roomId] = Row(
                     roomId = roomId,
                     name = if (c.isNull(iName)) null else c.getString(iName),

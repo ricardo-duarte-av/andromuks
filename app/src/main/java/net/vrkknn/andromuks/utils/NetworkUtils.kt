@@ -205,6 +205,17 @@ fun applyIncomingWebSocketMessageForViewModel(
                 viewModel.updateImageAuthToken(token)
             }
         }
+        "sync_status" -> {
+            // gomuks emits sync_status on every connect (before the initial sync_complete stream) and
+            // whenever its upstream /sync loop starts or stops erroring. type == "ok" means the backend
+            // can serve room data, so we unblock the command queue here — earlier than init_complete.
+            // See AppViewModel.onSyncStatus for the rationale (the backend answers commands sent before
+            // init_complete; webmuks relies on exactly this).
+            val type = jsonObject.optJSONObject("data")?.optString("type") ?: ""
+            viewModel.viewModelScope.launch(Dispatchers.Main) {
+                viewModel.onSyncStatus(type)
+            }
+        }
         "error" -> {
             val requestId = jsonObject.optInt("request_id")
             val errorMessage = jsonObject.optString("data", "Unknown error")
@@ -311,6 +322,12 @@ private fun dispatchParsedWebSocketMessage(jsonObject: JSONObject) {
         }
         "image_auth_token" -> {
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: image_auth_token token=${jsonObject.optString("data", "")}")
+            emitIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
+        }
+        "sync_status" -> {
+            // Fan out so each attached VM can unblock its command queue on type == "ok"
+            // (AppViewModel.onSyncStatus). Previously fell into else and was dropped.
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: sync_status type=${jsonObject.optJSONObject("data")?.optString("type")}")
             emitIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
         }
         "error" -> {
