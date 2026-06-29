@@ -17,6 +17,7 @@ import androidx.core.app.NotificationCompat.MessagingStyle
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import androidx.core.content.FileProvider
+import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -408,11 +409,16 @@ class NotificationImageWorker(
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setSilent(true)
+            // Suppress the re-alert (no second sound/vibrate/heads-up) WITHOUT demoting the
+            // notification to the "silent" rank. setSilent(true) here moved the notification into
+            // Android's silent category, which drops its status-bar icon and clears the message from
+            // the People/Conversation widget the instant the worker re-posted (<1s after Phase 1).
+            // setOnlyAlertOnce keeps the alerting rank — status-bar icon and widget entry survive —
+            // while still not re-buzzing. This matches what Phase 1 itself does on an update.
+            .setOnlyAlertOnce(true)
             // Keep this child in the shared group; GROUP_ALERT_CHILDREN matches the Phase 1 post.
             .setGroup(EnhancedNotificationDisplay.NOTIFICATION_GROUP_KEY)
             .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
-            .setShortcutId(roomId)
             .setWhen(existing.notification.`when`)
 
         if (newLargeIcon != null) {
@@ -473,6 +479,27 @@ class NotificationImageWorker(
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to refresh conversation shortcut icon for room $roomId", e)
             }
+        }
+
+        // Conversation binding: prefer the FULL ShortcutInfoCompat (what Phase 1 uses via
+        // setShortcutInfo) over a bare shortcut id, so the People/Conversation widget keeps its
+        // conversation linkage on the re-post. Resolved AFTER the re-publish above so it reflects
+        // the freshly-refreshed shortcut icon. Falls back to the id alone if it can't be resolved.
+        val fullShortcut = try {
+            ShortcutManagerCompat.getShortcuts(
+                applicationContext,
+                ShortcutManagerCompat.FLAG_MATCH_DYNAMIC or
+                    ShortcutManagerCompat.FLAG_MATCH_PINNED or
+                    ShortcutManagerCompat.FLAG_MATCH_MANIFEST
+            ).firstOrNull { it.id == roomId }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not resolve conversation shortcut for room $roomId", e)
+            null
+        }
+        if (fullShortcut != null) {
+            builder.setShortcutInfo(fullShortcut)
+        } else {
+            builder.setShortcutId(roomId)
         }
 
         // Dismiss/re-post race guard (Race 2): the start-of-run check at the top of doWork() is not
