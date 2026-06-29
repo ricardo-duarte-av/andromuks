@@ -1287,6 +1287,17 @@ class AppViewModel : ViewModel() {
     internal var canSendCommandsToBackend = false
     internal val pendingCommandsQueue = mutableListOf<Triple<String, Int, Map<String, Any>>>() // Queue for commands blocked before init_complete
 
+    /**
+     * gomuks↔homeserver sync health from the backend's `sync_status` frame — distinct from the
+     * app↔gomuks socket health in [SyncRepository.connectionState]. Values (from hicli's
+     * SyncStatusType): "ok" (healthy → header indicator hidden), "waiting"/"erroring"
+     * (degraded/retrying → pulsing Sync icon), "permanently-failed" (gave up → static red
+     * SyncProblem). Set by [onSyncStatus]; reset to "ok" on each new socket in [setWebSocket] so a
+     * stale degraded value can't linger across a reconnect (the fresh connection re-emits sync_status).
+     */
+    var syncStatusType by mutableStateOf("ok")
+        private set
+
     // --- Coordinators (all lazy). [syncRoomsCoordinator] must be declared before [syncBatchProcessor] (batch handler calls into it). ---
     /** Outgoing WS command pipeline — see [WebSocketCommandSender]. */
     private val webSocketCommands by lazy { WebSocketCommandSender(this) }
@@ -5113,6 +5124,9 @@ class AppViewModel : ViewModel() {
         synchronized(pendingCommandsQueue) {
             pendingCommandsQueue.clear()
         }
+        // Reset sync health to neutral on each new socket; the fresh connection re-emits sync_status
+        // (so a stale "erroring"/"permanently-failed" can't linger and falsely flag the header).
+        syncStatusType = "ok"
         
         // Reset room state loading state
         allRoomStatesRequested = false
@@ -5949,10 +5963,10 @@ class AppViewModel : ViewModel() {
                 updated = true
             }
             if (eventAvatarUrl != null && eventAvatarUrl != currentRoomItem.avatarUrl) {
-                updatedRoomItem = updatedRoomItem?.copy(avatarUrl = eventAvatarUrl)
+                updatedRoomItem = updatedRoomItem.copy(avatarUrl = eventAvatarUrl)
                 updated = true
             }
-            if (updated && updatedRoomItem != null) {
+            if (updated) {
                 roomMap[roomId] = updatedRoomItem
             }
         }
@@ -10392,6 +10406,8 @@ class AppViewModel : ViewModel() {
      * Must run on Main: it flushes the queue (sends commands) and mutates VM command-gate state.
      */
     fun onSyncStatus(type: String) {
+        // Record for the header SyncStatusIndicator (Compose-observable; we're on Main here).
+        syncStatusType = type
         if (type == "ok" && !canSendCommandsToBackend) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sync_status=ok — unblocking command queue early (pre-init_complete)")
             canSendCommandsToBackend = true

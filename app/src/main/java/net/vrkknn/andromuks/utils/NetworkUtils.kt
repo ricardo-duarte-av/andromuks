@@ -327,7 +327,13 @@ private fun dispatchParsedWebSocketMessage(jsonObject: JSONObject) {
         "sync_status" -> {
             // Fan out so each attached VM can unblock its command queue on type == "ok"
             // (AppViewModel.onSyncStatus). Previously fell into else and was dropped.
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: sync_status type=${jsonObject.optJSONObject("data")?.optString("type")}")
+            val data = jsonObject.optJSONObject("data")
+            val type = data?.optString("type") ?: ""
+            val errorCount = data?.optInt("error_count", 0) ?: 0
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: sync_status type=$type errorCount=$errorCount")
+            // Record in the WebSocket activity log so tapping the header sync indicator (which opens
+            // the same log as the connection icon) shows the gomuks↔homeserver sync transitions.
+            WebSocketService.logActivity(if (errorCount > 0) "Sync status: $type (errors: $errorCount)" else "Sync status: $type")
             emitIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
         }
         "error" -> {

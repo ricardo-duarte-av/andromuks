@@ -106,6 +106,8 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Notifications
@@ -1263,7 +1265,7 @@ fun RoomTimelineScreen(
                 if (isImageOrVideo) {
                     selectedMediaUri = it
                     // Detect if this is a video or image
-                    selectedMediaIsVideo = mimeType?.startsWith("video/") == true
+                    selectedMediaIsVideo = mimeType.startsWith("video/")
                     showMediaPreview = true
                 } else {
                     // Show error message for non-image/video files
@@ -3304,6 +3306,7 @@ fun RoomTimelineScreen(
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
                         roomId = roomId,
+                        syncStatusType = appViewModel.syncStatusType,
                         sharedTransitionScope = sharedTransitionScope,
                         animatedVisibilityScope = animatedVisibilityScope,
                         onHeaderClick = {
@@ -5468,6 +5471,7 @@ fun RoomHeader(
     homeserverUrl: String,
     authToken: String,
     roomId: String? = null,
+    syncStatusType: String = "ok",
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
     onHeaderClick: () -> Unit = {},
@@ -5622,6 +5626,43 @@ fun RoomHeader(
                     imageVector = Icons.Filled.CloudOff,
                     contentDescription = "No server connection",
                     tint = MaterialTheme.colorScheme.error.copy(alpha = offlineAlpha),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            // gomuks↔homeserver sync health (distinct from the socket health / CloudOff above):
+            // pulsing Sync while waiting/erroring, static red SyncProblem when permanently-failed,
+            // hidden when "ok". Mirrors RoomListScreen's SyncStatusIndicator.
+            AnimatedVisibility(
+                visible = syncStatusType == "waiting" || syncStatusType == "erroring",
+                enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
+                exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+            ) {
+                val syncPulse = rememberInfiniteTransition(label = "rt_sync_status_pulse")
+                val syncAlpha by syncPulse.animateFloat(
+                    initialValue = 0.5f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(1000, easing = FastOutSlowInEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "rt_sync_status_alpha"
+                )
+                Icon(
+                    imageVector = Icons.Filled.Sync,
+                    contentDescription = "Server sync degraded",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = syncAlpha),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            AnimatedVisibility(
+                visible = syncStatusType == "permanently-failed",
+                enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
+                exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.SyncProblem,
+                    contentDescription = "Server sync failed",
+                    tint = MaterialTheme.colorScheme.error,
                     modifier = Modifier.size(20.dp)
                 )
             }

@@ -158,6 +158,8 @@ import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.FloatingActionButton
@@ -1013,6 +1015,15 @@ fun RoomListScreen(
                     roomListUpdateCounter = uiState.roomListUpdateCounter,
                     onClick = { navController.navigate("reconnection_log") }
                 )
+
+                // gomuks↔homeserver sync health (distinct from the socket health above). Only mounts
+                // when degraded/failed, so it costs no header space while sync is healthy ("ok").
+                if (appViewModel.syncStatusType != "ok") {
+                    SyncStatusIndicator(
+                        syncStatusType = appViewModel.syncStatusType,
+                        onClick = { navController.navigate("reconnection_log") }
+                    )
+                }
 
                 // Breathing room so the (untargeted, 20dp) connection icon doesn't crowd the
                 // overflow button's touch area and make it hard to press.
@@ -2593,6 +2604,69 @@ private fun ConnectionStatusIndicator(
                 imageVector = Icons.Filled.CloudOff,
                 contentDescription = "No server connection",
                 tint = MaterialTheme.colorScheme.error.copy(alpha = offlineAlpha),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+/**
+ * Header indicator for gomuks↔homeserver sync health ([AppViewModel.syncStatusType]) — distinct from
+ * the app↔gomuks socket health shown by [ConnectionStatusIndicator] (which keeps the cloud icons).
+ * The caller only mounts this when syncStatusType != "ok", so it costs no header space in steady state:
+ *  • waiting / erroring  → neutral pulsing Sync (backend is retrying its homeserver sync).
+ *  • permanently-failed  → static error-tinted SyncProblem (backend gave up).
+ * Tapping opens the WebSocket activity log, same as the connection indicator. Own composable so the
+ * inner AnimatedVisibility resolves to the generic (non-RowScope) overload.
+ */
+@Composable
+private fun SyncStatusIndicator(
+    syncStatusType: String,
+    onClick: () -> Unit
+) {
+    val isDegraded = syncStatusType == "waiting" || syncStatusType == "erroring"
+    val isFailed = syncStatusType == "permanently-failed"
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        // Degraded / retrying — backend is waiting on or erroring against the homeserver.
+        AnimatedVisibility(
+            visible = isDegraded,
+            enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
+            exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+        ) {
+            val syncPulse = rememberInfiniteTransition(label = "sync_status_pulse")
+            val syncAlpha by syncPulse.animateFloat(
+                initialValue = 0.5f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1000, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "sync_status_alpha"
+            )
+            Icon(
+                imageVector = Icons.Filled.Sync,
+                contentDescription = "Server sync degraded",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = syncAlpha),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        // Permanently failed — backend stopped retrying its homeserver sync.
+        AnimatedVisibility(
+            visible = isFailed,
+            enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
+            exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+        ) {
+            Icon(
+                imageVector = Icons.Filled.SyncProblem,
+                contentDescription = "Server sync failed",
+                tint = MaterialTheme.colorScheme.error,
                 modifier = Modifier.size(20.dp)
             )
         }
