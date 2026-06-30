@@ -346,17 +346,22 @@ class NotificationImageWorker(
                 )
                 return Result.retry()
             }
-            // Nothing to enrich and not retrying. Do NOT return — fall through and re-post the
-            // (unchanged) notification anyway. The People Space Conversation widget advances its tile
-            // ONE notification-post behind, so a single post per message leaves the tile lagging:
-            // blank on the first DM message, then always one behind. Groups never hit this because
-            // their avatar/image enrichment already triggers a second post (the worker re-post). This
-            // silent re-post (setOnlyAlertOnce, content identical to Phase 1) gives DMs that same
-            // second post so their tile stays current. Costs one extra silent notify per plain-text
-            // notification — cheap, and the only thing that actually moves the People Space tile.
+            if (isGroupRoom) {
+                // Groups do NOT need a forced second post. The one-post-behind People-widget lag is a
+                // 1:1 (DM) symptom — group tiles update correctly from the single Phase-1 post. Forcing
+                // an extra IDENTICAL re-post here only makes the widget visibly clear-then-fill. So for
+                // groups, keep the original behaviour: nothing to enrich = no re-post.
+                Androlog("Notifications", "Room $roomId: Phase-2 produced nothing (group) — no re-post.")
+                return Result.success()
+            }
+            // DM (1:1) only: fall through and re-post the unchanged notification. The People
+            // Conversation widget advances a 1:1 tile ONE notification-post behind, so a single post
+            // leaves the DM tile lagging (blank on the first message, then always one behind). This
+            // silent re-post (setOnlyAlertOnce, content identical to Phase 1) gives the DM the second
+            // post it needs to land on the current message.
             Androlog(
                 "Notifications",
-                "Room $roomId: Phase-2 produced nothing; re-posting unchanged to advance the People Space widget tile."
+                "Room $roomId: Phase-2 produced nothing (DM) — re-posting to advance the People Space widget tile."
             )
         }
 
@@ -914,15 +919,29 @@ class NotificationImageWorker(
         }
     }
 
-    /** Wrap a file in a content:// URI and grant read to systemui, Android Auto, and ourselves. */
+    /** Wrap a file in a content:// URI and grant read to systemui, Android Auto, the launcher, and us. */
     private fun contentUriForFile(file: File): android.net.Uri? = try {
         val uri = FileProvider.getUriForFile(applicationContext, "${applicationContext.packageName}.fileprovider", file)
-        listOf("com.android.systemui", "com.google.android.projection.gearhead", applicationContext.packageName)
-            .forEach { pkg ->
-                try {
-                    applicationContext.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                } catch (_: Exception) { }
-            }
+        val targets = mutableListOf(
+            "com.android.systemui",                       // notification shade
+            "com.google.android.projection.gearhead",     // Android Auto
+            applicationContext.packageName                // ourselves
+        )
+        // The People/Conversation widget renders in the HOME LAUNCHER's process. Without a read
+        // grant it can't load our image / video-thumbnail URI, so the tile falls back to the body
+        // text ("Sent an image" / "Sent a video"). Grant to whatever the current default launcher is.
+        try {
+            val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+            applicationContext.packageManager
+                .resolveActivity(homeIntent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+                ?.activityInfo?.packageName
+                ?.let { targets.add(it) }
+        } catch (_: Exception) { }
+        targets.forEach { pkg ->
+            try {
+                applicationContext.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: Exception) { }
+        }
         uri
     } catch (e: Exception) {
         Log.e(TAG, "FileProvider URI creation failed", e)

@@ -549,7 +549,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             }
             val deferRoomAvatar = if (roomAvatarUrl != null && roomAvatarBitmap == null) roomAvatarUrl else null
             if (deferRoomAvatar != null) {
-                Log.w(TAG, "AVATAR_FALLBACK room=${notificationData.roomId} which=room mxc=$roomAvatarUrl — cache miss, using lettermark (worker will retry)")
+                Log.d(TAG, "AVATAR_FALLBACK room=${notificationData.roomId} which=room mxc=$roomAvatarUrl — cache miss, using lettermark (worker will retry)")
             }
             val circularRoomAvatar = createCircularBitmap(
                 roomAvatarBitmap ?: createFallbackAvatarBitmap(notificationData.roomName, notificationData.roomId, 128)
@@ -561,7 +561,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             }
             val deferSenderAvatar = if (senderAvatarUrl != null && senderAvatarBitmap == null) senderAvatarUrl else null
             if (deferSenderAvatar != null) {
-                Log.w(TAG, "AVATAR_FALLBACK room=${notificationData.roomId} which=sender sender=${notificationData.sender} mxc=$senderAvatarUrl — cache miss, using lettermark (worker will retry)")
+                Log.d(TAG, "AVATAR_FALLBACK room=${notificationData.roomId} which=sender sender=${notificationData.sender} mxc=$senderAvatarUrl — cache miss, using lettermark (worker will retry)")
             }
             val circularSenderAvatar = createCircularBitmap(
                 senderAvatarBitmap ?: createFallbackAvatarBitmap(senderDisplayNameForDisplay, notificationData.sender, 128)
@@ -608,7 +608,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 null
             }
             if (deferMeAvatar != null) {
-                Log.w(TAG, "AVATAR_FALLBACK room=${notificationData.roomId} which=me mxc=$currentUserAvatarUrl — cache miss, using lettermark (worker will retry)")
+                Log.d(TAG, "AVATAR_FALLBACK room=${notificationData.roomId} which=me mxc=$currentUserAvatarUrl — cache miss, using lettermark (worker will retry)")
             }
             val currentUserAvatarIcon = currentUserAvatarBitmap?.let {
                 IconCompat.createWithBitmap(createCircularBitmap(it))
@@ -1064,7 +1064,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // thumbnail (smaller, preferred over the full payload image). See the worker's
             // resolveImageThumbnail / audioOutcomeFrom.
             val fetchEvent = notificationData.eventId != null
-            if (imageDeferred || deferRoomAvatar != null || deferSenderAvatar != null || deferMeAvatar != null || fetchEvent) {
+            val willEnqueueWorker = imageDeferred || deferRoomAvatar != null || deferSenderAvatar != null || deferMeAvatar != null || fetchEvent
+            if (willEnqueueWorker) {
                 val mimeType = if (imageDeferred) {
                     when {
                         notificationData.image!!.contains(".jpg", ignoreCase = true) ||
@@ -1100,21 +1101,23 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 )
             }
 
-            // Bump the People/Conversation widget tile so it refreshes even when this conversation is
-            // silenced in Android (a silenced notification no longer drives the People Space service;
-            // a ConversationStatus poke does). Settle first so the just-posted notification has
-            // propagated to the People Space service before we poke it — otherwise the tile can
-            // snapshot the PREVIOUS notification. Groups get this delay for free from their worker's
-            // re-post (~400 ms); DMs, whose worker returns early, rely on this. We are inside the
-            // awaited suspend function, so the process stays alive for the wait. Phase 2 later
-            // upgrades this same status id with a richer activity type derived from get_event.
-            kotlinx.coroutines.delay(600L)
-            ConversationsApi.pushConversationStatus(
-                context,
-                notificationData.roomId,
-                notificationData.timestamp ?: messageReceivedAt,
-                isDirectMessage = !isGroupRoom
-            )
+            // ConversationStatus decoration (activity type / DM availability) for the People tile.
+            // NOTE: the status push does NOT drive the tile's message/count — that comes from the
+            // notification posts (the widget tile advances one post behind, which is why the worker
+            // now always re-posts; see NotificationImageWorker).
+            //
+            // Push here ONLY when no worker will run. The worker pushes the SAME status id with the
+            // real activity type derived from get_event (m.video → ACTIVITY_VIDEO, etc.) and lands
+            // last; this Phase-1 push can only ever supply ACTIVITY_OTHER (no event yet), so doing it
+            // alongside the worker would race and could overwrite the correct activity with OTHER.
+            if (!willEnqueueWorker) {
+                ConversationsApi.pushConversationStatus(
+                    context,
+                    notificationData.roomId,
+                    notificationData.timestamp ?: messageReceivedAt,
+                    isDirectMessage = !isGroupRoom
+                )
+            }
 
             // SHORTCUT OPTIMIZATION: Shortcuts already updated above when notification is shown
             // Using efficient single-room update via updateShortcutsFromSyncRooms
