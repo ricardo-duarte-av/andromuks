@@ -338,13 +338,26 @@ class NotificationImageWorker(
             val somethingRequested = imageRequested || roomAvatarMxc != null ||
                 senderAvatarMxc != null || meAvatarMxc != null
             val willRetry = somethingRequested && runAttemptCount < 3
+            if (willRetry) {
+                Androlog(
+                    "Notifications",
+                    "Room $roomId: Phase-2 produced nothing on attempt ${runAttemptCount + 1} " +
+                        "(image=$imageRequested, avatars=${roomAvatarMxc != null || senderAvatarMxc != null || meAvatarMxc != null}, fetchEvent=$fetchEvent). Will retry."
+                )
+                return Result.retry()
+            }
+            // Nothing to enrich and not retrying. Do NOT return — fall through and re-post the
+            // (unchanged) notification anyway. The People Space Conversation widget advances its tile
+            // ONE notification-post behind, so a single post per message leaves the tile lagging:
+            // blank on the first DM message, then always one behind. Groups never hit this because
+            // their avatar/image enrichment already triggers a second post (the worker re-post). This
+            // silent re-post (setOnlyAlertOnce, content identical to Phase 1) gives DMs that same
+            // second post so their tile stays current. Costs one extra silent notify per plain-text
+            // notification — cheap, and the only thing that actually moves the People Space tile.
             Androlog(
                 "Notifications",
-                "Room $roomId: Phase-2 produced nothing on attempt ${runAttemptCount + 1} " +
-                    "(image=$imageRequested, avatars=${roomAvatarMxc != null || senderAvatarMxc != null || meAvatarMxc != null}, fetchEvent=$fetchEvent). " +
-                    (if (willRetry) "Will retry." else "Nothing to do; notification keeps its Phase-1 content.")
+                "Room $roomId: Phase-2 produced nothing; re-posting unchanged to advance the People Space widget tile."
             )
-            return if (willRetry) Result.retry() else Result.success()
         }
 
         // 4. Extract the live MessagingStyle to patch in-place.
