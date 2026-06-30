@@ -527,7 +527,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
      * clock skew), so a timestamp-max target can fall short of the genuine latest event and
      * leave the "new messages" divider stuck across re-opens. Returns null for an empty list.
      */
-    private fun latestRowidEventId(events: List<TimelineEvent>): String? =
+    internal fun latestRowidEventId(events: List<TimelineEvent>): String? =
         events.maxByOrNull { it.timelineRowid }?.eventId
 
     fun processCachedEvents(

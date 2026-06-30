@@ -9597,9 +9597,15 @@ class AppViewModel : ViewModel() {
         }
         
         if (shouldMarkAsRead) {
-            val newestEvent = events.maxByOrNull { it.timestamp }
-            if (newestEvent != null) {
-                markRoomAsRead(roomId, newestEvent.eventId)
+            // Target the latest event by timeline_rowid, not by timestamp. timeline_rowid is
+            // gomuks' monotonic insertion order (the true ordering authority); origin_server_ts
+            // is spoofable via /timestamp, arbitrary on bridged events, and non-monotonic, so a
+            // timestamp-max target can land on an older event and leave genuinely-newer events
+            // (e.g. com.beeper.message_send_status) unread server-side. Shares latestRowidEventId
+            // with the cache-open/paginate paths so the two never disagree.
+            val newestEventId = timelineCacheCoordinator.latestRowidEventId(events)
+            if (newestEventId != null) {
+                markRoomAsRead(roomId, newestEventId)
             }
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping mark as read for room $roomId (bubble is minimized)")
