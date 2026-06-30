@@ -71,10 +71,6 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         private const val STATUS_ID_SUFFIX = "_unread"
         // Auto-expire window for the unread status so a never-read room doesn't linger forever.
         private const val STATUS_TTL_MS = 6L * 60 * 60 * 1000 // 6 hours
-        // Let the just-posted notification reach the People Space service before the first push.
-        private const val STATUS_SETTLE_MS = 800L
-        // Gap between the two pushes of the double-push (see pushConversationStatusSettled).
-        private const val STATUS_REPUSH_GAP_MS = 400L
 
         /**
          * Keep the People/Conversation widget tile fresh even when the conversation has been
@@ -122,36 +118,6 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to push ConversationStatus for room: $roomId", e)
             }
-        }
-
-        /**
-         * Push the unread status so the People/Conversation widget tile reliably reflects the
-         * CURRENT notification.
-         *
-         * The People Space service renders the tile from its *cached* notification when a status
-         * update arrives, then refreshes that cache afterwards (a read-then-update). So a single
-         * push paints the PREVIOUS message and lags the tile one notification behind — and the very
-         * first notification paints nothing. Push twice: the first advances the service's cache to
-         * the current notification, the second renders against it. The leading settle lets the
-         * just-posted notification land before the first push reads it; the gap keeps the two from
-         * coalescing into one update event.
-         *
-         * Must be called from a context whose process stays alive across the waits — an awaited
-         * suspend function (showEnhancedNotification) or a WorkManager doWork. No-op below API 30.
-         */
-        suspend fun pushConversationStatusSettled(
-            context: Context,
-            roomId: String,
-            timestamp: Long,
-            msgtype: String? = null,
-            isDirectMessage: Boolean = false
-        ) {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
-            kotlinx.coroutines.delay(STATUS_SETTLE_MS)
-            pushConversationStatus(context, roomId, timestamp, msgtype, isDirectMessage)
-            kotlinx.coroutines.delay(STATUS_REPUSH_GAP_MS)
-            // +1ms so the second status differs from the first and is never dropped as a no-op update.
-            pushConversationStatus(context, roomId, timestamp + 1, msgtype, isDirectMessage)
         }
 
         /**

@@ -1076,17 +1076,26 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 )
             }
 
-            // Bump the People/Conversation widget tile so it refreshes even when this conversation
-            // is silenced in Android (a silenced notification no longer drives the People Space
-            // service; a ConversationStatus poke does). The double-push settles + advances the
-            // service's read-then-update notification cache so the tile reflects THIS message
-            // instead of lagging one behind — see pushConversationStatusSettled. We are inside the
-            // awaited suspend function, so the process stays alive for its waits. Phase 2 later
-            // overwrites this same status id with a richer activity type derived from get_event.
-            ConversationsApi.pushConversationStatusSettled(
+            // WIDGET TILE FIX: the conversation shortcut was pushed at line ~701, BEFORE notify()
+            // above, because the shortcut must exist when the notification posts (Android Auto
+            // binding). But the People Space service snapshots the widget tile's message + count from
+            // the conversation's CURRENT active notification at shortcut-push time — which, before
+            // notify(), is still the PREVIOUS message. That left the tile permanently one message
+            // behind (and blank on the very first message), since a silenced notification post does
+            // not itself re-snapshot the tile. Re-push the shortcut now that THIS notification is
+            // live so People Space re-snapshots the current message/count. Settle first so the
+            // just-posted notification is visible in getActiveNotifications by the time it reads it;
+            // we are inside the awaited suspend function, so the process stays alive for the wait.
+            kotlinx.coroutines.delay(800L)
+            conversationsApi?.updateShortcutForNotificationSync(roomItem)
+
+            // Carry the activity/availability decoration for silenced tiles (Phase 2 upgrades the
+            // activity type from get_event). Pushed after the shortcut re-push so it reads current.
+            ConversationsApi.pushConversationStatus(
                 context,
                 notificationData.roomId,
-                notificationData.timestamp ?: messageReceivedAt
+                notificationData.timestamp ?: messageReceivedAt,
+                isDirectMessage = !isGroupRoom
             )
 
             // SHORTCUT OPTIMIZATION: Shortcuts already updated above when notification is shown

@@ -527,14 +527,35 @@ class NotificationImageWorker(
         }
         EnhancedNotificationDisplay.refreshGroupSummary(applicationContext, justPostedChild = true)
 
-        // Phase-2 ConversationStatus upgrade: now that get_event has told us the real msgtype,
-        // refine the Phase-1 ACTIVITY_OTHER into video/audio/location, and add a DM availability
-        // hint. Same status id, so it overwrites the Phase-1 status in place. Only after a
-        // successful re-post (room was not read during the download window). The settle + double
-        // push (see pushConversationStatusSettled) advances the People Space service's read-then-
-        // update notification cache so the tile reflects THIS message instead of lagging one behind.
-        // doWork is suspend and WorkManager keeps the process alive for the waits.
-        ConversationsApi.pushConversationStatusSettled(
+        // WIDGET TILE FIX: re-push the shortcut AFTER this re-post so the People Space service
+        // snapshots the widget tile from THIS (enriched) notification rather than the previous one.
+        // The shortcut push earlier in this worker (and Phase 1's) ran before its notify(), so the
+        // tile would otherwise stay one message behind — same ordering issue as Phase 1 (see
+        // EnhancedNotificationDisplay). Settle first so the re-post is visible in
+        // getActiveNotifications; doWork is suspend and WorkManager keeps the process alive.
+        kotlinx.coroutines.delay(800L)
+        try {
+            ConversationsApi(applicationContext, homeserverUrl, authToken, "").updateShortcutForNotificationSync(
+                RoomItem(
+                    id = roomId,
+                    name = roomName ?: roomId,
+                    messagePreview = null,
+                    messageSender = null,
+                    unreadCount = 1,
+                    highlightCount = 0,
+                    avatarUrl = roomAvatarMxc,
+                    sortingTimestamp = existing.notification.`when`.takeIf { it > 0L } ?: messageTimestamp,
+                    canonicalAlias = null,
+                    latestEventId = eventId
+                )
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to re-push shortcut for widget tile snapshot for room $roomId", e)
+        }
+
+        // ConversationStatus decoration: refine the activity type from the event's msgtype
+        // (video/audio/location) and add a DM availability hint. Same status id, overwrites in place.
+        ConversationsApi.pushConversationStatus(
             applicationContext,
             roomId,
             messageTimestamp.takeIf { it > 0L } ?: messageReceivedAt,
