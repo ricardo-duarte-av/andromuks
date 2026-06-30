@@ -1102,8 +1102,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
 
             // Bump the People/Conversation widget tile so it refreshes even when this conversation is
             // silenced in Android (a silenced notification no longer drives the People Space service;
-            // a ConversationStatus poke does). Phase 2 later upgrades this same status id with a
-            // richer activity type derived from get_event.
+            // a ConversationStatus poke does). Settle first so the just-posted notification has
+            // propagated to the People Space service before we poke it — otherwise the tile can
+            // snapshot the PREVIOUS notification. Groups get this delay for free from their worker's
+            // re-post (~400 ms); DMs, whose worker returns early, rely on this. We are inside the
+            // awaited suspend function, so the process stays alive for the wait. Phase 2 later
+            // upgrades this same status id with a richer activity type derived from get_event.
+            kotlinx.coroutines.delay(600L)
             ConversationsApi.pushConversationStatus(
                 context,
                 notificationData.roomId,

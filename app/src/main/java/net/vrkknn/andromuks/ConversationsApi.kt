@@ -101,12 +101,20 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     "m.location" -> android.app.people.ConversationStatus.ACTIVITY_LOCATION
                     else -> android.app.people.ConversationStatus.ACTIVITY_OTHER
                 }
+                // PeopleManager.addOrUpdateStatus rejects a FUTURE start time
+                // ("IllegalArgumentException: Start time must be in the past"). The Matrix event
+                // timestamp can run a few hundred ms ahead of the device clock (server/device skew),
+                // so passing it straight through made the immediate Phase-1 push throw — fatal for
+                // DMs, whose worker doesn't re-poke later when the clock has caught up. Clamp the
+                // start strictly into the past, and anchor the TTL to "now".
+                val nowMs = System.currentTimeMillis()
+                val startMs = minOf(timestamp, nowMs - 1000L)
                 val builder = android.app.people.ConversationStatus.Builder(
                     "$roomId$STATUS_ID_SUFFIX",
                     activity
                 )
-                    .setStartTimeMillis(timestamp)
-                    .setEndTimeMillis(timestamp + STATUS_TTL_MS)
+                    .setStartTimeMillis(startMs)
+                    .setEndTimeMillis(nowMs + STATUS_TTL_MS)
                 // DM availability heuristic ("just messaged → available"). Confirmed NOT the cause of
                 // the DM widget-tile lag, so kept. No real presence feed; auto-expires with the status.
                 if (isDirectMessage) {
