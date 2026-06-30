@@ -728,6 +728,7 @@ class FCMService : FirebaseMessagingService() {
                             NotificationDismissTracker.recordDismiss(roomId)
                             EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
                             notificationManagerCompat.cancel(notifID)
+                            ConversationsApi.clearConversationStatus(this@FCMService, roomId)
                         }
                         EnhancedNotificationDisplay.refreshGroupSummary(this, justCancelledId = notifID)
                         Androlog("Notifications", "Room $roomId: dismiss recorded (no active notification — cancel-anyway / in-flight guard)")
@@ -746,6 +747,7 @@ class FCMService : FirebaseMessagingService() {
                         NotificationDismissTracker.recordDismiss(roomId)
                         EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
                         notificationManagerCompat.cancel(notifID)
+                        ConversationsApi.clearConversationStatus(this@FCMService, roomId)
                     }
                     EnhancedNotificationDisplay.refreshGroupSummary(this, justCancelledId = notifID)
                     Androlog("Notifications", "Room $roomId: dismiss recorded (pending notification cancelled before post)")
@@ -807,6 +809,7 @@ class FCMService : FirebaseMessagingService() {
                         NotificationDismissTracker.recordDismiss(roomId)
                         EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
                         notificationManagerCompat.cancel(notifID)
+                        ConversationsApi.clearConversationStatus(this@FCMService, roomId)
                     }
                     EnhancedNotificationDisplay.refreshGroupSummary(this, justCancelledId = notifID)
                     Androlog("Notifications", "Room $roomId: notification dismissed (active, no bubble)")

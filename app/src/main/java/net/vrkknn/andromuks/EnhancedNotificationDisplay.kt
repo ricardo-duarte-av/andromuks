@@ -1014,6 +1014,15 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 refreshGroupSummary(context, justPostedChild = true)
                 // Push room to top of the active-rooms tracker only after a notification was actually posted
                 conversationsApi?.onRoomActivity(roomItem)
+                // Bump the People/Conversation widget tile directly. pushDynamicShortcut alone does
+                // not refresh the widget for a conversation the user has silenced in Android (the
+                // silenced notification no longer drives the People Space service); a
+                // ConversationStatus poke does. See ConversationsApi.pushConversationStatus.
+                ConversationsApi.pushConversationStatus(
+                    context,
+                    notificationData.roomId,
+                    notificationData.timestamp ?: messageReceivedAt
+                )
             } // End synchronized block
 
             // Phase 2: enqueue ONE worker (outside the synchronized block) to finish the

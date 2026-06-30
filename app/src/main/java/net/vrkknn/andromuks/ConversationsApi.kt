@@ -64,6 +64,56 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         private const val SCHEMA_VERSION_KEY = "shortcuts_schema_version"
         // App-specific category used for Direct Share.  Must match shortcuts.xml <share-target>.
         const val CATEGORY_SHARE_TARGET = "pt.aguiarvieira.andromuks.category.SHARE_TARGET"
+
+        // Suffix appended to a roomId to form the unread ConversationStatus id (so it can be
+        // cleared individually). The conversation id passed to PeopleManager IS the roomId —
+        // shortcut ids are room ids in this codebase (see createShortcutInfoCompat).
+        private const val STATUS_ID_SUFFIX = "_unread"
+        // Auto-expire window for the unread status so a never-read room doesn't linger forever.
+        private const val STATUS_TTL_MS = 6L * 60 * 60 * 1000 // 6 hours
+
+        /**
+         * Keep the People/Conversation widget tile fresh even when the conversation has been
+         * silenced in Android. A silenced notification is demoted below the importance threshold
+         * the People Space service watches, so it no longer bumps the widget — but
+         * PeopleManager.addOrUpdateStatus() pokes that service directly, bypassing the gate.
+         *
+         * No-op below Android 11 (PeopleManager / ConversationStatus are API 30+). The room's
+         * long-lived conversation shortcut must already be published (the notification path
+         * guarantees this via updateShortcutForNotificationSync before this is called).
+         */
+        fun pushConversationStatus(context: Context, roomId: String, timestamp: Long) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+            try {
+                val peopleManager = context.getSystemService(android.app.people.PeopleManager::class.java) ?: return
+                val status = android.app.people.ConversationStatus.Builder(
+                    "$roomId$STATUS_ID_SUFFIX",
+                    android.app.people.ConversationStatus.ACTIVITY_OTHER
+                )
+                    .setStartTimeMillis(timestamp)
+                    .setEndTimeMillis(timestamp + STATUS_TTL_MS)
+                    .build()
+                peopleManager.addOrUpdateStatus(roomId, status)
+                if (BuildConfig.DEBUG) Log.d(TAG, "Pushed ConversationStatus for room: $roomId")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to push ConversationStatus for room: $roomId", e)
+            }
+        }
+
+        /**
+         * Clear the unread ConversationStatus pushed by [pushConversationStatus] — called when the
+         * room is read/remote-dismissed so the widget tile stops reading as active.
+         */
+        fun clearConversationStatus(context: Context, roomId: String) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+            try {
+                val peopleManager = context.getSystemService(android.app.people.PeopleManager::class.java) ?: return
+                peopleManager.clearStatus(roomId, "$roomId$STATUS_ID_SUFFIX")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Cleared ConversationStatus for room: $roomId")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to clear ConversationStatus for room: $roomId", e)
+            }
+        }
     }
 
     private val sentRoomsPrefs by lazy {
