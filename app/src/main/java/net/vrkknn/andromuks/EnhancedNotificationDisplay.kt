@@ -754,12 +754,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 // shade — looking to the user like the notification was dismissed and recreated.
                 val hadPriorNotification = (roomMessageCache[notificationData.roomId]?.isNotEmpty() == true)
 
-                // Conversation title: group rooms use room name, DMs use sender display name
-                val conversationTitle = if (isGroupRoom) {
-                    notificationData.roomName
-                } else {
-                    senderDisplayNameForDisplay
-                }
+                // Conversation title: ONLY group rooms get one. Android documents setConversationTitle
+                // as group-only ("should only be set for group conversations"); setting it on a 1:1
+                // (DM) is a misuse that makes the People Space service mis-handle the Conversation
+                // widget's UPDATE path — DM tiles froze one message behind (correct on widget
+                // creation, lagging on every subsequent message) while group tiles updated fine. Leave
+                // it null for DMs so the tile updates from the live notification each time.
+                val conversationTitle = if (isGroupRoom) notificationData.roomName else null
 
                 // Phase 1: always post a text-only message. The worker upgrades it to
                 // an image message (setData) in Phase 2 once the download completes.
@@ -1094,7 +1095,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             ConversationsApi.pushConversationStatus(
                 context,
                 notificationData.roomId,
-                notificationData.timestamp ?: messageReceivedAt
+                notificationData.timestamp ?: messageReceivedAt,
+                isDirectMessage = !isGroupRoom
             )
 
             // SHORTCUT OPTIMIZATION: Shortcuts already updated above when notification is shown

@@ -86,7 +86,8 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             context: Context,
             roomId: String,
             timestamp: Long,
-            msgtype: String? = null
+            msgtype: String? = null,
+            isDirectMessage: Boolean = false
         ) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
             try {
@@ -100,18 +101,19 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     "m.location" -> android.app.people.ConversationStatus.ACTIVITY_LOCATION
                     else -> android.app.people.ConversationStatus.ACTIVITY_OTHER
                 }
-                // NOTE: deliberately NO setAvailability(). Setting AVAILABILITY_AVAILABLE (which we
-                // only ever did for DMs) made the People Space widget tile render a stale, cached
-                // conversation snapshot — the tile froze one message behind for DMs while group
-                // tiles (no availability) updated correctly. Leave availability UNKNOWN.
                 val builder = android.app.people.ConversationStatus.Builder(
                     "$roomId$STATUS_ID_SUFFIX",
                     activity
                 )
                     .setStartTimeMillis(timestamp)
                     .setEndTimeMillis(timestamp + STATUS_TTL_MS)
+                // DM availability heuristic ("just messaged → available"). Confirmed NOT the cause of
+                // the DM widget-tile lag, so kept. No real presence feed; auto-expires with the status.
+                if (isDirectMessage) {
+                    builder.setAvailability(android.app.people.ConversationStatus.AVAILABILITY_AVAILABLE)
+                }
                 peopleManager.addOrUpdateStatus(roomId, builder.build())
-                if (BuildConfig.DEBUG) Log.d(TAG, "Pushed ConversationStatus for room: $roomId (activity=$activity)")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Pushed ConversationStatus for room: $roomId (activity=$activity, dm=$isDirectMessage)")
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to push ConversationStatus for room: $roomId", e)
             }
