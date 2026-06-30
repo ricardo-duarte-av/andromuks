@@ -346,22 +346,18 @@ class NotificationImageWorker(
                 )
                 return Result.retry()
             }
-            if (isGroupRoom) {
-                // Groups do NOT need a forced second post. The one-post-behind People-widget lag is a
-                // 1:1 (DM) symptom — group tiles update correctly from the single Phase-1 post. Forcing
-                // an extra IDENTICAL re-post here only makes the widget visibly clear-then-fill. So for
-                // groups, keep the original behaviour: nothing to enrich = no re-post.
-                Androlog("Notifications", "Room $roomId: Phase-2 produced nothing (group) — no re-post.")
-                return Result.success()
-            }
-            // DM (1:1) only: fall through and re-post the unchanged notification. The People
-            // Conversation widget advances a 1:1 tile ONE notification-post behind, so a single post
-            // leaves the DM tile lagging (blank on the first message, then always one behind). This
-            // silent re-post (setOnlyAlertOnce, content identical to Phase 1) gives the DM the second
-            // post it needs to land on the current message.
+            // Nothing to enrich and not retrying. Do NOT return — fall through and re-post the
+            // (unchanged) notification anyway. The People Conversation widget advances its tile ONE
+            // notification-post behind for BOTH 1:1 (DM) and group tiles, so a single post per message
+            // leaves the tile lagging (blank on the first message, then always one behind). The second
+            // post is what lands it on the current message. (We tried gating this to DMs only —
+            // groups regressed to the same lag, confirming groups need it too. Groups visibly
+            // clear-then-fill on the re-post because group tiles rebuild rather than patch in place;
+            // that's the accepted cost of a correct, current group widget tile.) This re-post is
+            // silent (setOnlyAlertOnce, content identical to Phase 1) so it never re-alerts.
             Androlog(
                 "Notifications",
-                "Room $roomId: Phase-2 produced nothing (DM) — re-posting to advance the People Space widget tile."
+                "Room $roomId: Phase-2 produced nothing; re-posting unchanged to advance the People Space widget tile."
             )
         }
 
