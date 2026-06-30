@@ -82,19 +82,39 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
          * long-lived conversation shortcut must already be published (the notification path
          * guarantees this via updateShortcutForNotificationSync before this is called).
          */
-        fun pushConversationStatus(context: Context, roomId: String, timestamp: Long) {
+        fun pushConversationStatus(
+            context: Context,
+            roomId: String,
+            timestamp: Long,
+            msgtype: String? = null,
+            isDirectMessage: Boolean = false
+        ) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
             try {
                 val peopleManager = context.getSystemService(android.app.people.PeopleManager::class.java) ?: return
-                val status = android.app.people.ConversationStatus.Builder(
+                // Map the message's msgtype to a ConversationStatus activity so the tile reflects the
+                // kind of content waiting. Everything else (text, image, file, …) stays ACTIVITY_OTHER.
+                // msgtype is null in Phase 1 (FCM thread, no event yet); Phase 2 supplies it from get_event.
+                val activity = when (msgtype) {
+                    "m.video" -> android.app.people.ConversationStatus.ACTIVITY_VIDEO
+                    "m.audio" -> android.app.people.ConversationStatus.ACTIVITY_AUDIO
+                    "m.location" -> android.app.people.ConversationStatus.ACTIVITY_LOCATION
+                    else -> android.app.people.ConversationStatus.ACTIVITY_OTHER
+                }
+                val builder = android.app.people.ConversationStatus.Builder(
                     "$roomId$STATUS_ID_SUFFIX",
-                    android.app.people.ConversationStatus.ACTIVITY_OTHER
+                    activity
                 )
                     .setStartTimeMillis(timestamp)
                     .setEndTimeMillis(timestamp + STATUS_TTL_MS)
-                    .build()
-                peopleManager.addOrUpdateStatus(roomId, status)
-                if (BuildConfig.DEBUG) Log.d(TAG, "Pushed ConversationStatus for room: $roomId")
+                // Availability is a 1:1-presence notion. We have no real presence feed, so this is a
+                // "they just messaged → treat as available" heuristic for DMs only; it auto-expires
+                // with the status. Group tiles get no availability (UNKNOWN).
+                if (isDirectMessage) {
+                    builder.setAvailability(android.app.people.ConversationStatus.AVAILABILITY_AVAILABLE)
+                }
+                peopleManager.addOrUpdateStatus(roomId, builder.build())
+                if (BuildConfig.DEBUG) Log.d(TAG, "Pushed ConversationStatus for room: $roomId (activity=$activity, dm=$isDirectMessage)")
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to push ConversationStatus for room: $roomId", e)
             }

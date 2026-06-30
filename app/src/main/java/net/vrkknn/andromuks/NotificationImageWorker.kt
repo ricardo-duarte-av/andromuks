@@ -527,6 +527,18 @@ class NotificationImageWorker(
         }
         EnhancedNotificationDisplay.refreshGroupSummary(applicationContext, justPostedChild = true)
 
+        // Phase-2 ConversationStatus upgrade: now that get_event has told us the real msgtype,
+        // refine the Phase-1 ACTIVITY_OTHER into video/audio/location, and add a DM availability
+        // hint. Same status id, so it overwrites the Phase-1 status in place. Only after a
+        // successful re-post (room was not read during the download window).
+        ConversationsApi.pushConversationStatus(
+            applicationContext,
+            roomId,
+            messageTimestamp.takeIf { it > 0L } ?: messageReceivedAt,
+            msgtype = eventJson?.let { decryptedContent(it)?.optString("msgtype") },
+            isDirectMessage = !isGroupRoom
+        )
+
         // 8. Keep the in-memory MessagingStyle cache consistent so a later rebuild (new message in
         //    the room) keeps the media/avatars instead of reverting to the Phase-1 placeholder.
         //    Covers both the image and a downloaded voice clip (same data slot).
