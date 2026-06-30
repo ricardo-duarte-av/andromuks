@@ -4349,17 +4349,14 @@ fun TimelineEventItem(
                     appViewModel?.messageBridgeSendStatus?.get(event.eventId)
                 }
                 if (bridgeSendStatus != null) {
-                    val (bridgeStatusIcon, bridgeStatusTint, bridgeStatusDesc) = when (bridgeSendStatus) {
-                        "delivered"       -> Triple(Icons.Filled.DoneAll, MaterialTheme.colorScheme.onSurfaceVariant, "Delivered to network")
-                        "sent"            -> Triple(Icons.Filled.Check,   MaterialTheme.colorScheme.onSurfaceVariant, "Sent to network")
-                        "error_retriable" -> Triple(Icons.Filled.Warning, MaterialTheme.colorScheme.error,            "Send failed (will retry)")
-                        else              -> Triple(Icons.Filled.Error,   MaterialTheme.colorScheme.error,            "Send failed")
-                    }
-                    Icon(
-                        imageVector = bridgeStatusIcon,
-                        contentDescription = bridgeStatusDesc,
-                        modifier = Modifier.size(10.dp),
-                        tint = bridgeStatusTint
+                    BridgeSendStatusIcon(
+                        status = bridgeSendStatus,
+                        eventId = event.eventId,
+                        roomId = event.roomId,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        appViewModel = appViewModel,
+                        onUserClick = onUserClick
                     )
                 }
             }
@@ -4395,17 +4392,14 @@ fun TimelineEventItem(
                     appViewModel?.messageBridgeSendStatus?.get(event.eventId)
                 }
                 if (bridgeSendStatus != null) {
-                    val (bridgeStatusIcon, bridgeStatusTint, bridgeStatusDesc) = when (bridgeSendStatus) {
-                        "delivered"       -> Triple(Icons.Filled.DoneAll, MaterialTheme.colorScheme.onSurfaceVariant, "Delivered to network")
-                        "sent"            -> Triple(Icons.Filled.Check,   MaterialTheme.colorScheme.onSurfaceVariant, "Sent to network")
-                        "error_retriable" -> Triple(Icons.Filled.Warning, MaterialTheme.colorScheme.error,            "Send failed (will retry)")
-                        else              -> Triple(Icons.Filled.Error,   MaterialTheme.colorScheme.error,            "Send failed")
-                    }
-                    Icon(
-                        imageVector = bridgeStatusIcon,
-                        contentDescription = bridgeStatusDesc,
-                        modifier = Modifier.size(10.dp),
-                        tint = bridgeStatusTint
+                    BridgeSendStatusIcon(
+                        status = bridgeSendStatus,
+                        eventId = event.eventId,
+                        roomId = event.roomId,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        appViewModel = appViewModel,
+                        onUserClick = onUserClick
                     )
                 }
             }
@@ -4503,4 +4497,62 @@ private fun TimelineEvent.containsSpoilerContent(): Boolean {
         content?.optString("body").containsSpoilerMarkers() ||
         decrypted?.optString("body").containsSpoilerMarkers() ||
         localContent?.optString("edit_source").containsSpoilerMarkers()
+}
+
+/**
+ * The small bridge send-status icon (Check / DoneAll / Warning / Error) shown next to a sent
+ * message's timestamp. Tapping it opens [net.vrkknn.andromuks.utils.BridgeDeliveryInfoDialog] —
+ * the same per-recipient delivery breakdown reachable from the long-press menu — so the
+ * checkmark/done_all area exposes who received the message on the other network, mirroring the
+ * "Read by" receipt window. State is owned locally (like InlineReadReceiptAvatars) so the parent
+ * screens don't have to thread a callback through for this.
+ */
+@Composable
+private fun BridgeSendStatusIcon(
+    status: String,
+    eventId: String,
+    roomId: String,
+    homeserverUrl: String,
+    authToken: String,
+    appViewModel: AppViewModel?,
+    onUserClick: (String) -> Unit
+) {
+    var showDialog by remember(eventId) { mutableStateOf(false) }
+
+    val (icon, tint, desc) = when (status) {
+        "delivered"       -> Triple(Icons.Filled.DoneAll, MaterialTheme.colorScheme.onSurfaceVariant, "Delivered to network")
+        "sent"            -> Triple(Icons.Filled.Check,   MaterialTheme.colorScheme.onSurfaceVariant, "Sent to network")
+        "error_retriable" -> Triple(Icons.Filled.Warning, MaterialTheme.colorScheme.error,            "Send failed (will retry)")
+        else              -> Triple(Icons.Filled.Error,   MaterialTheme.colorScheme.error,            "Send failed")
+    }
+
+    // Only tappable when we have a ViewModel to source delivery info from.
+    val iconModifier = if (appViewModel != null) {
+        Modifier.size(10.dp).clickable { showDialog = true }
+    } else {
+        Modifier.size(10.dp)
+    }
+    Icon(
+        imageVector = icon,
+        contentDescription = desc,
+        modifier = iconModifier,
+        tint = tint
+    )
+
+    if (showDialog && appViewModel != null) {
+        val deliveryInfo = appViewModel.messageBridgeDeliveryInfo[eventId]
+            ?: net.vrkknn.andromuks.BridgeDeliveryInfo()
+        val networkName = appViewModel.currentRoomState?.bridgeInfo?.displayName
+        net.vrkknn.andromuks.utils.BridgeDeliveryInfoDialog(
+            deliveryInfo = deliveryInfo,
+            status = status,
+            networkName = networkName,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            onDismiss = { showDialog = false },
+            onUserClick = onUserClick,
+            appViewModel = appViewModel,
+            roomId = roomId
+        )
+    }
 }
