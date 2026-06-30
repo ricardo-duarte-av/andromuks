@@ -290,6 +290,19 @@ class NotificationImageWorker(
             Downloads(imageDeferred.await(), roomDeferred.await(), senderDeferred.await(), meDeferred.await())
         }
 
+        // PERSISTENT avatar fallback: an mxc URL was deferred from Phase 1 (cache miss there), but the
+        // worker's download ALSO failed — so the lettermark sticks. This is the case the user actually
+        // sees (e.g. group room shows its avatar but the sender stays a lettermark). Warn per avatar.
+        if (roomAvatarMxc != null && dl.room == null) {
+            Log.w(TAG, "AVATAR_FALLBACK_PERSIST room=$roomId which=room mxc=$roomAvatarMxc — worker download failed, lettermark sticks")
+        }
+        if (senderAvatarMxc != null && dl.sender == null) {
+            Log.w(TAG, "AVATAR_FALLBACK_PERSIST room=$roomId which=sender sender=$senderId mxc=$senderAvatarMxc — worker download failed, lettermark sticks")
+        }
+        if (meAvatarMxc != null && dl.me == null) {
+            Log.w(TAG, "AVATAR_FALLBACK_PERSIST room=$roomId which=me mxc=$meAvatarMxc — worker download failed, lettermark sticks")
+        }
+
         // Wrap a downloaded image in a content:// URI the notification subsystem can read.
         val imageUri = dl.image?.first?.let { contentUriForFile(it) }
         val imageMime = dl.image?.second ?: mimeType
@@ -526,31 +539,16 @@ class NotificationImageWorker(
             return Result.success()
         }
         EnhancedNotificationDisplay.refreshGroupSummary(applicationContext, justPostedChild = true)
-
-        // WIDGET TILE FIX: re-push the shortcut AFTER this re-post so the People Space service
-        // snapshots the widget tile from THIS (enriched) notification rather than the previous one.
-        // The shortcut push earlier in this worker (and Phase 1's) ran before its notify(), so the
-        // tile would otherwise stay one message behind — same ordering issue as Phase 1 (see
-        // EnhancedNotificationDisplay). Settle first so the re-post is visible in
-        // getActiveNotifications; doWork is suspend and WorkManager keeps the process alive.
-        kotlinx.coroutines.delay(800L)
-        try {
-            ConversationsApi(applicationContext, homeserverUrl, authToken, "").updateShortcutForNotificationSync(
-                RoomItem(
-                    id = roomId,
-                    name = roomName ?: roomId,
-                    messagePreview = null,
-                    messageSender = null,
-                    unreadCount = 1,
-                    highlightCount = 0,
-                    avatarUrl = roomAvatarMxc,
-                    sortingTimestamp = existing.notification.`when`.takeIf { it > 0L } ?: messageTimestamp,
-                    canonicalAlias = null,
-                    latestEventId = eventId
-                )
+        if (BuildConfig.DEBUG) {
+            // WIDGET DIAGNOSTIC (Phase 2 re-post): mirror EnhancedNotificationDisplay's WIDGET_POST
+            // so logcat shows what the enriched re-post hands the system vs what the tile renders.
+            Log.d(
+                TAG,
+                "WIDGET_REPOST room=$roomId isGroup=$isGroupRoom groupConversation=${newStyle.isGroupConversation} " +
+                    "convTitle=${newStyle.conversationTitle ?: "<null/DM>"} shortcutId=$roomId " +
+                    "msgCount=${newStyle.messages.size} lastMsg='${newStyle.messages.lastOrNull()?.text}' " +
+                    "lastTs=${newStyle.messages.lastOrNull()?.timestamp} lastSender=${newStyle.messages.lastOrNull()?.person?.name}"
             )
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to re-push shortcut for widget tile snapshot for room $roomId", e)
         }
 
         // ConversationStatus decoration: refine the activity type from the event's msgtype

@@ -548,6 +548,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 loadAvatarBitmap(it, notificationData.imageAuthToken, allowNetwork = false)
             }
             val deferRoomAvatar = if (roomAvatarUrl != null && roomAvatarBitmap == null) roomAvatarUrl else null
+            if (deferRoomAvatar != null) {
+                Log.w(TAG, "AVATAR_FALLBACK room=${notificationData.roomId} which=room mxc=$roomAvatarUrl — cache miss, using lettermark (worker will retry)")
+            }
             val circularRoomAvatar = createCircularBitmap(
                 roomAvatarBitmap ?: createFallbackAvatarBitmap(notificationData.roomName, notificationData.roomId, 128)
             )
@@ -557,6 +560,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 loadAvatarBitmap(it, notificationData.imageAuthToken, allowNetwork = false)
             }
             val deferSenderAvatar = if (senderAvatarUrl != null && senderAvatarBitmap == null) senderAvatarUrl else null
+            if (deferSenderAvatar != null) {
+                Log.w(TAG, "AVATAR_FALLBACK room=${notificationData.roomId} which=sender sender=${notificationData.sender} mxc=$senderAvatarUrl — cache miss, using lettermark (worker will retry)")
+            }
             val circularSenderAvatar = createCircularBitmap(
                 senderAvatarBitmap ?: createFallbackAvatarBitmap(senderDisplayNameForDisplay, notificationData.sender, 128)
             )
@@ -600,6 +606,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 currentUserAvatarUrl
             } else {
                 null
+            }
+            if (deferMeAvatar != null) {
+                Log.w(TAG, "AVATAR_FALLBACK room=${notificationData.roomId} which=me mxc=$currentUserAvatarUrl — cache miss, using lettermark (worker will retry)")
             }
             val currentUserAvatarIcon = currentUserAvatarBitmap?.let {
                 IconCompat.createWithBitmap(createCircularBitmap(it))
@@ -1011,6 +1020,20 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 notificationManager.notify(notifID, notification)
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "✓ Notification posted successfully for room: ${notificationData.roomId}")
+                    // WIDGET DIAGNOSTIC: log exactly what we hand the system, so logcat can be compared
+                    // against what the Conversation widget tile actually renders. The People Space tile
+                    // pulls its message + count from this MessagingStyle; if these match the
+                    // notification but the tile shows the previous message, the off-by-one is in the
+                    // People Space service, not in what we post. shortcutId binds the tile to the room.
+                    val postedMsgs = cachedMessages.toList()
+                    Log.d(
+                        TAG,
+                        "WIDGET_POST room=${notificationData.roomId} isGroup=$isGroupRoom " +
+                            "groupConversation=$isGroupRoom convTitle=${conversationTitle ?: "<null/DM>"} " +
+                            "shortcutId=${notificationData.roomId} msgCount=${postedMsgs.size} " +
+                            "lastMsg='${postedMsgs.lastOrNull()?.text}' lastTs=${postedMsgs.lastOrNull()?.timestamp} " +
+                            "lastSender=${postedMsgs.lastOrNull()?.person?.name}"
+                    )
                 }
                 refreshGroupSummary(context, justPostedChild = true)
                 // Push room to top of the active-rooms tracker only after a notification was actually posted
@@ -1077,21 +1100,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 )
             }
 
-            // WIDGET TILE FIX: the conversation shortcut was pushed at line ~701, BEFORE notify()
-            // above, because the shortcut must exist when the notification posts (Android Auto
-            // binding). But the People Space service snapshots the widget tile's message + count from
-            // the conversation's CURRENT active notification at shortcut-push time — which, before
-            // notify(), is still the PREVIOUS message. That left the tile permanently one message
-            // behind (and blank on the very first message), since a silenced notification post does
-            // not itself re-snapshot the tile. Re-push the shortcut now that THIS notification is
-            // live so People Space re-snapshots the current message/count. Settle first so the
-            // just-posted notification is visible in getActiveNotifications by the time it reads it;
-            // we are inside the awaited suspend function, so the process stays alive for the wait.
-            kotlinx.coroutines.delay(800L)
-            conversationsApi?.updateShortcutForNotificationSync(roomItem)
-
-            // Carry the activity/availability decoration for silenced tiles (Phase 2 upgrades the
-            // activity type from get_event). Pushed after the shortcut re-push so it reads current.
+            // Bump the People/Conversation widget tile so it refreshes even when this conversation is
+            // silenced in Android (a silenced notification no longer drives the People Space service;
+            // a ConversationStatus poke does). Phase 2 later upgrades this same status id with a
+            // richer activity type derived from get_event.
             ConversationsApi.pushConversationStatus(
                 context,
                 notificationData.roomId,
