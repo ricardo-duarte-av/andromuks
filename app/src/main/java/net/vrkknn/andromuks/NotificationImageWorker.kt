@@ -559,8 +559,7 @@ class NotificationImageWorker(
             applicationContext,
             roomId,
             messageTimestamp.takeIf { it > 0L } ?: messageReceivedAt,
-            msgtype = eventJson?.let { decryptedContent(it)?.optString("msgtype") },
-            isDirectMessage = !isGroupRoom
+            msgtype = eventJson?.let { decryptedContent(it)?.optString("msgtype") }
         )
 
         // 8. Keep the in-memory MessagingStyle cache consistent so a later rebuild (new message in

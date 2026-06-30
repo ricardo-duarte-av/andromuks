@@ -1094,8 +1094,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             ConversationsApi.pushConversationStatus(
                 context,
                 notificationData.roomId,
-                notificationData.timestamp ?: messageReceivedAt,
-                isDirectMessage = !isGroupRoom
+                notificationData.timestamp ?: messageReceivedAt
             )
 
             // SHORTCUT OPTIMIZATION: Shortcuts already updated above when notification is shown
