@@ -346,19 +346,40 @@ class NotificationImageWorker(
                 )
                 return Result.retry()
             }
-            // Nothing to enrich and not retrying. Do NOT return — fall through and re-post the
-            // (unchanged) notification anyway. The People Conversation widget advances its tile ONE
-            // notification-post behind for BOTH 1:1 (DM) and group tiles, so a single post per message
-            // leaves the tile lagging (blank on the first message, then always one behind). The second
-            // post is what lands it on the current message. (We tried gating this to DMs only —
-            // groups regressed to the same lag, confirming groups need it too. Groups visibly
-            // clear-then-fill on the re-post because group tiles rebuild rather than patch in place;
-            // that's the accepted cost of a correct, current group widget tile.) This re-post is
-            // silent (setOnlyAlertOnce, content identical to Phase 1) so it never re-alerts.
-            Androlog(
-                "Notifications",
-                "Room $roomId: Phase-2 produced nothing; re-posting unchanged to advance the People Space widget tile."
-            )
+            // Nothing to enrich, but we STILL post a second time. The Pixel People Space service
+            // advances the conversation-widget tile exactly one notify() behind (verified by
+            // logcat: with the post-notify shortcut push removed, a single post still renders the
+            // PREVIOUS message; two posts land on the current one). A second notify() is the only
+            // lever we have — we don't own the widget and notify() is the sole trigger it reacts to.
+            //
+            // Post the EXISTING notification again, BYTE-IDENTICAL — only OR-ing in
+            // FLAG_ONLY_ALERT_ONCE so the re-post doesn't re-buzz. Re-posting the existing
+            // Notification object (rather than rebuilding the MessagingStyle via
+            // extractMessagingStyleFromNotification) is what preserves a single-emoji body as a
+            // plain String, keeping the launcher's jumbo-emoji tile intact. Guarded by the dismiss
+            // tombstone so a read/dismiss during the worker window can't resurrect the notification.
+            synchronized(NotificationDismissTracker.lockFor(roomId)) {
+                // Re-read the CURRENT active notification (not the `existing` captured at the top of
+                // doWork ~0.5 s ago): a newer message's Phase-1 post may have landed during our event
+                // fetch, and re-posting the stale capture would revert the shade to the older message.
+                val current = systemNm.activeNotifications.firstOrNull { it.id == notifId }
+                if (current != null && !NotificationDismissTracker.isDismissedAfter(roomId, messageReceivedAt)) {
+                    val repost = current.notification
+                    repost.flags = repost.flags or android.app.Notification.FLAG_ONLY_ALERT_ONCE
+                    NotificationManagerCompat.from(applicationContext).notify(notifId, repost)
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Re-posted current notification byte-identical to advance the one-behind People tile: $roomId")
+                    Androlog(
+                        "Notifications",
+                        "Room $roomId: re-posted current notification byte-identical (advance one-behind People tile)."
+                    )
+                } else {
+                    Androlog(
+                        "Notifications",
+                        "Room $roomId: Phase-2 no-op re-post skipped — dismissed during worker window."
+                    )
+                }
+            }
+            return Result.success()
         }
 
         // 4. Extract the live MessagingStyle to patch in-place.
@@ -446,7 +467,15 @@ class NotificationImageWorker(
             // Keep this child in the shared group; GROUP_ALERT_CHILDREN matches the Phase 1 post.
             .setGroup(EnhancedNotificationDisplay.NOTIFICATION_GROUP_KEY)
             .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
-            .setWhen(existing.notification.`when`)
+            // Bump `when` forward for this enriched re-post. By the time the worker runs, we ONLY
+            // reach here when Phase 2 actually changed content (image/caption/avatar — the no-op
+            // case returned above). The image/caption is added in place to the SAME message Phase 1
+            // already posted (same message timestamp), so the People widget — which refreshes on a
+            // newer recency marker, not on data added to an existing message — would otherwise keep
+            // rendering the Phase-1 "Sent an image" text and merely store the image (which then
+            // flashes one-behind on the next message). A current `when` marks this as a genuine
+            // update so the widget re-renders and lands on the image. Never regress it below Phase 1.
+            .setWhen(maxOf(existing.notification.`when`, System.currentTimeMillis()))
 
         if (newLargeIcon != null) {
             builder.setLargeIcon(newLargeIcon)
@@ -524,7 +553,10 @@ class NotificationImageWorker(
             null
         }
         if (fullShortcut != null) {
+            // Bind both the inline ShortcutInfo and the id (see Phase 1) so the People widget gets a
+            // tight shortcut↔notification mapping and doesn't fall back to its historical cache.
             builder.setShortcutInfo(fullShortcut)
+            builder.setShortcutId(roomId)
         } else {
             builder.setShortcutId(roomId)
         }

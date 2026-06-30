@@ -885,13 +885,25 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
      * Record that the user sent a message in this room and push it to the top of the shortcut list.
      * Persists an ordered list of sent-to room IDs (up to MAX_SENT_ROOMS) in SharedPreferences
      * so that startup can prioritize rooms the user actually writes in.
+     *
+     * [pushShortcut] — when false, ONLY the sent-rooms tracker is updated and the dynamic shortcut
+     * is NOT (re-)pushed. The notification path passes false because it already published the
+     * shortcut synchronously *before* `notify()` (via [updateShortcutForNotificationSync]). Pushing
+     * the shortcut AGAIN after the post is not just redundant: the People/Conversation widget
+     * listens for shortcut changes and, on one, rebuilds its tile from its **cached previous
+     * notification** rather than re-reading the just-posted one — so a post-notify shortcut push
+     * reverts the tile to the prior message (the "widget renders one behind" bug). The user-typed
+     * path ([onUserSentToRoom]) keeps pushShortcut=true: there is no notification there, so the push
+     * is the only thing that bumps the shortcut to the top for Direct Share.
      */
-    fun onRoomActivity(room: RoomItem) {
+    fun onRoomActivity(room: RoomItem, pushShortcut: Boolean = true) {
         val current = getSentRoomIds().toMutableList()
         current.remove(room.id)
         current.add(0, room.id)
         if (current.size > MAX_SENT_ROOMS) current.subList(MAX_SENT_ROOMS, current.size).clear()
         sentRoomsPrefs.edit().putString(SENT_ROOMS_KEY, current.joinToString(",")).apply()
+
+        if (!pushShortcut) return
 
         if (!cacheInitialized) {
             scope.launch {

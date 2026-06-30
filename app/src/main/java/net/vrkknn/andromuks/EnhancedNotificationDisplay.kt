@@ -865,17 +865,20 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     .setGroup(NOTIFICATION_GROUP_KEY)
                     .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
                     .apply {
-                        if (existingNotification != null) {
-                            setWhen(existingNotification.notification.`when`)
-                        } else if (hadPriorNotification) {
-                            // activeNotifications race: a notification exists for this room but
-                            // hasn't propagated yet. Anchor `when` to the first cached message
-                            // so the notification doesn't jump in shade ordering.
-                            val firstTs = roomMessageCache[notificationData.roomId]?.firstOrNull()?.timestamp
-                            setWhen(firstTs ?: notificationData.timestamp ?: System.currentTimeMillis())
-                        } else {
-                            setWhen(notificationData.timestamp ?: System.currentTimeMillis())
-                        }
+                        // `when` MUST track the NEWEST message. The People/Conversation widget uses
+                        // it to decide which post is current; the previous logic anchored it to the
+                        // OLDEST cached message (to avoid the notification jumping in shade order),
+                        // which made the widget treat every new post as stale and keep rendering its
+                        // cached previous tile — the "one message behind" bug we were re-posting to
+                        // mask. The cache already includes this message, so max over it is the newest
+                        // message time; max-ing also makes `when` monotonic, so server-clock skew
+                        // (a newer event whose ts slightly trails the previous one) can't regress it.
+                        // The shade now bumps the conversation to recent on each message — the normal,
+                        // expected messaging behaviour.
+                        val newestWhen = roomMessageCache[notificationData.roomId]
+                            ?.maxOfOrNull { it.timestamp }
+                            ?: (notificationData.timestamp ?: System.currentTimeMillis())
+                        setWhen(newestWhen)
                     }
                     .apply {
                     // Set large icon (always set if available)
@@ -889,7 +892,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                             val hasConversationCategory = shortcutInfo.categories?.contains("android.shortcut.conversation") == true
                             Log.d(TAG, "Using shortcut info for notification - ID: ${shortcutInfo.id}, hasConversationCategory: $hasConversationCategory")
                         }
+                        // Set BOTH the inline ShortcutInfo and the id. setShortcutInfo populates the
+                        // id internally, but binding both explicitly gives the system a tight,
+                        // unambiguous shortcut↔notification mapping at post time (Android 12+), so the
+                        // People widget doesn't fall back to its historical cache while the freshly
+                        // pushed dynamic shortcut is still committing.
                         setShortcutInfo(shortcutInfo)
+                        setShortcutId(notificationData.roomId)
                     } else {
                         if (BuildConfig.DEBUG) {
                             Log.w(TAG, "WARNING: No shortcut info available, using shortcut ID only - notification may not be recognized as conversation")
@@ -1036,8 +1045,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     )
                 }
                 refreshGroupSummary(context, justPostedChild = true)
-                // Push room to top of the active-rooms tracker only after a notification was actually posted
-                conversationsApi?.onRoomActivity(roomItem)
+                // Record the room in the sent-rooms tracker only after a notification was actually
+                // posted — but do NOT re-push the dynamic shortcut here (pushShortcut = false). The
+                // shortcut was already published synchronously before notify() above; re-pushing it
+                // AFTER the post makes the People/Conversation widget rebuild its tile from its cached
+                // previous notification, reverting the tile to the prior message (the "one behind"
+                // bug, confirmed by the post-notify pushDynamicShortcut in logcat). See onRoomActivity.
+                conversationsApi?.onRoomActivity(roomItem, pushShortcut = false)
             } // End synchronized block
 
             // Phase 2: enqueue ONE worker (outside the synchronized block) to finish the
@@ -2109,6 +2123,15 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 else -> sb.append(text[i++])
             }
         }
-        return sb
+        // Only hand back a Spannable when markdown actually produced spans. A
+        // SpannableStringBuilder wrapping plain text defeats the People/Conversation widget's
+        // emoji-only detection: the launcher renders the jumboji (big tinted emoji + matching
+        // background) only when the MessagingStyle message text is a plain String of just emoji.
+        // Wrapping "❤️" in a Spannable (as this did unconditionally) silently disabled jumbo
+        // emoji on the widget. Returning sb.toString() keeps a plain String for the no-span case
+        // (incl. link-stripped bodies) while still surfacing real bold/italic/code formatting when
+        // present. Mirrors NotificationImageWorker.richTextForTextMessage's "has spans" gate.
+        val hasSpans = sb.getSpans(0, sb.length, Any::class.java).isNotEmpty()
+        return if (hasSpans) sb else sb.toString()
     }
 }
