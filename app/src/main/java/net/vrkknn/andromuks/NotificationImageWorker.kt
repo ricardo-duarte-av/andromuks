@@ -567,12 +567,13 @@ class NotificationImageWorker(
         // path takes, immediately before notify(): bail if the notification is gone, OR if this
         // room was dismissed after our triggering message was received (the latter also stops a
         // stale worker from clobbering a newer notification that re-posted in the meantime).
+        val builtNotification = builder.build()
         val reposted = synchronized(NotificationDismissTracker.lockFor(roomId)) {
             val stillActive = systemNm.activeNotifications.any { it.id == notifId }
             if (!stillActive || NotificationDismissTracker.isDismissedAfter(roomId, messageReceivedAt)) {
                 false
             } else {
-                NotificationManagerCompat.from(applicationContext).notify(notifId, builder.build())
+                NotificationManagerCompat.from(applicationContext).notify(notifId, builtNotification)
                 true
             }
         }
@@ -584,6 +585,26 @@ class NotificationImageWorker(
             if (BuildConfig.DEBUG) Log.d(TAG, "Worker re-post skipped for $roomId — dismissed during download window")
             return Result.success()
         }
+
+        // The People tile lags one notify(): this enriched post (image/caption/avatar) is the LAST
+        // post, but Phase 1 was text ("Sent an image"), so the one-behind tile would land on that
+        // text. Post the enriched content a SECOND time so the last two posts are identical-enriched
+        // and the tile lands on the image. Settle first so the People service treats them as two
+        // distinct updates (and so activeNotifications reflects our enriched post). Re-read the
+        // CURRENT notification rather than re-asserting builtNotification: if a newer message's
+        // Phase-1 post superseded ours during the settle, re-posting our stale image would revert the
+        // shade — re-posting current advances to whatever is now latest instead. Same dismiss guard.
+        kotlinx.coroutines.delay(400)
+        synchronized(NotificationDismissTracker.lockFor(roomId)) {
+            val current = systemNm.activeNotifications.firstOrNull { it.id == notifId }
+            if (current != null && !NotificationDismissTracker.isDismissedAfter(roomId, messageReceivedAt)) {
+                val repost = current.notification
+                repost.flags = repost.flags or android.app.Notification.FLAG_ONLY_ALERT_ONCE
+                NotificationManagerCompat.from(applicationContext).notify(notifId, repost)
+                if (BuildConfig.DEBUG) Log.d(TAG, "Posted enriched notification a 2nd time so one-behind People tile lands on it: $roomId")
+            }
+        }
+
         EnhancedNotificationDisplay.refreshGroupSummary(applicationContext, justPostedChild = true)
         if (BuildConfig.DEBUG) {
             // WIDGET DIAGNOSTIC (Phase 2 re-post): mirror EnhancedNotificationDisplay's WIDGET_POST
