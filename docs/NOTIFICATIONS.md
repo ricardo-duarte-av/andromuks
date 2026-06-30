@@ -268,3 +268,30 @@ Missing the flag at any site re-introduces the redirect-back-to-room_list race (
 Each room notification creates or updates a `ShortcutInfoCompat` (via `ConversationsApi`) so Android associates the notification with a conversation shortcut. This is required for `MessagingStyle` and bubble support.
 
 `ConversationsApi.onRoomActivity(roomItem)` is called inside the `synchronized` block in `showEnhancedNotification`, **after** `notificationManager.notify()`. This ensures only notifications that are actually posted push the room to the top of the Direct Share ranking — silent/suppressed notifications (low-priority rooms, same-room-app-visible suppression, bubble-already-visible silent updates) exit via early `return` before reaching the synchronized block and do not affect the ranking.
+
+## People / Conversation widget tile updates
+
+The Android **People / Conversation widget** (a launcher-hosted tile bound to a conversation `shortcutId`) is kept current for our rooms — including when the conversation is **silenced in Android** (the original goal: silencing is a device-side action gomuks doesn't know about, so it keeps pushing FCM, but a silenced notification no longer drives the widget on its own). The mechanism below was reverse-engineered against the AOSP People Space service and is **non-obvious** — several "obvious" approaches were tried and disproven, so read this before changing it.
+
+### What actually drives the tile content: notification posts, one behind
+
+The tile's **message text + unread count come from the notification posts**, not from the shortcut and not from the `ConversationStatus`. Two things that were tried and **do not** move the tile's content (verified by logcat): pushing/re-pushing the `ConversationStatus`, and re-pushing the conversation **shortcut**. Only a `notify()` advances the tile.
+
+Critically, the People Space service advances the tile **one notification-post behind** (a read-then-update: on a new post it renders from its *cached* previous notification, then refreshes its cache). So a **single** post per message leaves the tile lagging — **blank on the very first message**, then always showing the previous one. This affects **both DM (1:1) and group tiles**.
+
+The fix: the **worker always re-posts** (a second, silent `notify()` — `setSilent`/`setOnlyAlertOnce`, content identical to Phase 1). With two posts per message the tile lands on the current message. This is why `NotificationImageWorker` falls through and re-posts **even when Phase 2 enriched nothing** (`!anyApplied`): the second post is the point, not the (absent) content change. Plain text → 2 identical posts → tile shows current. Do **not** gate this to DMs only — groups were observed to regress to the same lag (a "mention updates the widget, normal message doesn't" report was really just the *second* message's post catching the tile up; our code does not branch on mention at all).
+
+- **DM (1:1) tiles patch in place** → the two posts look smooth.
+- **Group tiles rebuild (wipe-then-fill) on each post** → groups visibly "clear then render" on every message. This is the launcher's group-tile rendering, not our content (the two posts are byte-identical). It is the **accepted cost** of a correct, current group tile — notifications/group semantics take priority over widget smoothness. The only way to make a group tile patch-in-place like a DM is `setGroupConversation(false)`, which strips the group treatment from the *notification* itself — deliberately **not** done.
+
+### ConversationStatus — decoration only, and the start-time trap
+
+`ConversationsApi.pushConversationStatus` / `clearConversationStatus` (`PeopleManager.addOrUpdateStatus`, API 30+) attach an ephemeral status to the conversation (`statusId = "<roomId>_unread"`, `roomId` == shortcut id). It is **decoration only** (activity-type chip / DM availability dot) — it does **not** drive tile message/count (see above). Phase 1 pushes it only when **no worker will run** (`!willEnqueueWorker`); the worker pushes the authoritative one with the real activity derived from `get_event` (`m.video → ACTIVITY_VIDEO`, `m.audio → ACTIVITY_AUDIO`, `m.location → ACTIVITY_LOCATION`, else `ACTIVITY_OTHER`) — Phase 1 can only ever supply `ACTIVITY_OTHER` and would clobber the worker's if both ran. Cleared on remote-dismiss (`FCMService.handleDismissNotification`).
+
+- **Start time must be clamped to the past.** `addOrUpdateStatus` throws `IllegalArgumentException: Start time must be in the past` if `setStartTimeMillis` is in the future — and the **Matrix event timestamp routinely runs a few hundred ms ahead of the device clock** (server skew). Passing it raw made *every* push throw; the helper clamps to `min(timestamp, now − 1s)` and anchors the TTL to `now`. (This bug is why a long line of widget experiments "didn't work" — the pushes were silently throwing.)
+- DM availability is `AVAILABILITY_AVAILABLE` — a "just messaged → available" heuristic (no real presence feed; auto-expires with the status). The pill may render grey while an unread notification owns the tile.
+
+### Known limitations (by design, accepted)
+
+- **The widget cannot render inline images/videos** — the tile shows the body text ("Sent an image" / "Sent a video"). The image only exists in the worker's (second) post, and the one-behind tile lands on the Phase-1 *text* post; even granting the launcher read access to the FileProvider URI (which `contentUriForFile` does) wouldn't help, since the launcher widget doesn't draw inline media. The *notification* itself shows the image fine (systemui is granted).
+- `WIDGET_POST` / `WIDGET_REPOST` debug logs (in `showEnhancedNotification` and the worker) remain as `Log.d` markers for re-diagnosing tile behavior: they print room type, `groupConversation`, conversation title, shortcut id, message count, and last message text/ts/sender — compare "what we posted" against what the tile renders to localize a regression to our notification vs the People Space service.
