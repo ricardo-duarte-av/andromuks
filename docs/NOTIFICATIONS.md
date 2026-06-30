@@ -284,12 +284,15 @@ The fix: the **worker always re-posts** (a second, silent `notify()` — `setSil
 - **DM (1:1) tiles patch in place** → the two posts look smooth.
 - **Group tiles rebuild (wipe-then-fill) on each post** → groups visibly "clear then render" on every message. This is the launcher's group-tile rendering, not our content (the two posts are byte-identical). It is the **accepted cost** of a correct, current group tile — notifications/group semantics take priority over widget smoothness. The only way to make a group tile patch-in-place like a DM is `setGroupConversation(false)`, which strips the group treatment from the *notification* itself — deliberately **not** done.
 
-### ConversationStatus — decoration only, and the start-time trap
+### ConversationStatus — tried, then removed (do not re-add)
 
-`ConversationsApi.pushConversationStatus` / `clearConversationStatus` (`PeopleManager.addOrUpdateStatus`, API 30+) attach an ephemeral status to the conversation (`statusId = "<roomId>_unread"`, `roomId` == shortcut id). It is **decoration only** (activity-type chip / DM availability dot) — it does **not** drive tile message/count (see above). Phase 1 pushes it only when **no worker will run** (`!willEnqueueWorker`); the worker pushes the authoritative one with the real activity derived from `get_event` (`m.video → ACTIVITY_VIDEO`, `m.audio → ACTIVITY_AUDIO`, `m.location → ACTIVITY_LOCATION`, else `ACTIVITY_OTHER`) — Phase 1 can only ever supply `ACTIVITY_OTHER` and would clobber the worker's if both ran. Cleared on remote-dismiss (`FCMService.handleDismissNotification`).
+We previously pushed a `PeopleManager.addOrUpdateStatus` ConversationStatus per message (activity-type chip from `get_event` msgtype, DM availability dot) to "wake" silenced-conversation tiles. **It has been removed entirely** — do not bring it back without strong evidence:
 
-- **Start time must be clamped to the past.** `addOrUpdateStatus` throws `IllegalArgumentException: Start time must be in the past` if `setStartTimeMillis` is in the future — and the **Matrix event timestamp routinely runs a few hundred ms ahead of the device clock** (server skew). Passing it raw made *every* push throw; the helper clamps to `min(timestamp, now − 1s)` and anchors the TTL to `now`. (This bug is why a long line of widget experiments "didn't work" — the pushes were silently throwing.)
-- DM availability is `AVAILABILITY_AVAILABLE` — a "just messaged → available" heuristic (no real presence feed; auto-expires with the status). The pill may render grey while an unread notification owns the tile.
+- It **never drove tile message/count** (the notification posts do, see above), so it only ever provided cosmetic decoration.
+- Worse, it **interfered** with the notification-driven render: every `addOrUpdateStatus`/`clearStatus` routes through `DataManager.updateConversationStoreThenNotifyListeners`, poking the People Space listeners and racing the tile's content update — the tile stopped reacting to message content properly while we were writing statuses.
+- It was also a footgun: `addOrUpdateStatus` throws `IllegalArgumentException: Start time must be in the past` if `setStartTimeMillis` is in the future, and the **Matrix event timestamp routinely runs a few hundred ms ahead of the device clock** (server skew), so the raw timestamp made *every* push throw (which silently broke a long line of widget experiments).
+
+Silenced conversations stay current anyway: the People Space listener still receives silenced notification posts, and the always-re-post keeps the tile advancing — no status poke needed.
 
 ### Known limitations (by design, accepted)
 

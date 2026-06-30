@@ -565,15 +565,8 @@ class NotificationImageWorker(
             )
         }
 
-        // ConversationStatus decoration: refine the activity type from the event's msgtype
-        // (video/audio/location) and add a DM availability hint. Same status id, overwrites in place.
-        ConversationsApi.pushConversationStatus(
-            applicationContext,
-            roomId,
-            messageTimestamp.takeIf { it > 0L } ?: messageReceivedAt,
-            msgtype = eventJson?.let { decryptedContent(it)?.optString("msgtype") },
-            isDirectMessage = !isGroupRoom
-        )
+        // NOTE: No People ConversationStatus push here either — see ConversationsApi. The widget
+        // tile stays current via the (re-)posts above, not via status pokes.
 
         // 8. Keep the in-memory MessagingStyle cache consistent so a later rebuild (new message in
         //    the room) keeps the media/avatars instead of reverting to the Phase-1 placeholder.

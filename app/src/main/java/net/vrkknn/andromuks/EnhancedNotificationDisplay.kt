@@ -1101,23 +1101,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 )
             }
 
-            // ConversationStatus decoration (activity type / DM availability) for the People tile.
-            // NOTE: the status push does NOT drive the tile's message/count — that comes from the
-            // notification posts (the widget tile advances one post behind, which is why the worker
-            // now always re-posts; see NotificationImageWorker).
-            //
-            // Push here ONLY when no worker will run. The worker pushes the SAME status id with the
-            // real activity type derived from get_event (m.video → ACTIVITY_VIDEO, etc.) and lands
-            // last; this Phase-1 push can only ever supply ACTIVITY_OTHER (no event yet), so doing it
-            // alongside the worker would race and could overwrite the correct activity with OTHER.
-            if (!willEnqueueWorker) {
-                ConversationsApi.pushConversationStatus(
-                    context,
-                    notificationData.roomId,
-                    notificationData.timestamp ?: messageReceivedAt,
-                    isDirectMessage = !isGroupRoom
-                )
-            }
+            // NOTE: We intentionally do NOT push a People ConversationStatus here. It never drove the
+            // widget tile's message/count (the notification posts do), and it interfered with that
+            // render. See ConversationsApi and docs/NOTIFICATIONS.md.
 
             // SHORTCUT OPTIMIZATION: Shortcuts already updated above when notification is shown
             // Using efficient single-room update via updateShortcutsFromSyncRooms

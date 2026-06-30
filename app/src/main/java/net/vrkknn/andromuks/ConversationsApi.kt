@@ -65,82 +65,12 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         // App-specific category used for Direct Share.  Must match shortcuts.xml <share-target>.
         const val CATEGORY_SHARE_TARGET = "pt.aguiarvieira.andromuks.category.SHARE_TARGET"
 
-        // Suffix appended to a roomId to form the unread ConversationStatus id (so it can be
-        // cleared individually). The conversation id passed to PeopleManager IS the roomId —
-        // shortcut ids are room ids in this codebase (see createShortcutInfoCompat).
-        private const val STATUS_ID_SUFFIX = "_unread"
-        // Auto-expire window for the unread status so a never-read room doesn't linger forever.
-        private const val STATUS_TTL_MS = 6L * 60 * 60 * 1000 // 6 hours
-
-        /**
-         * Keep the People/Conversation widget tile fresh even when the conversation has been
-         * silenced in Android. A silenced notification is demoted below the importance threshold
-         * the People Space service watches, so it no longer bumps the widget — but
-         * PeopleManager.addOrUpdateStatus() pokes that service directly, bypassing the gate.
-         *
-         * No-op below Android 11 (PeopleManager / ConversationStatus are API 30+). The room's
-         * long-lived conversation shortcut must already be published (the notification path
-         * guarantees this via updateShortcutForNotificationSync before this is called).
-         */
-        fun pushConversationStatus(
-            context: Context,
-            roomId: String,
-            timestamp: Long,
-            msgtype: String? = null,
-            isDirectMessage: Boolean = false
-        ) {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
-            try {
-                val peopleManager = context.getSystemService(android.app.people.PeopleManager::class.java) ?: return
-                // Map the message's msgtype to a ConversationStatus activity so the tile reflects the
-                // kind of content waiting. Everything else (text, image, file, …) stays ACTIVITY_OTHER.
-                // msgtype is null in Phase 1 (FCM thread, no event yet); Phase 2 supplies it from get_event.
-                val activity = when (msgtype) {
-                    "m.video" -> android.app.people.ConversationStatus.ACTIVITY_VIDEO
-                    "m.audio" -> android.app.people.ConversationStatus.ACTIVITY_AUDIO
-                    "m.location" -> android.app.people.ConversationStatus.ACTIVITY_LOCATION
-                    else -> android.app.people.ConversationStatus.ACTIVITY_OTHER
-                }
-                // PeopleManager.addOrUpdateStatus rejects a FUTURE start time
-                // ("IllegalArgumentException: Start time must be in the past"). The Matrix event
-                // timestamp can run a few hundred ms ahead of the device clock (server/device skew),
-                // so passing it straight through made the immediate Phase-1 push throw — fatal for
-                // DMs, whose worker doesn't re-poke later when the clock has caught up. Clamp the
-                // start strictly into the past, and anchor the TTL to "now".
-                val nowMs = System.currentTimeMillis()
-                val startMs = minOf(timestamp, nowMs - 1000L)
-                val builder = android.app.people.ConversationStatus.Builder(
-                    "$roomId$STATUS_ID_SUFFIX",
-                    activity
-                )
-                    .setStartTimeMillis(startMs)
-                    .setEndTimeMillis(nowMs + STATUS_TTL_MS)
-                // DM availability heuristic ("just messaged → available"). Confirmed NOT the cause of
-                // the DM widget-tile lag, so kept. No real presence feed; auto-expires with the status.
-                if (isDirectMessage) {
-                    builder.setAvailability(android.app.people.ConversationStatus.AVAILABILITY_AVAILABLE)
-                }
-                peopleManager.addOrUpdateStatus(roomId, builder.build())
-                if (BuildConfig.DEBUG) Log.d(TAG, "Pushed ConversationStatus for room: $roomId (activity=$activity, dm=$isDirectMessage)")
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to push ConversationStatus for room: $roomId", e)
-            }
-        }
-
-        /**
-         * Clear the unread ConversationStatus pushed by [pushConversationStatus] — called when the
-         * room is read/remote-dismissed so the widget tile stops reading as active.
-         */
-        fun clearConversationStatus(context: Context, roomId: String) {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
-            try {
-                val peopleManager = context.getSystemService(android.app.people.PeopleManager::class.java) ?: return
-                peopleManager.clearStatus(roomId, "$roomId$STATUS_ID_SUFFIX")
-                if (BuildConfig.DEBUG) Log.d(TAG, "Cleared ConversationStatus for room: $roomId")
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to clear ConversationStatus for room: $roomId", e)
-            }
-        }
+        // NOTE: We deliberately do NOT push PeopleManager ConversationStatus for rooms. It is
+        // decoration-only (it never drove the widget tile's message/count — notification posts do),
+        // and every addOrUpdateStatus/clearStatus routes through the People Space DataManager and
+        // notifies its listeners, which interfered with the notification-driven tile render. The
+        // widget stays current purely via the notification posts (see NotificationImageWorker's
+        // always-re-post and docs/NOTIFICATIONS.md).
     }
 
     private val sentRoomsPrefs by lazy {
