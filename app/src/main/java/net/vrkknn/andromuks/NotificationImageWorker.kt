@@ -531,6 +531,12 @@ class NotificationImageWorker(
         // refine the Phase-1 ACTIVITY_OTHER into video/audio/location, and add a DM availability
         // hint. Same status id, so it overwrites the Phase-1 status in place. Only after a
         // successful re-post (room was not read during the download window).
+        //
+        // Settle delay first: the re-post above propagates to the People Space service
+        // asynchronously, so pushing the status immediately rebuilds the widget tile against the
+        // PREVIOUS notification (tile lags one message behind). doWork is suspend and WorkManager
+        // keeps the process alive for the wait, so this is reliable in the background.
+        kotlinx.coroutines.delay(1200L)
         ConversationsApi.pushConversationStatus(
             applicationContext,
             roomId,

@@ -1014,15 +1014,6 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 refreshGroupSummary(context, justPostedChild = true)
                 // Push room to top of the active-rooms tracker only after a notification was actually posted
                 conversationsApi?.onRoomActivity(roomItem)
-                // Bump the People/Conversation widget tile directly. pushDynamicShortcut alone does
-                // not refresh the widget for a conversation the user has silenced in Android (the
-                // silenced notification no longer drives the People Space service); a
-                // ConversationStatus poke does. See ConversationsApi.pushConversationStatus.
-                ConversationsApi.pushConversationStatus(
-                    context,
-                    notificationData.roomId,
-                    notificationData.timestamp ?: messageReceivedAt
-                )
             } // End synchronized block
 
             // Phase 2: enqueue ONE worker (outside the synchronized block) to finish the
@@ -1084,6 +1075,22 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     messageReceivedAt = messageReceivedAt
                 )
             }
+
+            // Bump the People/Conversation widget tile so it refreshes even when this conversation
+            // is silenced in Android (a silenced notification no longer drives the People Space
+            // service; a ConversationStatus poke does). CRITICAL: settle first. notify() above
+            // propagates to the People Space service asynchronously, so a status push fired
+            // immediately rebuilds the widget tile against the PREVIOUS notification — the tile lags
+            // one message behind. Delaying lets the just-posted notification land first so the tile
+            // reflects THIS message. We are inside the awaited suspend function, so the process stays
+            // alive for the wait. Phase 2 later overwrites this same status id with a richer activity
+            // type derived from get_event.
+            kotlinx.coroutines.delay(1200L)
+            ConversationsApi.pushConversationStatus(
+                context,
+                notificationData.roomId,
+                notificationData.timestamp ?: messageReceivedAt
+            )
 
             // SHORTCUT OPTIMIZATION: Shortcuts already updated above when notification is shown
             // Using efficient single-room update via updateShortcutsFromSyncRooms
