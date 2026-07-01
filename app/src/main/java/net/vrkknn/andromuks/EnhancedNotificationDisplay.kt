@@ -232,6 +232,42 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 }
             }
         }
+
+        /**
+         * Called by NotificationImageWorker after resolving a per-message profile (a bridge relay
+         * bot's real actor name/avatar) for the message at [timestamp]. Re-stamps just that one
+         * cached message from [senderId] with the relabelled [newName] and/or [icon], so a later
+         * showEnhancedNotification rebuild keeps it instead of reverting to the bare bot identity.
+         * Only the single target message is touched — the profile is per-message, not per-sender.
+         */
+        internal fun upgradePerMessageProfile(
+            roomId: String,
+            timestamp: Long,
+            senderId: String,
+            newName: CharSequence?,
+            icon: IconCompat?
+        ) {
+            if (newName == null && icon == null) return
+            val messages = roomMessageCache[roomId] ?: return
+            synchronized(messages) {
+                val idx = messages.indexOfLast { it.timestamp == timestamp }
+                if (idx < 0) return
+                val msg = messages[idx]
+                val person = msg.person ?: return
+                if (person.key != senderId) return
+                val newPerson = Person.Builder()
+                    .setName(newName ?: person.name)
+                    .setKey(person.key)
+                    .setUri(person.uri)
+                    .setIcon(icon ?: person.icon)
+                    .build()
+                val rebuilt = MessagingStyle.Message(msg.text, msg.timestamp, newPerson)
+                val mime = msg.dataMimeType
+                val uri = msg.dataUri
+                if (mime != null && uri != null) rebuilt.setData(mime, uri)
+                messages[idx] = rebuilt
+            }
+        }
     }
     
     private val conversationsApi = ConversationsApi(context, homeserverUrl, authToken, "")

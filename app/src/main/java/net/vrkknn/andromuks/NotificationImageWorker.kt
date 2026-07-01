@@ -267,13 +267,20 @@ class NotificationImageWorker(
         val imageSources = listOfNotNull(thumbImage, payloadImage)
         val imageRequested = imageSources.isNotEmpty()
 
+        // Per-message profile (bridge relay bots: the account sends AS @github but each message
+        // carries the real GitHub actor's name/avatar). Not in the FCM payload — read from the
+        // fetched event and used below to relabel the target message's sender as
+        // "<profile name> via <bot name>" and swap in the profile avatar. See extractPerMessageProfile.
+        val perMessageProfile = eventJson?.let { extractPerMessageProfile(it) }
+
         // 3. Download everything in parallel. Avatars and the image are all cache-first; the batch
         //    token is preferred for media auth, the session token is the fallback.
         data class Downloads(
             val image: Pair<File, String>?,   // (file, mime) — mime tracks which source produced it
             val room: Bitmap?,
             val sender: Bitmap?,
-            val me: Bitmap?
+            val me: Bitmap?,
+            val profile: Bitmap?              // per-message-profile avatar (target message only)
         )
         val dl = coroutineScope {
             val imageDeferred = async {
@@ -287,7 +294,8 @@ class NotificationImageWorker(
             val roomDeferred = async { roomAvatarMxc?.let { loadCircular(it, homeserverUrl, effectiveToken, authToken, maxPx) } }
             val senderDeferred = async { senderAvatarMxc?.let { loadCircular(it, homeserverUrl, effectiveToken, authToken, maxPx) } }
             val meDeferred = async { meAvatarMxc?.let { loadCircular(it, homeserverUrl, effectiveToken, authToken, maxPx) } }
-            Downloads(imageDeferred.await(), roomDeferred.await(), senderDeferred.await(), meDeferred.await())
+            val profileDeferred = async { perMessageProfile?.avatarMxc?.let { loadCircular(it, homeserverUrl, effectiveToken, authToken, maxPx) } }
+            Downloads(imageDeferred.await(), roomDeferred.await(), senderDeferred.await(), meDeferred.await(), profileDeferred.await())
         }
 
         // PERSISTENT avatar fallback: an mxc URL was deferred from Phase 1 (cache miss there), but the
@@ -309,6 +317,7 @@ class NotificationImageWorker(
 
         val senderIcon = dl.sender?.let { IconCompat.createWithAdaptiveBitmap(it) }
         val meIcon = dl.me?.let { IconCompat.createWithBitmap(it) }
+        val profileIcon = dl.profile?.let { IconCompat.createWithAdaptiveBitmap(it) }
 
         val audio: AudioOutcome? = eventJson?.let {
             try {
@@ -330,8 +339,13 @@ class NotificationImageWorker(
         // take precedence since those msgtypes never produce richText.
         val richText = eventJson?.let { richTextForTextMessage(it) }
 
+        // The per-message profile is a real change when it carries a name and/or a downloaded avatar.
+        val hasProfileChange = perMessageProfile != null &&
+            (profileIcon != null || perMessageProfile.displayname != null)
+
         val anyApplied = imageUri != null || senderIcon != null || meIcon != null || dl.room != null ||
-            audioUri != null || audioCaption != null || mediaCaption != null || richText != null
+            audioUri != null || audioCaption != null || mediaCaption != null || richText != null ||
+            hasProfileChange
         if (!anyApplied) {
             // Nothing to apply. Only retry if something was actually *requested* and failed —
             // a plain text message (event fetched, not audio) is a legitimate no-op, not a failure.
@@ -400,7 +414,9 @@ class NotificationImageWorker(
         val targetMediaUri = imageUri ?: audioUri
         val targetMediaMime = if (imageUri != null) imageMime else (audio?.mime ?: "")
         val targetCaption = audioCaption ?: mediaCaption ?: richText   // caption / formatted text replaces the Phase-1 text
-        val hasTargetChange = targetMediaUri != null || targetCaption != null
+        // The per-message profile also targets this single event's message, so it participates in the
+        // target-index resolution (a name-only profile on a plain text message still needs a target).
+        val hasTargetChange = targetMediaUri != null || targetCaption != null || hasProfileChange
         val targetIndex = if (hasTargetChange) {
             if (messageTimestamp > 0L) {
                 messages.indexOfLast { it.timestamp == messageTimestamp }.takeIf { it >= 0 } ?: messages.lastIndex
@@ -411,6 +427,17 @@ class NotificationImageWorker(
             -1
         }
 
+        // Relabel the target message's sender as "<profile name> via <bot name>". The base name is
+        // the target message's current sender name; stripping a pre-existing " via …" keeps this
+        // idempotent so a worker retry (which reads its own earlier re-post) never double-wraps it.
+        val perMessageName: CharSequence? = if (hasProfileChange && perMessageProfile?.displayname != null) {
+            val targetPerson = messages.getOrNull(targetIndex)?.person
+            if (targetPerson != null && targetPerson.key == senderId) {
+                val baseName = targetPerson.name?.toString()?.substringAfterLast(" via ") ?: senderId
+                "${perMessageProfile.displayname} via $baseName"
+            } else null
+        } else null
+
         // 5. Rebuild: patch "me" Person icon (root), each message's sender Person icon, and the
         //    target message's text/media data — all in one pass.
         val newUser = if (meIcon != null) rebuildPerson(existingStyle.user, meIcon) else existingStyle.user
@@ -419,10 +446,24 @@ class NotificationImageWorker(
             .setGroupConversation(existingStyle.isGroupConversation)
         messages.forEachIndexed { idx, msg ->
             val person = msg.person
-            val updatePerson = senderIcon != null && person != null && person.key == senderId
             val applyTarget = hasTargetChange && idx == targetIndex
-            if (updatePerson || applyTarget) {
-                val newPerson = if (updatePerson) rebuildPerson(person, senderIcon) else person
+            val isSender = person != null && person.key == senderId
+            // Per-message profile (name + avatar) applies ONLY to the target message — it is specific
+            // to the single event this worker fetched. The generic sender avatar still applies to
+            // every other message from this sender.
+            val applyProfile = applyTarget && isSender && (perMessageName != null || profileIcon != null)
+            val updatePerson = senderIcon != null && isSender && !applyProfile
+            if (updatePerson || applyTarget || applyProfile) {
+                val newPerson = when {
+                    applyProfile -> Person.Builder()
+                        .setName(perMessageName ?: person!!.name)
+                        .setKey(person!!.key)
+                        .setUri(person.uri)
+                        .setIcon(profileIcon ?: senderIcon ?: person.icon)
+                        .build()
+                    updatePerson -> rebuildPerson(person!!, senderIcon!!)
+                    else -> person
+                }
                 val newText = if (applyTarget && targetCaption != null) targetCaption else msg.text
                 val rebuilt = MessagingStyle.Message(newText, msg.timestamp, newPerson)
                 if (applyTarget && targetMediaUri != null) {
@@ -446,9 +487,10 @@ class NotificationImageWorker(
             "conversation_channel_$sanitized"
         }
 
-        // 7. Large icon: groups show the room avatar, DMs the sender avatar. Use the freshly
+        // 7. Large icon: groups show the room avatar, DMs the sender avatar (a per-message-profile
+        //    avatar wins for a DM, so the face matches the relabelled sender). Use the freshly
         //    downloaded bitmap if we have it; otherwise restore the existing one so we don't blank it.
-        val newLargeIcon: Bitmap? = if (isGroupRoom) dl.room else dl.sender
+        val newLargeIcon: Bitmap? = if (isGroupRoom) dl.room else (dl.profile ?: dl.sender)
 
         val builder = NotificationCompat.Builder(applicationContext, channelId)
             .setSmallIcon(R.drawable.matrix)
@@ -630,6 +672,14 @@ class NotificationImageWorker(
         if (senderIcon != null) {
             EnhancedNotificationDisplay.upgradeAvatarsInCache(roomId, senderId, senderIcon)
         }
+        // Persist the per-message profile (name/avatar) into the in-memory MessagingStyle cache so a
+        // later Phase-1 rebuild (a new message in the same room) keeps this message's relabelled
+        // sender instead of reverting it to the bare bridge-bot name/avatar.
+        if (hasProfileChange && messageTimestamp > 0L) {
+            EnhancedNotificationDisplay.upgradePerMessageProfile(
+                roomId, messageTimestamp, senderId, perMessageName, profileIcon
+            )
+        }
 
         if (BuildConfig.DEBUG) Log.d(
             TAG,
@@ -738,6 +788,24 @@ class NotificationImageWorker(
      */
     private fun decryptedContent(eventJson: JSONObject): JSONObject? =
         eventJson.optJSONObject("decrypted") ?: eventJson.optJSONObject("content")
+
+    /** A relay bot's per-message identity: the real actor's display name and/or avatar. */
+    private data class PerMessageProfile(val displayname: String?, val avatarMxc: String?)
+
+    /**
+     * Read a `com.beeper.per_message_profile` from the event content, or null. Bridge relay bots
+     * (e.g. the GitHub webhook bot) send every message AS one account but stamp each with the real
+     * actor's `displayname` + `avatar_url` here, so the notification can show who actually acted.
+     * Returns null when the key is absent or carries neither a name nor an avatar.
+     */
+    private fun extractPerMessageProfile(eventJson: JSONObject): PerMessageProfile? {
+        val content = decryptedContent(eventJson) ?: return null
+        val profile = content.optJSONObject("com.beeper.per_message_profile") ?: return null
+        val displayname = profile.optString("displayname").takeIf { it.isNotBlank() }
+        val avatarMxc = profile.optString("avatar_url").takeIf { it.isNotBlank() }
+        if (displayname == null && avatarMxc == null) return null
+        return PerMessageProfile(displayname, avatarMxc)
+    }
 
     /** Voice-note marker is a *present key* (often an empty object) — test presence, not value. */
     private fun isVoiceMessage(content: JSONObject): Boolean =
