@@ -128,13 +128,24 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // least one even if activeNotifications hasn't caught up yet.
             if (justPostedChild && childCount == 0) childCount = 1
 
-            // A group summary is only meaningful with 2+ children. With a single child, Android
-            // collapses the group to show the *summary* (not the child) on most OEMs/versions, so a
-            // summary contentIntent (-> room_list) would steal the tap from the lone child's
-            // per-room intent. Don't post a summary until there are 2+ children — a single grouped
-            // child displays standalone and keeps its own createRoomIntent (-> the room).
-            if (childCount < 2) {
+            // A group summary is only meaningful with 2+ children, so we tear it down as the count
+            // drops — but HOW matters. Android cancels a group's CHILDREN when its summary is
+            // cancelled, so cancel(SUMMARY_NOTIF_ID) is only safe once NO children remain. Cancelling
+            // it while one child is still up would dismiss that child too — the "mark one room read →
+            // ALL notifications vanish" bug: mark-read cancels its own room, then this ran with one
+            // sibling left and the summary-cancel took the sibling down with it.
+            if (childCount == 0) {
+                // No children to cascade — safe to remove the (now-orphaned) summary.
                 nmc.cancel(SUMMARY_NOTIF_ID)
+                return
+            }
+            if (childCount == 1) {
+                // Exactly one child left. Do NOT cancel the summary here — it would cascade and
+                // dismiss that last notification. Leave the summary in place; it self-clears when the
+                // final child goes (childCount==0 above) and is rebuilt when a second child returns.
+                // A summary hovering over a single child is a minor cosmetic quirk; nuking the
+                // surviving notification is not. (If no summary was ever posted — e.g. a room's first
+                // and only notification — there is simply nothing to cancel, same as before.)
                 return
             }
             // Tapping the collapsed summary header opens the app to RoomListScreen, just like

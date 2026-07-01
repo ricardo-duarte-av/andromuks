@@ -169,6 +169,8 @@ Two details specific to the worker's media handling:
 
 The protection window is **not** set for replies sent from other clients (Webmuks, another Andromuks instance, etc.). Those replies arrive via WebSocket sync and do not go through `NotificationReplyReceiver`, so the dismiss FCM they trigger is allowed through and correctly clears the Android notification.
 
+> ⚠️ **Group-summary invariant: never `cancel()` the group summary while any child is still posted.** Android cancels a group's *children* when its summary is cancelled, so `refreshGroupSummary` only cancels `SUMMARY_NOTIF_ID` when `childCount == 0`. With one child left it leaves the summary in place (self-clears when the last child goes). Cancelling the summary at `childCount == 1` was the "mark one room read → every notification vanishes" bug: the per-room `cancel` dropped its own room, then the summary-cancel cascade took the surviving sibling down with it.
+
 ### Dismiss/post race — the per-room dismiss tombstone
 
 A dismiss FCM (`{ "dismiss": [{ "room_id": … }] }`) carries **only `room_id`** — no event id, no timestamp (confirmed against gomuks' `PushDismiss` struct). It is a fire-and-forget `cancel()` with no durable memory. That left two races whenever a dismiss arrived near-simultaneously with the message it was meant to clear — reproducible when another client (e.g. Webmuks) marks a DM read *faster than the FCM round-trip*, so the message FCM and the dismiss FCM land within milliseconds:
