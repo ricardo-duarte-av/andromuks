@@ -247,8 +247,10 @@ object HtmlParser {
             val nextTagStart = html.indexOf('<', currentPos)
             
             if (nextTagStart == -1) {
-                // No more tags, add remaining text
-                val text = html.substring(currentPos)
+                // No more tags, add remaining text.
+                // Decode entities here (at the leaf), NOT on the whole markup before parsing —
+                // otherwise "&lt;tag&gt;" would decode to "<tag>" and be misparsed as a real tag.
+                val text = decodeHtmlEntities(html.substring(currentPos))
                 if (preserveWhitespace) {
                     if (text.isNotEmpty()) {
                         nodes.add(HtmlNode.Text(text))
@@ -265,7 +267,7 @@ object HtmlParser {
             
             // Add text before the tag
             if (nextTagStart > currentPos) {
-                val text = html.substring(currentPos, nextTagStart)
+                val text = decodeHtmlEntities(html.substring(currentPos, nextTagStart))
                 // Use isNotEmpty() instead of isNotBlank() to preserve spaces between tags
                 if (text.isNotEmpty()) {
                     nodes.add(HtmlNode.Text(text))
@@ -277,7 +279,7 @@ object HtmlParser {
             if (tagEnd == -1) {
                 // No closing '>' found - this might be text that looks like a tag (e.g., "<--")
                 // Treat everything from the '<' onwards as text
-                val text = html.substring(nextTagStart)
+                val text = decodeHtmlEntities(html.substring(nextTagStart))
                 if (preserveWhitespace) {
                     if (text.isNotEmpty()) {
                         nodes.add(HtmlNode.Text(text))
@@ -1378,11 +1380,12 @@ private fun AnnotatedString.Builder.appendImage(
  * (decoded form gomuks provides), falling back to the raw text of the inner <code> element.
  */
 private fun extractMathLatex(tag: HtmlNode.Tag): String {
-    // sanitized_html isn't entity-decoded upstream, so LaTeX that legitimately contains
-    // '&' (matrix/align column separators), '<', or '>' arrives escaped — decode it here.
+    // The `latex` attribute is not a leaf text node, so the parser hasn't decoded it. LaTeX that
+    // legitimately contains '&', '<', or '>' arrives escaped in the attribute — decode it here.
     val attr = tag.attributes["latex"]?.takeIf { it.isNotBlank() }
     if (attr != null) return decodeHtmlEntities(attr)
-    return decodeHtmlEntities(buildString { collectRawText(tag, this) }.trim())
+    // collectRawText already yields decoded leaf text (parser decodes entities), so don't re-decode.
+    return buildString { collectRawText(tag, this) }.trim()
 }
 
 /**
@@ -1486,10 +1489,10 @@ fun decodeHtmlEntities(html: String): String {
 fun extractSanitizedHtml(event: TimelineEvent): String? {
     // Check if event has local_content with sanitized_html
     // local_content is a top-level field in the event JSON, parsed into TimelineEvent.localContent
-    val sanitizedHtml = event.localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
-    
-    // Decode HTML entities before returning
-    return sanitizedHtml?.let { decodeHtmlEntities(it) }
+    // Return the raw sanitized HTML. Entity decoding happens inside HtmlParser at the
+    // leaf text nodes — decoding here (before parsing) would turn escaped literals like
+    // "&lt;tag&gt;" into "<tag>" and the parser would then drop them as unknown markup.
+    return event.localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
 }
 
 private fun hasReplyFallback(event: TimelineEvent): Boolean {
@@ -1621,7 +1624,8 @@ fun HtmlMessageText(
         // Use provided htmlContent if available (e.g., from edit), otherwise extract from event
         val result = if (htmlContent != null && htmlContent.isNotBlank()) {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: Using provided htmlContent for event ${event.eventId}, length: ${htmlContent.length}, preview: ${htmlContent.take(100)}")
-            decodeHtmlEntities(htmlContent)
+            // Pass raw markup to the parser; entities are decoded at leaf text nodes.
+            htmlContent
         } else {
             // Extract from event - prioritize sanitized_html over formatted_body
             val sanitized = extractSanitizedHtml(event)
@@ -1633,7 +1637,8 @@ fun HtmlMessageText(
                     ?: event.content?.optString("formatted_body")?.takeIf { it.isNotBlank() }
                 if (formattedBody != null) {
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: Using formatted_body for event ${event.eventId}, length: ${formattedBody.length}, preview: ${formattedBody.take(100)}")
-                    decodeHtmlEntities(formattedBody)
+                    // Pass raw markup to the parser; entities are decoded at leaf text nodes.
+                    formattedBody
                 } else {
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: No HTML content found for event ${event.eventId}")
                     null
@@ -2553,11 +2558,8 @@ private fun AnnotatedString.Builder.endsWithWhitespace(): Boolean {
  */
 fun htmlToNotificationText(htmlContent: String): android.text.Spanned {
     return try {
-        // Decode HTML entities first
-        val decoded = decodeHtmlEntities(htmlContent)
-        
-        // Parse HTML into nodes
-        val nodes = HtmlParser.parse(decoded)
+        // Parse raw markup; the parser decodes entities at leaf text nodes.
+        val nodes = HtmlParser.parse(htmlContent)
         
         // Convert to SpannableStringBuilder with styles
         val builder = android.text.SpannableStringBuilder()
@@ -2754,11 +2756,11 @@ fun htmlToNotificationText(htmlContent: String): android.text.Spanned {
  */
 fun renderHtmlToAnnotatedString(htmlContent: String, baseColor: Color = Color.Unspecified): AnnotatedString {
     return try {
-        val decoded = decodeHtmlEntities(htmlContent)
-        val nodes = HtmlParser.parse(decoded)
-        
+        // Parse raw markup; the parser decodes entities at leaf text nodes.
+        val nodes = HtmlParser.parse(htmlContent)
+
         if (nodes.isEmpty()) {
-            return AnnotatedString(decoded)
+            return AnnotatedString(decodeHtmlEntities(htmlContent))
         }
         
         buildAnnotatedString {
