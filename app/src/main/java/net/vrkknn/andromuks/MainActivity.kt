@@ -376,6 +376,9 @@ class MainActivity : FragmentActivity() {
                                 ?: run {
                                     if (candidateRoomId != null) {
                                         Log.w("Andromuks", "MainActivity: onCreate - rejected malformed room_id from intent (length=${candidateRoomId.length})")
+                                        // Release-visible: a malformed id silently drops the tap to
+                                        // room_list (no setDirectRoomNavigation), so record why.
+                                        Androlog("FCMOpen", "onCreate REJECTED malformed room_id (length=${candidateRoomId.length}) directNav=$directNavigation fromNotif=$fromNotification → will land on room_list")
                                     }
                                     null
                                 }
@@ -460,6 +463,20 @@ class MainActivity : FragmentActivity() {
                                     roomId = extractedRoomId,
                                     notificationTimestamp = null,
                                     targetEventId = notificationEventId
+                                )
+                                // Mirror the onNewIntent (warm-start) FCMOpen breadcrumb for the
+                                // cold-start path so a "tap landed on room_list" report can be
+                                // diagnosed from the Androlog alone. Captures the three
+                                // discriminators that pick out which navigation branch runs:
+                                // cached (room already in the hydrated roomMap → cache-first
+                                // effect vs post-init callback fallback), wsConn, spacesLoaded.
+                                Androlog(
+                                    "FCMOpen",
+                                    "onCreate room=$extractedRoomId fromNotif=$fromNotification directNav=$directNavigation " +
+                                        "cached=${appViewModel.getRoomById(extractedRoomId) != null} " +
+                                        "wsConn=${WebSocketService.isWebSocketConnected()} stuck=${WebSocketService.isConnectionStuck()} " +
+                                        "spacesLoaded=${appViewModel.spacesLoaded} isPrimary=${appViewModel.isPrimaryInstance()} " +
+                                        "eventId=$notificationEventId"
                                 )
                                 if (!shortcutUserId.isNullOrBlank()) {
                                     appViewModel.reportPersonShortcutUsed(shortcutUserId)
@@ -937,6 +954,7 @@ class MainActivity : FragmentActivity() {
             ?: run {
                 if (candidateRoomId != null) {
                     Log.w("Andromuks", "MainActivity: onNewIntent - rejected malformed room_id from intent (length=${candidateRoomId.length})")
+                    Androlog("FCMOpen", "onNewIntent REJECTED malformed room_id (length=${candidateRoomId.length}) directNav=$directNavigation fromNotif=$fromNotification → will stay on current screen")
                 }
                 null
             }
@@ -1347,6 +1365,13 @@ fun AppNavigation(
                 delay(100)
             }
 
+            val polledReady = appViewModel.isWebSocketConnected() && (isRoomCached || appViewModel.spacesLoaded)
+            if (!polledReady) {
+                // Deadline expired without readiness — executeRoomNavigation runs anyway
+                // below, but against a half-ready state, so the open can stall or fall back
+                // to room_list. Record it (release-visible).
+                Androlog("FCMOpen", "AppNavigation poll TIMEOUT (10s) room=$roomId source=${request.source} cached=$isRoomCached wsConn=${appViewModel.isWebSocketConnected()} spacesLoaded=${appViewModel.spacesLoaded}")
+            }
             if (BuildConfig.DEBUG) {
                 Log.d("Andromuks", "AppNavigation: poll done for $roomId (ws=${appViewModel.isWebSocketConnected()} spaces=${appViewModel.spacesLoaded} currentRoom=${appViewModel.currentRoomId})")
             }

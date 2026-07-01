@@ -913,6 +913,7 @@ fun RoomTimelineScreen(
                     timeoutMs = 15_000L,
                     roomId = targetRoomId,
                 )
+                Androlog("FCMOpen", "RoomTimelineScreen hot-swap OPEN room=$targetRoomId (from=$roomId) isReady=$isReady → room_timeline")
                 if (BuildConfig.DEBUG) Log.d(
                     "Andromuks",
                     "RoomTimelineScreen: Room $targetRoomId readiness=$isReady before navigating (hot-swap)"

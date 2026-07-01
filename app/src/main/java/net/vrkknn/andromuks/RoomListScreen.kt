@@ -236,6 +236,7 @@ internal suspend fun executeRoomNavigation(
     notificationTimestamp: Long?,
     clearNavigation: () -> Unit,
 ) {
+    Androlog("FCMOpen", "executeRoomNavigation OPEN room=$roomId cached=${appViewModel.getRoomById(roomId) != null} wsConn=${appViewModel.isWebSocketConnected()} → room_timeline")
     appViewModel.flushSyncBatchForRoom(roomId)
     clearNavigation()
     if (notificationTimestamp != null) {

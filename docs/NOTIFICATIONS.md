@@ -266,6 +266,30 @@ Missing the flag at any site re-introduces the redirect-back-to-room_list race (
 
 `navigateToRoomWithCache` sets `isTimelineLoading = true` synchronously before launching its coroutine. The coroutine contains two early-return abort checks (after the batch flush, and before `requestRoomTimeline`) that trigger when a concurrent navigation supersedes the current one (`currentRoomId != roomId`). Both abort handlers reset `isTimelineLoading = false` when `currentRoomId.isEmpty()` (user navigated back to room list), preventing the loading spinner from sticking permanently.
 
+### Diagnosing a tap that lands on `room_list` — the `FCMOpen` Androlog trail
+
+A notification tap has several racing consumers that can open `room_timeline/<id>` (see AUTHCHECK.md for the full flow). Any path that fails to push the timeline leaves the user on `room_list` — the shared failure surface. Because most of these branches are release-invisible (`Log.d` is stripped, and some failures were previously only a `Log.w`), the whole path is instrumented with **`Androlog` breadcrumbs under the `FCMOpen` category** so a "tap landed on the list" report is reconstructable from the on-device log alone (**Settings → Androlog**, filter `FCMOpen`). `Androlog.log` mirrors to logcat as `Log.i` (survives R8), so a live logcat dump shows them too.
+
+Every breadcrumb captures the three discriminators that pick out which branch runs: **cached** (room already in the hydrated `roomMap` → cache-first effect vs. post-init callback fallback), **wsConn** (WebSocket connected), and **spacesLoaded**.
+
+| Site | Breadcrumb | Meaning |
+|---|---|---|
+| `MainActivity.onCreate` (cold start) | `onCreate room=… fromNotif=… directNav=… cached=… wsConn=… stuck=… spacesLoaded=… isPrimary=… eventId=…` | Intent parsed, `setDirectRoomNavigation` stored. Mirrors the warm-start line below. |
+| `MainActivity.onCreate` / `onNewIntent` | `… REJECTED malformed room_id (length=…) …` | `room_id` failed `isValidMatrixRoomId`; no navigation stored → falls to room_list. Previously a silent `Log.w`. |
+| `MainActivity.onNewIntent` (warm start) | `onNewIntent room=… fromNotif=… stuck=… wsConn=…` | Pre-existing breadcrumb; the cold-start `onCreate` one now matches it. |
+| `AuthCheck` spaces-loaded effect | `AuthCheck cache-first OPEN room=… (spacesLoaded) → room_timeline` | Cache hit; opened cache-first. **Success.** |
+| `AuthCheck` spaces-loaded effect | `AuthCheck cache-MISS room=… (not in roomMap) → deferring to post-init WebSocket callback; wsConn=…` | Room not cached; navigation deferred to the post-init callback (needs WS + init). |
+| `AuthCheck` post-init callback | `AuthCheck post-init callback: direct room=… cached=… route=…` | Callback fired (WS connected + init done); entering the direct block. |
+| `AuthCheck` post-init callback | `AuthCheck post-init: room=… already open (cache-first won the race) — skipping re-navigation` | Idempotency guard hit; cache-first effect already opened it. |
+| `AuthCheck` post-init callback | `AuthCheck post-init OPEN room=… isReady=… → room_timeline` | Opened after `awaitRoomDataReadiness`. **Success** (cache-miss path). |
+| `AuthCheck` 10 s timeout fallback | `AuthCheck TIMEOUT (10s) with directRoomNavigation STILL PENDING room=… — stranding on room_list. …` | **The prime failure.** Uncached room + WS/init never completed within 10 s; the fallback is about to drop the user on room_list. |
+| `navigateToRoomListIfNeeded` | `navigateToRoomListIfNeeded FORCE → room_list from … (openedViaDirectNotification=…)` | Force-redirect off a live timeline. Correct for a normal relaunch; the **Bug-7 "yanked back"** symptom if it fires mid-open with `openedViaDirectNotification=false`. |
+| `AppNavigation` channel consumer | `AppNavigation poll TIMEOUT (10s) room=… source=… cached=… wsConn=… spacesLoaded=…` | Readiness poll expired; `executeRoomNavigation` runs against a half-ready state (can stall / fall back). |
+| `executeRoomNavigation` | `executeRoomNavigation OPEN room=… cached=… wsConn=… → room_timeline` | Shared open point for the channel-consumer path. **Success.** |
+| `RoomTimelineScreen` navTrigger | `RoomTimelineScreen hot-swap OPEN room=… (from=…) isReady=… → room_timeline` | Warm-start cross-room open while already on a timeline. **Success.** |
+
+Reading the trail: the **last** `FCMOpen` line before the user notices the list tells you which branch fired last. An `OPEN … → room_timeline` line means navigation was issued (look downstream — `awaitRoomDataReadiness TIMEOUT`, `onInitComplete SKIPPED`, `requestRoomTimeline: WS down` — for why the timeline itself may be empty); a `TIMEOUT … stranding on room_list` or `FORCE → room_list` line means the open never happened.
+
 ## Shortcut / conversation API
 
 Each room notification creates or updates a `ShortcutInfoCompat` (via `ConversationsApi`) so Android associates the notification with a conversation shortcut. This is required for `MessagingStyle` and bubble support.
