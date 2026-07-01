@@ -516,28 +516,23 @@ private fun AnnotatedString.Builder.appendHtmlNode(
             text = if (hideContent) {
                 maskSpoilerText(text)
             } else {
-                // Preserve newlines in text nodes, but handle them carefully to avoid double breaks
-                // Normalize tabs/multiple spaces within each line
-                // Preserve single spaces around inline tags (like <strong>, <em>) for readability
-                // Only normalize multiple spaces/tabs to single spaces, don't trim edges
-                var normalized = text.replace("\r\n", "\n")
-                    .replace("\r", "\n")
-                    .replace(Regex("[\\t ]+"), " ")
-                // If previous node was a line break, trim leading whitespace/newlines from this text node
-                // This prevents extra spaces/newlines when HTML has "<br>\nMessage"
-                if (previousWasLineBreak && normalized.isNotEmpty() && (normalized[0].isWhitespace() || normalized[0] == '\n')) {
+                // Collapse ALL insignificant HTML whitespace — including source newlines used
+                // purely for indentation (e.g. GitHub bridge messages) — into single spaces.
+                // Per HTML, a newline inside text content is NOT a line break; real breaks come
+                // from <br> (HtmlNode.LineBreak) and block-level tags. Block <pre>/code preserve
+                // their own whitespace via collectRawText, so they aren't affected by this.
+                var normalized = text.replace(Regex("\\s+"), " ")
+                // Drop a leading space when it would be redundant: at the very start, right after a
+                // <br>, or when the output already ends with whitespace/newline (e.g. after a list
+                // bullet "• " or a block break). This collapses the source indentation between a
+                // block tag and its inline content without eating meaningful inter-word spacing.
+                if (normalized.startsWith(" ") && (length == 0 || previousWasLineBreak || endsWithWhitespace())) {
                     normalized = normalized.trimStart()
                 }
-                // Skip text nodes that are only whitespace (formatting artifacts)
-                // CRITICAL FIX: Preserve single spaces between inline elements, but skip formatting-only whitespace
-                // This preserves:
-                // - Single spaces between inline elements (e.g., between </strong> and <a>)
-                // - Text with newlines that has actual content (e.g., "\nUploader: ..." after a link)
-                // But skips formatting-only whitespace like "\n" or multiple spaces after <br> tags
-                // Note: normalized already has newlines converted to spaces, so we check if it's blank
-                // but preserve single spaces (which are meaningful between inline elements)
-                if (normalized.isBlank() && normalized != " ") {
-                    return@appendHtmlNode // Skip whitespace-only nodes except single spaces (formatting artifacts)
+                // After trimming, a node that was pure whitespace becomes empty — skip it. A single
+                // space that survives is meaningful (e.g. between </strong> and <a>) and is kept.
+                if (normalized.isEmpty()) {
+                    return@appendHtmlNode
                 }
                 normalized
             }
@@ -2566,7 +2561,22 @@ fun htmlToNotificationText(htmlContent: String): android.text.Spanned {
         
         fun appendNodeToSpannable(node: HtmlNode) {
             when (node) {
-                is HtmlNode.Text -> builder.append(node.content)
+                is HtmlNode.Text -> {
+                    // Collapse HTML source whitespace (indentation newlines/tabs and runs of
+                    // spaces between tags) into a single space — real line breaks come from the
+                    // block-level tags handled below (p/div/ul/li/br/etc.). Without this the raw
+                    // pretty-printed markup leaks its indentation into the notification text.
+                    val collapsed = node.content.replace(Regex("\\s+"), " ")
+                    if (collapsed.isEmpty()) return
+                    val prevEndsWithSpaceOrBreak = builder.isEmpty() ||
+                        builder[builder.length - 1].let { it == ' ' || it == '\n' }
+                    val toAppend = if (collapsed.startsWith(" ") && prevEndsWithSpaceOrBreak) {
+                        collapsed.trimStart()
+                    } else {
+                        collapsed
+                    }
+                    if (toAppend.isNotEmpty()) builder.append(toAppend)
+                }
                 is HtmlNode.LineBreak -> builder.append("\n")
                 is HtmlNode.Tag -> {
                     val startIndex = builder.length
