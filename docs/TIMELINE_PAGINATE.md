@@ -1,5 +1,11 @@
 # Timeline Paginate Routing (`TimelineCacheCoordinator`)
 
+> **Performance traces:** the room-open probe and full paginates are wrapped in Firebase Performance
+> traces (`open_room_probe`, `open_room_full` with a `trigger` attribute of `no_cache` / `sparse_cache`
+> / `probe_stale`). If you add or move a room-open paginate dispatch/drop site, keep the
+> `startOpenRoomTrace` / `stopOpenRoomTrace` calls paired. See
+> [OBSERVABILITY.md](OBSERVABILITY.md#custom-websocket-rpc-traces-requestresponse).
+
 ## Three Request Maps
 
 `TimelineCacheCoordinator` maintains three maps for in-flight paginate requests:

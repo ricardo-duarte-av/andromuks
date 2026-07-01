@@ -66,6 +66,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             }
             val requestId = WebSocketService.allocateRequestId()
             freshnessCheckRequests[requestId] = roomId
+            startOpenRoomTrace(requestId, "open_room_probe")
             val result = sendWebSocketCommand(
                 "paginate",
                 requestId,
@@ -80,6 +81,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 // Truly disconnected — drop probe tracking and the pending reservation.
                 freshnessCheckRequests.remove(requestId)
                 roomsWithPendingPaginate.remove(roomId)
+                stopOpenRoomTrace(requestId, "send_failed")
             }
             if (BuildConfig.DEBUG)
                 android.util.Log.d(
@@ -1076,6 +1078,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     } else {
                         val paginateRequestId = WebSocketService.allocateRequestId()
                         backgroundPrefetchRequests[paginateRequestId] = roomId
+                        startOpenRoomTrace(paginateRequestId, "open_room_full", trigger = "sparse_cache")
                         if (BuildConfig.DEBUG)
                             android.util.Log.d(
                                 "Andromuks",
@@ -1097,6 +1100,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                 // Truly not connected — drop tracking; will retry on next room open.
                                 backgroundPrefetchRequests.remove(paginateRequestId)
                                 roomsWithPendingPaginate.remove(roomId)
+                                stopOpenRoomTrace(paginateRequestId, "send_failed")
                                 android.util.Log.w(
                                     "Andromuks",
                                     "AppViewModel: Failed to send paginate for newer events for $roomId (not connected): $result",
@@ -1210,6 +1214,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
                 val paginateRequestId = WebSocketService.allocateRequestId()
                 timelineRequests[paginateRequestId] = roomId
+                startOpenRoomTrace(paginateRequestId, "open_room_full", trigger = "no_cache")
                 android.util.Log.d(
                     "Andromuks",
                     "🟢 requestRoomTimeline: ${if (forceFreshPaginate) "Force-fresh" else "Cache insufficient"} paginate ($currentCachedCount events cached) - roomId=$roomId, requestId=$paginateRequestId, limit=$AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT",
@@ -1250,6 +1255,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     timelineRequests.remove(paginateRequestId)
                     roomsWithPendingPaginate.remove(roomId)
                     isTimelineLoading = false
+                    stopOpenRoomTrace(paginateRequestId, "send_failed")
                 } else {
                     // Connected but canSendCommandsToBackend=false: command was queued in
                     // pendingCommandsQueue. Keep tracking so the response is handled when
@@ -1379,6 +1385,9 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
     fun handleTimelineResponse(requestId: Int, data: Any) {
         with(vm) {
+            // Stop any open_room_full trace for this paginate (no-op for user pull-to-paginate reqIds,
+            // which are never registered). Probe reqIds are stopped in handleFreshnessCheckResponse.
+            stopOpenRoomTrace(requestId, "success")
             if (BuildConfig.DEBUG)
                 android.util.Log.d(
                     "Andromuks",

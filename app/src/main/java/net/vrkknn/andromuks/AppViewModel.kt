@@ -4948,6 +4948,28 @@ class AppViewModel : ViewModel() {
     // window), handlePaginationMerge escalates to a full INITIAL_ROOM_PAGINATE_LIMIT paginate.
     internal val hydrateExpectedEventIds = java.util.concurrent.ConcurrentHashMap<Int, String>()
     internal val freshnessCheckRequests = java.util.concurrent.ConcurrentHashMap<Int, String>() // requestId -> roomId (single-event freshness probe sent on warm room open)
+
+    // Firebase Performance traces for the room-open paginate round-trips, keyed by the probe/paginate
+    // requestId so the response handler (which only has the requestId) can stop them. WebSocket RPC is
+    // NOT auto-instrumented by Firebase (see docs/OBSERVABILITY.md), so without these the "open a room"
+    // latency is a blind spot. No-ops while collection is off. ConcurrentHashMap because response
+    // handlers run on Dispatchers.Default while starts happen from the room-open path.
+    internal val openRoomTraces = java.util.concurrent.ConcurrentHashMap<Int, com.google.firebase.perf.metrics.Trace>()
+
+    /** Start an open-room trace ([open_room_probe] / [open_room_full]) keyed by requestId. */
+    internal fun startOpenRoomTrace(requestId: Int, name: String, trigger: String? = null) {
+        val trace = PerformanceMonitoringCoordinator.startTrace(name) ?: return
+        if (trigger != null) {
+            try { trace.putAttribute("trigger", trigger) } catch (_: Exception) {}
+        }
+        openRoomTraces[requestId] = trace
+    }
+
+    /** Stop an open-room trace by requestId, tagging `outcome`. No-op if none is tracked. */
+    internal fun stopOpenRoomTrace(requestId: Int, outcome: String) {
+        val trace = openRoomTraces.remove(requestId) ?: return
+        PerformanceMonitoringCoordinator.stopTrace(trace, "outcome" to outcome)
+    }
     // roomId -> staleEpoch captured when a per-room freshness probe was fired. handlePaginationMerge
     // clears RoomTimelineCache.mightBeStale (epoch-guarded) once the probe's terminal merge lands.
     internal val freshnessProbePendingEpoch = java.util.concurrent.ConcurrentHashMap<String, Int>()
@@ -7126,6 +7148,10 @@ class AppViewModel : ViewModel() {
     }
     
     fun handleError(requestId: Int, errorMessage: String) {
+        // Stop any open-room paginate/probe trace on error so it isn't left open (freshness/paginate
+        // reqIds fall into the "Unknown error" branch below and aren't otherwise cleaned). No-op if
+        // none is tracked for this requestId.
+        stopOpenRoomTrace(requestId, "error")
         // PHASE 5.2/5.3: Acknowledge command even on error (remove from pending queue)
         // Error responses still mean the server received and processed the request
         // Backend responds with same request_id even for errors, so we acknowledge by request_id
@@ -7594,6 +7620,9 @@ class AppViewModel : ViewModel() {
      * If newer, triggers a full paginate; otherwise continues normally
      */
     private fun handleFreshnessCheckResponse(requestId: Int, data: Any) {
+        // The probe round-trip is complete once its response lands (fresh or stale). Any escalated
+        // full paginate below gets its own open_room_full trace keyed by the new requestId.
+        stopOpenRoomTrace(requestId, "success")
         val roomId = freshnessCheckRequests.remove(requestId) ?: run {
             android.util.Log.w("Andromuks", "AppViewModel: Freshness check response for unknown requestId: $requestId")
             return
@@ -7665,6 +7694,7 @@ class AppViewModel : ViewModel() {
             if (isWebSocketConnected()) {
                 val paginateRequestId = WebSocketService.allocateRequestId()
                 backgroundPrefetchRequests[paginateRequestId] = roomId
+                startOpenRoomTrace(paginateRequestId, "open_room_full", trigger = "probe_stale")
                 val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
                     "room_id" to roomId,
                     "max_timeline_id" to 0,
@@ -7679,6 +7709,7 @@ class AppViewModel : ViewModel() {
                     android.util.Log.w("Andromuks", "AppViewModel: Failed to send full paginate after freshness check for $roomId (not connected): $result")
                     backgroundPrefetchRequests.remove(paginateRequestId)
                     roomsWithPendingPaginate.remove(roomId)
+                    stopOpenRoomTrace(paginateRequestId, "send_failed")
                 } else {
                     // Connected but queued (canSendCommandsToBackend=false): keep tracking so the
                     // response is handled when flushPendingQueue() re-sends after init_complete.
@@ -11523,6 +11554,16 @@ class AppViewModel : ViewModel() {
         var encryptionCompleted = false
         var mutualRoomsCompleted = false
         var hasError = false
+
+        // Firebase Performance sub-traces for the three parallel WebSocket round-trips. WebSocket RPC
+        // is NOT auto-instrumented by Firebase (see docs/OBSERVABILITY.md), so these expose which of
+        // get_profile / encryption / mutual_rooms is the straggler when opening a user. No-ops while
+        // collection is off; nulled once stopped so the timeout path below can't double-stop.
+        // Main-thread confined (WebSocket responses + viewModelScope default dispatch to Main), so no
+        // synchronization is needed — matching the surrounding mutable locals.
+        var profileTrace: com.google.firebase.perf.metrics.Trace? = null
+        var encryptionTrace: com.google.firebase.perf.metrics.Trace? = null
+        var mutualRoomsTrace: com.google.firebase.perf.metrics.Trace? = null
         
         fun checkCompletion() {
             val isSelfUser = userId == currentUserId
@@ -11556,6 +11597,7 @@ class AppViewModel : ViewModel() {
         }
         
         // Request 1: Profile (always request fresh from backend - get_profile always fetches latest data)
+        profileTrace = PerformanceMonitoringCoordinator.startTrace("user_profile_fetch_get_profile")
         val profileRequestId = WebSocketService.allocateRequestId()
         profileRequests[profileRequestId] = userId
         sendWebSocketCommand("get_profile", profileRequestId, mapOf(
@@ -11570,11 +11612,17 @@ class AppViewModel : ViewModel() {
         // For now, let's use a different approach - store a callback for full user info requests
         
         // Request 2: Encryption Info
+        encryptionTrace = PerformanceMonitoringCoordinator.startTrace("user_profile_fetch_encryption")
         requestUserEncryptionInfo(userId) { encInfo, error ->
             if (error != null) {
                 android.util.Log.w("Andromuks", "AppViewModel: Failed to get encryption info: $error")
                 // Don't treat as critical error - encryption info might not be available
             }
+            PerformanceMonitoringCoordinator.stopTrace(
+                encryptionTrace,
+                "outcome" to if (error != null) "error" else "success"
+            )
+            encryptionTrace = null
             encryptionInfo = encInfo
             encryptionCompleted = true
             checkCompletion()
@@ -11588,7 +11636,13 @@ class AppViewModel : ViewModel() {
             mutualRoomsCompleted = true
             checkCompletion()
         } else {
+            mutualRoomsTrace = PerformanceMonitoringCoordinator.startTrace("user_profile_fetch_mutual_rooms")
             requestMutualRooms(userId) { rooms, error ->
+                PerformanceMonitoringCoordinator.stopTrace(
+                    mutualRoomsTrace,
+                    "outcome" to if (error != null) "error" else "success"
+                )
+                mutualRoomsTrace = null
                 if (error != null) {
                     android.util.Log.e("Andromuks", "AppViewModel: Failed to get mutual rooms: $error")
                     hasError = true
@@ -11659,6 +11713,11 @@ class AppViewModel : ViewModel() {
             } else {
                 android.util.Log.w("Andromuks", "AppViewModel: Profile data is null for $userId")
             }
+            PerformanceMonitoringCoordinator.stopTrace(
+                profileTrace,
+                "outcome" to if (profileData != null) "success" else "error"
+            )
+            profileTrace = null
             profileCompleted = true
             checkCompletion()
         }
@@ -11671,6 +11730,13 @@ class AppViewModel : ViewModel() {
             kotlinx.coroutines.delay(10000) // 10 second timeout
             if (!profileCompleted || !encryptionCompleted || (!mutualRoomsCompleted && userId != currentUserId)) {
                 android.util.Log.w("Andromuks", "AppViewModel: Full user info request timed out for $userId")
+                // Stop any sub-trace still running so it isn't left open (already-stopped ones are null).
+                PerformanceMonitoringCoordinator.stopTrace(profileTrace, "outcome" to "timeout")
+                PerformanceMonitoringCoordinator.stopTrace(encryptionTrace, "outcome" to "timeout")
+                PerformanceMonitoringCoordinator.stopTrace(mutualRoomsTrace, "outcome" to "timeout")
+                profileTrace = null
+                encryptionTrace = null
+                mutualRoomsTrace = null
                 // Clean up callbacks
                 fullUserInfoCallbacks.remove(profileRequestId)
                 if (!hasError) {

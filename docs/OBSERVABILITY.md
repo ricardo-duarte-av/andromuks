@@ -120,6 +120,47 @@ The `connectTrace` local is captured by the `WebSocketListener` closure (Kotlin 
 local by reference), set back to `null` once stopped. It measures TCP + TLS + HTTP-upgrade latency,
 filterable in the console by the `outcome` attribute.
 
+### Custom WebSocket-RPC traces (request→response)
+
+Firebase auto-instruments HTTP but not WebSocket RPC, so every "open room / open user" latency — all
+of which rides the WebSocket — is otherwise invisible. These custom traces close that gap. Each starts
+when a request is dispatched and stops in the response callback/handler, tagged `outcome`. All are
+no-ops while collection is off.
+
+| Trace | Started | Stopped | Attributes |
+|---|---|---|---|
+| `user_profile_fetch_get_profile` | `requestFullUserInfo` before `get_profile` | profile response callback | `outcome=success/error/timeout` |
+| `user_profile_fetch_encryption` | `requestFullUserInfo` before `requestUserEncryptionInfo` | encryption callback | `outcome` |
+| `user_profile_fetch_mutual_rooms` | `requestFullUserInfo` before `requestMutualRooms` (**non-self only** — self skips the request, backend 422s) | mutual-rooms callback | `outcome` |
+| `open_room_probe` | `TimelineCacheCoordinator.sendFreshnessProbe` | `handleFreshnessCheckResponse` | `outcome=success/send_failed/error` |
+| `open_room_full` | wherever a full room-open paginate is dispatched | `handleTimelineResponse` (top) | `outcome`, **`trigger`** |
+
+**`user_profile_fetch_*`** are three parallel round-trips; wrapping each separately shows *which* one
+is the straggler (usually `mutual_rooms`). The shared 10 s timeout in `requestFullUserInfo` stops any
+still-running sub-trace with `outcome=timeout`; each trace var is nulled once stopped so the timeout
+path can't double-stop.
+
+**`open_room_full`'s `trigger` attribute** distinguishes *why* a full 100-event paginate fired — filter
+the console by it to separate cold opens from stale-cache refetches:
+
+| `trigger` | Meaning |
+|---|---|
+| `no_cache` | Cache empty/insufficient → foreground paginate (`timelineRequests`); full-screen loader is up |
+| `sparse_cache` | Some cache but below `INITIAL_ROOM_PAGINATE_LIMIT/2` → background paginate that also backfills |
+| `probe_stale` | `open_room_probe` found the server's newest event differs from ours → escalated background refetch |
+
+A warm open with a full cache fires only `open_room_probe`; if it comes back fresh, **no `open_room_full`
+follows** (that's the fast path). A `probe_stale` `open_room_full` immediately after a probe is the
+"cache was stale, paid two round-trips" case you want to watch for.
+
+**Lifecycle / no leaks.** Open-room traces are keyed by `requestId` in `AppViewModel.openRoomTraces`
+(a `ConcurrentHashMap`, since response handlers run on `Dispatchers.Default`). `startOpenRoomTrace` /
+`stopOpenRoomTrace` are the only entry points. Because freshness/paginate request-ids fall into the
+"unknown" branch of `handleError` (they aren't otherwise cleaned there), `handleError` calls
+`stopOpenRoomTrace(requestId, "error")` unconditionally at its top; send-failure drop paths stop with
+`outcome=send_failed`. `stopOpenRoomTrace` is a no-op when no trace is tracked, so calling it for
+user-triggered pull-to-paginate request-ids (never registered) is harmless.
+
 ### Sampling
 Firebase Performance **samples sessions** in production — not every launch reports — so it surfaces
 aggregate trends, not per-incident timings (the opposite of Crashlytics).
