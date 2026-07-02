@@ -131,3 +131,30 @@ fun rememberUserColor(userID: String, appViewModel: AppViewModel?): Color {
         }
     }
 }
+
+/**
+ * Resolve a stable, per-thread accent color seeded by the thread root event ID.
+ *
+ * This reuses the exact hue-hash + HCT harmonization used for user colors
+ * ([UserColorUtils.getUserColorHct]) — only the seed string differs (thread root event ID
+ * instead of a user ID) — so every message belonging to the same thread renders the same
+ * on-theme color, and different threads get visibly different colors.
+ *
+ * Unlike [rememberUserColor], this never uses the THEME mode's two-color scheme: that mode
+ * collapses everyone to "me vs. others" and would make separate threads indistinguishable,
+ * so THEME falls back to DYNAMIC generation here. FIXED still maps to the Catppuccin palette
+ * so the two coloring modes stay consistent with the display-name preference.
+ */
+@Composable
+fun rememberThreadColor(threadRootEventId: String, appViewModel: AppViewModel?): Color {
+    val mode = appViewModel?.displayNameColorMode ?: DisplayNameColorMode.DYNAMIC
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.surface.luminance() < 0.5f
+    val seed = scheme.primary
+    return remember(threadRootEventId, mode, seed, isDark) {
+        when (mode) {
+            DisplayNameColorMode.FIXED -> UserColorUtils.getUserColor(threadRootEventId)
+            else -> UserColorUtils.getUserColorHct(threadRootEventId, seed, isDark)
+        }
+    }
+}

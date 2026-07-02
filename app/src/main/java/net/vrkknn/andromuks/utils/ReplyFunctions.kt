@@ -71,6 +71,8 @@ import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.unit.toIntRect
 import androidx.compose.ui.window.PopupProperties
@@ -1079,13 +1081,30 @@ fun MessageBubbleWithMenu(
             null
         }
     
-    // Thread border: Subtle border indicator for thread messages
-    // Thread border takes precedence over highlight border but not mention border
-    val threadBorderStroke = threadBorder?.let {
-        BorderStroke(
-            width = 2.dp,
-            color = it
-        )
+    // Thread accent: instead of the old thin neutral border, thread messages get a per-thread
+    // colored bar down the inner edge (see threadBarModifier below). The color is seeded by the
+    // thread root event ID via the same generator used for user-name colors, so every message in
+    // a thread shares one distinct, on-theme color. When we render this bar we suppress the old
+    // thin thread border so the two indicators don't stack.
+    // Use the same thread detection as the rest of the pipeline (isThreadMessage + the generically
+    // resolved relatesTo root id), so every thread bubble — text, media, sticker, reply — is covered,
+    // not just plain m.room.message events.
+    val threadRootId = remember(event.eventId) {
+        if (event.isThreadMessage()) event.relatesTo else null
+    }
+    val threadAccent = threadRootId?.let { rememberThreadColor(it, appViewModel) }
+
+    // Thread border: legacy subtle border indicator, only used when no thread accent bar is drawn.
+    // Thread border takes precedence over highlight border but not mention border.
+    val threadBorderStroke = if (threadAccent != null) {
+        null
+    } else {
+        threadBorder?.let {
+            BorderStroke(
+                width = 2.dp,
+                color = it
+            )
+        }
     }
     
     // Use mention border if present, otherwise thread border, otherwise highlight border
@@ -1148,9 +1167,41 @@ fun MessageBubbleWithMenu(
         label = "echoElevation"
     ).value
 
+    // Thread accent bar: shift the bubble inward by [threadBarInset] on its outer edge (right for
+    // my messages, left for others') and paint a bar of the per-thread color in the freed strip.
+    // The bar is drawn wider than the inset — it extends [threadBarTuck] *under* the bubble — and
+    // since it's painted via drawBehind (behind the opaque bubble surface), only the [threadBarInset]
+    // strip is visible while the bubble's rounded corners sit on top of the tucked-under remainder,
+    // hiding the corner gap. Kept narrow — screen real estate is scarce — but thick enough to read
+    // as a distinct color band. drawBehind is the *outer* modifier (before the padding), so its
+    // coordinate space spans the full footprint including the padded strip; the caller's modifier
+    // (width constraints, size tracking) and the highlight ring stay hugged to the bubble.
+    val threadBarInset = 6.dp   // visible strip width = how far the bubble shifts inward
+    val threadBarTuck = 12.dp   // extra width tucked behind the bubble to cover its rounded corners
+    val threadBarModifier = if (threadAccent != null) {
+        Modifier
+            .drawBehind {
+                val insetPx = threadBarInset.toPx()
+                val barPx = insetPx + threadBarTuck.toPx()
+                val left = if (isMine) size.width - barPx else 0f
+                // Round only the visible outer end of the strip; the tucked-under edge is hidden.
+                val radius = CornerRadius(insetPx / 2f, insetPx / 2f)
+                drawRoundRect(
+                    color = threadAccent,
+                    topLeft = Offset(left, 0f),
+                    size = Size(barPx, size.height),
+                    cornerRadius = radius
+                )
+            }
+            .padding(start = if (isMine) 0.dp else threadBarInset, end = if (isMine) threadBarInset else 0.dp)
+    } else {
+        Modifier
+    }
+
     Box {
         Surface(
-            modifier = modifier
+            modifier = threadBarModifier
+                .then(modifier)
                 .drawWithContent {
                     drawContent()
                     // Reply-jump highlight: draw the glow as a ring *outside* the bubble bounds so
