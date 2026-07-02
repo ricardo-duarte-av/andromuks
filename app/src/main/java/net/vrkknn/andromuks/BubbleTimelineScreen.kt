@@ -2678,7 +2678,7 @@ fun BubbleTimelineScreen(
                                     ExpressiveLoadingIndicator(modifier = Modifier.size(80.dp))
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Text(
-                                        text = "Loading timeline...",
+                                        text = if (appViewModel.postJoinLoadingRooms.contains(roomId)) "Waiting for room data" else "Loading timeline...",
                                         style = MaterialTheme.typography.bodyLarge,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -2861,6 +2861,8 @@ fun BubbleTimelineScreen(
                                                     // Already joined, navigate directly
                                                     val targetRoomId = enhancedRoomLink.roomIdOrAlias
                                                     if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Already joined, navigating to $targetRoomId")
+                                                    // If this is an event permalink, stash the jump so the opened room lands on it.
+                                                    enhancedRoomLink.eventId?.let { appViewModel.setPendingInterRoomJump(targetRoomId, it) }
                                                     // CRITICAL: When navigating from one room_timeline to another, use setDirectRoomNavigation
                                                     // and navigate via room_list, letting RoomListScreen handle the final navigation.
                                                     // This matches the pattern used by notifications/shortcuts and ensures proper state management.

@@ -3920,6 +3920,12 @@ class AppViewModel : ViewModel() {
     // Pending highlight targets (e.g., notification taps)
     internal val pendingHighlightEvents = ConcurrentHashMap<String, String>()
 
+    // Pending inter-room link jump targets: roomId -> eventId to land on when the target room's
+    // timeline opens. Distinct from pendingHighlightEvents: an inter-room link scrolls to the event
+    // (falling back to EventContextScreen when it's older than the loaded window), whereas a
+    // notification highlight only pulses in place and never scrolls or navigates.
+    internal val pendingInterRoomJumpEvents = ConcurrentHashMap<String, String>()
+
     // Thread viewer return scroll target: event ID to scroll to when returning from thread viewer.
     // Stored here (not in composable remember) so it survives composable recreation on back-navigation.
     var threadReturnScrollEventId: String? = null
@@ -4035,7 +4041,13 @@ class AppViewModel : ViewModel() {
 
     fun consumePendingHighlightEvent(roomId: String): String? =
         navigationCoordinator.consumePendingHighlightEvent(roomId)
-    
+
+    fun setPendingInterRoomJump(roomId: String, eventId: String?) =
+        navigationCoordinator.setPendingInterRoomJump(roomId, eventId)
+
+    fun consumePendingInterRoomJump(roomId: String): String? =
+        navigationCoordinator.consumePendingInterRoomJump(roomId)
+
     /**
      * Called when app becomes visible (foreground)
      */
@@ -4763,6 +4775,43 @@ class AppViewModel : ViewModel() {
         internal set
     var isTimelineLoading by mutableStateOf(false)
         internal set
+
+    // Rooms flagged (by a just-completed join) to request their first timeline with reset=true,
+    // matching gomuks-web's resetTimeline. reset=true lets the backend's PaginateServer fetch and
+    // reseed history from the homeserver for a room whose local DB is still empty. Consumed once by
+    // requestRoomTimeline; not observed by Compose.
+    internal val roomsNeedingPostJoinReset = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    // Rooms whose post-join reset paginate is in flight. Compose-observable so RoomTimelineScreen /
+    // BubbleTimelineScreen can show a "Waiting for room data" spinner instead of the generic one.
+    var postJoinLoadingRooms by mutableStateOf<Set<String>>(emptySet())
+        private set
+
+    /** Flag [roomId] so its next timeline request uses reset=true (called right after a join). */
+    fun markRoomForPostJoinReset(roomId: String) {
+        if (roomId.isBlank()) return
+        roomsNeedingPostJoinReset.add(roomId)
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked $roomId for post-join reset paginate")
+    }
+
+    internal fun beginPostJoinLoading(roomId: String) {
+        viewModelScope.launch(Dispatchers.Main) {
+            postJoinLoadingRooms = postJoinLoadingRooms + roomId
+            // Safety net: never let the spinner stick if the response is lost.
+            kotlinx.coroutines.delay(25_000)
+            postJoinLoadingRooms = postJoinLoadingRooms - roomId
+        }
+    }
+
+    internal fun endPostJoinLoading(roomId: String) {
+        // No synchronous contains() guard: beginPostJoinLoading applies its `+= roomId` on a queued
+        // Main coroutine, so a same-frame end call (e.g. the WS-down send-failure path) would read
+        // the not-yet-applied set and no-op, leaving the spinner stuck until the safety timeout.
+        // Removal is idempotent and Main dispatch is FIFO-ordered after the add, so always schedule it.
+        viewModelScope.launch(Dispatchers.Main) {
+            postJoinLoadingRooms = postJoinLoadingRooms - roomId
+        }
+    }
 
     /**
      * Get the set of room IDs that are actively cached and should receive events from sync_complete.
@@ -10121,7 +10170,12 @@ class AppViewModel : ViewModel() {
         ))
     }
     
-    fun acceptRoomInvite(roomId: String) = roomInvitesCoordinator.acceptRoomInvite(roomId)
+    fun acceptRoomInvite(roomId: String) {
+        // Accepting an invite is a fresh join: local timeline is empty, so flag it for a reset
+        // paginate (see markRoomForPostJoinReset / joinRoomAndNavigate) when the room next opens.
+        markRoomForPostJoinReset(roomId)
+        roomInvitesCoordinator.acceptRoomInvite(roomId)
+    }
 
     fun refuseRoomInvite(roomId: String) = roomInvitesCoordinator.refuseRoomInvite(roomId)
     
@@ -11810,7 +11864,12 @@ class AppViewModel : ViewModel() {
      */
     fun joinRoomAndNavigate(roomId: String, navController: androidx.navigation.NavController) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: joinRoomAndNavigate called for $roomId")
-        
+
+        // Flag the freshly joined room so its first timeline request paginates with reset=true.
+        // The room's local DB is typically empty right after join, so a plain paginate can open
+        // empty; reset=true lets the backend reseed history from the homeserver (PaginateServer).
+        markRoomForPostJoinReset(roomId)
+
         // CRITICAL: Navigation must happen on the main thread
         // Dispatch to main thread to avoid IllegalStateException
         viewModelScope.launch(Dispatchers.Main) {

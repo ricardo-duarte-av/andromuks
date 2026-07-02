@@ -224,6 +224,44 @@ Scroll restoration on return uses a `LaunchedEffect(navController)` + `snapshotF
 
 This path does **not** add a `BackHandler`, so Android's Predictive Back animation works normally when navigating through `EventContextScreen`.
 
+## Inter-Room Permalink Navigation
+
+A message can link to a *specific event in another room* via a Matrix permalink. Two wire forms appear:
+
+- **`matrix.to`** (raw `body`): `https://matrix.to/#/!room:server/$event?via=…` — event appended to the room part with `/`.
+- **`matrix:` URI** (gomuks rewrites this into `local_content.sanitized_html`, class `hicli-matrix-uri-event-id`): `matrix:roomid/<room>/e/<event>?via=…`.
+
+### Parsing — `extractRoomLink` (`utils/RoomJoiner.kt`)
+
+`RoomLink` carries an optional `eventId: String?` (with its leading `$`). `extractRoomLink` extracts it from both forms — splitting the `matrix.to` room part on `/` (room ids/aliases never contain `/`) and matching `/e/<event>` for the `matrix:` form, re-prefixing `$` and URL-decoding. Plain room links leave `eventId` null, so existing room-pill behaviour is unchanged.
+
+### Tap routing — `onRoomLinkClick`
+
+The html.kt tap dispatchers forward the parsed `RoomLink` (now with `eventId`) unchanged. `onRoomLinkClick` branches on whether an `eventId` is present and whether we're joined:
+
+| Case | Behaviour |
+|------|-----------|
+| Event permalink, **same room** already open | `jumpToLocalEvent(eventId)` in place — scroll+highlight, or `EventContextScreen` if older than the loaded window (identical to a reply jump) |
+| Event permalink, **other joined room** | `setPendingInterRoomJump(targetRoomId, eventId)`, then navigate as usual (`setDirectRoomNavigation` → `room_list`, or hot-swap) |
+| Event permalink, **not joined** | `RoomJoinerScreen` only — open/join the room. **No scroll, no `EventContextScreen`** (a fresh join may not have the referenced history locally yet — see below) |
+| Plain room link | Unchanged (join preview / direct navigation) |
+
+### Landing — `pendingInterRoomJumpEvents`
+
+Distinct from `pendingHighlightEvents` (notification pulses, which never scroll or navigate). The map is `roomId → eventId`; the target room's `RoomTimelineScreen` consumes it in `remember(roomId)` on first composition. A dedicated `LaunchedEffect` waits until the initial window has **settled** — `readinessCheckComplete && !pendingInitialScroll && isContentVisible` with a non-empty timeline — then calls the shared `jumpToLocalEvent`: scroll+highlight if the event is in the loaded window, else navigate to `EventContextScreen`. Gating on `!pendingInitialScroll` keeps the target scroll from fighting the initial bottom-snap. There is **no speculative back-pagination**: if the event isn't in the initially-loaded window, `EventContextScreen` fetches its own ±5 window around it.
+
+This "separate view for jumping" mirrors the gomuks backend's own guidance for `get_event_context`: *"jumping has to be implemented as a separate view; there's currently no safe way to merge [a context fetch] back into the main timeline."*
+
+### Not-joined / post-join history
+
+For a not-joined target we deliberately stop at "open the room" and never attempt a scroll/context jump. Reason: a freshly joined room can have **no local timeline history**, so an immediate `get_event_context` would fail.
+
+**Reset paginate after join.** The gomuks backend handles the empty-local-timeline case transparently — `HiClient.Paginate` (`pkg/hicli/paginate.go`) reads the local DB and, when `len(evts) == 0`, falls back to `PaginateServer` → `Client.Messages` (`/messages`, backward from `room.PrevBatch`), decrypting and persisting before returning. The gomuks-web frontend leans on this: opening a room issues `paginate(roomID, 0, 50, reset=true)` (`resetTimeline`). Andromuks talks to the same backend, so a successful join flags the room via `markRoomForPostJoinReset`:
+
+- `joinRoomAndNavigate` and `acceptRoomInvite` add the room to `roomsNeedingPostJoinReset`.
+- The next `TimelineCacheCoordinator.requestRoomTimeline` consumes the flag and sends the initial paginate with **`reset = true`** (instead of the usual `false`), so the backend reseeds history from the homeserver.
+- While that reset paginate is in flight the room is in the Compose-observable `postJoinLoadingRooms` set (`beginPostJoinLoading` / `endPostJoinLoading`, cleared when the paginate renders in `handleTimelineResponse`, on send failure, or by a 25 s safety timeout). `RoomTimelineScreen` and `BubbleTimelineScreen` show a **"Waiting for room data"** spinner (instead of "Room loading…" / "Loading timeline…") while the room is in that set.
+
 ## Known Gaps
 
 - `m.room.member` profile-hint events also flow through `updateMemberProfilesFromEvents` (line ~5337), which uses `timelineRowid >= 0L` as its filter. This is intentional: profile hints should update the member cache even though they are not rendered. Do not change that filter to `> 0L`.

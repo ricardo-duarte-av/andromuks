@@ -849,6 +849,12 @@ fun RoomTimelineScreen(
         )
         mutableStateOf(consumed)
     }
+    // Inter-room link jump target: an event permalink tapped in another room stashes the event id
+    // here so this room lands on it once the initial timeline has settled (see the landing effect
+    // below). Consumed on first composition of the target room; reset on room change.
+    var pendingInterRoomJumpEventId by remember(roomId) {
+        mutableStateOf(appViewModel.consumePendingInterRoomJump(roomId))
+    }
 
     // CRITICAL FIX: Handle notification tap while this room is already open.
     // When the user is on RoomTimelineScreen and taps a notification:
@@ -3124,6 +3130,58 @@ fun RoomTimelineScreen(
     var scrollPositionBeforeKeyboard by remember { mutableStateOf<Pair<Int, Int>?>(null) } // (firstVisibleIndex, scrollOffset)
     var wasAttachedBeforeKeyboard by remember { mutableStateOf(false) }
     
+    // Jump to an event that should live in THIS room's timeline: scroll+highlight it if it's in
+    // the loaded window, otherwise open EventContextScreen (a partial timeline around the event).
+    // Shared by same-room permalink taps and the inter-room landing effect below.
+    val jumpToLocalEvent: (String) -> Unit = { targetEventId ->
+        val indexInOriginal = timelineItems.indexOfFirst { item ->
+            (item as? TimelineItem.Event)?.event?.eventId == targetEventId
+        }
+        if (indexInOriginal >= 0) {
+            val reversedIndex = timelineItems.lastIndex - indexInOriginal
+            jumpBackStack.addLast(
+                listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+            )
+            coroutineScope.launch {
+                listState.scrollToItem(reversedIndex)
+                highlightedEventId = targetEventId
+                highlightRequestId++
+            }
+        } else {
+            val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+            val encodedEventId = java.net.URLEncoder.encode(targetEventId, "UTF-8")
+            pendingEventContextScrollRestore = listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+            navController.navigate("event_context/$encodedRoomId/$encodedEventId")
+        }
+    }
+
+    // Inter-room link landing: once the initial timeline window has settled (readiness complete and
+    // the initial bottom-scroll has run), scroll to the linked event, or fall back to
+    // EventContextScreen when it's older than the loaded window. Unlike the notification highlight,
+    // this actively scrolls and navigates. We wait for !pendingInitialScroll so the initial
+    // bottom-snap doesn't fight (or override) our target scroll.
+    LaunchedEffect(
+        pendingInterRoomJumpEventId,
+        timelineItems,
+        readinessCheckComplete,
+        pendingInitialScroll,
+        appViewModel.isContentVisible
+    ) {
+        val targetEventId = pendingInterRoomJumpEventId ?: return@LaunchedEffect
+        if (!readinessCheckComplete || pendingInitialScroll || !appViewModel.isContentVisible) {
+            return@LaunchedEffect
+        }
+        if (timelineItems.isEmpty()) return@LaunchedEffect
+        // Give layout a beat to settle after the initial snap before measuring/scrolling.
+        kotlinx.coroutines.delay(100)
+        pendingInterRoomJumpEventId = null
+        if (BuildConfig.DEBUG) Log.d(
+            "Andromuks",
+            "RoomTimelineScreen: Inter-room link landing on event=$targetEventId in room=$roomId"
+        )
+        jumpToLocalEvent(targetEventId)
+    }
+
     // UNIFIED OPEN PATH: the notification's target event is a passive highlight, NOT a scroll
     // target. We never scroll here and never touch the initial-snap state — the normal
     // bottom-scroll effect owns landing at the bottom for every open (in-app, shortcut, FCM).
@@ -3429,7 +3487,7 @@ fun RoomTimelineScreen(
                                     ExpressiveLoadingIndicator(modifier = Modifier.size(96.dp))
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Text(
-                                        text = "Room loading...",
+                                        text = if (appViewModel.postJoinLoadingRooms.contains(roomId)) "Waiting for room data" else "Room loading...",
                                         style = MaterialTheme.typography.bodyLarge,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -3574,33 +3632,9 @@ fun RoomTimelineScreen(
                                                 sharedTransitionScope = sharedTransitionScope,  // ← ADD THIS
                                                 animatedVisibilityScope = animatedVisibilityScope,  // ← ADD THIS
                                                 onScrollToMessage = { eventId ->
-                                                // PERFORMANCE: Find the index in timelineItems instead of sortedEvents
-                                                val indexInOriginal = timelineItems.indexOfFirst { item ->
-                                                    when (item) {
-                                                        is TimelineItem.Event -> item.event.eventId == eventId
-                                                        is TimelineItem.DateDivider -> false
-                                                        is TimelineItem.ReadMarker -> false
-                                                    }
-                                                }
-                                                if (indexInOriginal >= 0) {
-                                                    // Convert to reversed index: if item is at index N in original, it's at (lastIndex - N) in reversed
-                                                    val lastIndex = timelineItems.lastIndex
-                                                    val reversedIndex = lastIndex - indexInOriginal
-                                                    // Save current position so Back can return here
-                                                    jumpBackStack.addLast(
-                                                        listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
-                                                    )
-                                                    coroutineScope.launch {
-                                                        listState.scrollToItem(reversedIndex)
-                                                        highlightedEventId = eventId
-                                                        highlightRequestId++
-                                                    }
-                                                } else {
-                                                    val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
-                                                    val encodedEventId = java.net.URLEncoder.encode(eventId, "UTF-8")
-                                                    pendingEventContextScrollRestore = listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
-                                                    navController.navigate("event_context/$encodedRoomId/$encodedEventId")
-                                                }
+                                                // Reply-jump: scroll+highlight if in the loaded window, else EventContextScreen.
+                                                // Shares the same logic as inter-room permalink landing.
+                                                jumpToLocalEvent(eventId)
                                                 },
                                                 onReply = { event -> replyingToEvent = event },
                                                 onReact = { event ->
@@ -3643,7 +3677,14 @@ fun RoomTimelineScreen(
                                                 }
                                                 
                                                 val enhancedRoomLink = roomLink.copy(viaServers = enhancedViaServers)
-                                                
+                                                // Event permalink target (null for plain room links)
+                                                val jumpEventId = enhancedRoomLink.eventId
+
+                                                if (jumpEventId != null && enhancedRoomLink.roomIdOrAlias == roomId) {
+                                                    // Permalink into the room we're already viewing — jump in place, no renavigation.
+                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Same-room event permalink, jumping to $jumpEventId")
+                                                    jumpToLocalEvent(jumpEventId)
+                                                } else {
                                                 // If it's a room ID, check if we're already joined
                                                 val existingRoom = if (enhancedRoomLink.roomIdOrAlias.startsWith("!")) {
                                                     val room = appViewModel.getRoomById(enhancedRoomLink.roomIdOrAlias)
@@ -3653,11 +3694,14 @@ fun RoomTimelineScreen(
                                                     if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room link is an alias, showing joiner")
                                                     null
                                                 }
-                                                
+
                                                 if (existingRoom != null) {
                                                     // Already joined, navigate directly
                                                     val targetRoomId = enhancedRoomLink.roomIdOrAlias
                                                     if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Already joined, navigating to $targetRoomId")
+                                                    // If this is an event permalink, stash the jump so the target room lands on it
+                                                    // (scroll if in the loaded window, else EventContextScreen) once it opens.
+                                                    if (jumpEventId != null) appViewModel.setPendingInterRoomJump(targetRoomId, jumpEventId)
                                                     // CRITICAL: When navigating from one room_timeline to another, use setDirectRoomNavigation
                                                     // and navigate via room_list, letting RoomListScreen handle the final navigation.
                                                     // This matches the pattern used by notifications/shortcuts and ensures proper state management.
@@ -3665,10 +3709,13 @@ fun RoomTimelineScreen(
                                                     appViewModel.setDirectRoomNavigation(targetRoomId)
                                                     navController.navigate("room_list")
                                                 } else {
-                                                    // For aliases or non-joined rooms, show room joiner
+                                                    // For aliases or non-joined rooms, show room joiner. Per design, a not-joined
+                                                    // event permalink just opens/joins the room — we do NOT scroll or open
+                                                    // EventContextScreen (a fresh join may not have the referenced history yet).
                                                     if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Not joined, showing room joiner with via servers: $enhancedViaServers")
                                                     roomLinkToJoin = enhancedRoomLink
                                                     showRoomJoiner = true
+                                                }
                                                 }
                                                 },
                                                 onThreadClick = { threadEvent ->

@@ -1432,6 +1432,8 @@ fun ThreadViewerScreen(
                                                 }
                                                 
                                                 if (existingRoom != null) {
+                                                    // If this is an event permalink, stash the jump so the opened room lands on it.
+                                                    roomLink.eventId?.let { appViewModel.setPendingInterRoomJump(roomLink.roomIdOrAlias, it) }
                                                     val encodedRoomId = java.net.URLEncoder.encode(roomLink.roomIdOrAlias, "UTF-8")
                                                     navController.navigate("room_timeline/$encodedRoomId")
                                                 }

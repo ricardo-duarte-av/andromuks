@@ -135,6 +135,24 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
         }
     }
 
+    fun setPendingInterRoomJump(roomId: String, eventId: String?) {
+        with(vm) {
+            if (eventId.isNullOrBlank()) return
+            pendingInterRoomJumpEvents[roomId] = eventId
+            if (BuildConfig.DEBUG)
+                android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: Stored pending inter-room jump for $roomId -> $eventId",
+                )
+        }
+    }
+
+    fun consumePendingInterRoomJump(roomId: String): String? {
+        with(vm) {
+            return pendingInterRoomJumpEvents.remove(roomId)
+        }
+    }
+
     fun navigateToRoomWithCache(roomId: String, notificationTimestamp: Long?) {
         with(vm) {
             android.util.Log.d(

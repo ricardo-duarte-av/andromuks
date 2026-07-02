@@ -57,7 +57,12 @@ import java.util.concurrent.atomic.AtomicInteger
 data class RoomLink(
     val roomIdOrAlias: String,
     val viaServers: List<String> = emptyList(),
-    val displayText: String = roomIdOrAlias
+    val displayText: String = roomIdOrAlias,
+    /**
+     * When the link is an event permalink (points at a specific message inside the room),
+     * this holds the target event ID (with its leading `$`). Null for plain room links.
+     */
+    val eventId: String? = null
 )
 
 /**
@@ -100,8 +105,17 @@ fun extractRoomLink(href: String): RoomLink? {
             }
         }
         
-        if (roomPart.startsWith("!") || roomPart.startsWith("#")) {
-            return RoomLink(roomPart, viaServers, roomPart)
+        // For event permalinks, matrix.to appends the event as "<roomIdOrAlias>/<$eventId>".
+        // Room IDs/aliases never contain "/", so the first segment is always the room and the
+        // remainder (if any) is the event id.
+        val roomSegments = roomPart.split("/", limit = 2)
+        val roomIdOrAlias = roomSegments[0]
+        val eventId = roomSegments.getOrNull(1)
+            ?.removePrefix("e/") // tolerate matrix.to "…/e/<id>" variants
+            ?.takeIf { it.isNotBlank() }
+            ?.let { if (it.startsWith("$")) it else "$$it" }
+        if (roomIdOrAlias.startsWith("!") || roomIdOrAlias.startsWith("#")) {
+            return RoomLink(roomIdOrAlias, viaServers, roomIdOrAlias, eventId)
         }
     }
     
@@ -138,7 +152,14 @@ fun extractRoomLink(href: String): RoomLink? {
                 }
             }
             
-            return RoomLink(fullIdentifier, viaServers, fullIdentifier)
+            // Event permalink form: matrix:roomid/<room>/e/<event>?via=…
+            val eventId = Regex("matrix:(?:/+)?roomid/[^/?]+/e/([^?/]+)").find(trimmed)
+                ?.groupValues?.get(1)
+                ?.let { runCatching { URLDecoder.decode(it, Charsets.UTF_8.name()) }.getOrDefault(it) }
+                ?.takeIf { it.isNotBlank() }
+                ?.let { if (it.startsWith("$")) it else "$$it" }
+
+            return RoomLink(fullIdentifier, viaServers, fullIdentifier, eventId)
         }
     }
     

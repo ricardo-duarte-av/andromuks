@@ -1215,14 +1215,18 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 val paginateRequestId = WebSocketService.allocateRequestId()
                 timelineRequests[paginateRequestId] = roomId
                 startOpenRoomTrace(paginateRequestId, "open_room_full", trigger = "no_cache")
+                // Freshly joined rooms request with reset=true so the backend reseeds history from
+                // the homeserver (PaginateServer) when the local DB is empty. Consume the flag here.
+                val postJoinReset = roomsNeedingPostJoinReset.remove(roomId)
                 android.util.Log.d(
                     "Andromuks",
-                    "🟢 requestRoomTimeline: ${if (forceFreshPaginate) "Force-fresh" else "Cache insufficient"} paginate ($currentCachedCount events cached) - roomId=$roomId, requestId=$paginateRequestId, limit=$AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT",
+                    "🟢 requestRoomTimeline: ${if (forceFreshPaginate) "Force-fresh" else "Cache insufficient"} paginate ($currentCachedCount events cached) - roomId=$roomId, requestId=$paginateRequestId, limit=$AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT, reset=$postJoinReset",
                 )
 
                 // Set loading state BEFORE sending command
                 timelineEvents = emptyList()
                 isTimelineLoading = true
+                if (postJoinReset) beginPostJoinLoading(roomId)
 
                 val result =
                     sendWebSocketCommand(
@@ -1232,7 +1236,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             "room_id" to roomId,
                             "max_timeline_id" to 0, // Fetch latest events
                             "limit" to AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT,
-                            "reset" to false,
+                            "reset" to postJoinReset,
                         ),
                     )
 
@@ -1255,6 +1259,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     timelineRequests.remove(paginateRequestId)
                     roomsWithPendingPaginate.remove(roomId)
                     isTimelineLoading = false
+                    if (postJoinReset) endPostJoinLoading(roomId)
                     stopOpenRoomTrace(paginateRequestId, "send_failed")
                 } else {
                     // Connected but canSendCommandsToBackend=false: command was queued in
@@ -1764,6 +1769,8 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             if (isInitialPaginate) {
                                 timelineRequests.remove(requestId)
                                 roomsWithPendingPaginate.remove(roomId)
+                                // Post-join reset paginate rendered — drop the "Waiting for room data" spinner.
+                                endPostJoinLoading(roomId)
                                 if (BuildConfig.DEBUG)
                                     android.util.Log.d(
                                         "Andromuks",
