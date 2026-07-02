@@ -276,10 +276,14 @@ sealed class TimelineItem {
     // PERFORMANCE: Stable key for LazyColumn items
     abstract val stableKey: String
     
+    // absorbedReceiptEventIds: non-rendered event IDs (reactions, redactions, edits, hidden
+    // membership, bridge status) that flatten their read receipts onto this rendered event — see
+    // ReceiptFunctions.gatherFlattenedReceipts. Computed in the produceState timeline build.
     data class Event(
         val event: TimelineEvent,
         val isConsecutive: Boolean = false,
-        val hasPerMessageProfile: Boolean = false
+        val hasPerMessageProfile: Boolean = false,
+        val absorbedReceiptEventIds: List<String> = emptyList()
     ) : TimelineItem() {
         override val stableKey: String
             get() = event.eventId
@@ -1929,6 +1933,28 @@ fun RoomTimelineScreen(
             val readMarkerAnchorId = readMarkerDecision.anchorEventId
             var readMarkerInserted = false
 
+            // Receipt flattening (webmuks' receipt_flattening). A user's read receipt sits on the
+            // very last event they touched, which is often not a rendered, avatar-hosting row
+            // (reaction, redaction, edit, bridge status, or a membership event the user hides).
+            // Walk the full ordered timeline; the anchor is the latest *rendered* event and every
+            // non-rendered event that follows collapses onto it. The rendered set is derived from
+            // sortedEvents (minus reactions, which are never standalone rows), so it is already
+            // settings-aware across all four show/hide scopes — flipping "show membership events"
+            // turns a narrator line into its own anchor and moves the avatar onto it automatically.
+            val renderedIds = HashSet<String>(sortedEvents.size)
+            for (e in sortedEvents) if (e.type != "m.reaction") renderedIds.add(e.eventId)
+            val absorbedByAnchor = HashMap<String, MutableList<String>>()
+            run {
+                var anchor: String? = null
+                for (e in timelineEvents.sortedWith(timelineOrder)) {
+                    if (e.eventId in renderedIds) {
+                        anchor = e.eventId
+                    } else {
+                        anchor?.let { absorbedByAnchor.getOrPut(it) { mutableListOf() }.add(e.eventId) }
+                    }
+                }
+            }
+
             for (event in sortedEvents) {
                 if (event.type == "m.reaction") {
                     // Reactions mutate their target event and should not render as standalone timeline items
@@ -1972,7 +1998,8 @@ fun RoomTimelineScreen(
                 items.add(TimelineItem.Event(
                     event = event,
                     isConsecutive = isConsecutive,
-                    hasPerMessageProfile = hasPerMessageProfile
+                    hasPerMessageProfile = hasPerMessageProfile,
+                    absorbedReceiptEventIds = absorbedByAnchor[event.eventId] ?: emptyList()
                 ))
 
                 previousEvent = event
@@ -3628,6 +3655,7 @@ fun RoomTimelineScreen(
                                                 isMine = isMine,
                                                 myUserId = myUserId,
                                                 isConsecutive = isConsecutive,
+                                                absorbedReceiptEventIds = item.absorbedReceiptEventIds,
                                                 appViewModel = appViewModel,
                                                 sharedTransitionScope = sharedTransitionScope,  // ← ADD THIS
                                                 animatedVisibilityScope = animatedVisibilityScope,  // ← ADD THIS

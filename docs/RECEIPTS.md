@@ -83,6 +83,21 @@ Paginate is considered authoritative for the events it returns. A user appearing
 
 Matrix bridge bots (e.g. mautrix) send `m.read` receipts for their own `com.beeper.message_send_status` events, which never appear in the timeline. Both the sync_complete and paginate paths remap these to the original message event ID using `AppViewModel.bridgeStatusEventToMessageId`. A remapped receipt also triggers an implicit `"delivered"` status update for the message.
 
+## Receipt Flattening (nearest rendered event)
+
+A user's `m.read` receipt always sits on the **very last event they interacted with** — which is frequently *not* an event the client renders as a standalone, avatar-hosting row: a reaction, a redaction, an edit (`m.replace`), a bridge `com.beeper.message_send_status` event, or a membership event the user has chosen to hide. Without flattening, the avatar would key to an event id that no bubble looks up and silently disappear.
+
+Mirroring webmuks' `receipt_flattening`, the app collapses such receipts onto the **nearest rendered event at or before** the true target. Key properties:
+
+- **`readReceipts` stays authoritative** — receipts remain keyed by their true event id. Flattening is a *display-time* remap only, so the one-receipt-per-user-per-room invariant and the ingestion paths are untouched.
+- **The anchor is the rendered set, not a fixed type list.** Anchors are exactly the events that render given the current filter settings — derived from `sortedEvents` minus `m.reaction` (which is whitelisted but skipped at render). Because that set already resolves all four show/hide preference scopes (`showHiddenEvents`, `showMembershipEvents`, `renderContextEvents`, …), flattening is automatically settings-aware: turning **show membership events** on makes a membership narrator its own anchor and moves the avatar onto that narrator line; turning it off flattens the receipt onto the previous message bubble.
+- **Computed at timeline-build time.** In the `produceState` block of both `RoomTimelineScreen` and `BubbleTimelineScreen`, one pass walks the full ordered timeline (`timelineEvents.sortedWith(timelineOrder)` — the same comparator that orders the rendered list): each rendered event becomes the current anchor; each non-rendered event appends its id to that anchor's absorbed list. The result is attached to each rendered row as `TimelineItem.Event.absorbedReceiptEventIds` (and `BubbleTimelineItem.Event`).
+- **Gathered at the single choke point.** `ReceiptFunctions.gatherFlattenedReceipts(anchorEventId, absorbedEventIds, roomId, map)` looks up the anchor's own receipts plus every absorbed event's receipts, applies the cross-room guard, and dedups by user. Used by both the bubble path (`TimelineEventItem`) and the narrator path (`SystemEventNarrator`).
+
+An edge case matching webmuks: a receipt on a non-rendered event that sorts *before* the first rendered row in the loaded window has no anchor and stays orphaned until pagination brings a rendered event before it — the same behavior as the unread divider.
+
+This generalises the older `bridgeStatusEventToMessageId` remap (see below), which remains as an ingestion-time fast path; the two are additive and dedup by user, so no double counting.
+
 ## Rendering
 
 `AnimatedInlineReadReceiptAvatars` (in `ReceiptFunctions.kt`) wraps `InlineReadReceiptAvatars` with enter/exit animations keyed on `receiptAnimationTrigger`. Avatars are computed in `TimelineEventItem` via:

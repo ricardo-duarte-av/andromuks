@@ -90,6 +90,9 @@ private fun trimDisplayNameForNarrator(name: String, appViewModel: AppViewModel?
 @Composable
 fun SystemEventNarrator(
     event: TimelineEvent,
+    // Non-rendered event IDs whose read receipts flatten onto this narrator line — populated when
+    // the user has chosen to show membership/state events so this row becomes a receipt anchor.
+    absorbedReceiptEventIds: List<String> = emptyList(),
     displayName: String,
     avatarUrl: String?,
     homeserverUrl: String,
@@ -160,18 +163,16 @@ fun SystemEventNarrator(
         }
     }
     
-    // Get read receipts for this event
-    // CRITICAL FIX: Filter receipts to ensure they belong to this event
-    val readReceipts = remember(event.eventId, appViewModel?.readReceiptsUpdateCounter) {
+    // Get read receipts for this event, flattening in any that landed on non-rendered events
+    // collapsing onto this narrator line (see ReceiptFunctions.gatherFlattenedReceipts).
+    val readReceipts = remember(event.eventId, absorbedReceiptEventIds, appViewModel?.readReceiptsUpdateCounter) {
         if (appViewModel != null) {
-            val allReceipts = ReceiptFunctions.getReadReceipts(
-                event.eventId,
-                appViewModel.getReadReceiptsMap(event.roomId)
+            ReceiptFunctions.gatherFlattenedReceipts(
+                anchorEventId = event.eventId,
+                absorbedEventIds = absorbedReceiptEventIds,
+                roomId = event.roomId,
+                readReceiptsMap = appViewModel.getReadReceiptsMap(event.roomId)
             )
-            // Filter receipts to ensure they're for this specific event (eventId must match)
-            allReceipts.filter { receipt ->
-                receipt.eventId == event.eventId
-            }
         } else {
             emptyList()
         }

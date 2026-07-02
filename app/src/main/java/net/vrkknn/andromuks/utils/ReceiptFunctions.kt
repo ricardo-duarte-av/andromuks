@@ -190,6 +190,53 @@ object ReceiptFunctions {
     }
     
     /**
+     * Gathers read receipts for a rendered event, flattening in receipts that landed on
+     * non-rendered events which collapse onto it (webmuks' `receipt_flattening`).
+     *
+     * A user's read receipt always sits on the very last event they interacted with, which is
+     * frequently something the client does not render as a standalone, avatar-hosting row — a
+     * reaction, a redaction, a bridge status event, an edit, or a membership event the user has
+     * chosen to hide. [absorbedEventIds] is the ordered list of such event IDs that flatten onto
+     * this rendered anchor (computed at timeline-build time). We look up the anchor's own receipts
+     * plus every absorbed event's receipts and dedup by user, so the avatar surfaces on the nearest
+     * rendered event instead of vanishing.
+     *
+     * The one-receipt-per-user-per-room invariant means a user can appear on at most one of these
+     * IDs, so [distinctBy]-style dedup is only belt-and-suspenders.
+     *
+     * @param anchorEventId The rendered event that hosts the avatars
+     * @param absorbedEventIds Non-rendered event IDs that collapse onto the anchor (may be empty)
+     * @param roomId Room of the anchor — cross-room guard (event IDs are globally unique)
+     * @param readReceiptsMap The receipts map (eventId -> receipts)
+     */
+    fun gatherFlattenedReceipts(
+        anchorEventId: String,
+        absorbedEventIds: List<String>,
+        roomId: String,
+        readReceiptsMap: Map<String, List<ReadReceipt>>
+    ): List<ReadReceipt> {
+        val ids = if (absorbedEventIds.isEmpty()) {
+            listOf(anchorEventId)
+        } else {
+            ArrayList<String>(absorbedEventIds.size + 1).apply {
+                add(anchorEventId)
+                addAll(absorbedEventIds)
+            }
+        }
+        val seenUsers = HashSet<String>()
+        val result = ArrayList<ReadReceipt>()
+        for (id in ids) {
+            val list = readReceiptsMap[id] ?: continue
+            for (receipt in list) {
+                // Cross-room guard: allow matching room or legacy blank-room receipts.
+                if (receipt.roomId != roomId && receipt.roomId.isNotBlank()) continue
+                if (seenUsers.add(receipt.userId)) result.add(receipt)
+            }
+        }
+        return result
+    }
+
+    /**
      * Removes read receipts for a specific user from all events.
      * This is used when a user reads a newer message, so their receipt
      * should only appear on the latest message they've read.

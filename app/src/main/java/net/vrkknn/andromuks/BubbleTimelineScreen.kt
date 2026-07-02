@@ -215,10 +215,13 @@ sealed class BubbleTimelineItem {
     // PERFORMANCE: Stable key for LazyColumn items
     abstract val stableKey: String
     
+    // absorbedReceiptEventIds: non-rendered event IDs whose read receipts flatten onto this event
+    // (see ReceiptFunctions.gatherFlattenedReceipts and TimelineItem.Event in RoomTimelineScreen).
     data class Event(
         val event: TimelineEvent,
         val isConsecutive: Boolean = false,
-        val hasPerMessageProfile: Boolean = false
+        val hasPerMessageProfile: Boolean = false,
+        val absorbedReceiptEventIds: List<String> = emptyList()
     ) : BubbleTimelineItem() {
         override val stableKey: String
             get() = event.eventId
@@ -1524,6 +1527,29 @@ fun BubbleTimelineScreen(
             var lastDate: String? = null
             var previousEvent: TimelineEvent? = null
 
+            // Receipt flattening — mirrors RoomTimelineScreen. Non-rendered events (reactions,
+            // redactions, edits, bridge status, hidden membership) collapse their read receipts
+            // onto the nearest rendered event so the avatar never lands on an unrenderable row.
+            val timelineOrder = compareBy<TimelineEvent>(
+                { it.eventId.startsWith("~") },
+                { it.timelineRowid },
+                { it.timestamp },
+                { it.eventId }
+            )
+            val renderedIds = HashSet<String>(sortedEvents.size)
+            for (e in sortedEvents) if (e.type != "m.reaction") renderedIds.add(e.eventId)
+            val absorbedByAnchor = HashMap<String, MutableList<String>>()
+            run {
+                var anchor: String? = null
+                for (e in timelineEvents.sortedWith(timelineOrder)) {
+                    if (e.eventId in renderedIds) {
+                        anchor = e.eventId
+                    } else {
+                        anchor?.let { absorbedByAnchor.getOrPut(it) { mutableListOf() }.add(e.eventId) }
+                    }
+                }
+            }
+
             val formatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
             for (event in sortedEvents) {
                 if (event.type == "m.reaction") {
@@ -1557,7 +1583,8 @@ fun BubbleTimelineScreen(
                 items.add(BubbleTimelineItem.Event(
                     event = event,
                     isConsecutive = isConsecutive,
-                    hasPerMessageProfile = hasPerMessageProfile
+                    hasPerMessageProfile = hasPerMessageProfile,
+                    absorbedReceiptEventIds = absorbedByAnchor[event.eventId] ?: emptyList()
                 ))
 
                 previousEvent = event
@@ -2775,6 +2802,7 @@ fun BubbleTimelineScreen(
                                                 isMine = isMine,
                                                 myUserId = myUserId,
                                                 isConsecutive = isConsecutive,
+                                                absorbedReceiptEventIds = item.absorbedReceiptEventIds,
                                                 appViewModel = appViewModel,
                                                 onScrollToMessage = { eventId ->
                                                 // PERFORMANCE: Find the index in timelineItems instead of sortedEvents

@@ -3580,6 +3580,9 @@ fun TimelineEventItem(
     isMine: Boolean,
     myUserId: String?,
     isConsecutive: Boolean = false,
+    // Non-rendered event IDs whose read receipts flatten onto this event (reactions, redactions,
+    // edits, bridge status, hidden membership). See ReceiptFunctions.gatherFlattenedReceipts.
+    absorbedReceiptEventIds: List<String> = emptyList(),
     appViewModel: AppViewModel? = null,
     sharedTransitionScope: SharedTransitionScope? = null,  // ← ADD THIS
     animatedVisibilityScope: AnimatedVisibilityScope? = null,  // ← ADD THIS
@@ -3775,6 +3778,7 @@ fun TimelineEventItem(
         // For narrator events, show only the small narrator content
         SystemEventNarrator(
             event = event,
+            absorbedReceiptEventIds = absorbedReceiptEventIds,
             displayName = if (appViewModel?.trimLongDisplayNames == true) {
                 val base = displayName ?: event.sender
                 if (base.length > 40) base.take(40) + "..." else base
@@ -3830,22 +3834,19 @@ fun TimelineEventItem(
 
     // Calculate read receipts and recalculate when receipts are updated
     // OPTIMIZED: Use separate readReceiptsUpdateCounter to avoid unnecessary recomposition of timeline
-    // CRITICAL FIX: Filter receipts to ensure they belong to this event's room
-    // EventIds are globally unique, but we verify the receipt's eventId matches to prevent cross-room leakage
+    // Gather this event's own receipts plus any that flattened onto it from non-rendered events
+    // (reactions, redactions, edits, bridge status, hidden membership). gatherFlattenedReceipts
+    // dedups by user and, since event IDs are globally unique, guards against cross-room leakage
+    // by roomId (matching room or legacy blank-room receipts) rather than by eventId.
     val rawReadReceipts =
-        remember(event.eventId, event.roomId, appViewModel?.readReceiptsUpdateCounter) {
+        remember(event.eventId, event.roomId, absorbedReceiptEventIds, appViewModel?.readReceiptsUpdateCounter) {
             if (appViewModel != null) {
-                val allReceipts = net.vrkknn.andromuks.utils.ReceiptFunctions.getReadReceipts(
-                    event.eventId,
-                    appViewModel.getReadReceiptsMap(event.roomId)
+                net.vrkknn.andromuks.utils.ReceiptFunctions.gatherFlattenedReceipts(
+                    anchorEventId = event.eventId,
+                    absorbedEventIds = absorbedReceiptEventIds,
+                    roomId = event.roomId,
+                    readReceiptsMap = appViewModel.getReadReceiptsMap(event.roomId)
                 )
-                // CRITICAL FIX: Filter receipts by both eventId AND roomId
-                // This ensures receipts from other rooms (with same eventId) don't show up
-                // Also handles backward compatibility: receipts without roomId (empty string) are shown for the current room
-                allReceipts.filter { receipt ->
-                    receipt.eventId == event.eventId &&
-                    (receipt.roomId == event.roomId || receipt.roomId.isBlank()) // Match roomId or allow empty (backward compat)
-                }
             } else {
                 emptyList()
             }
