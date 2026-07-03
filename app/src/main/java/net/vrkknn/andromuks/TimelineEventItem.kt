@@ -1630,10 +1630,14 @@ private fun RoomMediaMessageContent(
     // For other media types, body may be a caption or fallback text, so we don't use it as filename.
     val filename = content?.optString("filename", "")?.takeIf { it.isNotBlank() }
         ?: if (msgType == "m.file") body.takeIf { it.isNotBlank() } ?: "" else ""
-    val info = content?.optJSONObject("info")
+    // `info` is optional per the Matrix spec: an m.image/m.video/m.audio/m.file with only a
+    // `url` (e.g. bridged media) is valid. Default to an empty object so a missing `info`
+    // still renders as media (width=0 → renderer falls back to aspect-ratio sizing) instead
+    // of dropping to the plain-text filename fallback below.
+    val info = content?.optJSONObject("info") ?: JSONObject()
 
 
-    if (url.isNotBlank() && info != null) {
+    if (url.isNotBlank()) {
         // Media parsing and display logic would go here
         // This is a large section that I'll extract from the original code
         val width = info.optInt("w", 0)
@@ -2707,14 +2711,16 @@ private fun EncryptedMessageContent(
             )
 
             val filename = decrypted?.optString("filename", "") ?: ""
-            val info = decrypted?.optJSONObject("info")
+            // `info` is optional per the Matrix spec; default to an empty object so media with
+            // only a `url` still renders instead of falling back to the plain-text filename.
+            val info = decrypted?.optJSONObject("info") ?: JSONObject()
 
             if (BuildConfig.DEBUG) Log.d(
                 "Andromuks",
-                "TimelineEventItem: Encrypted media data - url=$url, filename=$filename, info=${info != null}"
+                "TimelineEventItem: Encrypted media data - url=$url, filename=$filename"
             )
 
-            if (url.isNotBlank() && info != null) {
+            if (url.isNotBlank()) {
                 val width = info.optInt("w", 0)
                 val height = info.optInt("h", 0)
                 val size = info.optLong("size", 0)
