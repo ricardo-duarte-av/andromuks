@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -1599,6 +1600,86 @@ private fun MemberEventNarrator(
                     text = annotatedText,
                     onUserClick = onUserClick,
                 )
+            }
+        }
+
+        "knock" -> {
+            // A user requesting to join (issue #22). The knocker is the state_key (a user knocks for
+            // themselves, so sender == state_key). Show "requested to join" plus, when the current
+            // user has power to invite, Accept (invite = admit) and Deny (kick = decline) buttons.
+            val knockerUserId = event.stateKey ?: event.sender
+            val knockerProfile = appViewModel?.getUserProfile(knockerUserId, roomId)
+            val knockerDisplayName = knockerProfile?.displayName
+                ?: knockerUserId.substringAfter("@").substringBefore(":")
+
+            if (knockerProfile == null && appViewModel != null) {
+                appViewModel.requestUserProfile(knockerUserId, roomId)
+            }
+
+            val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+                appViewModel?.getMemberMap(roomId) ?: emptyMap()
+            }
+            val userMentionColor = MaterialTheme.colorScheme.primary
+
+            // Inviting (which admits a knocker) requires the current user's power level to be at least
+            // the room's invite level. No need to be above the knocker's PL — they hold the default.
+            val powerLevels = appViewModel?.currentRoomState?.powerLevels
+            val myUserId = appViewModel?.currentUserId ?: ""
+            val canInvite = remember(powerLevels, myUserId) {
+                powerLevels != null && myUserId.isNotBlank() &&
+                    (powerLevels.users[myUserId] ?: powerLevels.usersDefault) >= powerLevels.invite
+            }
+
+            // Has *this user* already resolved the knock? We only drop the buttons when the
+            // superseding m.room.member event for the knocker was sent BY US — an accept invites
+            // (its unsigned.replaces_state points back at this knock's event_id) or a deny/retract
+            // sets leave. If someone ELSE handled it, we keep the buttons so we can still act (e.g.
+            // accept a knock another mod denied, or vice-versa). The event is matched by the exact
+            // replaces_state link or, as an ordering fallback robust to clock skew, any newer member
+            // event for this state_key (timeline_rowid is the authoritative timeline order).
+            val knockResolved = remember(roomId, event.eventId, myUserId, appViewModel?.timelineUpdateCounter) {
+                myUserId.isNotBlank() && appViewModel?.timelineEvents?.any { ev ->
+                    ev.type == "m.room.member" &&
+                        ev.stateKey == knockerUserId &&
+                        ev.eventId != event.eventId &&
+                        ev.sender == myUserId &&
+                        (
+                            ev.unsigned?.optString("replaces_state") == event.eventId ||
+                                ev.timelineRowid > event.timelineRowid
+                        )
+                } == true
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val annotatedText = remember(
+                    knockerUserId,
+                    knockerDisplayName,
+                    reason,
+                    memberMap,
+                    userMentionColor,
+                ) {
+                    buildAnnotatedString {
+                        appendClickableUser(knockerUserId, knockerDisplayName, userMentionColor)
+                        append(" requested to join")
+                        if (!reason.isNullOrEmpty()) {
+                            append(": ")
+                            appendTextWithMentions(reason, memberMap, appViewModel, roomId, userMentionColor)
+                        }
+                    }
+                }
+
+                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
+
+                if (canInvite && !knockResolved && appViewModel != null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilledTonalButton(onClick = { appViewModel.inviteUser(roomId, knockerUserId) }) {
+                            Text("Accept")
+                        }
+                        TextButton(onClick = { appViewModel.kickUser(roomId, knockerUserId) }) {
+                            Text("Deny")
+                        }
+                    }
+                }
             }
         }
 
