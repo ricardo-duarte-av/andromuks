@@ -1298,7 +1298,11 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
     }
 
     private fun createCircularBitmap(bitmap: Bitmap): Bitmap {
-        val softwareBitmap = if (bitmap.config == Bitmap.Config.HARDWARE) {
+        // Bitmap.Config.HARDWARE only exists on API 26+; the SDK_INT guard short-circuits so the
+        // constant is never referenced on 24/25 (NoSuchFieldError) — no bitmap is HARDWARE there.
+        val isHardwareBitmap = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            bitmap.config == Bitmap.Config.HARDWARE
+        val softwareBitmap = if (isHardwareBitmap) {
             bitmap.copy(Bitmap.Config.ARGB_8888, false)
         } else {
             bitmap

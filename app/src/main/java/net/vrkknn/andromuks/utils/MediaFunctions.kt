@@ -106,6 +106,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -152,7 +153,6 @@ import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import android.graphics.Color as AndroidColor
 
 /**
  * Shared state manager for inline video players.
@@ -3678,12 +3678,9 @@ fun VideoPlayerDialog(
     // Get Material 3 colors for ExoPlayer controls
     val colorScheme = MaterialTheme.colorScheme
     val primaryColor = colorScheme.primary
-    val primaryColorInt = AndroidColor.valueOf(
-        primaryColor.red,
-        primaryColor.green,
-        primaryColor.blue,
-        primaryColor.alpha,
-    ).toArgb()
+    // primaryColor is a Compose Color; its toArgb() works on all API levels (unlike
+    // android.graphics.Color.valueOf/toArgb, which require API 26 and crash on 24/25).
+    val primaryColorInt = primaryColor.toArgb()
 
     Dialog(
         onDismissRequest = {
@@ -4483,12 +4480,8 @@ fun VideoPlayerDialog(
                 modifier = Modifier.fillMaxSize(),
                 update = { view ->
                     // Update colors when theme changes
-                    val primaryColorInt = AndroidColor.valueOf(
-                        primaryColor.red,
-                        primaryColor.green,
-                        primaryColor.blue,
-                        primaryColor.alpha,
-                    ).toArgb()
+                    // Compose Color.toArgb() is API-safe (unlike android.graphics.Color, API 26+).
+                    val primaryColorInt = primaryColor.toArgb()
 
                     view.post {
                         // Hide ExoPlayer's default progress bar in update block too
