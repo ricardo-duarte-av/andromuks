@@ -1,22 +1,9 @@
 package net.vrkknn.andromuks.utils
 
-
-
-import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
-import coil3.ImageLoader
-import coil3.request.CachePolicy
-import coil3.request.ImageRequest
-import coil3.request.allowHardware
-import coil3.request.allowRgb565
-import coil3.request.ImageResult
-import coil3.request.SuccessResult
-import coil3.request.ErrorResult
-import coil3.compose.AsyncImagePainter
-import coil3.size.Scale
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -24,8 +11,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.request.allowHardware
+import coil3.request.allowRgb565
+import coil3.size.Scale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.BuildConfig
 import java.io.File
 
 /**
@@ -39,25 +33,25 @@ import java.io.File
  */
 object ProgressiveImageLoader {
     private const val TAG = "ProgressiveImageLoader"
-    
+
     // QUALITY IMPROVEMENT: Maximum sizes for crystal clear quality
-    private const val THUMBNAIL_SIZE = 600       // Maximum size for thumbnails
-    private const val PREVIEW_SIZE = 1600        // Maximum size for previews
+    private const val THUMBNAIL_SIZE = 600 // Maximum size for thumbnails
+    private const val PREVIEW_SIZE = 1600 // Maximum size for previews
     private const val FULL_SIZE = 1920
     private const val MAX_IMAGE_SIZE = 2048
-    
+
     // QUALITY IMPROVEMENT: Maximum quality settings for crystal clear images
-    private const val THUMBNAIL_QUALITY = 100    // Maximum quality for thumbnails
-    private const val PREVIEW_QUALITY = 100      // Maximum quality for previews
-    private const val FULL_QUALITY = 100         // Maximum quality for full images
-    
+    private const val THUMBNAIL_QUALITY = 100 // Maximum quality for thumbnails
+    private const val PREVIEW_QUALITY = 100 // Maximum quality for previews
+    private const val FULL_QUALITY = 100 // Maximum quality for full images
+
     data class ImageSize(
         val width: Int,
         val height: Int,
-        val quality: Int = 100,  // Maximum quality by default
-        val scale: Scale = Scale.FIT
+        val quality: Int = 100, // Maximum quality by default
+        val scale: Scale = Scale.FIT,
     )
-    
+
     /**
      * Calculate optimal image size based on display constraints.
      * 
@@ -75,38 +69,38 @@ object ProgressiveImageLoader {
         displayWidth: Int,
         displayHeight: Int,
         maxWidth: Int = MAX_IMAGE_SIZE,
-        maxHeight: Int = MAX_IMAGE_SIZE
+        maxHeight: Int = MAX_IMAGE_SIZE,
     ): ImageSize {
         val aspectRatio = originalWidth.toFloat() / originalHeight.toFloat()
         val displayAspectRatio = displayWidth.toFloat() / displayHeight.toFloat()
-        
+
         return when {
             // Thumbnail for small displays
             displayWidth <= 200 -> ImageSize(
                 width = THUMBNAIL_SIZE,
                 height = (THUMBNAIL_SIZE / aspectRatio).toInt(),
                 quality = THUMBNAIL_QUALITY,
-                scale = Scale.FIT
+                scale = Scale.FIT,
             )
-            
+
             // Preview for medium displays
             displayWidth <= 800 -> ImageSize(
                 width = PREVIEW_SIZE,
                 height = (PREVIEW_SIZE / aspectRatio).toInt(),
                 quality = PREVIEW_QUALITY,
-                scale = Scale.FIT
+                scale = Scale.FIT,
             )
-            
+
             // Full size for large displays
             else -> ImageSize(
                 width = minOf(originalWidth, maxWidth),
                 height = minOf(originalHeight, (maxWidth / aspectRatio).toInt(), maxHeight),
                 quality = FULL_QUALITY,
-                scale = Scale.FIT
+                scale = Scale.FIT,
             )
         }
     }
-    
+
     /**
      * Create progressive image request with optimization settings.
      * 
@@ -120,32 +114,30 @@ object ProgressiveImageLoader {
         context: Context,
         imageUrl: String,
         displaySize: ImageSize,
-        authToken: String? = null
-    ): ImageRequest {
-        return ImageRequest.Builder(context)
-            .data(imageUrl)
-            .apply {
-                // Set optimal size
-                size(displaySize.width, displaySize.height)
-                scale(displaySize.scale)
-                
-                // Memory optimization
-                memoryCachePolicy(CachePolicy.ENABLED)
-                diskCachePolicy(CachePolicy.ENABLED)
-                
-                // Quality optimization - remove quality method as it's not available
-                // quality(displaySize.quality)
-                
-                // Progressive loading settings
-                allowHardware(true)
-                allowRgb565(true)
-                
-                // Network optimization
-                networkCachePolicy(CachePolicy.ENABLED)
-            }
-            .build()
-    }
-    
+        authToken: String? = null,
+    ): ImageRequest = ImageRequest.Builder(context)
+        .data(imageUrl)
+        .apply {
+            // Set optimal size
+            size(displaySize.width, displaySize.height)
+            scale(displaySize.scale)
+
+            // Memory optimization
+            memoryCachePolicy(CachePolicy.ENABLED)
+            diskCachePolicy(CachePolicy.ENABLED)
+
+            // Quality optimization - remove quality method as it's not available
+            // quality(displaySize.quality)
+
+            // Progressive loading settings
+            allowHardware(true)
+            allowRgb565(true)
+
+            // Network optimization
+            networkCachePolicy(CachePolicy.ENABLED)
+        }
+        .build()
+
     /**
      * Optimize image file with compression and resizing.
      * 
@@ -154,44 +146,40 @@ object ProgressiveImageLoader {
      * @param targetSize Target size for optimization
      * @return Optimized image file
      */
-    suspend fun optimizeImage(
-        context: Context,
-        originalFile: File,
-        targetSize: Int = PREVIEW_SIZE
-    ): File = withContext(Dispatchers.IO) {
-        val optimizedFile = File(context.cacheDir, "optimized_${originalFile.name}")
-        
-        try {
-            val bitmap = BitmapFactory.decodeFile(originalFile.absolutePath)
-            if (bitmap == null) {
-                Log.w(TAG, "Failed to decode bitmap from file: ${originalFile.absolutePath}")
-                return@withContext originalFile
+    suspend fun optimizeImage(context: Context, originalFile: File, targetSize: Int = PREVIEW_SIZE): File =
+        withContext(Dispatchers.IO) {
+            val optimizedFile = File(context.cacheDir, "optimized_${originalFile.name}")
+
+            try {
+                val bitmap = BitmapFactory.decodeFile(originalFile.absolutePath)
+                if (bitmap == null) {
+                    Log.w(TAG, "Failed to decode bitmap from file: ${originalFile.absolutePath}")
+                    return@withContext originalFile
+                }
+
+                val optimizedBitmap = resizeBitmap(bitmap, targetSize)
+
+                optimizedFile.outputStream().use { output ->
+                    optimizedBitmap.compress(Bitmap.CompressFormat.JPEG, PREVIEW_QUALITY, output)
+                }
+
+                if (optimizedBitmap != bitmap) {
+                    bitmap.recycle()
+                }
+                optimizedBitmap.recycle()
+
+                val originalSize = originalFile.length()
+                val optimizedSize = optimizedFile.length()
+                val compressionRatio = (1.0 - optimizedSize.toDouble() / originalSize) * 100
+
+                if (BuildConfig.DEBUG) Log.d(TAG, "Optimized image: ${originalSize / 1024}KB -> ${optimizedSize / 1024}KB (${compressionRatio.toInt()}% reduction)")
+                optimizedFile
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to optimize image: ${originalFile.absolutePath}", e)
+                originalFile
             }
-            
-            val optimizedBitmap = resizeBitmap(bitmap, targetSize)
-            
-            optimizedFile.outputStream().use { output ->
-                optimizedBitmap.compress(Bitmap.CompressFormat.JPEG, PREVIEW_QUALITY, output)
-            }
-            
-            if (optimizedBitmap != bitmap) {
-                bitmap.recycle()
-            }
-            optimizedBitmap.recycle()
-            
-            val originalSize = originalFile.length()
-            val optimizedSize = optimizedFile.length()
-            val compressionRatio = (1.0 - optimizedSize.toDouble() / originalSize) * 100
-            
-            if (BuildConfig.DEBUG) Log.d(TAG, "Optimized image: ${originalSize / 1024}KB -> ${optimizedSize / 1024}KB (${compressionRatio.toInt()}% reduction)")
-            optimizedFile
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to optimize image: ${originalFile.absolutePath}", e)
-            originalFile
         }
-    }
-    
+
     /**
      * Resize bitmap to target size while maintaining aspect ratio.
      */
@@ -199,35 +187,35 @@ object ProgressiveImageLoader {
         val aspectRatio = bitmap.width.toFloat() / bitmap.height.toFloat()
         val newWidth = targetSize
         val newHeight = (targetSize / aspectRatio).toInt()
-        
+
         return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
     }
-    
+
     /**
      * Check if image should be optimized based on size and type.
      */
-    fun shouldOptimize(file: File, fileType: String): Boolean {
-        return when (fileType) {
-            "image" -> file.length() > 500 * 1024 // 500KB
-            "video" -> file.length() > 10 * 1024 * 1024 // 10MB
-            else -> false
-        }
+    fun shouldOptimize(file: File, fileType: String): Boolean = when (fileType) {
+        "image" -> file.length() > 500 * 1024
+
+        // 500KB
+        "video" -> file.length() > 10 * 1024 * 1024
+
+        // 10MB
+        else -> false
     }
-    
+
     /**
      * Get optimization statistics for monitoring.
      */
-    fun getOptimizationStats(): Map<String, Any> {
-        return mapOf(
-            "thumbnail_size" to THUMBNAIL_SIZE,
-            "preview_size" to PREVIEW_SIZE,
-            "full_size" to FULL_SIZE,
-            "max_image_size" to MAX_IMAGE_SIZE,
-            "thumbnail_quality" to THUMBNAIL_QUALITY,
-            "preview_quality" to PREVIEW_QUALITY,
-            "full_quality" to FULL_QUALITY
-        )
-    }
+    fun getOptimizationStats(): Map<String, Any> = mapOf(
+        "thumbnail_size" to THUMBNAIL_SIZE,
+        "preview_size" to PREVIEW_SIZE,
+        "full_size" to FULL_SIZE,
+        "max_image_size" to MAX_IMAGE_SIZE,
+        "thumbnail_quality" to THUMBNAIL_QUALITY,
+        "preview_quality" to PREVIEW_QUALITY,
+        "full_quality" to FULL_QUALITY,
+    )
 }
 
 /**
@@ -249,31 +237,31 @@ fun ProgressiveAsyncImage(
     displayHeight: Int = 600,
     onLoading: (AsyncImagePainter.State.Loading) -> Unit = {},
     onSuccess: (AsyncImagePainter.State.Success) -> Unit = {},
-    onError: (AsyncImagePainter.State.Error) -> Unit = {}
+    onError: (AsyncImagePainter.State.Error) -> Unit = {},
 ) {
     val context = LocalContext.current
     val imageLoader = remember { ImageLoaderSingleton.get(context) }
-    
+
     // Calculate optimal size based on display constraints
     val displaySize = remember(displayWidth, displayHeight) {
         ProgressiveImageLoader.getOptimalImageSize(
             originalWidth = 1920, // Default assumption
             originalHeight = 1080,
             displayWidth = displayWidth,
-            displayHeight = displayHeight
+            displayHeight = displayHeight,
         )
     }
-    
+
     // Create progressive request
     val imageRequest = remember(imageUrl, displaySize) {
         ProgressiveImageLoader.createProgressiveImageRequest(
             context = context,
             imageUrl = imageUrl,
             displaySize = displaySize,
-            authToken = authToken
+            authToken = authToken,
         )
     }
-    
+
     AsyncImage(
         model = imageRequest,
         imageLoader = imageLoader,
@@ -281,7 +269,7 @@ fun ProgressiveAsyncImage(
         modifier = modifier,
         onLoading = onLoading,
         onSuccess = onSuccess,
-        onError = onError
+        onError = onError,
     )
 }
 
@@ -300,31 +288,31 @@ fun ProgressiveAsyncImageWithConstraints(
     maxHeight: Dp = 600.dp,
     onLoading: (AsyncImagePainter.State.Loading) -> Unit = {},
     onSuccess: (AsyncImagePainter.State.Success) -> Unit = {},
-    onError: (AsyncImagePainter.State.Error) -> Unit = {}
+    onError: (AsyncImagePainter.State.Error) -> Unit = {},
 ) {
     val context = LocalContext.current
     val imageLoader = remember { ImageLoaderSingleton.get(context) }
-    
+
     // Calculate optimal size based on constraints
     val displaySize = remember(maxWidth, maxHeight) {
         ProgressiveImageLoader.getOptimalImageSize(
             originalWidth = 1920,
             originalHeight = 1080,
             displayWidth = maxWidth.value.toInt(),
-            displayHeight = maxHeight.value.toInt()
+            displayHeight = maxHeight.value.toInt(),
         )
     }
-    
+
     // Create progressive request
     val imageRequest = remember(imageUrl, displaySize) {
         ProgressiveImageLoader.createProgressiveImageRequest(
             context = context,
             imageUrl = imageUrl,
             displaySize = displaySize,
-            authToken = authToken
+            authToken = authToken,
         )
     }
-    
+
     AsyncImage(
         model = imageRequest,
         imageLoader = imageLoader,
@@ -332,6 +320,6 @@ fun ProgressiveAsyncImageWithConstraints(
         modifier = modifier,
         onLoading = onLoading,
         onSuccess = onSuccess,
-        onError = onError
+        onError = onError,
     )
 }

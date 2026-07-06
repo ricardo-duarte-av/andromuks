@@ -23,3 +23,4 @@ init.log
 keystore.properties
 app/gomuks.keystore
 *.keystore
+/baselineprofile/build

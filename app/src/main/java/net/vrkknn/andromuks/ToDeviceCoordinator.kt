@@ -31,12 +31,18 @@ internal class ToDeviceCoordinator(private val vm: AppViewModel) {
 
         if (events == null || events.length() == 0) {
             if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "AppViewModel: to_device exists but no events (count: ${events?.length() ?: 0})")
+                android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: to_device exists but no events (count: ${events?.length() ?: 0})",
+                )
             }
             return@with
         }
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: Extracting ${events.length()} to_device events from sync_complete")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Extracting ${events.length()} to_device events from sync_complete",
+            )
         }
         try {
             val payload = JSONObject().put("events", events)
@@ -48,31 +54,33 @@ internal class ToDeviceCoordinator(private val vm: AppViewModel) {
         }
     }
 
-    private fun normalizeToDevicePayload(data: Any?): Any? {
-        return when (data) {
-            is JSONObject -> {
-                if (data.has("messages")) {
-                    JSONObject().apply {
-                        put("events", normalizeToDeviceMessages(data))
-                    }
-                } else if (data.has("events")) {
-                    val normalizedEvents = normalizeToDeviceEvents(data.optJSONArray("events"))
-                    JSONObject().apply {
-                        put("events", normalizedEvents)
-                    }
-                } else {
-                    data
-                }
-            }
-            is JSONArray -> {
+    private fun normalizeToDevicePayload(data: Any?): Any? = when (data) {
+        is JSONObject -> {
+            if (data.has("messages")) {
                 JSONObject().apply {
-                    put("events", normalizeToDeviceEvents(data))
+                    put("events", normalizeToDeviceMessages(data))
                 }
+            } else if (data.has("events")) {
+                val normalizedEvents = normalizeToDeviceEvents(data.optJSONArray("events"))
+                JSONObject().apply {
+                    put("events", normalizedEvents)
+                }
+            } else {
+                data
             }
-            is Map<*, *> -> normalizeToDevicePayload(JSONObject(data))
-            is List<*> -> normalizeToDevicePayload(JSONArray(data))
-            else -> data
         }
+
+        is JSONArray -> {
+            JSONObject().apply {
+                put("events", normalizeToDeviceEvents(data))
+            }
+        }
+
+        is Map<*, *> -> normalizeToDevicePayload(JSONObject(data))
+
+        is List<*> -> normalizeToDevicePayload(JSONArray(data))
+
+        else -> data
     }
 
     private fun normalizeToDeviceEvents(rawEvents: JSONArray?): JSONArray {

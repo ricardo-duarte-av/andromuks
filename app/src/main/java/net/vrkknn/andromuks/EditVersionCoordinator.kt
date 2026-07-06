@@ -8,17 +8,17 @@ import org.json.JSONObject
  * Mutable state lives on the ViewModel ([AppViewModel.eventChainMap], [AppViewModel.editEventsMap]);
  * this class only orchestrates updates.
  */
-internal class EditVersionCoordinator(
-    private val vm: AppViewModel
-) {
+internal class EditVersionCoordinator(private val vm: AppViewModel) {
 
     fun isEditEvent(event: TimelineEvent): Boolean {
         if (event.relationType == "m.replace" && !event.relatesTo.isNullOrBlank()) return true
         return when {
             event.type == "m.room.message" ->
                 event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+
             event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" ->
                 event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+
             else -> false
         }
     }
@@ -28,8 +28,10 @@ internal class EditVersionCoordinator(
         val fromContent = when {
             event.type == "m.room.message" ->
                 event.content?.optJSONObject("m.relates_to")?.optString("event_id")
+
             event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" ->
                 event.decrypted?.optJSONObject("m.relates_to")?.optString("event_id")
+
             else -> null
         }?.takeIf { it.isNotBlank() }
         if (fromContent != null) return fromContent
@@ -37,15 +39,11 @@ internal class EditVersionCoordinator(
         return null
     }
 
-    fun mergeVersionsDistinct(
-        existing: List<MessageVersion>,
-        extra: MessageVersion? = null
-    ): List<MessageVersion> {
-        return (if (extra != null) existing + extra else existing)
+    fun mergeVersionsDistinct(existing: List<MessageVersion>, extra: MessageVersion? = null): List<MessageVersion> =
+        (if (extra != null) existing + extra else existing)
             .groupBy { it.eventId }
             .map { (_, versions) -> versions.maxByOrNull { it.timestamp } ?: versions.first() }
             .sortedByDescending { it.timestamp }
-    }
 
     /**
      * OPTIMIZED: Process events to build version cache (O(n) where n = number of events)
@@ -59,6 +57,7 @@ internal class EditVersionCoordinator(
                         event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction" -> {
                             event.decrypted?.optString("redacts")?.takeIf { it.isNotBlank() }
                         }
+
                         else -> {
                             event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
                         }
@@ -71,8 +70,8 @@ internal class EditVersionCoordinator(
                                 redactsEventId,
                                 versioned.copy(
                                     redactedBy = event.eventId,
-                                    redactionEvent = event
-                                )
+                                    redactionEvent = event,
+                                ),
                             )
                         } else {
                             val originalEvent = RoomTimelineCache.getCachedEvents(event.roomId)
@@ -86,13 +85,13 @@ internal class EditVersionCoordinator(
                                         originalEvent = originalEvent,
                                         versions = emptyList(),
                                         redactedBy = event.eventId,
-                                        redactionEvent = event
-                                    )
+                                        redactionEvent = event,
+                                    ),
                                 )
                                 if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
                                         "Andromuks",
-                                        "AppViewModel: Redaction event ${event.eventId} (type=${event.type}, decryptedType=${event.decryptedType}) received before original $redactsEventId, but found original in cache"
+                                        "AppViewModel: Redaction event ${event.eventId} (type=${event.type}, decryptedType=${event.decryptedType}) received before original $redactsEventId, but found original in cache",
                                     )
                                 }
                             } else {
@@ -103,13 +102,13 @@ internal class EditVersionCoordinator(
                                         originalEvent = event,
                                         versions = emptyList(),
                                         redactedBy = event.eventId,
-                                        redactionEvent = event
-                                    )
+                                        redactionEvent = event,
+                                    ),
                                 )
                                 if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
                                         "Andromuks",
-                                        "AppViewModel: Redaction event ${event.eventId} (type=${event.type}, decryptedType=${event.decryptedType}) received before original $redactsEventId - created placeholder"
+                                        "AppViewModel: Redaction event ${event.eventId} (type=${event.type}, decryptedType=${event.decryptedType}) received before original $redactsEventId - created placeholder",
                                     )
                                 }
                             }
@@ -127,7 +126,7 @@ internal class EditVersionCoordinator(
                                 eventId = event.eventId,
                                 event = event,
                                 timestamp = event.timestamp,
-                                isOriginal = false
+                                isOriginal = false,
                             )
 
                             val updatedVersions = mergeVersionsDistinct(versioned.versions, newVersion)
@@ -140,13 +139,13 @@ internal class EditVersionCoordinator(
                                 }
 
                             val updatedVersioned = versioned.copy(
-                                versions = limitedVersions
+                                versions = limitedVersions,
                             )
                             MessageVersionsCache.updateVersion(originalEventId, updatedVersioned)
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
                                     "Andromuks",
-                                    "AppViewModel: Added edit ${event.eventId} to original $originalEventId (total versions: ${updatedVersions.size})"
+                                    "AppViewModel: Added edit ${event.eventId} to original $originalEventId (total versions: ${updatedVersions.size})",
                                 )
                             }
                         } else {
@@ -160,15 +159,15 @@ internal class EditVersionCoordinator(
                                             eventId = event.eventId,
                                             event = event,
                                             timestamp = event.timestamp,
-                                            isOriginal = false
-                                        )
-                                    )
-                                )
+                                            isOriginal = false,
+                                        ),
+                                    ),
+                                ),
                             )
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
                                     "Andromuks",
-                                    "AppViewModel: Edit ${event.eventId} received before original $originalEventId - created placeholder"
+                                    "AppViewModel: Edit ${event.eventId} received before original $originalEventId - created placeholder",
                                 )
                             }
                         }
@@ -183,20 +182,20 @@ internal class EditVersionCoordinator(
                             eventId = event.eventId,
                             event = event,
                             timestamp = event.timestamp,
-                            isOriginal = true
+                            isOriginal = true,
                         )
 
                         val updatedVersions = mergeVersionsDistinct(
                             existing.versions.filter { !it.isOriginal },
-                            originalVersion
+                            originalVersion,
                         )
 
                         MessageVersionsCache.updateVersion(
                             event.eventId,
                             existing.copy(
                                 originalEvent = event,
-                                versions = updatedVersions
-                            )
+                                versions = updatedVersions,
+                            ),
                         )
                     } else {
                         MessageVersionsCache.updateVersion(
@@ -209,10 +208,10 @@ internal class EditVersionCoordinator(
                                         eventId = event.eventId,
                                         event = event,
                                         timestamp = event.timestamp,
-                                        isOriginal = true
-                                    )
-                                )
-                            )
+                                        isOriginal = true,
+                                    ),
+                                ),
+                            ),
                         )
                     }
                 }
@@ -235,7 +234,7 @@ internal class EditVersionCoordinator(
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
-                                "AppViewModel: Added edit event ${event.eventId} to edit events map"
+                                "AppViewModel: Added edit event ${event.eventId} to edit events map",
                             )
                         }
                     } else {
@@ -245,17 +244,17 @@ internal class EditVersionCoordinator(
                                 eventId = event.eventId,
                                 ourBubble = event,
                                 replacedBy = existingEntry?.replacedBy,
-                                originalTimestamp = event.timestamp
+                                originalTimestamp = event.timestamp,
                             )
                             if (BuildConfig.DEBUG && existingEntry != null) {
                                 android.util.Log.d(
                                     "Andromuks",
-                                    "AppViewModel: Updated existing event ${event.eventId} in chain mapping (newer timestamp)"
+                                    "AppViewModel: Updated existing event ${event.eventId} in chain mapping (newer timestamp)",
                                 )
                             } else if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
                                     "Andromuks",
-                                    "AppViewModel: Added regular event ${event.eventId} to chain mapping"
+                                    "AppViewModel: Added regular event ${event.eventId} to chain mapping",
                                 )
                             }
                         }
@@ -276,7 +275,7 @@ internal class EditVersionCoordinator(
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Added edit event ${event.eventId} to edit events map"
+                        "AppViewModel: Added edit event ${event.eventId} to edit events map",
                     )
                 }
             } else {
@@ -286,17 +285,17 @@ internal class EditVersionCoordinator(
                         eventId = event.eventId,
                         ourBubble = event,
                         replacedBy = existingEntry?.replacedBy,
-                        originalTimestamp = event.timestamp
+                        originalTimestamp = event.timestamp,
                     )
                     if (BuildConfig.DEBUG && existingEntry != null) {
                         android.util.Log.d(
                             "Andromuks",
-                            "AppViewModel: Updated existing event ${event.eventId} in chain mapping (newer timestamp)"
+                            "AppViewModel: Updated existing event ${event.eventId} in chain mapping (newer timestamp)",
                         )
                     } else if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
-                            "AppViewModel: Added regular event ${event.eventId} to chain mapping"
+                            "AppViewModel: Added regular event ${event.eventId} to chain mapping",
                         )
                     }
                 }
@@ -331,7 +330,7 @@ internal class EditVersionCoordinator(
                 content = finalContent,
                 decrypted = mergedDecrypted,
                 localContent = editEvent.localContent ?: originalEvent.localContent,
-                redactedBy = originalEvent.redactedBy
+                redactedBy = originalEvent.redactedBy,
             )
         }
         return originalEvent
@@ -342,12 +341,14 @@ internal class EditVersionCoordinator(
         if (initialBubble == null) {
             android.util.Log.e(
                 "Andromuks",
-                "AppViewModel: getFinalEventForBubble called with null ourBubble for event ${entry.eventId}"
+                "AppViewModel: getFinalEventForBubble called with null ourBubble for event ${entry.eventId}",
             )
             throw IllegalStateException("Entry ${entry.eventId} has null ourBubble")
         }
 
-        var currentEvent: TimelineEvent = requireNotNull(initialBubble) { "ourBubble should be non-null after null check" }
+        var currentEvent: TimelineEvent = requireNotNull(
+            initialBubble,
+        ) { "ourBubble should be non-null after null check" }
         var currentEntry = entry
         val visitedEvents = mutableSetOf<String>()
 
@@ -366,7 +367,7 @@ internal class EditVersionCoordinator(
             if (visitedEvents.contains(editEventId)) {
                 android.util.Log.w(
                     "Andromuks",
-                    "AppViewModel: Infinite loop detected! Edit event ${editEventId} already visited in this chain"
+                    "AppViewModel: Infinite loop detected! Edit event $editEventId already visited in this chain",
                 )
                 break
             }
@@ -376,12 +377,14 @@ internal class EditVersionCoordinator(
             if (editEventNullable == null) {
                 android.util.Log.w(
                     "Andromuks",
-                    "AppViewModel: Edit event ${editEventId} not found in edit events map"
+                    "AppViewModel: Edit event $editEventId not found in edit events map",
                 )
                 break
             }
 
-            val editEvent = requireNotNull(editEventNullable) { "Edit event $editEventId should be non-null after null check" }
+            val editEvent = requireNotNull(
+                editEventNullable,
+            ) { "Edit event $editEventId should be non-null after null check" }
 
             currentEvent = mergeEditContent(currentEvent, editEvent)
 
@@ -393,7 +396,7 @@ internal class EditVersionCoordinator(
             if (nextEntry.eventId == currentEntry.eventId) {
                 android.util.Log.w(
                     "Andromuks",
-                    "AppViewModel: Edit event ${editEventId} points to itself, breaking chain"
+                    "AppViewModel: Edit event $editEventId points to itself, breaking chain",
                 )
                 break
             }
@@ -408,15 +411,17 @@ internal class EditVersionCoordinator(
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: findSupersededEvents called for event ${newEvent.eventId}"
+                "AppViewModel: findSupersededEvents called for event ${newEvent.eventId}",
             )
         }
         val supersededEventIds = mutableListOf<String>()
 
         val relatesTo = when {
             newEvent.type == "m.room.message" -> newEvent.content?.optJSONObject("m.relates_to")
+
             newEvent.type == "m.room.encrypted" && newEvent.decryptedType == "m.room.message" ->
                 newEvent.decrypted?.optJSONObject("m.relates_to")
+
             else -> null
         }
 
@@ -430,7 +435,7 @@ internal class EditVersionCoordinator(
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: relatesToEventId: $relatesToEventId, relType: $relType"
+                "AppViewModel: relatesToEventId: $relatesToEventId, relType: $relType",
             )
         }
 
@@ -438,7 +443,7 @@ internal class EditVersionCoordinator(
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: This is an edit event targeting $relatesToEventId"
+                    "AppViewModel: This is an edit event targeting $relatesToEventId",
                 )
             }
             val originalEvent = existingEvents.find { it.eventId == relatesToEventId }
@@ -447,18 +452,18 @@ internal class EditVersionCoordinator(
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Edit event ${newEvent.eventId} supersedes original event ${originalEvent.eventId}"
+                        "AppViewModel: Edit event ${newEvent.eventId} supersedes original event ${originalEvent.eventId}",
                     )
                 }
             } else {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: WARNING - Could not find original event $relatesToEventId in existing events"
+                        "AppViewModel: WARNING - Could not find original event $relatesToEventId in existing events",
                     )
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Available event IDs: ${existingEvents.map { it.eventId }}"
+                        "AppViewModel: Available event IDs: ${existingEvents.map { it.eventId }}",
                     )
                 }
             }
@@ -466,7 +471,7 @@ internal class EditVersionCoordinator(
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Not an edit event (relType: $relType, relatesToEventId: $relatesToEventId)"
+                    "AppViewModel: Not an edit event (relType: $relType, relatesToEventId: $relatesToEventId)",
                 )
             }
         }
@@ -474,13 +479,16 @@ internal class EditVersionCoordinator(
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Returning superseded event IDs: $supersededEventIds"
+                "AppViewModel: Returning superseded event IDs: $supersededEventIds",
             )
         }
         return supersededEventIds
     }
 
-    fun findChainEndOptimized(startEventId: String, cache: MutableMap<String, AppViewModel.EventChainEntry?>): AppViewModel.EventChainEntry? {
+    fun findChainEndOptimized(
+        startEventId: String,
+        cache: MutableMap<String, AppViewModel.EventChainEntry?>,
+    ): AppViewModel.EventChainEntry? {
         if (cache.containsKey(startEventId)) {
             return cache[startEventId]
         }
@@ -537,7 +545,7 @@ internal class EditVersionCoordinator(
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
-                            "processEditRelationships: edit ${editEventId} targets ${targetEventId} (current replacedBy=${targetEntry.replacedBy})"
+                            "processEditRelationships: edit $editEventId targets $targetEventId (current replacedBy=${targetEntry.replacedBy})",
                         )
                     }
                     if (targetEntry.replacedBy != null) {
@@ -546,14 +554,14 @@ internal class EditVersionCoordinator(
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
                                     "Andromuks",
-                                    "processEditRelationships: extending chain end ${chainEnd.eventId} with ${editEventId}"
+                                    "processEditRelationships: extending chain end ${chainEnd.eventId} with $editEventId",
                                 )
                             }
                             chainEnd.replacedBy = editEventId
                         } else {
                             android.util.Log.w(
                                 "Andromuks",
-                                "processEditRelationships: could not find chain end for ${targetEntry.replacedBy}; replacing with ${editEventId}"
+                                "processEditRelationships: could not find chain end for ${targetEntry.replacedBy}; replacing with $editEventId",
                             )
                             targetEntry.replacedBy = editEventId
                         }
@@ -561,7 +569,7 @@ internal class EditVersionCoordinator(
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
-                                "processEditRelationships: first edit for ${targetEventId} is ${editEventId}"
+                                "processEditRelationships: first edit for $targetEventId is $editEventId",
                             )
                         }
                         targetEntry.replacedBy = editEventId
@@ -569,13 +577,13 @@ internal class EditVersionCoordinator(
                 } else {
                     android.util.Log.w(
                         "Andromuks",
-                        "processEditRelationships: target entry missing for edit ${editEventId} (target=${targetEventId})"
+                        "processEditRelationships: target entry missing for edit $editEventId (target=$targetEventId)",
                     )
                 }
             } else {
                 android.util.Log.w(
                     "Andromuks",
-                    "processEditRelationships: edit ${editEventId} missing relates_to event_id"
+                    "processEditRelationships: edit $editEventId missing relates_to event_id",
                 )
             }
         }
@@ -592,8 +600,10 @@ internal class EditVersionCoordinator(
 
         val relatesTo = when {
             editEvent.type == "m.room.message" -> editEvent.content?.optJSONObject("m.relates_to")
+
             editEvent.type == "m.room.encrypted" && editEvent.decryptedType == "m.room.message" ->
                 editEvent.decrypted?.optJSONObject("m.relates_to")
+
             else -> null
         }
 
@@ -606,7 +616,7 @@ internal class EditVersionCoordinator(
         } else {
             android.util.Log.w(
                 "Andromuks",
-                "AppViewModel: Could not find target event ID in edit event ${editEvent.eventId}"
+                "AppViewModel: Could not find target event ID in edit event ${editEvent.eventId}",
             )
         }
     }
@@ -620,7 +630,7 @@ internal class EditVersionCoordinator(
             val pendingId = vm.pendingEchoMap.remove(txId)
             if (pendingId != null) {
                 vm.eventChainMap.remove(pendingId)
-                vm.localEchoCoordinator.cancel(pendingId)  // confirmed via sync_complete: stop watchdog
+                vm.localEchoCoordinator.cancel(pendingId) // confirmed via sync_complete: stop watchdog
                 vm.markTimelineEntrancePlayed(event.eventId)
             }
         }
@@ -630,12 +640,12 @@ internal class EditVersionCoordinator(
             val existingBubble = existingEntry.ourBubble
             if (existingBubble != null && event.timelineRowid != 0L && existingBubble.timelineRowid == 0L) {
                 vm.eventChainMap[event.eventId] = existingEntry.copy(
-                    ourBubble = existingBubble.copy(timelineRowid = event.timelineRowid)
+                    ourBubble = existingBubble.copy(timelineRowid = event.timelineRowid),
                 )
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Updated eventChainMap timeline_rowid for ${event.eventId} (was ${existingBubble.timelineRowid}, now ${event.timelineRowid})"
+                        "AppViewModel: Updated eventChainMap timeline_rowid for ${event.eventId} (was ${existingBubble.timelineRowid}, now ${event.timelineRowid})",
                     )
                 }
             }
@@ -646,7 +656,7 @@ internal class EditVersionCoordinator(
             eventId = event.eventId,
             ourBubble = event,
             replacedBy = null,
-            originalTimestamp = event.timestamp
+            originalTimestamp = event.timestamp,
         )
     }
 
@@ -656,8 +666,10 @@ internal class EditVersionCoordinator(
 
             val relatesTo = when {
                 editEvent.type == "m.room.message" -> editEvent.content?.optJSONObject("m.relates_to")
+
                 editEvent.type == "m.room.encrypted" && editEvent.decryptedType == "m.room.message" ->
                     editEvent.decrypted?.optJSONObject("m.relates_to")
+
                 else -> null
             }
 

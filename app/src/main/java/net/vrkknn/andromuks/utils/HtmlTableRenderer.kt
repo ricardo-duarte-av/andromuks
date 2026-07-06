@@ -41,11 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
-data class TableData(
-    val headers: List<String>,
-    val rows: List<List<String>>,
-    val columnCount: Int
-)
+data class TableData(val headers: List<String>, val rows: List<List<String>>, val columnCount: Int)
 
 fun parseTableNode(tableNode: HtmlNode.Tag): TableData {
     val headers = mutableListOf<String>()
@@ -74,12 +70,15 @@ fun parseTableNode(tableNode: HtmlNode.Tag): TableData {
         when (child.name) {
             "thead" -> child.children.filterIsInstance<HtmlNode.Tag>()
                 .filter { it.name == "tr" }.forEach { processTr(it, true) }
+
             "tbody", "tfoot" -> child.children.filterIsInstance<HtmlNode.Tag>()
                 .filter { it.name == "tr" }.forEach { processTr(it, false) }
+
             "tr" -> {
                 val isHeaderRow = child.children.filterIsInstance<HtmlNode.Tag>().any { it.name == "th" }
                 processTr(child, isHeaderRow && headers.isEmpty())
             }
+
             "caption" -> { /* skip caption in table data */ }
         }
     }
@@ -89,11 +88,7 @@ fun parseTableNode(tableNode: HtmlNode.Tag): TableData {
 }
 
 @Composable
-fun HtmlTablePreviewCard(
-    tableData: TableData,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
+fun HtmlTablePreviewCard(tableData: TableData, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val headerPreview = tableData.headers.take(4).joinToString(", ").let {
         if (tableData.columnCount > 4) "$it…" else it
     }
@@ -103,24 +98,24 @@ fun HtmlTablePreviewCard(
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(8.dp),
         tonalElevation = 2.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 imageVector = Icons.Default.TableChart,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(22.dp)
+                modifier = Modifier.size(22.dp),
             )
             Spacer(Modifier.width(10.dp))
             Column {
                 Text(
                     text = "${tableData.rows.size} rows × ${tableData.columnCount} columns",
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
                 )
                 if (headerPreview.isNotEmpty()) {
                     Text(
@@ -128,13 +123,13 @@ fun HtmlTablePreviewCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 Text(
                     text = "Tap to view",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
         }
@@ -142,39 +137,36 @@ fun HtmlTablePreviewCard(
 }
 
 @Composable
-fun HtmlTableDialog(
-    tableData: TableData,
-    onDismiss: () -> Unit
-) {
+fun HtmlTableDialog(tableData: TableData, onDismiss: () -> Unit) {
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth(0.97f)
                 .fillMaxHeight(0.85f),
             shape = RoundedCornerShape(12.dp),
-            tonalElevation = 6.dp
+            tonalElevation = 6.dp,
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
                         text = "Table — ${tableData.rows.size} rows × ${tableData.columnCount} columns",
                         style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
                     )
                     TextButton(onClick = onDismiss) { Text("Close") }
                 }
                 HorizontalDivider()
                 HtmlTableContent(
                     tableData = tableData,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
         }
@@ -182,10 +174,7 @@ fun HtmlTableDialog(
 }
 
 @Composable
-fun HtmlTableContent(
-    tableData: TableData,
-    modifier: Modifier = Modifier
-) {
+fun HtmlTableContent(tableData: TableData, modifier: Modifier = Modifier) {
     val minColWidth = 80.dp
     val maxColWidth = 220.dp
     val colCount = tableData.columnCount
@@ -194,7 +183,7 @@ fun HtmlTableContent(
         (0 until colCount).map { colIdx ->
             val maxLen = maxOf(
                 tableData.headers.getOrNull(colIdx)?.length ?: 0,
-                tableData.rows.maxOfOrNull { it.getOrNull(colIdx)?.length ?: 0 } ?: 0
+                tableData.rows.maxOfOrNull { it.getOrNull(colIdx)?.length ?: 0 } ?: 0,
             )
             // ~7sp per char heuristic, clamped between min and max
             ((maxLen * 7f).coerceIn(minColWidth.value, maxColWidth.value)).dp
@@ -211,7 +200,7 @@ fun HtmlTableContent(
 
     LazyColumn(
         state = lazyListState,
-        modifier = modifier.horizontalScroll(horizontalScrollState)
+        modifier = modifier.horizontalScroll(horizontalScrollState),
     ) {
         if (tableData.headers.isNotEmpty()) {
             item(key = "header") {
@@ -221,7 +210,7 @@ fun HtmlTableContent(
                     colCount = colCount,
                     backgroundColor = headerBg,
                     colDividerColor = colDividerColor,
-                    isHeader = true
+                    isHeader = true,
                 )
                 HorizontalDivider(color = dividerColor, thickness = 1.5.dp)
             }
@@ -233,7 +222,7 @@ fun HtmlTableContent(
                 colCount = colCount,
                 backgroundColor = if (rowIdx % 2 == 1) oddRowBg else Color.Transparent,
                 colDividerColor = colDividerColor,
-                isHeader = false
+                isHeader = false,
             )
             HorizontalDivider(color = dividerColor)
         }
@@ -247,32 +236,35 @@ private fun HtmlTableRow(
     colCount: Int,
     backgroundColor: Color,
     colDividerColor: Color,
-    isHeader: Boolean
+    isHeader: Boolean,
 ) {
     Row(
         modifier = Modifier
             .background(backgroundColor)
-            .height(IntrinsicSize.Min)
+            .height(IntrinsicSize.Min),
     ) {
         repeat(colCount) { colIdx ->
             val cell = cells.getOrNull(colIdx) ?: ""
             Text(
                 text = cell,
-                style = if (isHeader) MaterialTheme.typography.labelSmall
-                        else MaterialTheme.typography.bodySmall,
+                style = if (isHeader) {
+                    MaterialTheme.typography.labelSmall
+                } else {
+                    MaterialTheme.typography.bodySmall
+                },
                 fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal,
                 maxLines = if (isHeader) 2 else 4,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .width(colWidths.getOrElse(colIdx) { 80.dp })
-                    .padding(horizontal = 8.dp, vertical = 5.dp)
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
             )
             if (colIdx < colCount - 1) {
                 Box(
                     modifier = Modifier
                         .width(1.dp)
                         .fillMaxHeight()
-                        .background(colDividerColor)
+                        .background(colDividerColor),
                 )
             }
         }

@@ -2,23 +2,21 @@
 
 package net.vrkknn.andromuks.utils
 
-
-
-import net.vrkknn.andromuks.BuildConfig
-import net.vrkknn.andromuks.utils.getUserAgent
 import android.content.Context
 import android.util.Log
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.common.C
 import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.exoplayer.LoadControl
 import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.RenderersFactory
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.LoadControl
+import androidx.media3.exoplayer.RenderersFactory
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.utils.getUserAgent
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -34,20 +32,15 @@ object AdvancedExoPlayerManager {
     private const val TAG = "AdvancedExoPlayerManager"
     private const val MAX_PLAYERS = 3
     private const val INACTIVE_THRESHOLD = 5 * 60 * 1000L // 5 minutes
-    
-    data class PlayerState(
-        val isPlaying: Boolean,
-        val lastUsed: Long,
-        val mediaUrl: String,
-        val accessCount: Int = 0
-    )
-    
+
+    data class PlayerState(val isPlaying: Boolean, val lastUsed: Long, val mediaUrl: String, val accessCount: Int = 0)
+
     // Thread-safe collections for player management
     private val playerPool = ConcurrentHashMap<String, ExoPlayer>()
     private val playerUsage = ConcurrentHashMap<String, Long>()
     private val playerStates = ConcurrentHashMap<String, PlayerState>()
     private val playerMutex = Mutex()
-    
+
     /**
      * Get or create an ExoPlayer instance with smart pooling.
      * 
@@ -56,77 +49,72 @@ object AdvancedExoPlayerManager {
      * @param mediaUrl Media URL for the player
      * @return ExoPlayer instance
      */
-    suspend fun getOrCreatePlayer(
-        playerId: String,
-        context: Context,
-        mediaUrl: String
-    ): ExoPlayer = playerMutex.withLock {
-        // Reuse existing player if available
-        playerPool[playerId]?.let { existingPlayer ->
-            updatePlayerUsage(playerId)
-            if (BuildConfig.DEBUG) Log.d(TAG, "Reusing existing player: $playerId")
-            return@withLock existingPlayer
-        }
-        
-        // Create new player if pool not full
-        if (playerPool.size < MAX_PLAYERS) {
+    suspend fun getOrCreatePlayer(playerId: String, context: Context, mediaUrl: String): ExoPlayer =
+        playerMutex.withLock {
+            // Reuse existing player if available
+            playerPool[playerId]?.let { existingPlayer ->
+                updatePlayerUsage(playerId)
+                if (BuildConfig.DEBUG) Log.d(TAG, "Reusing existing player: $playerId")
+                return@withLock existingPlayer
+            }
+
+            // Create new player if pool not full
+            if (playerPool.size < MAX_PLAYERS) {
+                val newPlayer = createOptimizedPlayer(context, mediaUrl)
+                playerPool[playerId] = newPlayer
+                updatePlayerUsage(playerId)
+                playerStates[playerId] = PlayerState(
+                    isPlaying = false,
+                    lastUsed = System.currentTimeMillis(),
+                    mediaUrl = mediaUrl,
+                )
+                if (BuildConfig.DEBUG) Log.d(TAG, "Created new player: $playerId (pool size: ${playerPool.size})")
+                return@withLock newPlayer
+            }
+
+            // Replace least used player
+            val leastUsedPlayer = playerUsage.minByOrNull { it.value }?.key
+            leastUsedPlayer?.let { oldPlayerId ->
+                if (BuildConfig.DEBUG) Log.d(TAG, "Replacing least used player: $oldPlayerId")
+                releasePlayer(oldPlayerId)
+            }
+
             val newPlayer = createOptimizedPlayer(context, mediaUrl)
             playerPool[playerId] = newPlayer
             updatePlayerUsage(playerId)
             playerStates[playerId] = PlayerState(
                 isPlaying = false,
                 lastUsed = System.currentTimeMillis(),
-                mediaUrl = mediaUrl
+                mediaUrl = mediaUrl,
             )
-            if (BuildConfig.DEBUG) Log.d(TAG, "Created new player: $playerId (pool size: ${playerPool.size})")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Created replacement player: $playerId")
             return@withLock newPlayer
         }
-        
-        // Replace least used player
-        val leastUsedPlayer = playerUsage.minByOrNull { it.value }?.key
-        leastUsedPlayer?.let { oldPlayerId ->
-            if (BuildConfig.DEBUG) Log.d(TAG, "Replacing least used player: $oldPlayerId")
-            releasePlayer(oldPlayerId)
-        }
-        
-        val newPlayer = createOptimizedPlayer(context, mediaUrl)
-        playerPool[playerId] = newPlayer
-        updatePlayerUsage(playerId)
-        playerStates[playerId] = PlayerState(
-            isPlaying = false,
-            lastUsed = System.currentTimeMillis(),
-            mediaUrl = mediaUrl
-        )
-        if (BuildConfig.DEBUG) Log.d(TAG, "Created replacement player: $playerId")
-        return@withLock newPlayer
-    }
-    
+
     /**
      * Create an optimized ExoPlayer instance with performance settings.
      */
-    private fun createOptimizedPlayer(context: Context, mediaUrl: String): ExoPlayer {
-        return ExoPlayer.Builder(context)
-            .setMediaSourceFactory(createOptimizedMediaSourceFactory())
-            .setLoadControl(createOptimizedLoadControl())
-            .setRenderersFactory(createOptimizedRenderersFactory(context))
-            .build()
-            .apply {
-                // Optimize audio attributes for media playback
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(C.USAGE_MEDIA)
-                        .setContentType(C.CONTENT_TYPE_MOVIE)
-                        .build(),
-                    true
-                )
-                
-                // Set media item
-                val mediaItem = androidx.media3.common.MediaItem.fromUri(mediaUrl)
-                setMediaItem(mediaItem)
-                prepare()
-            }
-    }
-    
+    private fun createOptimizedPlayer(context: Context, mediaUrl: String): ExoPlayer = ExoPlayer.Builder(context)
+        .setMediaSourceFactory(createOptimizedMediaSourceFactory())
+        .setLoadControl(createOptimizedLoadControl())
+        .setRenderersFactory(createOptimizedRenderersFactory(context))
+        .build()
+        .apply {
+            // Optimize audio attributes for media playback
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.CONTENT_TYPE_MOVIE)
+                    .build(),
+                true,
+            )
+
+            // Set media item
+            val mediaItem = androidx.media3.common.MediaItem.fromUri(mediaUrl)
+            setMediaItem(mediaItem)
+            prepare()
+        }
+
     /**
      * Create optimized media source factory with HTTP data source.
      */
@@ -135,34 +123,30 @@ object AdvancedExoPlayerManager {
             .setUserAgent(getUserAgent())
             .setConnectTimeoutMs(10000)
             .setReadTimeoutMs(10000)
-        
+
         return DefaultMediaSourceFactory(dataSourceFactory)
     }
-    
+
     /**
      * Create optimized load control for better performance.
      */
-    private fun createOptimizedLoadControl(): LoadControl {
-        return DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
-                DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,
-                DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-                DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
-            )
-            .setTargetBufferBytes(DefaultLoadControl.DEFAULT_TARGET_BUFFER_BYTES)
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .build()
-    }
-    
+    private fun createOptimizedLoadControl(): LoadControl = DefaultLoadControl.Builder()
+        .setBufferDurationsMs(
+            DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+            DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,
+            DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+            DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+        )
+        .setTargetBufferBytes(DefaultLoadControl.DEFAULT_TARGET_BUFFER_BYTES)
+        .setPrioritizeTimeOverSizeThresholds(true)
+        .build()
+
     /**
      * Create optimized renderers factory.
      */
-    private fun createOptimizedRenderersFactory(context: Context): RenderersFactory {
-        return DefaultRenderersFactory(context)
-            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
-    }
-    
+    private fun createOptimizedRenderersFactory(context: Context): RenderersFactory = DefaultRenderersFactory(context)
+        .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+
     /**
      * Update player usage statistics.
      */
@@ -171,11 +155,11 @@ object AdvancedExoPlayerManager {
         playerStates[playerId]?.let { state ->
             playerStates[playerId] = state.copy(
                 lastUsed = System.currentTimeMillis(),
-                accessCount = state.accessCount + 1
+                accessCount = state.accessCount + 1,
             )
         }
     }
-    
+
     /**
      * Pause a specific player.
      */
@@ -186,7 +170,7 @@ object AdvancedExoPlayerManager {
         }
         if (BuildConfig.DEBUG) Log.d(TAG, "Paused player: $playerId")
     }
-    
+
     /**
      * Stop a specific player.
      */
@@ -197,7 +181,7 @@ object AdvancedExoPlayerManager {
         }
         if (BuildConfig.DEBUG) Log.d(TAG, "Stopped player: $playerId")
     }
-    
+
     /**
      * Release a specific player and remove from pool.
      */
@@ -208,7 +192,7 @@ object AdvancedExoPlayerManager {
         playerStates.remove(playerId)
         if (BuildConfig.DEBUG) Log.d(TAG, "Released player: $playerId (pool size: ${playerPool.size})")
     }
-    
+
     /**
      * Clean up inactive players to prevent memory leaks.
      */
@@ -217,16 +201,16 @@ object AdvancedExoPlayerManager {
         val inactivePlayers = playerUsage.entries.filter { (_, lastUsed) ->
             currentTime - lastUsed > INACTIVE_THRESHOLD
         }
-        
+
         inactivePlayers.forEach { (playerId, _) ->
             releasePlayer(playerId)
         }
-        
+
         if (inactivePlayers.isNotEmpty()) {
             if (BuildConfig.DEBUG) Log.d(TAG, "Cleaned up ${inactivePlayers.size} inactive players")
         }
     }
-    
+
     /**
      * Pause all active players.
      */
@@ -237,7 +221,7 @@ object AdvancedExoPlayerManager {
         }
         if (BuildConfig.DEBUG) Log.d(TAG, "Paused all ${playerPool.size} active players")
     }
-    
+
     /**
      * Stop all active players.
      */
@@ -248,7 +232,7 @@ object AdvancedExoPlayerManager {
         }
         if (BuildConfig.DEBUG) Log.d(TAG, "Stopped all ${playerPool.size} active players")
     }
-    
+
     /**
      * Release all players and clear the pool.
      */
@@ -259,7 +243,7 @@ object AdvancedExoPlayerManager {
         playerStates.clear()
         if (BuildConfig.DEBUG) Log.d(TAG, "Released all players and cleared pool")
     }
-    
+
     /**
      * Get statistics for debugging and monitoring.
      */
@@ -267,31 +251,29 @@ object AdvancedExoPlayerManager {
         val totalAccessCount = playerStates.values.sumOf { it.accessCount }
         val averageAccessCount = if (playerStates.isNotEmpty()) {
             totalAccessCount / playerStates.size
-        } else 0
-        
+        } else {
+            0
+        }
+
         return mapOf(
             "active_players" to playerPool.size,
             "max_players" to MAX_PLAYERS,
             "total_access_count" to totalAccessCount,
             "average_access_count" to averageAccessCount,
-            "player_ids" to playerPool.keys.toList()
+            "player_ids" to playerPool.keys.toList(),
         )
     }
-    
+
     /**
      * Check if a player is currently active.
      */
-    fun isPlayerActive(playerId: String): Boolean {
-        return playerPool.containsKey(playerId)
-    }
-    
+    fun isPlayerActive(playerId: String): Boolean = playerPool.containsKey(playerId)
+
     /**
      * Get the number of active players.
      */
-    fun getActivePlayerCount(): Int {
-        return playerPool.size
-    }
-    
+    fun getActivePlayerCount(): Int = playerPool.size
+
     /**
      * Clean up all resources (call when app is destroyed).
      */

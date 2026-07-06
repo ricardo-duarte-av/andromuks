@@ -45,9 +45,11 @@ internal class LocalEchoCoordinator(private val vm: AppViewModel) {
 
     companion object {
         const val LOCAL_ECHO_PREFIX = "~local-"
+
         // The `response` (synchronous RPC ack) is fast even in E2EE rooms — encryption latency lives
         // in send_complete, not response — so this can be short.
         private const val RESPONSE_TIMEOUT_MS = 20_000L
+
         // response arrived but never confirmed (a dropped send_complete *error* frame). Generous so
         // E2EE's slower send_complete never trips it falsely; Layer 2 makes it almost never fire.
         private const val CONFIRM_BACKSTOP_MS = 90_000L
@@ -56,6 +58,7 @@ internal class LocalEchoCoordinator(private val vm: AppViewModel) {
     // requestId → localId. The `response` echoes our request_id, letting us find the placeholder.
     // ConcurrentHashMap: insert() runs on Main, onResponse() on Dispatchers.Default.
     private val requestToLocalId = java.util.concurrent.ConcurrentHashMap<Int, String>()
+
     // localId → lifecycle watchdog job (Timer A while Sending, Timer B while Sent).
     private val watchdogJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
 
@@ -88,7 +91,7 @@ internal class LocalEchoCoordinator(private val vm: AppViewModel) {
             localContent = JSONObject().put("local_send_state", "sending"),
             relationType = relationType,
             relatesTo = relatesTo,
-            transactionId = null
+            transactionId = null,
         )
         vm.editVersionCoordinator.addNewEventToChain(echo)
         requestToLocalId[requestId] = localId
@@ -101,7 +104,12 @@ internal class LocalEchoCoordinator(private val vm: AppViewModel) {
                 markFailed(localId, "No response from server", roomId)
             }
         }
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Local echo inserted $localId (reqId=$requestId, type=$type)")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: Local echo inserted $localId (reqId=$requestId, type=$type)",
+        )
+        }
         return localId
     }
 
@@ -141,14 +149,19 @@ internal class LocalEchoCoordinator(private val vm: AppViewModel) {
                 // settles in place rather than re-animating an entrance.
                 vm.markTimelineEntrancePlayed(confirmed.eventId)
                 vm.buildTimelineFromChain(expectedRoomId = bubble.roomId)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Local echo $localId evicted on response — confirmed ${confirmed.eventId} already arrived for txId=$transactionId")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: Local echo $localId evicted on response — confirmed ${confirmed.eventId} already arrived for txId=$transactionId",
+                )
+                }
                 return true
             }
         }
         val newLocalContent = (bubble.localContent?.let { JSONObject(it.toString()) } ?: JSONObject())
             .put("local_send_state", "sent")
         vm.eventChainMap[localId] = entry.copy(
-            ourBubble = bubble.copy(localContent = newLocalContent, transactionId = transactionId)
+            ourBubble = bubble.copy(localContent = newLocalContent, transactionId = transactionId),
         )
         if (transactionId != null) vm.pendingEchoMap[transactionId] = localId
         vm.buildTimelineFromChain(expectedRoomId = bubble.roomId)
@@ -161,7 +174,12 @@ internal class LocalEchoCoordinator(private val vm: AppViewModel) {
                 markFailed(localId, "Send not confirmed", bubble.roomId)
             }
         }
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Local echo $localId → Sent (txId=$transactionId)")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: Local echo $localId → Sent (txId=$transactionId)",
+        )
+        }
         return true
     }
 

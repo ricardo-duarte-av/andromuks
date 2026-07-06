@@ -24,7 +24,7 @@ data class BubbleColors(
     // NEW: Optional accent border color for mentions (Google Messages style)
     val mentionBorder: Color? = null,
     // NEW: Optional accent border color for thread messages (subtle indicator)
-    val threadBorder: Color? = null
+    val threadBorder: Color? = null,
 )
 
 object BubblePalette {
@@ -47,7 +47,7 @@ object BubblePalette {
         isThreadMessage: Boolean = false,
         hasSpoiler: Boolean = false,
         isRedacted: Boolean = false,
-        isSoftFailed: Boolean = false
+        isSoftFailed: Boolean = false,
     ): BubbleColors {
         // Soft-failed events: Use error colors to indicate server rejection
         if (isSoftFailed) {
@@ -57,7 +57,7 @@ object BubblePalette {
                 accent = colorScheme.error,
                 stripe = colorScheme.error.copy(alpha = 0.85f),
                 mentionBorder = null,
-                threadBorder = null
+                threadBorder = null,
             )
         }
 
@@ -70,19 +70,19 @@ object BubblePalette {
             val othersBaseContainer = colorScheme.surfaceContainerHighest
             val othersContainer = lerp(othersBaseContainer, colorScheme.secondaryContainer, 0.25f)
             val othersContent = colorScheme.onSurface
-            
+
             val container = if (isMine) myContainer else othersContainer
             val content = if (isMine) myContent else othersContent
             val accent = if (isMine) colorScheme.primary else colorScheme.secondary
             val stripe = accent.copy(alpha = 0.85f)
-            
+
             return BubbleColors(
                 container = container,
                 content = content,
                 accent = accent,
                 stripe = stripe,
                 mentionBorder = null, // redactions don't render mention details
-                threadBorder = null
+                threadBorder = null,
             )
         }
 
@@ -95,26 +95,26 @@ object BubblePalette {
             val othersBaseContainer = colorScheme.surfaceContainerHighest
             val othersContainer = lerp(othersBaseContainer, colorScheme.secondaryContainer, 0.25f)
             val othersContent = colorScheme.onSurface
-            
+
             val container = if (isMine) myContainer else othersContainer
             val content = if (isMine) myContent else othersContent
             val accent = if (isMine) colorScheme.primary else colorScheme.secondary
             val stripe = accent.copy(alpha = 0.85f)
-            
+
             // Add subtle thread border using outlineVariant (neutral, won't conflict with mention colors)
             val threadBorder = colorScheme.outlineVariant.copy(alpha = 0.6f) // Subtle neutral border
 
             // Mentions: add an accent border (Google Messages-style) on top of thread styling.
             val mentionBorder =
                 if (mentionsMe) colorScheme.tertiary.copy(alpha = 0.85f) else null
-            
+
             return BubbleColors(
                 container = container,
                 content = content,
                 accent = accent,
                 stripe = stripe,
                 mentionBorder = mentionBorder,
-                threadBorder = threadBorder
+                threadBorder = threadBorder,
             )
         }
 
@@ -134,24 +134,24 @@ object BubblePalette {
                 accent = accent,
                 stripe = accent,
                 mentionBorder = if (mentionsMe) colorScheme.tertiary.copy(alpha = 0.85f) else null,
-                threadBorder = null
+                threadBorder = null,
             )
         }
 
         // GOOGLE MESSAGES STYLE: Use Material 3 tokens directly with minimal manipulation
-        
+
         // My messages: Use primaryContainer directly (no lerping needed)
         // Edited messages keep the same color (visual indicator handles distinction)
         val myContainer = colorScheme.primaryContainer
         val myContent = colorScheme.onPrimaryContainer
-        
+
         // Others' messages: Use elevated surfaces for better contrast (Google Messages style)
         // In dark mode, we need a lighter color - blend surfaceContainerHighest with secondaryContainer
         // This ensures good visibility in dark mode while maintaining Material 3 principles
         val othersBaseContainer = colorScheme.surfaceContainerHighest
         val othersContainer = lerp(othersBaseContainer, colorScheme.secondaryContainer, 0.25f)
         val othersContent = colorScheme.onSurface
-        
+
         // For mentions: keep the subtle color change for non-mine messages.
         // The *accent border* is handled via mentionBorder (see below).
         // Blend the base container with secondaryContainer to create a subtle tint
@@ -160,25 +160,25 @@ object BubblePalette {
         } else {
             othersContainer
         }
-        
+
         // Determine container and content colors
         val container = when {
             isMine -> myContainer
             mentionsMe && !isMine -> othersMentionContainer
             else -> othersContainer
         }
-        
+
         val content = when {
             isMine -> myContent
             else -> othersContent
         }
-        
+
         // Accent colors: primary for mine, secondary for others
         val accent = if (isMine) colorScheme.primary else colorScheme.secondary
-        
+
         // Mention accent border (same "family" of styling as menu highlight, but color = tertiary).
         val mentionBorder = if (mentionsMe) colorScheme.tertiary.copy(alpha = 0.85f) else null
-        
+
         // Stripe color: accent with appropriate alpha
         val stripe = accent.copy(alpha = 0.85f)
 
@@ -188,7 +188,7 @@ object BubblePalette {
             accent = accent,
             stripe = stripe,
             mentionBorder = mentionBorder,
-            threadBorder = null
+            threadBorder = null,
         )
     }
 
@@ -196,8 +196,6 @@ object BubblePalette {
      * Generate background color for reply previews.
      * Uses subtle blending between surface and bubble container.
      */
-    fun replyPreviewBackground(colorScheme: ColorScheme, bubbleColors: BubbleColors): Color {
-        return lerp(colorScheme.surface, bubbleColors.container, 0.5f)
-    }
+    fun replyPreviewBackground(colorScheme: ColorScheme, bubbleColors: BubbleColors): Color =
+        lerp(colorScheme.surface, bubbleColors.container, 0.5f)
 }
-

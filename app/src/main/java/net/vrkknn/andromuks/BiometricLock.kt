@@ -22,11 +22,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -48,12 +48,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
  * device credential (PIN/pattern/password) is allowed in a single prompt. On API < 30 that
  * combination is unsupported, so we allow strong biometric only and supply a negative button.
  */
-private fun allowedAuthenticators(): Int =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
-    } else {
-        BiometricManager.Authenticators.BIOMETRIC_STRONG
-    }
+private fun allowedAuthenticators(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+    BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+} else {
+    BiometricManager.Authenticators.BIOMETRIC_STRONG
+}
 
 /** True when the device can satisfy [allowedAuthenticators] (enrolled biometric or device credential). */
 fun canAuthenticate(context: Context): Boolean =
@@ -80,10 +79,12 @@ fun runBiometricPrompt(
     title: String,
     subtitle: String,
     onSuccess: () -> Unit,
-    onFail: () -> Unit
+    onFail: () -> Unit,
 ) {
     val executor = ContextCompat.getMainExecutor(activity)
-    val prompt = BiometricPrompt(activity, executor, object : BiometricPrompt.AuthenticationCallback() {
+    val prompt = BiometricPrompt(
+        activity, executor,
+        object : BiometricPrompt.AuthenticationCallback() {
         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) = onSuccess()
         override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
             Log.w(TAG, "Biometric error $errorCode: $errString")
@@ -91,7 +92,8 @@ fun runBiometricPrompt(
         }
         // onAuthenticationFailed (a single non-matching attempt) is intentionally ignored — the
         // prompt stays up and the user can retry.
-    })
+    }
+    )
     val builder = BiometricPrompt.PromptInfo.Builder()
         .setTitle(title)
         .setSubtitle(subtitle)
@@ -125,10 +127,7 @@ fun runBiometricPrompt(
  * Excluded from chat-bubble windows by simply not wrapping [BubbleTimelineScreen].
  */
 @Composable
-fun BiometricLockGate(
-    appViewModel: AppViewModel,
-    content: @Composable () -> Unit
-) {
+fun BiometricLockGate(appViewModel: AppViewModel, content: @Composable () -> Unit) {
     val context = LocalContext.current
     val activity = remember(context) { context.findFragmentActivity() }
     val prefs = remember(context) {
@@ -159,8 +158,11 @@ fun BiometricLockGate(
             activity,
             title = "Unlock Andromuks",
             subtitle = "Authenticate to access your messages",
-            onSuccess = { promptInFlight = false; unlocked = true },
-            onFail = { promptInFlight = false }
+            onSuccess = {
+                promptInFlight = false;
+                unlocked = true
+            },
+            onFail = { promptInFlight = false },
         )
     }
 
@@ -180,8 +182,11 @@ fun BiometricLockGate(
             when (event) {
                 Lifecycle.Event.ON_STOP ->
                     if (!promptInFlight && !appViewModel.suppressNextAutoLock) unlocked = false
+
                 Lifecycle.Event.ON_START -> launchUnlockPrompt()
+
                 Lifecycle.Event.ON_RESUME -> appViewModel.suppressNextAutoLock = false
+
                 else -> {}
             }
         }
@@ -215,7 +220,7 @@ fun BiometricLockGate(
                     onFail = {
                         ReauthCoordinator.cancelPendingReauth()
                         appViewModel.clearPendingBiometricReauth()
-                    }
+                    },
                 )
             }
         }
@@ -253,25 +258,25 @@ private fun BiometricLockOverlay(onAuthenticate: () -> Unit) {
                     }
                 }
             },
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(32.dp)
+            modifier = Modifier.padding(32.dp),
         ) {
             Image(
                 painter = painterResource(id = R.mipmap.ic_launcher_foreground),
                 contentDescription = null,
                 modifier = Modifier.size(96.dp),
-                colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onBackground)
+                colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onBackground),
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
                 text = "Andromuks is locked",
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onBackground,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
             )
             Spacer(modifier = Modifier.height(24.dp))
             Button(onClick = onAuthenticate) {

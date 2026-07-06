@@ -19,11 +19,7 @@ import androidx.compose.ui.unit.dp
  * is the visible area) — not to the scrolled content — so the thumb is sized and positioned
  * relative to what's on screen. The thumb is hidden only when there is nothing to scroll.
  */
-fun Modifier.verticalScrollbar(
-    state: ScrollState,
-    color: Color,
-    thickness: Dp = 4.dp,
-): Modifier = drawWithContent {
+fun Modifier.verticalScrollbar(state: ScrollState, color: Color, thickness: Dp = 4.dp): Modifier = drawWithContent {
     drawContent()
     val maxValue = state.maxValue
     if (maxValue <= 0) return@drawWithContent
@@ -36,7 +32,7 @@ fun Modifier.verticalScrollbar(
         color = color,
         topLeft = Offset(size.width - widthPx, thumbOffset),
         size = Size(widthPx, thumbHeight),
-        cornerRadius = CornerRadius(widthPx / 2f, widthPx / 2f)
+        cornerRadius = CornerRadius(widthPx / 2f, widthPx / 2f),
     )
 }
 
@@ -45,11 +41,7 @@ fun Modifier.verticalScrollbar(
  * is estimated from item indices, which is exact when items are uniform height (e.g. single-line
  * monospace rows) and a good approximation otherwise.
  */
-fun Modifier.verticalScrollbar(
-    state: LazyListState,
-    color: Color,
-    thickness: Dp = 4.dp,
-): Modifier = drawWithContent {
+fun Modifier.verticalScrollbar(state: LazyListState, color: Color, thickness: Dp = 4.dp): Modifier = drawWithContent {
     drawContent()
     val info = state.layoutInfo
     val totalItems = info.totalItemsCount
@@ -63,15 +55,11 @@ fun Modifier.verticalScrollbar(
         color = color,
         topLeft = Offset(size.width - widthPx, thumbOffset),
         size = Size(widthPx, thumbHeight),
-        cornerRadius = CornerRadius(widthPx / 2f, widthPx / 2f)
+        cornerRadius = CornerRadius(widthPx / 2f, widthPx / 2f),
     )
 }
 
-fun Modifier.horizontalScrollbar(
-    state: ScrollState,
-    color: Color,
-    thickness: Dp = 4.dp,
-): Modifier = drawWithContent {
+fun Modifier.horizontalScrollbar(state: ScrollState, color: Color, thickness: Dp = 4.dp): Modifier = drawWithContent {
     drawContent()
     val maxValue = state.maxValue
     if (maxValue <= 0) return@drawWithContent
@@ -84,6 +72,6 @@ fun Modifier.horizontalScrollbar(
         color = color,
         topLeft = Offset(thumbOffset, size.height - heightPx),
         size = Size(thumbWidth, heightPx),
-        cornerRadius = CornerRadius(heightPx / 2f, heightPx / 2f)
+        cornerRadius = CornerRadius(heightPx / 2f, heightPx / 2f),
     )
 }

@@ -38,10 +38,7 @@ import org.json.JSONObject
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PushRulesScreen(
-    appViewModel: AppViewModel,
-    navController: NavController
-) {
+fun PushRulesScreen(appViewModel: AppViewModel, navController: NavController) {
     val ruleset = appViewModel.pushRuleset
     var selectedKind by remember { mutableStateOf<PushRuleKind?>(null) }
     var addKind by remember { mutableStateOf<PushRuleKind?>(null) }
@@ -59,9 +56,9 @@ fun PushRulesScreen(
                     }) {
                         Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
             )
-        }
+        },
     ) { innerPadding ->
         val kind = selectedKind
         if (kind == null) {
@@ -70,7 +67,7 @@ fun PushRulesScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
-                onSelect = { selectedKind = it }
+                onSelect = { selectedKind = it },
             )
         } else {
             PushRuleKindList(
@@ -80,7 +77,7 @@ fun PushRulesScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
-                onAdd = { addKind = kind }
+                onAdd = { addKind = kind },
             )
         }
     }
@@ -95,10 +92,10 @@ fun PushRulesScreen(
                     ruleId = ruleId,
                     actions = actionsForPreset(preset),
                     conditions = conditions,
-                    pattern = pattern
+                    pattern = pattern,
                 )
                 addKind = null
-            }
+            },
         )
     }
 }
@@ -107,17 +104,17 @@ fun PushRulesScreen(
 private fun PushRuleKindPicker(
     ruleset: net.vrkknn.andromuks.utils.PushRuleset,
     modifier: Modifier = Modifier,
-    onSelect: (PushRuleKind) -> Unit
+    onSelect: (PushRuleKind) -> Unit,
 ) {
     Column(
         modifier = modifier.padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
             text = "Rules are evaluated by kind: override wins first, then content, room, sender and " +
                 "finally underride. Default rules can be toggled and re-actioned but not deleted.",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         for (kind in PushRuleKind.ordered) {
             val count = ruleset.rules(kind).size
@@ -125,29 +122,29 @@ private fun PushRuleKindPicker(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onSelect(kind) },
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = kind.displayName,
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
                         )
                         Text(
                             text = if (count == 1) "1 rule" else "$count rules",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = null
+                        contentDescription = null,
                     )
                 }
             }
@@ -161,7 +158,7 @@ private fun PushRuleKindList(
     rules: List<PushRule>,
     appViewModel: AppViewModel,
     modifier: Modifier = Modifier,
-    onAdd: () -> Unit
+    onAdd: () -> Unit,
 ) {
     var query by remember(kind) { mutableStateOf("") }
     // memberUpdateCounter so resolved room/user names participate in filtering as profiles load.
@@ -182,20 +179,23 @@ private fun PushRuleKindList(
             singleLine = true,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
         )
         LazyColumn(
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (filtered.isEmpty()) {
                 item {
                     Text(
-                        text = if (query.isBlank()) "No ${kind.displayName.lowercase()} rules."
-                        else "No rules match \"$query\".",
+                        text = if (query.isBlank()) {
+                            "No ${kind.displayName.lowercase()} rules."
+                        } else {
+                            "No rules match \"$query\"."
+                        },
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -231,7 +231,7 @@ private fun GroupHeader(text: String) {
         style = MaterialTheme.typography.labelLarge,
         fontWeight = FontWeight.Bold,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 4.dp)
+        modifier = Modifier.padding(top = 4.dp),
     )
 }
 
@@ -253,33 +253,30 @@ private fun PushRule.matchesQuery(query: String, appViewModel: AppViewModel): Bo
 }
 
 @Composable
-private fun PushRuleCard(
-    rule: PushRule,
-    appViewModel: AppViewModel
-) {
+private fun PushRuleCard(rule: PushRule, appViewModel: AppViewModel) {
     var menuOpen by remember { mutableStateOf(false) }
     var showRawEditor by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RuleIdentity(
                     rule = rule,
                     appViewModel = appViewModel,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 )
                 Switch(
                     checked = rule.enabled,
-                    onCheckedChange = { appViewModel.setPushRuleEnabled(rule.kind, rule.ruleId, it) }
+                    onCheckedChange = { appViewModel.setPushRuleEnabled(rule.kind, rule.ruleId, it) },
                 )
                 Box {
                     IconButton(onClick = { menuOpen = true }) {
@@ -288,12 +285,18 @@ private fun PushRuleCard(
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(
                             text = { Text("Edit raw JSON") },
-                            onClick = { menuOpen = false; showRawEditor = true }
+                            onClick = {
+                                menuOpen = false;
+                                showRawEditor = true
+                            },
                         )
                         if (!rule.isDefault) {
                             DropdownMenuItem(
                                 text = { Text("Delete") },
-                                onClick = { menuOpen = false; showDeleteConfirm = true }
+                                onClick = {
+                                    menuOpen = false;
+                                    showDeleteConfirm = true
+                                },
                             )
                         }
                     }
@@ -302,7 +305,7 @@ private fun PushRuleCard(
 
             PushRulePresetChips(
                 rule = rule,
-                onSelect = { preset -> appViewModel.setPushRulePreset(rule.kind, rule.ruleId, preset) }
+                onSelect = { preset -> appViewModel.setPushRulePreset(rule.kind, rule.ruleId, preset) },
             )
         }
     }
@@ -319,7 +322,7 @@ private fun PushRuleCard(
                     appViewModel.putPushRule(rule.kind, rule.ruleId, actions, conditions, pattern)
                 }
                 showRawEditor = false
-            }
+            },
         )
     }
 
@@ -336,13 +339,13 @@ private fun PushRuleCard(
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error,
-                        contentColor = MaterialTheme.colorScheme.onError
-                    )
+                        contentColor = MaterialTheme.colorScheme.onError,
+                    ),
                 ) { Text("Delete") }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
-            }
+            },
         )
     }
 }
@@ -353,11 +356,7 @@ private fun PushRuleCard(
  * RoomInfo can render the same identity for rules affecting a room.
  */
 @Composable
-fun RuleIdentity(
-    rule: PushRule,
-    appViewModel: AppViewModel,
-    modifier: Modifier = Modifier
-) {
+fun RuleIdentity(rule: PushRule, appViewModel: AppViewModel, modifier: Modifier = Modifier) {
     val roomId = rule.targetRoomId()
     val userId = rule.targetUserId()
     when {
@@ -371,9 +370,10 @@ fun RuleIdentity(
                 fallbackText = name,
                 avatarId = roomId,
                 title = name,
-                subtitle = roomId
+                subtitle = roomId,
             )
         }
+
         userId != null -> {
             // Refresh as profiles arrive; fetch on demand if we don't have one yet.
             val counter = appViewModel.memberUpdateCounter
@@ -391,9 +391,10 @@ fun RuleIdentity(
                 fallbackText = name,
                 avatarId = userId,
                 title = name,
-                subtitle = userId
+                subtitle = userId,
             )
         }
+
         else -> {
             Column(modifier = modifier) {
                 Text(
@@ -401,14 +402,14 @@ fun RuleIdentity(
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = rule.humanSummary(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -423,7 +424,7 @@ private fun IdentityRow(
     fallbackText: String,
     avatarId: String,
     title: String,
-    subtitle: String
+    subtitle: String,
 ) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         AvatarImage(
@@ -433,7 +434,7 @@ private fun IdentityRow(
             fallbackText = fallbackText,
             size = 40.dp,
             userId = avatarId,
-            displayName = title
+            displayName = title,
         )
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -442,14 +443,14 @@ private fun IdentityRow(
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -458,10 +459,7 @@ private fun IdentityRow(
 /** Filter chips for the four selectable presets, with a "Custom" indicator when nothing matches. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PushRulePresetChips(
-    rule: PushRule,
-    onSelect: (NotificationPreset) -> Unit
-) {
+fun PushRulePresetChips(rule: PushRule, onSelect: (NotificationPreset) -> Unit) {
     val current = rule.notificationPreset()
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         FlowRowChips {
@@ -469,7 +467,7 @@ fun PushRulePresetChips(
                 FilterChip(
                     selected = current == preset,
                     onClick = { onSelect(preset) },
-                    label = { Text(preset.label) }
+                    label = { Text(preset.label) },
                 )
             }
         }
@@ -477,7 +475,7 @@ fun PushRulePresetChips(
             Text(
                 text = "Custom actions — use \"Edit raw JSON\" to change without losing detail.",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -494,7 +492,7 @@ private fun FlowRowChips(content: @Composable () -> Unit) {
 private fun RawRuleEditorDialog(
     rule: PushRule,
     onDismiss: () -> Unit,
-    onSave: (actions: List<Any>, conditions: List<Map<String, Any>>, pattern: String) -> Unit
+    onSave: (actions: List<Any>, conditions: List<Map<String, Any>>, pattern: String) -> Unit,
 ) {
     val initialJson = remember(rule) { ruleContentToJson(rule).toString(2) }
     var text by remember { mutableStateOf(initialJson) }
@@ -506,20 +504,24 @@ private fun RawRuleEditorDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = if (rule.isDefault)
+                    text = if (rule.isDefault) {
                         "Default rule — only the \"actions\" array is applied."
-                    else
-                        "Edit actions, conditions and pattern.",
+                    } else {
+                        "Edit actions, conditions and pattern."
+                    },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 OutlinedTextField(
                     value = text,
-                    onValueChange = { text = it; error = null },
+                    onValueChange = {
+                        text = it;
+                        error = null
+                    },
                     textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 200.dp, max = 360.dp)
+                        .heightIn(min = 200.dp, max = 360.dp),
                 )
                 error?.let {
                     Text(text = it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -539,7 +541,7 @@ private fun RawRuleEditorDialog(
                 }
             }) { Text("Save") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
@@ -547,7 +549,7 @@ private fun RawRuleEditorDialog(
 private fun AddPushRuleDialog(
     kind: PushRuleKind,
     onDismiss: () -> Unit,
-    onConfirm: (ruleId: String, pattern: String, conditions: List<Map<String, Any>>, preset: NotificationPreset) -> Unit
+    onConfirm: (ruleId: String, pattern: String, conditions: List<Map<String, Any>>, preset: NotificationPreset) -> Unit,
 ) {
     var ruleId by remember { mutableStateOf("") }
     var pattern by remember { mutableStateOf("") }
@@ -569,29 +571,38 @@ private fun AddPushRuleDialog(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = ruleId,
-                    onValueChange = { ruleId = it; error = null },
+                    onValueChange = {
+                        ruleId = it;
+                        error = null
+                    },
                     label = { Text(idLabel) },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 if (kind == PushRuleKind.CONTENT) {
                     OutlinedTextField(
                         value = pattern,
-                        onValueChange = { pattern = it; error = null },
+                        onValueChange = {
+                            pattern = it;
+                            error = null
+                        },
                         label = { Text("Pattern (glob, e.g. *keyword*)") },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
                 if (kind == PushRuleKind.OVERRIDE || kind == PushRuleKind.UNDERRIDE) {
                     OutlinedTextField(
                         value = conditionsText,
-                        onValueChange = { conditionsText = it; error = null },
+                        onValueChange = {
+                            conditionsText = it;
+                            error = null
+                        },
                         label = { Text("Conditions (JSON array)") },
                         textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 100.dp, max = 200.dp)
+                            .heightIn(min = 100.dp, max = 200.dp),
                     )
                 }
                 Text("Action", style = MaterialTheme.typography.labelMedium)
@@ -600,7 +611,7 @@ private fun AddPushRuleDialog(
                         FilterChip(
                             selected = preset == p,
                             onClick = { preset = p },
-                            label = { Text(p.label) }
+                            label = { Text(p.label) },
                         )
                     }
                 }
@@ -612,19 +623,30 @@ private fun AddPushRuleDialog(
         confirmButton = {
             TextButton(onClick = {
                 val id = ruleId.trim()
-                if (id.isEmpty()) { error = "Rule ID is required"; return@TextButton }
-                if (kind == PushRuleKind.CONTENT && pattern.isBlank()) { error = "Pattern is required"; return@TextButton }
+                if (id.isEmpty()) {
+                    error = "Rule ID is required";
+                    return@TextButton
+                }
+                if (kind == PushRuleKind.CONTENT &&
+                    pattern.isBlank()
+                ) {
+                        error = "Pattern is required";
+                        return@TextButton
+                    }
                 val conditions = if (kind == PushRuleKind.OVERRIDE || kind == PushRuleKind.UNDERRIDE) {
                     try {
                         jsonArrayToConditions(JSONArray(conditionsText))
                     } catch (e: Exception) {
-                        error = "Invalid conditions JSON: ${e.message}"; return@TextButton
+                        error = "Invalid conditions JSON: ${e.message}";
+                        return@TextButton
                     }
-                } else emptyList()
+                } else {
+                    emptyList()
+                }
                 onConfirm(id, pattern.trim(), conditions, preset)
             }) { Text("Add") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 

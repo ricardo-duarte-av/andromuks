@@ -1,7 +1,6 @@
 package net.vrkknn.andromuks
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -44,10 +43,10 @@ fun InviteDetailScreen(
     roomId: String,
     navController: NavController,
     modifier: Modifier = Modifier,
-    appViewModel: AppViewModel = viewModel()
+    appViewModel: AppViewModel = viewModel(),
 ) {
     val invite = appViewModel.getPendingInvites().find { it.roomId == roomId }
-    
+
     if (invite == null) {
         // Invite not found, navigate back
         LaunchedEffect(Unit) {
@@ -55,44 +54,44 @@ fun InviteDetailScreen(
         }
         return
     }
-    
+
     var isProcessing by remember { mutableStateOf(false) }
-    
+
     // Get room summary when screen opens
     LaunchedEffect(roomId) {
         appViewModel.getRoomSummary(roomId)
     }
-    
+
     Column(
-        modifier = modifier.fillMaxSize()
+        modifier = modifier.fillMaxSize(),
     ) {
         TopAppBar(
             title = { Text("Room Invitation") },
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = MaterialTheme.colorScheme.surface,
-                titleContentColor = MaterialTheme.colorScheme.onSurface
-            )
+                titleContentColor = MaterialTheme.colorScheme.onSurface,
+            ),
         )
-        
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp)
                 .navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             // Room info card
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     // Room avatar and name
                     Row(
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         AvatarImage(
                             mxcUrl = invite.roomAvatar,
@@ -101,120 +100,120 @@ fun InviteDetailScreen(
                             fallbackText = (invite.roomName ?: invite.roomId).take(1),
                             size = 64.dp,
                             userId = invite.roomId,
-                            displayName = invite.roomName
+                            displayName = invite.roomName,
                         )
-                        
+
                         Spacer(modifier = Modifier.width(16.dp))
-                        
+
                         Column {
                             Text(
                                 text = invite.roomName ?: "Unknown Room",
                                 style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
-                            
+
                             // INVITE badge
                             Surface(
                                 color = MaterialTheme.colorScheme.primary,
                                 shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.padding(top = 4.dp)
+                                modifier = Modifier.padding(top = 4.dp),
                             ) {
                                 Text(
                                     text = "INVITATION",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                                 )
                             }
                         }
                     }
-                    
+
                     // Room topic
                     invite.roomTopic?.let { topic ->
                         Text(
                             text = topic,
                             style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    
+
                     // Room canonical alias
                     invite.roomCanonicalAlias?.let { alias ->
                         Text(
                             text = "Alias: $alias",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             }
-            
+
             // Inviter info card
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
                         text = "Invited by",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
-                    
+
                     Text(
                         text = invite.inviterDisplayName ?: invite.inviterUserId,
                         style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    
+
                     // Invite reason
                     invite.inviteReason?.let { reason ->
                         Text(
                             text = "Reason: $reason",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             }
-            
+
             // Room ID card
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
                         text = "Room ID",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
-                    
+
                     Text(
                         text = invite.roomId,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 3,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
-            
+
             Spacer(modifier = Modifier.weight(1f))
-            
+
             // Action buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 OutlinedButton(
                     onClick = {
@@ -223,11 +222,11 @@ fun InviteDetailScreen(
                         navController.popBackStack()
                     },
                     modifier = Modifier.weight(1f),
-                    enabled = !isProcessing
+                    enabled = !isProcessing,
                 ) {
                     Text("Refuse")
                 }
-                
+
                 Button(
                     onClick = {
                         isProcessing = true
@@ -240,7 +239,7 @@ fun InviteDetailScreen(
                         }
                     },
                     modifier = Modifier.weight(1f),
-                    enabled = !isProcessing
+                    enabled = !isProcessing,
                 ) {
                     Text("Join")
                 }

@@ -20,19 +20,19 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object SpaceListCache {
     private const val TAG = "SpaceListCache"
-    
+
     // Thread-safe map storing space data: spaceId -> SpaceItem
     private val spaceCache = ConcurrentHashMap<String, SpaceItem>()
-    
+
     // Order of space IDs (from top_level_spaces) so list matches server order
     private var spaceOrder = listOf<String>()
-    
+
     // Store space_edges as a serialized string to avoid JSONObject deep-copy overhead.
     // JSONObject.toString() is cheap at write time; we parse back to JSONObject on demand at read time.
     private var cachedSpaceEdgesJson: String? = null
-    
+
     private val cacheLock = Any()
-    
+
     /**
      * Update or add spaces to the cache.
      * List order is preserved (should match top_level_spaces from sync).
@@ -49,7 +49,7 @@ object SpaceListCache {
             }
         }
     }
-    
+
     /**
      * Update or add a single space to the cache.
      * Does not change space order; new space is appended for ordering purposes if not in spaceOrder.
@@ -62,7 +62,7 @@ object SpaceListCache {
             }
         }
     }
-    
+
     /**
      * Remove a space from the cache
      */
@@ -72,34 +72,28 @@ object SpaceListCache {
             spaceOrder = spaceOrder.filter { it != spaceId }
         }
     }
-    
+
     /**
      * Get a space from the cache
      */
-    fun getSpace(spaceId: String): SpaceItem? {
-        return synchronized(cacheLock) {
-            spaceCache[spaceId]
-        }
+    fun getSpace(spaceId: String): SpaceItem? = synchronized(cacheLock) {
+        spaceCache[spaceId]
     }
-    
+
     /**
      * Get all spaces from the cache in top_level_spaces order.
      */
-    fun getAllSpaces(): List<SpaceItem> {
-        return synchronized(cacheLock) {
-            spaceOrder.mapNotNull { spaceCache[it] }
-        }
+    fun getAllSpaces(): List<SpaceItem> = synchronized(cacheLock) {
+        spaceOrder.mapNotNull { spaceCache[it] }
     }
-    
+
     /**
      * Get the number of spaces in the cache
      */
-    fun getSpaceCount(): Int {
-        return synchronized(cacheLock) {
-            spaceCache.size
-        }
+    fun getSpaceCount(): Int = synchronized(cacheLock) {
+        spaceCache.size
     }
-    
+
     /**
      * Store space_edges JSONObject
      */
@@ -115,12 +109,10 @@ object SpaceListCache {
     /**
      * Get space_edges JSONObject
      */
-    fun getSpaceEdges(): JSONObject? {
-        return synchronized(cacheLock) {
-            cachedSpaceEdgesJson?.let { JSONObject(it) }
-        }
+    fun getSpaceEdges(): JSONObject? = synchronized(cacheLock) {
+        cachedSpaceEdgesJson?.let { JSONObject(it) }
     }
-    
+
     /**
      * Clear all spaces and space_edges from the cache
      */
@@ -132,14 +124,11 @@ object SpaceListCache {
             if (BuildConfig.DEBUG) Log.d(TAG, "SpaceListCache: Cleared all spaces and space_edges")
         }
     }
-    
+
     /**
      * Check if cache is empty
      */
-    fun isEmpty(): Boolean {
-        return synchronized(cacheLock) {
-            spaceCache.isEmpty()
-        }
+    fun isEmpty(): Boolean = synchronized(cacheLock) {
+        spaceCache.isEmpty()
     }
 }
-

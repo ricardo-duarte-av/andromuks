@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.ui.components
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,23 +21,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import android.os.Build
-import android.util.Log
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
-import net.vrkknn.andromuks.BuildConfig
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import kotlin.math.max
 import kotlin.math.roundToInt
-
 
 @Composable
 fun AvatarImage(
@@ -50,7 +47,7 @@ fun AvatarImage(
     displayName: String? = null,
     isVisible: Boolean = true, // AVATAR LOADING OPTIMIZATION: Lazy loading control
     capAvatarSize: Boolean = false, // Caps the requested pixel size at 256px for list/timeline avatars (formerly also selected the now-removed CircleAvatarCache file:// path)
-    isScrollingFast: Boolean = false // PERFORMANCE: Suspend avatar loading during fast scrolling
+    isScrollingFast: Boolean = false, // PERFORMANCE: Suspend avatar loading during fast scrolling
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -76,7 +73,7 @@ fun AvatarImage(
             mutableStateOf(AvatarUtils.getAvatarUrl(context, mxcUrl, homeserverUrl))
         }
     }
-    
+
     // CRITICAL FIX: Use a stable key (userId or fallbackText) instead of avatarUrl for state persistence
     // This prevents state reset when avatarUrl is recalculated (even if it's the same value)
     // The stable key ensures state persists across room list updates (sync_complete recompositions).
@@ -100,7 +97,7 @@ fun AvatarImage(
         // Initialize to true if avatarUrl exists - AsyncImage handles cached images efficiently
         mutableStateOf(avatarUrl != null && isVisible)
     }
-    
+
     // The CompositionLocal + caller flag used to suppress avatar loading entirely
     // during fast scrolling. That was the main cause of the "wall of avatars pops
     // in at once when scrolling stops" feel: rows that composed during fast scroll
@@ -119,8 +116,7 @@ fun AvatarImage(
         // Don't reset shouldLoadImage when item becomes invisible - keep it true
         // This ensures cached images show instantly when scrolling back into view
     }
-    
-    
+
     val targetPixelSize = remember(size, density, capAvatarSize) {
         val rawPx = with(density) { size.toPx() }.roundToInt()
         // PERFORMANCE FIX: For RoomListScreen, request smaller images to reduce decoding overhead
@@ -132,7 +128,7 @@ fun AvatarImage(
             max(rawPx, 64) // request at least 64px to keep clarity when density is low
         }
     }
-    
+
     // Compute fallback info
     val fallbackLetter = remember(displayName, userId, fallbackText) {
         if (userId != null) {
@@ -141,7 +137,7 @@ fun AvatarImage(
             fallbackText.take(1).uppercase()
         }
     }
-    
+
     // Calculate proportional font size based on avatar size (approximately 55% of circle size)
     // This ensures the letter/emoji is properly sized and centered for all circle sizes
     val fallbackFontSize = remember(size, density) {
@@ -150,7 +146,7 @@ fun AvatarImage(
         val fontSizeInPx = sizeInPx * 0.55f
         with(density) { fontSizeInPx.toSp() }
     }
-    
+
     val backgroundColor = remember(userId) {
         if (userId != null) {
             val colorInt = AvatarUtils.getUserColor(userId)
@@ -185,7 +181,7 @@ fun AvatarImage(
                     if (mxcUrl != null) {
                         // targetPixelSize is an Int (square px). Suffix it so two render
                         // sizes for the same mxc URL keep separate cache entries.
-                        val key = "${mxcUrl}@${targetPixelSize}"
+                        val key = "$mxcUrl@$targetPixelSize"
                         memoryCacheKey(key)
                         diskCacheKey(key)
                     }
@@ -207,16 +203,16 @@ fun AvatarImage(
                     Modifier.background(backgroundColor ?: MaterialTheme.colorScheme.primaryContainer)
                 } else {
                     Modifier
-                }
+                },
             ),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         when {
             // Show text fallback if SVG itself failed, or image not yet loaded during fast scroll
             imageLoadFailed || !shouldLoadImage -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = fallbackLetter,
@@ -224,10 +220,11 @@ fun AvatarImage(
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center,
-                        lineHeight = fallbackFontSize
+                        lineHeight = fallbackFontSize,
                     )
                 }
             }
+
             else -> {
                 if (currentAvatarUrl != null && shouldLoadImage && imageRequest != null) {
                     AsyncImage(
@@ -239,27 +236,31 @@ fun AvatarImage(
                             .clip(CircleShape),
                         contentScale = ContentScale.Crop,
                         onSuccess = {
-                            if (BuildConfig.DEBUG) Log.d(
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
                                 "Andromuks",
-                                "AvatarImage[$effectiveUserId]: onSuccess mxc=$mxcUrl url=$currentAvatarUrl"
+                                "AvatarImage[$effectiveUserId]: onSuccess mxc=$mxcUrl url=$currentAvatarUrl",
                             )
+                            }
                             imageLoadFailed = false
                             imageHasLoaded = true
                         },
                         onError = {
-                            if (BuildConfig.DEBUG) Log.d(
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
                                 "Andromuks",
-                                "AvatarImage[$effectiveUserId]: onError mxc=$mxcUrl url=$currentAvatarUrl result=${it.result.throwable.javaClass.simpleName}: ${it.result.throwable.message}"
+                                "AvatarImage[$effectiveUserId]: onError mxc=$mxcUrl url=$currentAvatarUrl result=${it.result.throwable.javaClass.simpleName}: ${it.result.throwable.message}",
                             )
+                            }
                             // avatarUrl is always the http(s) MXC URL now; a failure means the media
                             // is genuinely unavailable (404/network). Show the native Text fallback.
                             imageLoadFailed = true
-                        }
+                        },
                     )
                 } else if (currentAvatarUrl != null && !imageHasLoaded) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
+                        contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             text = fallbackLetter,
@@ -267,7 +268,7 @@ fun AvatarImage(
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center,
-                            lineHeight = fallbackFontSize
+                            lineHeight = fallbackFontSize,
                         )
                     }
                 }

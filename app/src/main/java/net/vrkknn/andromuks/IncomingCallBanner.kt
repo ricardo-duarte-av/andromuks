@@ -6,8 +6,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import net.vrkknn.andromuks.ui.theme.scaledSpring
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -42,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.delay
+import net.vrkknn.andromuks.ui.theme.scaledSpring
 
 @Composable
 fun IncomingCallBanner(appViewModel: AppViewModel) {
@@ -70,14 +69,20 @@ fun IncomingCallBanner(appViewModel: AppViewModel) {
         modifier = Modifier
             .fillMaxSize()
             .zIndex(20f),
-        contentAlignment = Alignment.TopCenter
+        contentAlignment = Alignment.TopCenter,
     ) {
         AnimatedVisibility(
             visible = true,
-            enter = slideInVertically(initialOffsetY = { -it }, animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)) +
+            enter = slideInVertically(
+                initialOffsetY = { -it },
+                animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow),
+            ) +
                 fadeIn(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)),
-            exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)) +
-                fadeOut(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow))
+            exit = slideOutVertically(
+                targetOffsetY = { -it },
+                animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow),
+            ) +
+                fadeOut(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)),
         ) {
             Surface(
                 modifier = Modifier
@@ -85,19 +90,19 @@ fun IncomingCallBanner(appViewModel: AppViewModel) {
                     .padding(horizontal = 12.dp, vertical = 48.dp),
                 shape = RoundedCornerShape(16.dp),
                 shadowElevation = 8.dp,
-                color = MaterialTheme.colorScheme.surface
+                color = MaterialTheme.colorScheme.surface,
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
                         imageVector = if (isVideo) Icons.Filled.Videocam else Icons.Filled.Call,
                         contentDescription = null,
                         tint = green,
-                        modifier = Modifier.padding(end = 12.dp)
+                        modifier = Modifier.padding(end = 12.dp),
                     )
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
@@ -105,22 +110,22 @@ fun IncomingCallBanner(appViewModel: AppViewModel) {
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
                         )
                         Text(
                             text = roomName,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     OutlinedButton(
                         onClick = { appViewModel.dismissIncomingCall() },
                         colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error
-                        )
+                            contentColor = MaterialTheme.colorScheme.error,
+                        ),
                     ) {
                         Icon(Icons.Filled.CallEnd, contentDescription = "Dismiss")
                     }
@@ -130,11 +135,11 @@ fun IncomingCallBanner(appViewModel: AppViewModel) {
                             appViewModel.dismissIncomingCall()
                             appViewModel.startCall(info.roomId)
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = green)
+                        colors = ButtonDefaults.buttonColors(containerColor = green),
                     ) {
                         Icon(
                             imageVector = if (isVideo) Icons.Filled.Videocam else Icons.Filled.Call,
-                            contentDescription = "Join"
+                            contentDescription = "Join",
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Join")

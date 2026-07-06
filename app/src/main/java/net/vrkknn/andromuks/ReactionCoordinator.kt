@@ -12,9 +12,7 @@ import org.json.JSONObject
  * Reaction orchestration for [AppViewModel]: maps, cache merge, WebSocket requests, and response
  * handling. UI helpers stay in [net.vrkknn.andromuks.utils.ReactionFunctions].
  */
-internal class ReactionCoordinator(
-    private val vm: AppViewModel
-) {
+internal class ReactionCoordinator(private val vm: AppViewModel) {
 
     fun processReactionEvent(reactionEvent: ReactionEvent, isHistorical: Boolean = false) {
         val reactionKey = "${reactionEvent.sender}_${reactionEvent.emoji}_${reactionEvent.relatesToEventId}"
@@ -23,7 +21,7 @@ internal class ReactionCoordinator(
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Skipping duplicate logical reaction: $reactionKey (eventId: ${reactionEvent.eventId})"
+                    "AppViewModel: Skipping duplicate logical reaction: $reactionKey (eventId: ${reactionEvent.eventId})",
                 )
             }
             return
@@ -48,7 +46,7 @@ internal class ReactionCoordinator(
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Skipping historical duplicate reaction (idempotent) for ${reactionEvent.sender} ${reactionEvent.emoji} on ${reactionEvent.relatesToEventId}"
+                        "AppViewModel: Skipping historical duplicate reaction (idempotent) for ${reactionEvent.sender} ${reactionEvent.emoji} on ${reactionEvent.relatesToEventId}",
                     )
                 }
                 return
@@ -58,13 +56,13 @@ internal class ReactionCoordinator(
         val updatedReactionsMap = net.vrkknn.andromuks.utils.processReactionEvent(
             reactionEvent,
             vm.currentRoomId,
-            vm.messageReactions
+            vm.messageReactions,
         )
         val updatedReactions = updatedReactionsMap[reactionEvent.relatesToEventId] ?: emptyList()
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: processReactionEvent - eventId: ${reactionEvent.eventId}, logicalKey: $reactionKey, previous=${previousReactions.size}, updated=${updatedReactions.size}"
+                "AppViewModel: processReactionEvent - eventId: ${reactionEvent.eventId}, logicalKey: $reactionKey, previous=${previousReactions.size}, updated=${updatedReactions.size}",
             )
         }
 
@@ -84,7 +82,7 @@ internal class ReactionCoordinator(
             if (BuildConfig.DEBUG && (additionOccurred || removalOccurred)) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Reaction change processed (in-memory only): addition=$additionOccurred, removal=$removalOccurred for event ${reactionEvent.relatesToEventId}"
+                    "AppViewModel: Reaction change processed (in-memory only): addition=$additionOccurred, removal=$removalOccurred for event ${reactionEvent.relatesToEventId}",
                 )
             }
         }
@@ -103,7 +101,7 @@ internal class ReactionCoordinator(
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: populateMessageReactionsFromCache - populated with ${cachedReactions.size} events from cache"
+                        "AppViewModel: populateMessageReactionsFromCache - populated with ${cachedReactions.size} events from cache",
                     )
                 }
                 vm.viewModelScope.launch(Dispatchers.Main) {
@@ -123,7 +121,7 @@ internal class ReactionCoordinator(
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Reactions for room $roomId already loaded from cache, skipping"
+                    "AppViewModel: Reactions for room $roomId already loaded from cache, skipping",
                 )
             }
             return
@@ -133,14 +131,14 @@ internal class ReactionCoordinator(
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: loadReactionsForRoom($roomId) - found ${reactionEvents.size} cached reaction events"
+                "AppViewModel: loadReactionsForRoom($roomId) - found ${reactionEvents.size} cached reaction events",
             )
         }
         if (reactionEvents.isNotEmpty()) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Processing ${reactionEvents.size} reaction events from cache for room $roomId"
+                    "AppViewModel: Processing ${reactionEvents.size} reaction events from cache for room $roomId",
                 )
             }
             var processedCount = 0
@@ -152,7 +150,7 @@ internal class ReactionCoordinator(
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Restored reactions from $processedCount/${reactionEvents.size} cached reaction events for room $roomId"
+                    "AppViewModel: Restored reactions from $processedCount/${reactionEvents.size} cached reaction events for room $roomId",
                 )
             }
         } else {
@@ -186,14 +184,14 @@ internal class ReactionCoordinator(
                                 MessageReaction(
                                     emoji = key,
                                     count = count,
-                                    users = emptyList()
-                                )
+                                    users = emptyList(),
+                                ),
                             )
                         }
                     } catch (e: Exception) {
                         android.util.Log.w(
                             "Andromuks",
-                            "AppViewModel: Error processing reaction key '$key' for event ${event.eventId}: ${e.message}"
+                            "AppViewModel: Error processing reaction key '$key' for event ${event.eventId}: ${e.message}",
                         )
                     }
                 }
@@ -203,7 +201,7 @@ internal class ReactionCoordinator(
                     } catch (e: Exception) {
                         android.util.Log.w(
                             "Andromuks",
-                            "AppViewModel: Error sorting reactions for event ${event.eventId}, using unsorted: ${e.message}"
+                            "AppViewModel: Error sorting reactions for event ${event.eventId}, using unsorted: ${e.message}",
                         )
                         aggregatedByEvent[event.eventId] = reactionList
                     }
@@ -212,7 +210,7 @@ internal class ReactionCoordinator(
                 android.util.Log.w(
                     "Andromuks",
                     "AppViewModel: Error processing aggregated reactions for event ${event.eventId} from $source: ${e.message}",
-                    e
+                    e,
                 )
             }
         }
@@ -221,7 +219,7 @@ internal class ReactionCoordinator(
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: applyAggregatedReactionsFromEvents($source) - no aggregated reactions found"
+                    "AppViewModel: applyAggregatedReactionsFromEvents($source) - no aggregated reactions found",
                 )
             }
             return
@@ -262,7 +260,7 @@ internal class ReactionCoordinator(
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Applied aggregated reactions from $source for ${aggregatedByEvent.size} events"
+                    "AppViewModel: Applied aggregated reactions from $source for ${aggregatedByEvent.size} events",
                 )
             }
             vm.viewModelScope.launch(Dispatchers.Main) {
@@ -300,7 +298,7 @@ internal class ReactionCoordinator(
             eventReactions[existingIndex] = existing.copy(
                 count = updatedUserReactions.size,
                 users = updatedUsers,
-                userReactions = updatedUserReactions
+                userReactions = updatedUserReactions,
             )
         }
 
@@ -313,7 +311,7 @@ internal class ReactionCoordinator(
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: removeReaction - removed ${reactionEvent.emoji} from ${reactionEvent.sender} on ${reactionEvent.relatesToEventId}"
+                "AppViewModel: removeReaction - removed ${reactionEvent.emoji} from ${reactionEvent.sender} on ${reactionEvent.relatesToEventId}",
             )
         }
     }
@@ -330,7 +328,7 @@ internal class ReactionCoordinator(
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Skipping redacted historical reaction: ${reaction.emoji} from ${reaction.sender} to ${reaction.relatesToEventId}"
+                    "AppViewModel: Skipping redacted historical reaction: ${reaction.emoji} from ${reaction.sender} to ${reaction.relatesToEventId}",
                 )
             }
             false
@@ -348,7 +346,7 @@ internal class ReactionCoordinator(
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: About to send reaction request - currentRoomId: ${vm.currentRoomId}, roomId=$roomId, smallestCached=$smallestCached, effectiveMaxTimelineId=$effectiveMaxTimelineId"
+                "AppViewModel: About to send reaction request - currentRoomId: ${vm.currentRoomId}, roomId=$roomId, smallestCached=$smallestCached, effectiveMaxTimelineId=$effectiveMaxTimelineId",
             )
         }
         val result = vm.sendWebSocketCommand(
@@ -358,20 +356,20 @@ internal class ReactionCoordinator(
                 "room_id" to roomId,
                 "max_timeline_id" to effectiveMaxTimelineId,
                 "limit" to AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT,
-                "reset" to false
-            )
+                "reset" to false,
+            ),
         )
         if (result == WebSocketResult.SUCCESS) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: ✅ Sent reaction request for cached room: $roomId (requestId: $reactionRequestId)"
+                    "AppViewModel: ✅ Sent reaction request for cached room: $roomId (requestId: $reactionRequestId)",
                 )
             }
         } else {
             android.util.Log.w(
                 "Andromuks",
-                "AppViewModel: Reaction request for $roomId (requestId: $reactionRequestId) could not be sent immediately (result=$result)"
+                "AppViewModel: Reaction request for $roomId (requestId: $reactionRequestId) could not be sent immediately (result=$result)",
             )
         }
     }
@@ -381,7 +379,7 @@ internal class ReactionCoordinator(
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Skipping requestReactionDetails - WebSocket not connected (roomId=$roomId, eventId=$eventId)"
+                    "AppViewModel: Skipping requestReactionDetails - WebSocket not connected (roomId=$roomId, eventId=$eventId)",
                 )
             }
             return
@@ -393,13 +391,13 @@ internal class ReactionCoordinator(
         val commandData = mapOf(
             "room_id" to roomId,
             "event_id" to eventId,
-            "relation_type" to "m.annotation"
+            "relation_type" to "m.annotation",
         )
 
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: requestReactionDetails - sending get_related_events for roomId=$roomId, eventId=$eventId, requestId=$requestId"
+                "AppViewModel: requestReactionDetails - sending get_related_events for roomId=$roomId, eventId=$eventId, requestId=$requestId",
             )
         }
 
@@ -409,7 +407,7 @@ internal class ReactionCoordinator(
             if (BuildConfig.DEBUG) {
                 android.util.Log.w(
                     "Andromuks",
-                    "AppViewModel: requestReactionDetails - get_related_events failed to send for roomId=$roomId, eventId=$eventId, requestId=$requestId, result=$result"
+                    "AppViewModel: requestReactionDetails - get_related_events failed to send for roomId=$roomId, eventId=$eventId, requestId=$requestId, result=$result",
                 )
             }
         }
@@ -419,7 +417,7 @@ internal class ReactionCoordinator(
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: sendReaction called with roomId: '$roomId', eventId: '$eventId', emoji: '$emoji'"
+                "AppViewModel: sendReaction called with roomId: '$roomId', eventId: '$eventId', emoji: '$emoji'",
             )
         }
 
@@ -457,24 +455,24 @@ internal class ReactionCoordinator(
                 "m.relates_to" to mapOf(
                     "rel_type" to "m.annotation",
                     "event_id" to eventId,
-                    "key" to reactionKey
-                )
+                    "key" to reactionKey,
+                ),
             ),
             "disable_encryption" to false,
-            "synchronous" to false
+            "synchronous" to false,
         )
 
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: About to send WebSocket command: send_event with data: $commandData"
+                "AppViewModel: About to send WebSocket command: send_event with data: $commandData",
             )
         }
         vm.sendWebSocketCommand("send_event", reactionRequestId, commandData)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: WebSocket command sent with request_id: $reactionRequestId"
+                "AppViewModel: WebSocket command sent with request_id: $reactionRequestId",
             )
         }
 
@@ -501,7 +499,7 @@ internal class ReactionCoordinator(
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Handling reaction response for room: $roomId, currentRoomId: ${vm.currentRoomId}"
+                "AppViewModel: Handling reaction response for room: $roomId, currentRoomId: ${vm.currentRoomId}",
             )
         }
 
@@ -511,28 +509,31 @@ internal class ReactionCoordinator(
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Created reaction event: type=${event.type}, roomId=${event.roomId}, eventId=${event.eventId}"
+                        "AppViewModel: Created reaction event: type=${event.type}, roomId=${event.roomId}, eventId=${event.eventId}",
                     )
                 }
                 if (event.type == "m.reaction") {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
-                            "AppViewModel: Ignoring reaction response event (temporary ID), waiting for send_complete: ${event.content?.optJSONObject("m.relates_to")?.optString("key")}"
+                            "AppViewModel: Ignoring reaction response event (temporary ID), waiting for send_complete: ${event.content?.optJSONObject(
+                                "m.relates_to",
+                            )?.optString("key")}",
                         )
                     }
                 } else {
                     android.util.Log.w(
                         "Andromuks",
-                        "AppViewModel: Expected m.reaction event but got: ${event.type}"
+                        "AppViewModel: Expected m.reaction event but got: ${event.type}",
                     )
                 }
             }
+
             else -> {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Unhandled data type in handleReactionResponse: ${data::class.java.simpleName}"
+                        "AppViewModel: Unhandled data type in handleReactionResponse: ${data::class.java.simpleName}",
                     )
                 }
             }
@@ -544,15 +545,17 @@ internal class ReactionCoordinator(
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Handling related_events response for room: $roomId, targetEventId=$targetEventId, dataType=${data::class.java.simpleName}"
+                "AppViewModel: Handling related_events response for room: $roomId, targetEventId=$targetEventId, dataType=${data::class.java.simpleName}",
             )
         }
 
         val eventsArray: JSONArray? = when (data) {
             is JSONArray -> data
+
             is JSONObject -> {
                 data.optJSONArray("events") ?: JSONArray().apply { put(data) }
             }
+
             else -> null
         }
 
@@ -560,7 +563,7 @@ internal class ReactionCoordinator(
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: related_events response empty for $targetEventId in $roomId"
+                    "AppViewModel: related_events response empty for $targetEventId in $roomId",
                 )
             }
             return
@@ -584,7 +587,7 @@ internal class ReactionCoordinator(
                 android.util.Log.e(
                     "Andromuks",
                     "AppViewModel: Error parsing related_event at index $i for $targetEventId in $roomId: ${e.message}",
-                    e
+                    e,
                 )
             }
         }
@@ -592,7 +595,7 @@ internal class ReactionCoordinator(
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Processed $reactionsProcessed reaction events from related_events for target=$targetEventId in room=$roomId (total related events=${timelineEvents.size})"
+                "AppViewModel: Processed $reactionsProcessed reaction events from related_events for target=$targetEventId in room=$roomId (total related events=${timelineEvents.size})",
             )
         }
 

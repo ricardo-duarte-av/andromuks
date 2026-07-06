@@ -1,13 +1,29 @@
 package net.vrkknn.andromuks.utils
 
-import net.vrkknn.andromuks.BuildConfig
 import android.content.SharedPreferences
 import android.os.Build
 import android.util.Log
 import androidx.core.content.edit
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
+import net.vrkknn.andromuks.AppViewModel
+import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.IncomingWebSocketHint
+import net.vrkknn.andromuks.PerformanceMonitoringCoordinator
+import net.vrkknn.andromuks.SyncRepository
+import net.vrkknn.andromuks.WebSocketService
+import net.vrkknn.andromuks.WebSocketService.Companion.CPUWeight
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.OkHttpClient
@@ -18,72 +34,55 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
 import okio.IOException
+import org.json.JSONArray
 import org.json.JSONObject
-import net.vrkknn.andromuks.AppViewModel
-import net.vrkknn.andromuks.PerformanceMonitoringCoordinator
-import net.vrkknn.andromuks.IncomingWebSocketHint
-import net.vrkknn.andromuks.SyncRepository
-import net.vrkknn.andromuks.WebSocketService
-import net.vrkknn.andromuks.WebSocketService.Companion.CPUWeight
-
-import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
-import java.util.zip.Inflater
-import java.util.zip.InflaterInputStream
-import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.TimeUnit
-import net.vrkknn.andromuks.TimelineEvent
-import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.*
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.channels.Channel
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonObject
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
-import org.json.JSONArray
-
+import java.util.zip.Inflater
 
 /**
  * Converts kotlinx.serialization.json.JsonElement to org.json equivalent (JSONObject or JSONArray).
  * Used so we can parse with fast kotlinx.serialization then pass org.json.JSONObject to existing ViewModel APIs.
  */
-private fun kotlinxJsonElementToOrgJson(element: JsonElement): Any? {
-    return when (element) {
-        is JsonObject -> {
-            val out = JSONObject()
-            for ((k, v) in element) {
-                val converted = kotlinxJsonElementToOrgJson(v)
-                if (converted != null) out.put(k, converted)
-                else out.put(k, JSONObject.NULL)
-            }
-            out
-        }
-        is JsonArray -> {
-            val out = JSONArray()
-            for (e in element) {
-                val converted = kotlinxJsonElementToOrgJson(e)
-                if (converted != null) out.put(converted)
-                else out.put(JSONObject.NULL)
-            }
-            out
-        }
-        is JsonPrimitive -> {
-            val content = element.content
-            when {
-                content == "true" -> true
-                content == "false" -> false
-                content == "null" -> null
-                else -> content.toLongOrNull() ?: content.toDoubleOrNull() ?: content
+private fun kotlinxJsonElementToOrgJson(element: JsonElement): Any? = when (element) {
+    is JsonObject -> {
+        val out = JSONObject()
+        for ((k, v) in element) {
+            val converted = kotlinxJsonElementToOrgJson(v)
+            if (converted != null) {
+                out.put(k, converted)
+            } else {
+                out.put(k, JSONObject.NULL)
             }
         }
-        is JsonNull -> null
+        out
     }
+
+    is JsonArray -> {
+        val out = JSONArray()
+        for (e in element) {
+            val converted = kotlinxJsonElementToOrgJson(e)
+            if (converted != null) {
+                out.put(converted)
+            } else {
+                out.put(JSONObject.NULL)
+            }
+        }
+        out
+    }
+
+    is JsonPrimitive -> {
+        val content = element.content
+        when {
+            content == "true" -> true
+            content == "false" -> false
+            content == "null" -> null
+            else -> content.toLongOrNull() ?: content.toDoubleOrNull() ?: content
+        }
+    }
+
+    is JsonNull -> null
 }
 
 /**
@@ -108,15 +107,25 @@ private fun splitIntoJsonObjectStrings(jsonText: String): List<String> {
     var escapeNext = false
     for (i in jsonText.indices) {
         val char = jsonText[i]
-        if (escapeNext) { escapeNext = false; continue }
-        if (char == '\\') { escapeNext = true; continue }
-        if (char == '"') { inString = !inString; continue }
+        if (escapeNext) {
+            escapeNext = false;
+            continue
+        }
+        if (char == '\\') {
+            escapeNext = true;
+            continue
+        }
+        if (char == '"') {
+            inString = !inString;
+            continue
+        }
         if (!inString) {
             when (char) {
                 '{' -> {
                     if (braceCount == 0) startPos = i
                     braceCount++
                 }
+
                 '}' -> {
                     braceCount--
                     if (braceCount == 0) result.add(jsonText.substring(startPos, i + 1))
@@ -137,7 +146,10 @@ private fun emitIncomingWebSocketMessage(json: JSONObject, hint: IncomingWebSock
     SyncRepository.emitIncomingWebSocketMessage(json.toString(), hint)
 }
 
-private fun emitPriorityIncomingWebSocketMessage(json: JSONObject, hint: IncomingWebSocketHint = IncomingWebSocketHint.NONE) {
+private fun emitPriorityIncomingWebSocketMessage(
+    json: JSONObject,
+    hint: IncomingWebSocketHint = IncomingWebSocketHint.NONE,
+) {
     SyncRepository.emitPriorityIncomingWebSocketMessage(json.toString(), hint)
 }
 
@@ -149,7 +161,7 @@ private fun emitPriorityIncomingWebSocketMessage(json: JSONObject, hint: Incomin
 fun applyIncomingWebSocketMessageForViewModel(
     jsonObject: JSONObject,
     viewModel: AppViewModel,
-    hint: IncomingWebSocketHint
+    hint: IncomingWebSocketHint,
 ) {
     val command = jsonObject.optString("command")
     when (command) {
@@ -164,9 +176,11 @@ fun applyIncomingWebSocketMessageForViewModel(
                 viewModel.handleRunId(runId, vapidKey)
             }
         }
+
         "sync_complete" -> {
             // Processed only by SyncRepository single-consumer pipeline (see dispatchParsedWebSocketMessage).
         }
+
         "init_complete" -> {
             if (hint == IncomingWebSocketHint.INIT_COMPLETE) {
                 // sync_complete and init_complete travel different pipelines: sync_complete goes
@@ -190,6 +204,7 @@ fun applyIncomingWebSocketMessageForViewModel(
                 }
             }
         }
+
         "client_state" -> {
             val data = jsonObject.optJSONObject("data")
             val userId = data?.optString("user_id")
@@ -199,12 +214,14 @@ fun applyIncomingWebSocketMessageForViewModel(
                 viewModel.handleClientState(userId, deviceId, hs)
             }
         }
+
         "image_auth_token" -> {
             val token = jsonObject.optString("data", "")
             viewModel.viewModelScope.launch(Dispatchers.Main) {
                 viewModel.updateImageAuthToken(token)
             }
         }
+
         "sync_status" -> {
             // gomuks emits sync_status on every connect (before the initial sync_complete stream) and
             // whenever its upstream /sync loop starts or stops erroring. type == "ok" means the backend
@@ -216,6 +233,7 @@ fun applyIncomingWebSocketMessageForViewModel(
                 viewModel.onSyncStatus(type)
             }
         }
+
         "error" -> {
             val requestId = jsonObject.optInt("request_id")
             val errorMessage = jsonObject.optString("data", "Unknown error")
@@ -223,6 +241,7 @@ fun applyIncomingWebSocketMessageForViewModel(
                 viewModel.handleError(requestId, errorMessage)
             }
         }
+
         "response" -> {
             val requestId = jsonObject.optInt("request_id")
             val data = jsonObject.opt("data")
@@ -232,11 +251,17 @@ fun applyIncomingWebSocketMessageForViewModel(
                 viewModel.handleResponse(requestId, data ?: Any())
             }
         }
+
         "send_complete" -> {
             val data = jsonObject.optJSONObject("data")
             val event = data?.optJSONObject("event")
             val error = data?.optString("error")
-            Log.d("Andromuks", "NetworkUtils: send_complete received (reqId=${jsonObject.optInt("request_id")}) event=$event error=$error")
+            Log.d(
+                "Andromuks",
+                "NetworkUtils: send_complete received (reqId=${jsonObject.optInt(
+                    "request_id",
+                )}) event=$event error=$error",
+            )
             if (event == null) Log.w("Andromuks", "NetworkUtils: send_complete missing event payload")
             viewModel.viewModelScope.launch(Dispatchers.Main) {
                 if (event != null) {
@@ -247,6 +272,7 @@ fun applyIncomingWebSocketMessageForViewModel(
                 }
             }
         }
+
         "typing" -> {
             val data = jsonObject.optJSONObject("data")
             val roomId = data?.optString("room_id")
@@ -261,14 +287,21 @@ fun applyIncomingWebSocketMessageForViewModel(
                 viewModel.updateTypingUsers(roomId ?: "", userIds)
             }
         }
+
         "to_device", "to_device_event", "device_event" -> {
             val data = jsonObject.opt("data")
             viewModel.viewModelScope.launch(Dispatchers.IO) {
                 viewModel.handleToDeviceMessage(data)
             }
         }
+
         else -> {
-            if (BuildConfig.DEBUG && command.isNotEmpty()) Log.d("Andromuks", "NetworkUtils: Unhandled WebSocket command: $command")
+            if (BuildConfig.DEBUG && command.isNotEmpty()) {
+                Log.d(
+                "Andromuks",
+                "NetworkUtils: Unhandled WebSocket command: $command",
+            )
+            }
         }
     }
 }
@@ -291,69 +324,111 @@ private fun dispatchParsedWebSocketMessage(jsonObject: JSONObject) {
                 WebSocketService.handlePong(requestId)
             }
         }
+
         "run_id" -> {
             WebSocketService.onRunIdReceived()
             emitIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
         }
+
         "sync_complete" -> {
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: sync_complete (payload size=${jsonObject.toString().length})")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "WebSocketService",
+                "Message received: sync_complete (payload size=${jsonObject.toString().length})",
+            )
+            }
             val wasResume = WebSocketService.isReconnectingWithLastReceivedEvent()
             if (wasResume) {
-                if (BuildConfig.DEBUG) Log.i("NetworkUtils", "Reconnection with last_received_event: First sync_complete - treating as init_complete")
+                if (BuildConfig.DEBUG) {
+                    Log.i(
+                    "NetworkUtils",
+                    "Reconnection with last_received_event: First sync_complete - treating as init_complete",
+                )
+                }
                 WebSocketService.onInitCompleteReceived("sync_complete_resume")
                 WebSocketService.setReconnectingWithLastReceivedEvent(false)
             }
             if (SyncRepository.getAttachedViewModels().isEmpty()) {
-                Log.w("Andromuks", "NetworkUtils: CRITICAL - sync_complete received but no ViewModels attached in SyncRepository!")
+                Log.w(
+                    "Andromuks",
+                    "NetworkUtils: CRITICAL - sync_complete received but no ViewModels attached in SyncRepository!",
+                )
             }
             SyncRepository.enqueueSyncComplete(
                 jsonObject.toString(),
-                if (wasResume) IncomingWebSocketHint.SYNC_COMPLETE_AFTER_RESUME else IncomingWebSocketHint.NONE
+                if (wasResume) IncomingWebSocketHint.SYNC_COMPLETE_AFTER_RESUME else IncomingWebSocketHint.NONE,
             )
         }
+
         "init_complete" -> {
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: init_complete")
             WebSocketService.onInitCompleteReceived("init_complete")
             emitIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.INIT_COMPLETE)
         }
+
         "client_state" -> {
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: client_state")
             emitIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
         }
+
         "image_auth_token" -> {
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: image_auth_token token=${jsonObject.optString("data", "")}")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "WebSocketService",
+                "Message received: image_auth_token token=${jsonObject.optString("data", "")}",
+            )
+            }
             emitIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
         }
+
         "sync_status" -> {
             // Fan out so each attached VM can unblock its command queue on type == "ok"
             // (AppViewModel.onSyncStatus). Previously fell into else and was dropped.
             val data = jsonObject.optJSONObject("data")
             val type = data?.optString("type") ?: ""
             val errorCount = data?.optInt("error_count", 0) ?: 0
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Message received: sync_status type=$type errorCount=$errorCount")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "WebSocketService",
+                "Message received: sync_status type=$type errorCount=$errorCount",
+            )
+            }
             // Record in the WebSocket activity log so tapping the header sync indicator (which opens
             // the same log as the connection icon) shows the gomuks↔homeserver sync transitions.
-            WebSocketService.logActivity(if (errorCount > 0) "Sync status: $type (errors: $errorCount)" else "Sync status: $type")
+            WebSocketService.logActivity(
+                if (errorCount > 0) "Sync status: $type (errors: $errorCount)" else "Sync status: $type",
+            )
             emitIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
         }
+
         "error" -> {
             // Command acks → dedicated non-lossy flow (see SyncRepository.ackEvents).
             emitPriorityIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
         }
+
         "response" -> {
             emitPriorityIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
         }
+
         "send_complete" -> {
             emitPriorityIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
         }
+
         "typing" -> {
             emitIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
         }
+
         "to_device", "to_device_event", "device_event" -> {
             emitIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
         }
+
         else -> {
-            if (BuildConfig.DEBUG && command.isNotEmpty()) Log.d("Andromuks", "NetworkUtils: Unhandled WebSocket command: $command")
+            if (BuildConfig.DEBUG && command.isNotEmpty()) {
+                Log.d(
+                "Andromuks",
+                "NetworkUtils: Unhandled WebSocket command: $command",
+            )
+            }
         }
     }
 }
@@ -393,13 +468,13 @@ class StreamingDeflateDecompressor {
     private val outputBuffer = ByteArrayOutputStream()
     private val inputBuffer = ByteArrayOutputStream()
     private var isFinished = false
-    
+
     fun write(data: ByteArray) {
         if (isFinished) return
-        
+
         inputBuffer.write(data)
         inflater.setInput(inputBuffer.toByteArray())
-        
+
         val buffer = ByteArray(4096)
         try {
             while (!inflater.finished() && !inflater.needsInput()) {
@@ -408,7 +483,7 @@ class StreamingDeflateDecompressor {
                     outputBuffer.write(buffer, 0, count)
                 }
             }
-            
+
             // Remove processed data from input buffer
             val remaining = inflater.remaining
             if (remaining > 0) {
@@ -418,21 +493,20 @@ class StreamingDeflateDecompressor {
             } else {
                 inputBuffer.reset()
             }
-            
         } catch (e: Exception) {
             Log.e("Andromuks", "StreamingDeflateDecompressor: Decompression failed", e)
             throw e
         }
     }
-    
+
     fun readAvailable(): String? {
         val data = outputBuffer.toByteArray()
         if (data.isEmpty()) return null
-        
+
         outputBuffer.reset()
         return String(data, Charsets.UTF_8)
     }
-    
+
     fun close() {
         inflater.end()
         isFinished = true
@@ -460,7 +534,7 @@ fun performHttpLogin(
     scope: CoroutineScope,
     sharedPreferences: SharedPreferences,
     onSuccess: () -> Unit,
-    onFailure: () -> Unit
+    onFailure: () -> Unit,
 ) {
     val authUrl = buildAuthHttpUrl(url)
     val credentials = okhttp3.Credentials.basic(username, password)
@@ -494,18 +568,31 @@ fun performHttpLogin(
                         CredentialStore.persistCredentials(
                             sharedPreferences,
                             username = username,
-                            password = password
+                            password = password,
                         )
-                        if (BuildConfig.DEBUG) Log.d(
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
                             "LoginScreen",
-                            "Token and server base URL saved to SharedPreferences."
+                            "Token and server base URL saved to SharedPreferences.",
                         )
+                        }
                         // Log a dump of SharedPreferences (mask sensitive values)
                         try {
                             val allPrefs = sharedPreferences.all
                             if (BuildConfig.DEBUG) Log.d("LoginScreen", "SharedPreferences dump start →")
                             for ((key, value) in allPrefs) {
-                                val masked = if (key.contains("token", ignoreCase = true) || key.contains("password", ignoreCase = true)) "<redacted>" else value?.toString()
+                                val masked = if (key.contains(
+                                        "token",
+                                        ignoreCase = true,
+                                    ) || key.contains(
+                                        "password",
+                                        ignoreCase = true,
+                                    )
+                                ) {
+                                        "<redacted>"
+                                    } else {
+                                        value?.toString()
+                                    }
                                 if (BuildConfig.DEBUG) Log.d("LoginScreen", "pref[$key] = $masked")
                             }
                             if (BuildConfig.DEBUG) Log.d("LoginScreen", "← SharedPreferences dump end")
@@ -558,13 +645,18 @@ fun connectToWebsocket(
     context: android.content.Context,
     appViewModel: AppViewModel? = null, // Optional - only needed for message routing callbacks
     reason: String = "Initial connection",
-    isReconnection: Boolean = false
+    isReconnection: Boolean = false,
 ) {
-    if (BuildConfig.DEBUG) Log.d("NetworkUtils", "connectToWebsocket: Initializing... Reason: $reason, isReconnection: $isReconnection")
-    
+    if (BuildConfig.DEBUG) {
+        Log.d(
+        "NetworkUtils",
+        "connectToWebsocket: Initializing... Reason: $reason, isReconnection: $isReconnection",
+    )
+    }
+
     // Add startup progress message
     appViewModel?.addStartupProgressMessage("Opening WebSocket connection...")
-    
+
     var streamingDecompressor: StreamingDeflateDecompressor? = null
 
     // Custom Firebase Performance trace for WebSocket connection establishment (auto-instrumentation
@@ -573,7 +665,7 @@ fun connectToWebsocket(
     var connectTrace: com.google.firebase.perf.metrics.Trace? = null
 
     val webSocketUrl = trimWebsocketHost(url)
-    
+
     // Cold start: no run_id or last_received_event in URL; backend will send run_id in a message.
     // Reconnection only: we pass run_id and last_received_event so backend can resume.
     val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
@@ -587,14 +679,14 @@ fun connectToWebsocket(
     } else {
         0
     }
-    
+
     if (BuildConfig.DEBUG) {
         Log.d(
             "NetworkUtils",
-            "WebSocket URL params - isReconnection: $isReconnection, runId: '$runId', last_received_request_id: $lastReceivedRequestId"
+            "WebSocket URL params - isReconnection: $isReconnection, runId: '$runId', last_received_request_id: $lastReceivedRequestId",
         )
     }
-    
+
     // If runId is JSON-encoded, extract the actual run_id
     val actualRunId = if (runId.startsWith("{")) {
         try {
@@ -607,7 +699,7 @@ fun connectToWebsocket(
     } else {
         runId
     }
-    
+
     // Check if compression is enabled (read from SharedPreferences)
     // BATTERY OPTIMIZATION: Default changed to false (was true)
     // Compression requires CPU-intensive decompression on every message, causing battery drain
@@ -620,7 +712,7 @@ fun connectToWebsocket(
         // Detailed debug logging to verify toggle behavior end‑to‑end
         Log.d(
             "NetworkUtils",
-            "Compression prefs: enable_compression=$compressionEnabled (default=false), will ${if (compressionEnabled) "ADD" else "NOT add"} compress=1 to URL"
+            "Compression prefs: enable_compression=$compressionEnabled (default=false), will ${if (compressionEnabled) "ADD" else "NOT add"} compress=1 to URL",
         )
         // Debug: Check all compression-related keys
         val allKeys = allPrefs.keys.filter { it.contains("compress", ignoreCase = true) }
@@ -633,13 +725,13 @@ fun connectToWebsocket(
             }
         }
     }
-    
+
     // Initialize streaming decompressor if compression is enabled
     if (compressionEnabled) {
         streamingDecompressor = StreamingDeflateDecompressor()
         if (BuildConfig.DEBUG) Log.d("NetworkUtils", "Streaming DEFLATE decompressor initialized")
     }
-    
+
     val queryParams = mutableListOf<String>()
     if (isReconnection && actualRunId.isNotEmpty()) {
         queryParams.add("run_id=$actualRunId")
@@ -650,7 +742,10 @@ fun connectToWebsocket(
             queryParams.add("last_received_event=$lastReceivedRequestId")
             WebSocketService.setReconnectingWithLastReceivedEvent(true)
             if (BuildConfig.DEBUG) {
-                Log.d("NetworkUtils", "Reconnection: last_received_event=$lastReceivedRequestId (backend will skip init_complete)")
+                Log.d(
+                    "NetworkUtils",
+                    "Reconnection: last_received_event=$lastReceivedRequestId (backend will skip init_complete)",
+                )
             }
         } else {
             WebSocketService.setReconnectingWithLastReceivedEvent(false)
@@ -658,7 +753,10 @@ fun connectToWebsocket(
     } else {
         WebSocketService.setReconnectingWithLastReceivedEvent(false)
         if (BuildConfig.DEBUG) {
-            Log.d("NetworkUtils", "Cold start: no run_id or last_received_event in URL, compression: $compressionEnabled")
+            Log.d(
+                "NetworkUtils",
+                "Cold start: no run_id or last_received_event in URL, compression: $compressionEnabled",
+            )
         }
     }
     if (compressionEnabled) {
@@ -667,7 +765,7 @@ fun connectToWebsocket(
     } else {
         if (BuildConfig.DEBUG) Log.d("NetworkUtils", "Compression disabled - not adding compress parameter")
     }
-    
+
     val finalWebSocketUrl = if (queryParams.isEmpty()) {
         webSocketUrl
     } else {
@@ -703,12 +801,12 @@ fun connectToWebsocket(
                 for ((seq, payload) in parseQueue) {
                     // Apply dynamic thread priority (niceness)
                     android.os.Process.setThreadPriority(WebSocketService.getRecommendedNiceness())
-                    
+
                     // If we're in POLITE mode and not the first worker, yield to keep parallelism low
                     if (workerIndex > 0 && WebSocketService.getCPUWeight() == CPUWeight.POLITE) {
                         yield()
                     }
-                    
+
                     try {
                         val json = parseWebSocketMessageWithKotlinx(payload)
                         resultQueue.send(seq to json)
@@ -742,37 +840,40 @@ fun connectToWebsocket(
         override fun onOpen(webSocket: WebSocket, response: Response) {
             PerformanceMonitoringCoordinator.stopTrace(connectTrace, "outcome" to "success")
             connectTrace = null
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: onOpen: ws opened on "+response.message)
-            
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: onOpen: ws opened on " + response.message)
+
             // Toast notification is handled by WebSocketService.setWebSocket() which has access to context
-            
+
             // Debug: Log all response headers to see if backend request ID is available
             if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: WebSocket response headers:")
             response.headers.names().forEach { name ->
                 val value = response.header(name)
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: Header '$name': '$value'")
             }
-            
+
             // REFACTORING: Set WebSocket directly in service (no ViewModel needed)
             if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: Calling WebSocketService.setWebSocket()")
             WebSocketService.setWebSocket(webSocket)
-            
+
             // DO NOT reset reconnection state here - wait for init_complete
             // resetReconnectionState() will be called after init_complete arrives
             // This preserves lastReceivedSyncId for future reconnections
         }
-        
+
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             PerformanceMonitoringCoordinator.stopTrace(connectTrace, "outcome" to "failure")
             connectTrace = null
             Log.e("Andromuks", "NetworkUtils: WebSocket connection failed", t)
             Log.e("Andromuks", "NetworkUtils: Failure reason: ${t.message}, response: ${response?.code}")
-            
+
             // Toast notification is handled by WebSocketService.clearWebSocket() which has access to context
-            
+
             // Check for 401 Unauthorized - invalid/expired token
             if (response?.code == 401 || (t is java.net.ProtocolException && t.message?.contains("401") == true)) {
-                Log.e("Andromuks", "NetworkUtils: 401 Unauthorized detected - clearing credentials and navigating to login")
+                Log.e(
+                    "Andromuks",
+                    "NetworkUtils: 401 Unauthorized detected - clearing credentials and navigating to login",
+                )
                 // Notify registered ViewModels about unauthorized error
                 WebSocketService.getServiceScope().launch(Dispatchers.Main) {
                     for (viewModel in SyncRepository.getAttachedViewModels()) {
@@ -781,53 +882,67 @@ fun connectToWebsocket(
                 }
                 return
             }
-            
+
             // PHASE 4.3: Detect TLS/SSL errors first (before DNS/network errors)
             val tlsErrorType = when {
                 t is javax.net.ssl.SSLException -> {
                     // Check if it's a certificate error
                     val message = t.message ?: ""
-                    if (message.contains("certificate", ignoreCase = true) || 
+                    if (message.contains("certificate", ignoreCase = true) ||
                         message.contains("cert", ignoreCase = true) ||
-                        t.cause is java.security.cert.CertificateException) {
+                        t.cause is java.security.cert.CertificateException
+                    ) {
                         "CERTIFICATE_ERROR"
                     } else {
                         "TLS_ERROR"
                     }
                 }
+
                 t is java.security.cert.CertificateException -> "CERTIFICATE_ERROR"
+
                 t.cause is javax.net.ssl.SSLException -> {
                     val sslCause = t.cause as javax.net.ssl.SSLException
                     val message = sslCause.message ?: ""
-                    if (message.contains("certificate", ignoreCase = true) || 
+                    if (message.contains("certificate", ignoreCase = true) ||
                         message.contains("cert", ignoreCase = true) ||
-                        sslCause.cause is java.security.cert.CertificateException) {
+                        sslCause.cause is java.security.cert.CertificateException
+                    ) {
                         "CERTIFICATE_ERROR"
                     } else {
                         "TLS_ERROR"
                     }
                 }
+
                 t.cause is java.security.cert.CertificateException -> "CERTIFICATE_ERROR"
+
                 else -> null
             }
-            
+
             if (tlsErrorType != null) {
                 // PHASE 4.3: Handle TLS/SSL errors
                 val tlsErrorDetails = when {
                     t is javax.net.ssl.SSLException -> t.message ?: "SSL error"
+
                     t is java.security.cert.CertificateException -> "Certificate validation failed"
-                    t.cause is javax.net.ssl.SSLException -> (t.cause as javax.net.ssl.SSLException).message ?: "SSL error"
+
+                    t.cause is javax.net.ssl.SSLException -> (t.cause as javax.net.ssl.SSLException).message
+                        ?: "SSL error"
+
                     t.cause is java.security.cert.CertificateException -> "Certificate validation failed"
+
                     else -> "TLS/SSL error"
                 }
-                
+
                 // Log TLS error (but don't log full certificate details for security)
-                Log.e("Andromuks", "NetworkUtils: TLS/SSL error detected - Type: $tlsErrorType, Details: $tlsErrorDetails")
-                
+                Log.e(
+                    "Andromuks",
+                    "NetworkUtils: TLS/SSL error detected - Type: $tlsErrorType, Details: $tlsErrorDetails",
+                )
+
                 // Clear WebSocket connection
                 val failureReason = "TLS/SSL error: $tlsErrorDetails"
                 WebSocketService.clearWebSocket(failureReason)
-                
+
                 // Handle TLS error with appropriate strategy - notify registered ViewModels
                 WebSocketService.getServiceScope().launch(Dispatchers.Main) {
                     for (viewModel in SyncRepository.getAttachedViewModels()) {
@@ -836,19 +951,26 @@ fun connectToWebsocket(
                 }
                 return
             }
-            
+
             // PHASE 4.2: Detect DNS and network errors
             val errorType = when {
                 t is java.net.UnknownHostException -> "DNS_FAILURE"
-                t is java.net.SocketException && (t.message?.contains("Network is unreachable") == true || t.message?.contains("No route to host") == true) -> "NETWORK_UNREACHABLE"
+
+                t is java.net.SocketException && (
+                    t.message?.contains(
+                    "Network is unreachable",
+                ) == true || t.message?.contains("No route to host") == true
+                ) -> "NETWORK_UNREACHABLE"
+
                 t is java.net.ConnectException -> "NETWORK_UNREACHABLE"
+
                 else -> "GENERIC_ERROR"
             }
-            
+
             // Clear WebSocket connection
             val failureReason = "Connection failure: ${t.message}"
             WebSocketService.clearWebSocket(failureReason)
-            
+
             // PHASE 4.2: Handle connection failure with error-specific strategies - notify registered ViewModels
             WebSocketService.getServiceScope().launch(Dispatchers.Main) {
                 for (viewModel in SyncRepository.getAttachedViewModels()) {
@@ -870,21 +992,26 @@ fun connectToWebsocket(
             WebSocketService.getServiceScope().launch(wsDecompressDispatcher) {
                 // Apply dynamic thread priority (niceness)
                 android.os.Process.setThreadPriority(WebSocketService.getRecommendedNiceness())
-                
+
                 try {
                     if (streamingDecompressor != null) {
                         streamingDecompressor.write(bytesCopy)
                         val decompressedText = streamingDecompressor.readAvailable()
                         if (decompressedText != null) {
                             if (BuildConfig.DEBUG) {
-                                Log.d("Andromuks", "NetworkUtils: Decompressed (length=${decompressedText.length}), splitting and enqueueing")
+                                Log.d(
+                                    "Andromuks",
+                                    "NetworkUtils: Decompressed (length=${decompressedText.length}), splitting and enqueueing",
+                                )
                             }
                             val rawStrings = splitIntoJsonObjectStrings(decompressedText)
                             for (s in rawStrings) {
                                 val seq = seqCounter.getAndIncrement()
                                 try {
                                     parseQueue.send(seq to s)
-                                } catch (_: kotlinx.coroutines.channels.ClosedSendChannelException) { break }
+                                } catch (_: kotlinx.coroutines.channels.ClosedSendChannelException) {
+                                    break
+                                }
                             }
                         }
                     }
@@ -897,19 +1024,25 @@ fun connectToWebsocket(
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
             // Code 1000 is a clean, intentional shutdown (e.g. suspendApp's background timer) — keep it
             // out of release logs. Any other code is an abnormal close worth seeing in a logcat dump.
-            if (code == 1000) Log.d("Andromuks", "NetworkUtils: WebSocket Closing ($code): $reason")
-            else Log.i("Andromuks", "NetworkUtils: WebSocket Closing ($code): $reason")
-            
+            if (code == 1000) {
+                Log.d("Andromuks", "NetworkUtils: WebSocket Closing ($code): $reason")
+            } else {
+                Log.i("Andromuks", "NetworkUtils: WebSocket Closing ($code): $reason")
+            }
+
             // REFACTORING: Service handles close events and reconnection strategy.
             // Only the active socket triggers clearWebSocket/scheduleReconnection — stale sockets
             // (e.g. old CELLULAR socket closing after a WIFI switch) are silently ignored.
             // ViewModel sync-state reset is triggered from inside clearWebSocket via onWebSocketCleared.
             WebSocketService.handleWebSocketClosing(webSocket, code, reason)
         }
-        
+
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-            if (code == 1000) Log.d("Andromuks", "NetworkUtils: WebSocket Closed ($code): $reason")
-            else Log.i("Andromuks", "NetworkUtils: WebSocket Closed ($code): $reason")
+            if (code == 1000) {
+                Log.d("Andromuks", "NetworkUtils: WebSocket Closed ($code): $reason")
+            } else {
+                Log.i("Andromuks", "NetworkUtils: WebSocket Closed ($code): $reason")
+            }
             streamingDecompressor?.close()
             parseQueue.close()
             resultQueue.close()
@@ -931,7 +1064,6 @@ fun trimWebsocketHost(url: String): String {
     return "wss://$wsHost/_gomuks/websocket"
 }
 
-
 /**
  * Parse multiple JSON objects from a single string
  * The server may concatenate multiple JSON objects in one frame
@@ -943,25 +1075,25 @@ fun parseMultipleJsonObjects(jsonText: String): List<JSONObject> {
     var startPos = 0
     var inString = false
     var escapeNext = false
-    
+
     for (i in jsonText.indices) {
         val char = jsonText[i]
-        
+
         if (escapeNext) {
             escapeNext = false
             continue
         }
-        
+
         if (char == '\\') {
             escapeNext = true
             continue
         }
-        
+
         if (char == '"' && !escapeNext) {
             inString = !inString
             continue
         }
-        
+
         if (!inString) {
             when (char) {
                 '{' -> {
@@ -970,6 +1102,7 @@ fun parseMultipleJsonObjects(jsonText: String): List<JSONObject> {
                     }
                     braceCount++
                 }
+
                 '}' -> {
                     braceCount--
                     if (braceCount == 0) {
@@ -986,6 +1119,6 @@ fun parseMultipleJsonObjects(jsonText: String): List<JSONObject> {
             }
         }
     }
-    
+
     return jsonObjects
 }

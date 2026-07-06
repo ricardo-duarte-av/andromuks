@@ -37,9 +37,7 @@ object MatrixMxidUtils {
      * Resolves a matrix.to URL (or any string containing one) to a canonical user MXID, or null if none.
      * This is the URL-focused entry point; use [normalizeMxid] for plain MXIDs.
      */
-    fun extractUsernameFromUrl(url: String): String? {
-        return extractMxidFromMatrixToUrl(url)?.let { normalizeMxid(it) }
-    }
+    fun extractUsernameFromUrl(url: String): String? = extractMxidFromMatrixToUrl(url)?.let { normalizeMxid(it) }
 
     /**
      * Parses flexible user input: plain `@user:server` / `user:server`, a bare matrix.to user URL,

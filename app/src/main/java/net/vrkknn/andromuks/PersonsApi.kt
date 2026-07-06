@@ -27,11 +27,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.MainActivity
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
-import net.vrkknn.andromuks.MainActivity
-import net.vrkknn.andromuks.BuildConfig
-
 
 data class PersonTarget(
     val userId: String,
@@ -39,7 +38,7 @@ data class PersonTarget(
     val avatarUrl: String?,
     val roomId: String,
     val roomDisplayName: String,
-    val lastActiveTimestamp: Long
+    val lastActiveTimestamp: Long,
 )
 
 /**
@@ -56,7 +55,7 @@ class PersonsApi(
     private val context: Context,
     private val homeserverUrl: String,
     private val authToken: String,
-    private val realMatrixHomeserverUrl: String = ""
+    private val realMatrixHomeserverUrl: String = "",
 ) {
 
     companion object {
@@ -93,7 +92,7 @@ class PersonsApi(
         // we debounce them to prevent cancelling jobs mid-execution
         val currentTime = System.currentTimeMillis()
         val timeSinceLastUpdate = currentTime - lastUpdateTime
-        
+
         pendingJob?.cancel()
         pendingJob = scope.launch {
             // Wait if update came too soon after previous one
@@ -119,20 +118,25 @@ class PersonsApi(
      */
     fun cleanupPersonShortcuts() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return
-        
+
         scope.launch {
             try {
                 val allShortcuts = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_DYNAMIC)
                 val personShortcuts = allShortcuts.filter { shortcut ->
                     shortcut.id.startsWith(SHORTCUT_PREFIX)
                 }
-                
+
                 if (personShortcuts.isNotEmpty()) {
                     val personShortcutIds = personShortcuts.map { it.id }
                     ShortcutManagerCompat.removeDynamicShortcuts(context, personShortcutIds)
-                    if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Cleaned up ${personShortcutIds.size} person shortcuts from dynamic shortcuts")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        TAG,
+                        "PersonsApi: Cleaned up ${personShortcutIds.size} person shortcuts from dynamic shortcuts",
+                    )
+                    }
                 }
-                
+
                 lastShortcutIds = emptySet()
             } catch (e: Exception) {
                 Log.e(TAG, "PersonsApi: Failed to cleanup person shortcuts", e)
@@ -143,7 +147,12 @@ class PersonsApi(
     fun reportShortcutUsed(userId: String) {
         // Person shortcuts are no longer published as dynamic shortcuts
         // This method is kept for backward compatibility but does nothing
-        if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: reportShortcutUsed called for $userId (person shortcuts are not dynamic shortcuts)")
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            TAG,
+            "PersonsApi: reportShortcutUsed called for $userId (person shortcuts are not dynamic shortcuts)",
+        )
+        }
     }
 
     fun clear() {
@@ -154,12 +163,10 @@ class PersonsApi(
         if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Cleared internal person state")
     }
 
-    private fun trimTargets(targets: List<PersonTarget>): List<PersonTarget> {
-        return targets
-            .distinctBy { it.userId }
-            .sortedByDescending { it.lastActiveTimestamp }
-            .take(MAX_PEOPLE)
-    }
+    private fun trimTargets(targets: List<PersonTarget>): List<PersonTarget> = targets
+        .distinctBy { it.userId }
+        .sortedByDescending { it.lastActiveTimestamp }
+        .take(MAX_PEOPLE)
 
     private fun needsUpdate(targets: List<PersonTarget>): Boolean {
         if (targets.size != lastPublished.size) {
@@ -182,40 +189,48 @@ class PersonsApi(
             // CRITICAL: Person shortcuts should NOT be published as dynamic shortcuts
             // They should only be used in notifications via Person objects (NotificationCompat.MessagingStyle)
             // Dynamic shortcuts are reserved for conversation/room shortcuts only (shown in app icon long-press menu)
-            // 
+            //
             // Android only shows 4 dynamic shortcuts total. If we publish person shortcuts as dynamic shortcuts,
             // they would push conversation shortcuts out of the top 4 slots.
             //
             // Instead, Person objects are attached to notifications (already implemented in EnhancedNotificationDisplay.kt)
             // and are used by Android's People API for conversation grouping and quick actions.
-            
+
             // Remove any existing person shortcuts from dynamic shortcuts to free up slots
             // and prevent them from appearing in the app icon long-press menu
             val allShortcuts = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_DYNAMIC)
             val existingPersonShortcuts = allShortcuts.filter { shortcut ->
                 shortcut.id.startsWith(SHORTCUT_PREFIX)
             }
-            
+
             if (existingPersonShortcuts.isNotEmpty()) {
                 val personShortcutIds = existingPersonShortcuts.map { it.id }
                 try {
                     ShortcutManagerCompat.removeDynamicShortcuts(context, personShortcutIds)
-                    if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Removed ${personShortcutIds.size} person shortcuts from dynamic shortcuts (they should only be used in notifications)")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        TAG,
+                        "PersonsApi: Removed ${personShortcutIds.size} person shortcuts from dynamic shortcuts (they should only be used in notifications)",
+                    )
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "PersonsApi: Failed to remove person shortcuts from dynamic shortcuts", e)
                 }
             }
-            
+
             // Clear our tracking since we're not publishing shortcuts anymore
             if (lastShortcutIds.isNotEmpty()) {
                 lastShortcutIds = emptySet()
             }
-            
+
             // Store person data for notification use (Person objects are used in notifications, not as shortcuts)
             lastPublished = targets.associateBy { it.userId }
-            
+
             if (BuildConfig.DEBUG) {
-                Log.d(TAG, "PersonsApi: Processed ${targets.size} person targets for notification use (not as dynamic shortcuts)")
+                Log.d(
+                    TAG,
+                    "PersonsApi: Processed ${targets.size} person targets for notification use (not as dynamic shortcuts)",
+                )
             }
         }
     }
@@ -236,7 +251,7 @@ class PersonsApi(
             Intent.ACTION_VIEW,
             Uri.parse(buildMatrixUri(target.roomId)),
             context,
-            MainActivity::class.java
+            MainActivity::class.java,
         ).apply {
             putExtra(EXTRA_ROOM_ID, target.roomId)
             putExtra(EXTRA_USER_ID, target.userId)
@@ -253,7 +268,7 @@ class PersonsApi(
             addFlags(
                 Intent.FLAG_ACTIVITY_CLEAR_TOP or
                     Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                    Intent.FLAG_ACTIVITY_NEW_TASK
+                    Intent.FLAG_ACTIVITY_NEW_TASK,
             )
         }
 
@@ -269,25 +284,21 @@ class PersonsApi(
         return builder.build()
     }
 
-    private fun shortcutId(userId: String): String {
-        return "$SHORTCUT_PREFIX$userId"
-    }
+    private fun shortcutId(userId: String): String = "$SHORTCUT_PREFIX$userId"
 
-    private fun buildMatrixUri(roomId: String): String {
-        return if (realMatrixHomeserverUrl.isNotEmpty()) {
-            val host = try {
-                android.net.Uri.parse(realMatrixHomeserverUrl).host
-            } catch (e: Exception) {
-                null
-            }
-            if (!host.isNullOrBlank()) {
-                "matrix:roomid/${roomId.removePrefix("!")}?via=$host"
-            } else {
-                "matrix:roomid/${roomId.removePrefix("!")}"
-            }
+    private fun buildMatrixUri(roomId: String): String = if (realMatrixHomeserverUrl.isNotEmpty()) {
+        val host = try {
+            android.net.Uri.parse(realMatrixHomeserverUrl).host
+        } catch (e: Exception) {
+            null
+        }
+        if (!host.isNullOrBlank()) {
+            "matrix:roomid/${roomId.removePrefix("!")}?via=$host"
         } else {
             "matrix:roomid/${roomId.removePrefix("!")}"
         }
+    } else {
+        "matrix:roomid/${roomId.removePrefix("!")}"
     }
 
     private fun buildPersonUri(userId: String): String {
@@ -304,29 +315,36 @@ class PersonsApi(
 
             // Check if we have a cached version first
             var cachedFile = IntelligentMediaCache.getCachedFile(context, avatarUrl)
-            
+
             // If not cached, download and cache it (similar to ConversationsApi)
             if (cachedFile == null || !cachedFile.exists()) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Avatar for ${target.userId} not cached, downloading...")
-                
+
                 // Convert MXC URL to HTTP URL
                 val httpUrl = when {
                     avatarUrl.startsWith("mxc://") -> {
                         AvatarUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
                     }
+
                     avatarUrl.startsWith("_gomuks/") -> {
                         "$homeserverUrl/$avatarUrl"
                     }
+
                     else -> {
                         avatarUrl
                     }
                 }
-                
+
                 if (httpUrl != null) {
                     // Download and cache using IntelligentMediaCache
                     cachedFile = IntelligentMediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
                     if (cachedFile != null) {
-                        if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: ✓ Successfully downloaded and cached avatar for ${target.userId} (${cachedFile.length()} bytes)")
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                            TAG,
+                            "PersonsApi: ✓ Successfully downloaded and cached avatar for ${target.userId} (${cachedFile.length()} bytes)",
+                        )
+                        }
                     } else {
                         Log.w(TAG, "PersonsApi: ✗ Failed to download avatar for ${target.userId} from: $httpUrl")
                     }
@@ -336,7 +354,12 @@ class PersonsApi(
             }
 
             if (cachedFile == null || !cachedFile.exists()) {
-                if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Avatar for ${target.userId} not available, using fallback")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    TAG,
+                    "PersonsApi: Avatar for ${target.userId} not available, using fallback",
+                )
+                }
                 return@withContext null
             }
 
@@ -356,41 +379,38 @@ class PersonsApi(
         }
     }
 
-    private suspend fun loadShortcutIcon(target: PersonTarget): IconCompat {
-        return loadPersonIcon(target) ?: createFallbackIcon(target)
-    }
+    private suspend fun loadShortcutIcon(target: PersonTarget): IconCompat =
+        loadPersonIcon(target) ?: createFallbackIcon(target)
 
-    private fun createFallbackIcon(target: PersonTarget): IconCompat {
-        return try {
-            val colorInt = AvatarUtils.getUserColor(target.userId)
-            val letter = AvatarUtils.getFallbackCharacter(target.displayName, target.userId)
-            val bitmap = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bitmap)
+    private fun createFallbackIcon(target: PersonTarget): IconCompat = try {
+        val colorInt = AvatarUtils.getUserColor(target.userId)
+        val letter = AvatarUtils.getFallbackCharacter(target.displayName, target.userId)
+        val bitmap = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
 
-            val backgroundPaint = Paint().apply {
-                style = Paint.Style.FILL
-                color = colorInt
-                isAntiAlias = true
-            }
-
-            canvas.drawRect(0f, 0f, 256f, 256f, backgroundPaint)
-
-            val textPaint = Paint().apply {
-                isAntiAlias = true
-                color = Color.WHITE
-                textSize = 144f
-                textAlign = Paint.Align.CENTER
-                typeface = Typeface.DEFAULT_BOLD
-            }
-
-            val baseline = 256f / 2f - (textPaint.descent() + textPaint.ascent()) / 2f
-            canvas.drawText(letter.ifBlank { "?" }, 128f, baseline, textPaint)
-
-            IconCompat.createWithBitmap(bitmap)
-        } catch (e: Exception) {
-            Log.e(TAG, "PersonsApi: Failed to create fallback icon for ${target.userId}", e)
-            IconCompat.createWithResource(context, R.mipmap.ic_launcher)
+        val backgroundPaint = Paint().apply {
+            style = Paint.Style.FILL
+            color = colorInt
+            isAntiAlias = true
         }
+
+        canvas.drawRect(0f, 0f, 256f, 256f, backgroundPaint)
+
+        val textPaint = Paint().apply {
+            isAntiAlias = true
+            color = Color.WHITE
+            textSize = 144f
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+        }
+
+        val baseline = 256f / 2f - (textPaint.descent() + textPaint.ascent()) / 2f
+        canvas.drawText(letter.ifBlank { "?" }, 128f, baseline, textPaint)
+
+        IconCompat.createWithBitmap(bitmap)
+    } catch (e: Exception) {
+        Log.e(TAG, "PersonsApi: Failed to create fallback icon for ${target.userId}", e)
+        IconCompat.createWithResource(context, R.mipmap.ic_launcher)
     }
 
     private fun getCircularBitmap(source: Bitmap): Bitmap? {
@@ -416,4 +436,3 @@ class PersonsApi(
         return output
     }
 }
-

@@ -1,6 +1,5 @@
 package net.vrkknn.andromuks.ui.components
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -25,12 +24,7 @@ import coil3.request.ImageRequest
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 
 @Composable
-fun FullImageDialog(
-    imageUrl: String,
-    authToken: String,
-    onDismiss: () -> Unit,
-    contentDescription: String? = null
-) {
+fun FullImageDialog(imageUrl: String, authToken: String, onDismiss: () -> Unit, contentDescription: String? = null) {
     val context = LocalContext.current
     val imageLoader = remember { ImageLoaderSingleton.get(context) }
 
@@ -39,14 +33,14 @@ fun FullImageDialog(
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             dismissOnBackPress = true,
-            dismissOnClickOutside = true
-        )
+            dismissOnClickOutside = true,
+        ),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.9f))
-                .clickable { onDismiss() }
+                .clickable { onDismiss() },
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
@@ -57,22 +51,21 @@ fun FullImageDialog(
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .fillMaxSize()
-                    .align(Alignment.Center)
+                    .align(Alignment.Center),
             )
 
             IconButton(
                 onClick = onDismiss,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(16.dp)
+                    .padding(16.dp),
             ) {
                 Icon(
                     imageVector = Icons.Filled.Close,
                     contentDescription = "Close",
-                    tint = Color.White
+                    tint = Color.White,
                 )
             }
         }
     }
 }
-

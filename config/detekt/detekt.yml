@@ -1,0 +1,20 @@
+# Detekt overrides. `buildUponDefaultConfig = true` (see root build.gradle.kts) means this file only
+# needs to carry deltas from detekt's bundled defaults — not a full generated config. Regenerate a
+# full reference with `./gradlew detektGenerateConfig` if you need to see every available knob.
+
+# In detekt 2.0 the build-failure gate is the `failOnSeverity` property on the Gradle extension
+# (default: Error), not a `build:` block here. If a deliberately-introduced style violation does not
+# fail CI during verification, set `failOnSeverity = FailOnSeverity.Warning` in root build.gradle.kts.
+
+# ktlint formatting rules come from the detekt-rules-ktlint-wrapper plugin and are driven by the
+# repo-root .editorconfig; they use their packaged defaults, so no formatting section is needed here.
+
+# Jetpack Compose rules from io.nlopez.compose.rules:detekt. Individual rules use the plugin's
+# packaged defaults; toggle or configure specific ones below as the team decides.
+Compose:
+  active: true
+  # Example of relaxing a rule if it proves too noisy during bootstrap:
+  # ComposableParamOrder:
+  #   active: false
+  # CompositionLocalAllowlist:
+  #   allowedCompositionLocals: []

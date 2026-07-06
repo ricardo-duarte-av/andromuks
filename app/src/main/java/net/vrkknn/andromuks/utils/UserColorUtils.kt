@@ -36,7 +36,7 @@ object UserColorUtils {
         Color(0xFF94E2D5), // --sender-color-6 #94e2d5 (Teal)
         Color(0xFFF38BA8), // --sender-color-7 #f38ba8 (Red)
         Color(0xFFCBA6F7), // --sender-color-8 #cba6f7 (Mauve)
-        Color(0xFFF5C2E7)  // --sender-color-9 #f5c2e7 (Pink — distinct 10th color)
+        Color(0xFFF5C2E7), // --sender-color-9 #f5c2e7 (Pink — distinct 10th color)
     )
 
     private const val FALLBACK_COLOR_COUNT = 10
@@ -64,9 +64,7 @@ object UserColorUtils {
      * Get the color index for a user ID (0-9).
      * This is the Kotlin equivalent of the JavaScript getUserColorIndex function.
      */
-    private fun getUserColorIndex(userID: String): Int {
-        return userID.sumOf { it.code } % FALLBACK_COLOR_COUNT
-    }
+    private fun getUserColorIndex(userID: String): Int = userID.sumOf { it.code } % FALLBACK_COLOR_COUNT
 
     /**
      * Get a consistent, theme-harmonized color for a user via the HCT color space.
@@ -94,14 +92,16 @@ object UserColorUtils {
 enum class DisplayNameColorMode(val prefValue: String) {
     /** Per-user color derived from the active Material 3 theme via HCT, harmonized. Default. */
     DYNAMIC("dynamic"),
+
     /** Per-user color from the fixed Catppuccin palette (matches the webapp). */
     FIXED("fixed"),
+
     /** No per-user coloring: a single theme color, one for me, one for everyone else. */
-    THEME("theme");
+    THEME("theme"),
+    ;
 
     companion object {
-        fun fromPref(value: String?): DisplayNameColorMode =
-            entries.firstOrNull { it.prefValue == value } ?: DYNAMIC
+        fun fromPref(value: String?): DisplayNameColorMode = entries.firstOrNull { it.prefValue == value } ?: DYNAMIC
     }
 }
 

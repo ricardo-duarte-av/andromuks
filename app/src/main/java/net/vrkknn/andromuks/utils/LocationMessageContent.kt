@@ -44,11 +44,11 @@ fun parseGeoUri(geoUri: String): Pair<Double, Double>? {
 fun buildStaticMapUrl(latitude: Double, longitude: Double, apiKey: String): String {
     val marker = "color:red|$latitude,$longitude"
     return "https://maps.googleapis.com/maps/api/staticmap" +
-            "?center=$latitude,$longitude" +
-            "&zoom=14" +
-            "&size=400x200" +
-            "&markers=${Uri.encode(marker)}" +
-            "&key=$apiKey"
+        "?center=$latitude,$longitude" +
+        "&zoom=14" +
+        "&size=400x200" +
+        "&markers=${Uri.encode(marker)}" +
+        "&key=$apiKey"
 }
 
 /**
@@ -70,7 +70,7 @@ fun LocationMessageContent(
     mapsApiKey: String,
     contentColor: androidx.compose.ui.graphics.Color,
     modifier: Modifier = Modifier,
-    onCaptionClick: (() -> Unit)? = null
+    onCaptionClick: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val coords = remember(geoUri) { parseGeoUri(geoUri) }
@@ -84,9 +84,11 @@ fun LocationMessageContent(
                 context.startActivity(intent)
             } catch (_: Exception) {
                 val webUri = Uri.parse("https://maps.google.com/?q=${coords.first},${coords.second}")
-                context.startActivity(Intent(Intent.ACTION_VIEW, webUri).apply {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, webUri).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                })
+                }
+                )
             }
         }
     }
@@ -111,7 +113,7 @@ fun LocationMessageContent(
                     .fillMaxWidth()
                     .height(160.dp)
                     .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
-                    .clickable { openInMaps() }
+                    .clickable { openInMaps() },
             )
         }
 
@@ -121,25 +123,25 @@ fun LocationMessageContent(
                 .clickable { (onCaptionClick ?: openInMaps)() }
                 .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Icon(
                 imageVector = Icons.Filled.LocationOn,
                 contentDescription = null,
                 tint = contentColor,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(18.dp),
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = if (body.isNotBlank() && body != "Location") body else "Location",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = contentColor
+                    color = contentColor,
                 )
                 if (coords != null) {
                     Text(
                         text = "%.5f, %.5f".format(coords.first, coords.second),
                         style = MaterialTheme.typography.labelSmall,
-                        color = contentColor.copy(alpha = 0.7f)
+                        color = contentColor.copy(alpha = 0.7f),
                     )
                 }
             }
@@ -147,7 +149,7 @@ fun LocationMessageContent(
                 imageVector = Icons.Filled.OpenInNew,
                 contentDescription = "Open in Maps",
                 tint = contentColor.copy(alpha = 0.6f),
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(16.dp),
             )
         }
     }

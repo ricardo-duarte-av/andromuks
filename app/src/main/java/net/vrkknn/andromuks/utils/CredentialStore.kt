@@ -6,12 +6,12 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
 import net.vrkknn.andromuks.BuildConfig
+import org.json.JSONObject
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
-import org.json.JSONObject
 
 /**
  * Encrypts sensitive auth material at rest using AES-256-GCM keys held in the Android Keystore.
@@ -147,15 +147,10 @@ object CredentialStore {
 
     // ── Credentials (Key B) ──────────────────────────────────────────────────
 
-    fun hasCredentials(prefs: SharedPreferences): Boolean =
-        !prefs.getString(P_ENC_CREDS, null).isNullOrBlank()
+    fun hasCredentials(prefs: SharedPreferences): Boolean = !prefs.getString(P_ENC_CREDS, null).isNullOrBlank()
 
     /** Encrypts and stores the login credentials for silent re-auth. Returns false on failure. */
-    fun persistCredentials(
-        prefs: SharedPreferences,
-        username: String,
-        password: String
-    ): Boolean {
+    fun persistCredentials(prefs: SharedPreferences, username: String, password: String): Boolean {
         val key = getOrCreateKey(CRED_KEY_ALIAS) ?: return false
         val json = JSONObject().apply {
             put("u", username)
@@ -232,7 +227,7 @@ object CredentialStore {
             val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
             val spec = KeyGenParameterSpec.Builder(
                 alias,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
             )
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)

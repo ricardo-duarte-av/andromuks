@@ -39,3 +39,38 @@ jobs:
       # catches release-only breakages (removed APIs, etc.) without needing signing secrets.
       - name: Build base flavor (debug APK + release compile)
         run: ./gradlew :app:assembleBaseDebug :app:compileBaseReleaseKotlin --stacktrace --no-daemon --build-cache
+
+  # Kotlin static analysis + formatting (detekt, incl. ktlint-wrapper + compose-rules) and Android
+  # lint. Runs in parallel with base-build; also secret-free. Baselines (config/detekt/*baseline*,
+  # app/lint-baseline.xml) absorb existing debt so only NEW findings fail the PR.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set Up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Change wrapper permissions
+        run: chmod +x ./gradlew
+
+      # `detekt` is flavor-independent (one task covers all source sets); Android lint is per-variant
+      # so we scope it to the base debug variant to avoid the 4-flavor fan-out.
+      - name: Run detekt + Android lint
+        run: ./gradlew detekt :app:lintBaseDebug --stacktrace --no-daemon --build-cache
+
+      - name: Upload lint/detekt reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          path: |
+            **/build/reports/detekt/**
+            app/build/reports/lint-results-*.*
+          if-no-files-found: ignore

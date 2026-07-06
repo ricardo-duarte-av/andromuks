@@ -23,8 +23,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
@@ -65,12 +65,7 @@ import net.vrkknn.andromuks.AccountDataCache
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.ui.components.AvatarImage
 
-data class PerMessageProfileEntry(
-    val shortcode: String,
-    val id: String,
-    val displayname: String,
-    val avatarUrl: String
-)
+data class PerMessageProfileEntry(val shortcode: String, val id: String, val displayname: String, val avatarUrl: String)
 
 private val PRIMARY_KEY = "m.per_message_profiles"
 private val SECONDARY_KEY = "fi.mau.msc4461.per_message_profiles"
@@ -88,29 +83,27 @@ fun readPerMessageProfiles(): Map<String, PerMessageProfileEntry> {
             shortcode = shortcode,
             id = entry.optString("id", shortcode),
             displayname = entry.optString("displayname", shortcode),
-            avatarUrl = entry.optString("avatar_url", "")
+            avatarUrl = entry.optString("avatar_url", ""),
         )
     }
     return result
 }
 
-private fun buildProfilesContentMap(profiles: Map<String, PerMessageProfileEntry>): Map<String, Any> {
-    return profiles.mapValues { (_, entry) ->
+private fun buildProfilesContentMap(profiles: Map<String, PerMessageProfileEntry>): Map<String, Any> =
+    profiles.mapValues {
+            (_, entry),
+        ->
         val m = mutableMapOf<String, Any>(
             "id" to entry.id,
-            "displayname" to entry.displayname
+            "displayname" to entry.displayname,
         )
         if (entry.avatarUrl.isNotBlank()) m["avatar_url"] = entry.avatarUrl
         m
     }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PerMessageProfileEditorScreen(
-    navController: NavController,
-    appViewModel: AppViewModel
-) {
+fun PerMessageProfileEditorScreen(navController: NavController, appViewModel: AppViewModel) {
     var profiles by remember { mutableStateOf(readPerMessageProfiles()) }
     var showAddEditDialog by remember { mutableStateOf(false) }
     var editingProfile by remember { mutableStateOf<PerMessageProfileEntry?>(null) }
@@ -144,7 +137,7 @@ fun PerMessageProfileEditorScreen(
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
             )
         },
         floatingActionButton = {
@@ -154,12 +147,12 @@ fun PerMessageProfileEditorScreen(
             }) {
                 Icon(Icons.Filled.Add, contentDescription = "Add profile")
             }
-        }
+        },
     ) { paddingValues ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                .padding(paddingValues),
         ) {
             if (profiles.isEmpty()) {
                 Text(
@@ -168,13 +161,13 @@ fun PerMessageProfileEditorScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .padding(32.dp)
+                        .padding(32.dp),
                 )
             } else {
                 LazyColumn(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
                 ) {
                     items(profiles.values.sortedBy { it.shortcode }, key = { it.shortcode }) { profile ->
                         ProfileListItem(
@@ -184,7 +177,7 @@ fun PerMessageProfileEditorScreen(
                                 editingProfile = profile
                                 showAddEditDialog = true
                             },
-                            onDelete = { showDeleteConfirmFor = profile.shortcode }
+                            onDelete = { showDeleteConfirmFor = profile.shortcode },
                         )
                     }
                 }
@@ -206,7 +199,7 @@ fun PerMessageProfileEditorScreen(
                 newProfiles[updated.shortcode] = updated
                 saveProfiles(newProfiles)
                 showAddEditDialog = false
-            }
+            },
         )
     }
 
@@ -224,13 +217,13 @@ fun PerMessageProfileEditorScreen(
                         showDeleteConfirmFor = null
                     },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    )
+                        containerColor = MaterialTheme.colorScheme.error,
+                    ),
                 ) { Text("Delete") }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirmFor = null }) { Text("Cancel") }
-            }
+            },
         )
     }
 }
@@ -240,7 +233,7 @@ private fun ProfileListItem(
     profile: PerMessageProfileEntry,
     appViewModel: AppViewModel,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -248,28 +241,28 @@ private fun ProfileListItem(
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         AvatarImage(
             mxcUrl = profile.avatarUrl.takeIf { it.isNotBlank() },
             homeserverUrl = appViewModel.homeserverUrl,
             authToken = appViewModel.authToken,
             fallbackText = profile.displayname,
-            size = 44.dp
+            size = 44.dp,
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = profile.displayname,
                 style = MaterialTheme.typography.bodyLarge,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = "${profile.shortcode} — ${profile.id}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
         }
         IconButton(onClick = onEdit) {
@@ -280,7 +273,7 @@ private fun ProfileListItem(
                 Icons.Filled.Delete,
                 contentDescription = "Delete",
                 modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.error
+                tint = MaterialTheme.colorScheme.error,
             )
         }
     }
@@ -292,7 +285,7 @@ private fun AddEditProfileDialog(
     existingShortcodes: Set<String>,
     appViewModel: AppViewModel,
     onDismiss: () -> Unit,
-    onSave: (PerMessageProfileEntry) -> Unit
+    onSave: (PerMessageProfileEntry) -> Unit,
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -304,7 +297,7 @@ private fun AddEditProfileDialog(
     var error by remember { mutableStateOf<String?>(null) }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.GetContent(),
     ) { uri: Uri? ->
         uri?.let { selectedUri ->
             val mimeType = context.contentResolver.getType(selectedUri)
@@ -318,7 +311,7 @@ private fun AddEditProfileDialog(
                             homeserverUrl = appViewModel.homeserverUrl,
                             authToken = appViewModel.authToken,
                             isEncrypted = false,
-                            compressOriginal = false
+                            compressOriginal = false,
                         )
                         kotlinx.coroutines.withContext(Dispatchers.Main) {
                             if (result != null) {
@@ -351,7 +344,7 @@ private fun AddEditProfileDialog(
                     singleLine = true,
                     enabled = existing == null,
                     modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 )
                 OutlinedTextField(
                     value = displayname,
@@ -359,11 +352,11 @@ private fun AddEditProfileDialog(
                     label = { Text("Display Name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     val previewHttpUrl = remember(avatarUrl) {
                         AvatarUtils.getFullImageUrl(context, avatarUrl, appViewModel.homeserverUrl)
@@ -377,7 +370,7 @@ private fun AddEditProfileDialog(
                             modifier = Modifier
                                 .size(44.dp)
                                 .clip(CircleShape),
-                            contentScale = ContentScale.Crop
+                            contentScale = ContentScale.Crop,
                         )
                     } else {
                         AvatarImage(
@@ -385,14 +378,14 @@ private fun AddEditProfileDialog(
                             homeserverUrl = appViewModel.homeserverUrl,
                             authToken = appViewModel.authToken,
                             fallbackText = displayname.ifBlank { shortcode },
-                            size = 44.dp
+                            size = 44.dp,
                         )
                     }
                     Column(modifier = Modifier.weight(1f)) {
                         if (avatarUploadInProgress) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                                 Text("Uploading…", style = MaterialTheme.typography.bodySmall)
@@ -400,7 +393,7 @@ private fun AddEditProfileDialog(
                         } else {
                             Button(
                                 onClick = { imagePickerLauncher.launch("image/*") },
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             ) {
                                 Icon(Icons.Filled.Image, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
@@ -410,7 +403,7 @@ private fun AddEditProfileDialog(
                         if (avatarUrl.isNotBlank()) {
                             TextButton(
                                 onClick = { avatarUrl = "" },
-                                contentPadding = PaddingValues(0.dp)
+                                contentPadding = PaddingValues(0.dp),
                             ) {
                                 Text("Remove avatar", style = MaterialTheme.typography.labelSmall)
                             }
@@ -448,16 +441,16 @@ private fun AddEditProfileDialog(
                             shortcode = trimmedShortcode,
                             id = existing?.id ?: trimmedShortcode,
                             displayname = trimmedDisplayname,
-                            avatarUrl = avatarUrl
-                        )
+                            avatarUrl = avatarUrl,
+                        ),
                     )
                 },
-                enabled = !avatarUploadInProgress
+                enabled = !avatarUploadInProgress,
             ) { Text("Save") }
         },
         dismissButton = {
             TextButton(onClick = { if (!avatarUploadInProgress) onDismiss() }) { Text("Cancel") }
-        }
+        },
     )
 }
 
@@ -469,7 +462,7 @@ private fun AddEditProfileDialog(
 fun PerMessageProfilePicker(
     appViewModel: AppViewModel,
     onProfileSelected: (PerMessageProfileEntry) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val profiles = remember { readPerMessageProfiles().values.sortedBy { it.shortcode } }
 
@@ -478,32 +471,32 @@ fun PerMessageProfilePicker(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 8.dp,
-        shadowElevation = 4.dp
+        shadowElevation = 4.dp,
     ) {
         if (profiles.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = "No Per Message profile available",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         } else {
             LazyColumn(
                 modifier = Modifier.height(220.dp),
                 contentPadding = PaddingValues(8.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 items(profiles, key = { it.shortcode }) { profile ->
                     PerMessageProfilePickerItem(
                         profile = profile,
                         appViewModel = appViewModel,
-                        onSelected = { onProfileSelected(profile) }
+                        onSelected = { onProfileSelected(profile) },
                     )
                 }
             }
@@ -515,7 +508,7 @@ fun PerMessageProfilePicker(
 private fun PerMessageProfilePickerItem(
     profile: PerMessageProfileEntry,
     appViewModel: AppViewModel,
-    onSelected: () -> Unit
+    onSelected: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -523,28 +516,28 @@ private fun PerMessageProfilePickerItem(
             .clickable { onSelected() }
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         AvatarImage(
             mxcUrl = profile.avatarUrl.takeIf { it.isNotBlank() },
             homeserverUrl = appViewModel.homeserverUrl,
             authToken = appViewModel.authToken,
             fallbackText = profile.displayname,
-            size = 36.dp
+            size = 36.dp,
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = profile.displayname,
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = profile.shortcode,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }

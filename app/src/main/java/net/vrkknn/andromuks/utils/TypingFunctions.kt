@@ -1,7 +1,5 @@
 package net.vrkknn.andromuks.utils
 
-import net.vrkknn.andromuks.BuildConfig
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,8 +19,6 @@ import androidx.compose.ui.unit.dp
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.ui.components.AvatarImage
-
-
 
 /**
  * Displays a typing notification area that shows which users are currently typing.
@@ -46,7 +42,7 @@ fun TypingNotificationArea(
     authToken: String,
     userProfileCache: Map<String, MemberProfile>,
     appViewModel: AppViewModel? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     // OPPORTUNISTIC PROFILE LOADING: Request profiles for typing users when they start typing.
     // Key only on typingUsers/roomId — NOT memberUpdateCounter. Typing comes from sync_complete;
@@ -66,14 +62,14 @@ fun TypingNotificationArea(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(24.dp) // Fixed height for exclusive space
+            .height(24.dp), // Fixed height for exclusive space
     ) {
         if (typingUsers.isNotEmpty()) {
             Row(
-            modifier = Modifier
-                .fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 // Show mini avatars for all typing users
                 typingUsers.forEachIndexed { index, user ->
@@ -89,17 +85,17 @@ fun TypingNotificationArea(
                         fallbackText = displayName ?: user.substringAfter("@").substringBefore(":"),
                         size = 12.dp,
                         userId = user,
-                        displayName = displayName
+                        displayName = displayName,
                     )
-                    
+
                     // Add spacing between avatars (except after the last one)
                     if (index < typingUsers.size - 1) {
                         Spacer(modifier = Modifier.width(2.dp))
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.width(4.dp))
-                
+
                 // Typing text (smaller and italic)
                 Text(
                     text = when {
@@ -113,6 +109,7 @@ fun TypingNotificationArea(
                             val userName = displayName ?: user.substringAfter("@").substringBefore(":")
                             "$userName is typing..."
                         }
+
                         else -> {
                             // Build comma-separated list of user names
                             val userNames = typingUsers.map { user ->
@@ -120,9 +117,10 @@ fun TypingNotificationArea(
                                 profile?.displayName?.takeIf { it.isNotBlank() }
                                     ?: user.substringAfter("@").substringBefore(":")
                             }
-                            
+
                             when (userNames.size) {
                                 2 -> "${userNames[0]} and ${userNames[1]} are typing..."
+
                                 else -> {
                                     // For 3+ users: "User1, User2, User3 and FinalUser are typing"
                                     val allButLast = userNames.dropLast(1).joinToString(", ")
@@ -133,10 +131,10 @@ fun TypingNotificationArea(
                         }
                     },
                     style = MaterialTheme.typography.bodySmall.copy(
-                        fontSize = MaterialTheme.typography.bodySmall.fontSize * 0.5f // Half size
+                        fontSize = MaterialTheme.typography.bodySmall.fontSize * 0.5f, // Half size
                     ),
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontStyle = FontStyle.Italic
+                    fontStyle = FontStyle.Italic,
                 )
             }
         }

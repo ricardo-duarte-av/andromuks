@@ -2,7 +2,6 @@ package net.vrkknn.andromuks
 
 import android.util.Log
 import net.vrkknn.andromuks.BuildConfig
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * RecentEmojisCache - Singleton cache for recently used emojis
@@ -14,11 +13,11 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object RecentEmojisCache {
     private const val TAG = "RecentEmojisCache"
-    
+
     // Thread-safe list storing recent emojis
     private val emojisList = mutableListOf<String>()
     private val cacheLock = Any()
-    
+
     /**
      * Set the list of recent emojis
      */
@@ -29,25 +28,21 @@ object RecentEmojisCache {
             if (BuildConfig.DEBUG) Log.d(TAG, "RecentEmojisCache: set - updated cache with ${emojis.size} emojis")
         }
     }
-    
+
     /**
      * Get all recent emojis
      */
-    fun getAll(): List<String> {
-        return synchronized(cacheLock) {
-            emojisList.toList() // Return a copy
-        }
+    fun getAll(): List<String> = synchronized(cacheLock) {
+        emojisList.toList() // Return a copy
     }
-    
+
     /**
      * Get the number of recent emojis
      */
-    fun getCount(): Int {
-        return synchronized(cacheLock) {
-            emojisList.size
-        }
+    fun getCount(): Int = synchronized(cacheLock) {
+        emojisList.size
     }
-    
+
     /**
      * Clear all emojis from the cache
      */
@@ -58,4 +53,3 @@ object RecentEmojisCache {
         }
     }
 }
-

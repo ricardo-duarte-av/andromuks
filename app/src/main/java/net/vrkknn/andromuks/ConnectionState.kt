@@ -15,20 +15,13 @@ sealed class ConnectionState {
     /**
      * run_id received; waiting for init_complete / sync_completes per backend contract.
      */
-    data class Initializing(
-        val runId: String,
-        val pendingSyncCount: Int,
-        val receivedSyncCount: Int
-    ) : ConnectionState()
+    data class Initializing(val runId: String, val pendingSyncCount: Int, val receivedSyncCount: Int) :
+        ConnectionState()
 
     object Ready : ConnectionState()
 
     /** Resume path: run_id + last_received_event in URL; backend may skip init_complete. */
-    data class QuickReconnecting(
-        val runId: String,
-        val lastEventId: Int,
-        val attemptNumber: Int
-    ) : ConnectionState()
+    data class QuickReconnecting(val runId: String, val lastEventId: Int, val attemptNumber: Int) : ConnectionState()
 
     /** Cold / full resync path (clears local resume state before dial). */
     object FullReconnecting : ConnectionState()
@@ -49,19 +42,17 @@ fun ConnectionState.isReady(): Boolean = this is ConnectionState.Ready
 fun ConnectionState.isDialOrSyncing(): Boolean = isConnecting() || isInitializing()
 
 /** Backing off or waiting to dial again (includes offline wait). */
-fun ConnectionState.isReconnectingPhase(): Boolean =
-    this is ConnectionState.QuickReconnecting ||
-        this is ConnectionState.FullReconnecting ||
-        this is ConnectionState.WaitingForNetwork
+fun ConnectionState.isReconnectingPhase(): Boolean = this is ConnectionState.QuickReconnecting ||
+    this is ConnectionState.FullReconnecting ||
+    this is ConnectionState.WaitingForNetwork
 
 /** @deprecated Prefer explicit checks; "connected" socket phase before Ready was removed from the model. */
 fun ConnectionState.isConnectedLegacy(): Boolean = false
 
-fun ConnectionState.isActive(): Boolean =
-    this is ConnectionState.Connecting ||
-        this is ConnectionState.Initializing ||
-        this is ConnectionState.Ready ||
-        isReconnectingPhase()
+fun ConnectionState.isActive(): Boolean = this is ConnectionState.Connecting ||
+    this is ConnectionState.Initializing ||
+    this is ConnectionState.Ready ||
+    isReconnectingPhase()
 
 fun ConnectionState.lastEventIdOrZero(): Int = when (this) {
     is ConnectionState.QuickReconnecting -> lastEventId

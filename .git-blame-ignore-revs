@@ -1,0 +1,6 @@
+# Revisions listed here are skipped by `git blame` (bulk mechanical changes).
+# Enable locally with: git config blame.ignoreRevsFile .git-blame-ignore-revs
+# GitHub honours this file automatically.
+
+# style: apply detekt ktlint-wrapper auto-formatting across the tree
+57f9d10a8e80ff24d40b8b1effed0b358db4ad9d

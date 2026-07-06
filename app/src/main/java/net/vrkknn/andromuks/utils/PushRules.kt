@@ -1,6 +1,5 @@
 package net.vrkknn.andromuks.utils
 
-import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -26,7 +25,8 @@ enum class PushRuleKind(val apiName: String, val displayName: String) {
     CONTENT("content", "Content"),
     ROOM("room", "Room"),
     SENDER("sender", "Sender"),
-    UNDERRIDE("underride", "Underride");
+    UNDERRIDE("underride", "Underride"),
+    ;
 
     companion object {
         val ordered = listOf(OVERRIDE, CONTENT, ROOM, SENDER, UNDERRIDE)
@@ -44,7 +44,8 @@ enum class NotificationPreset(val label: String) {
     NOTIFY("Notify"),
     NOTIFY_SOUND("Notify + Sound"),
     HIGHLIGHT("Highlight"),
-    CUSTOM("Custom");
+    CUSTOM("Custom"),
+    ;
 
     companion object {
         /** Presets offered as selectable chips (CUSTOM is display-only). */
@@ -59,6 +60,7 @@ sealed class PushAction {
     object Coalesce : PushAction()
     data class SetSound(val value: String) : PushAction()
     data class SetHighlight(val value: Boolean) : PushAction()
+
     /** A tweak/action shape we don't model; the original JSON element is kept for round-tripping. */
     data class Unknown(val raw: Any) : PushAction()
 
@@ -80,16 +82,20 @@ sealed class PushAction {
                 "coalesce" -> Coalesce
                 else -> Unknown(element)
             }
+
             is JSONObject -> {
                 when (element.optString("set_tweak")) {
                     "sound" -> SetSound(element.opt("value")?.toString() ?: "default")
+
                     "highlight" -> SetHighlight(
                         // Per spec, a highlight tweak with no value defaults to true.
-                        if (element.has("value")) element.optBoolean("value", true) else true
+                        if (element.has("value")) element.optBoolean("value", true) else true,
                     )
+
                     else -> Unknown(element)
                 }
             }
+
             else -> Unknown(element ?: JSONObject())
         }
     }
@@ -102,7 +108,7 @@ data class PushCondition(
     val pattern: String? = null,
     val value: Any? = null,
     val memberCountCondition: String? = null,
-    val relType: String? = null
+    val relType: String? = null,
 ) {
     fun toWire(): Map<String, Any> = buildMap {
         put("kind", kind)
@@ -116,13 +122,20 @@ data class PushCondition(
     /** Human-readable one-liner, e.g. `content.msgtype == "m.notice"`. */
     fun describe(): String = when (kind) {
         "event_match" -> "${key ?: "?"} matches \"${pattern ?: ""}\""
+
         "event_property_is" -> "${key ?: "?"} == ${value ?: ""}"
+
         "event_property_contains" -> "${key ?: "?"} contains ${value ?: ""}"
+
         "contains_display_name" -> "contains your display name"
+
         "room_member_count" -> "room member count ${memberCountCondition ?: ""}"
+
         "sender_notification_permission" -> "sender can @room notify"
+
         "related_event_match", "im.nheko.msc3664.related_event_match" ->
             "related event ${key ?: ""} matches \"${pattern ?: ""}\""
+
         else -> kind
     }
 
@@ -133,7 +146,7 @@ data class PushCondition(
             pattern = obj.optString("pattern").takeIf { it.isNotEmpty() },
             value = if (obj.has("value")) obj.opt("value") else null,
             memberCountCondition = obj.optString("is").takeIf { it.isNotEmpty() },
-            relType = obj.optString("rel_type").takeIf { it.isNotEmpty() }
+            relType = obj.optString("rel_type").takeIf { it.isNotEmpty() },
         )
     }
 }
@@ -145,7 +158,7 @@ data class PushRule(
     val enabled: Boolean,
     val conditions: List<PushCondition>,
     val actions: List<PushAction>,
-    val pattern: String?
+    val pattern: String?,
 ) {
     /** A default (server-provided) rule cannot be created/replaced/deleted, only toggled or re-actioned. */
     val isDefault: Boolean get() = default || ruleId.startsWith(".")
@@ -159,11 +172,22 @@ data class PushRule(
         val hasUnknown = actions.any { it is PushAction.Unknown }
         return when {
             hasUnknown -> NotificationPreset.CUSTOM
+
             // Off: empty actions or an explicit dont_notify with no positive tweaks.
-            actions.isEmpty() || (dontNotify && !notify) -> if (sound || highlight) NotificationPreset.CUSTOM else NotificationPreset.OFF
+            actions.isEmpty() || (dontNotify && !notify) -> if (sound ||
+                highlight
+            ) {
+                    NotificationPreset.CUSTOM
+                } else {
+                    NotificationPreset.OFF
+                }
+
             notify && highlight && !sound -> NotificationPreset.HIGHLIGHT
+
             notify && sound && !highlight -> NotificationPreset.NOTIFY_SOUND
+
             notify && !sound && !highlight -> NotificationPreset.NOTIFY
+
             else -> NotificationPreset.CUSTOM
         }
     }
@@ -171,8 +195,11 @@ data class PushRule(
     /** Short subtitle shown under the rule title in the editor cards. */
     fun humanSummary(): String = when (kind) {
         PushRuleKind.CONTENT -> "matches \"${pattern ?: ""}\""
+
         PushRuleKind.SENDER -> "from $ruleId"
+
         PushRuleKind.ROOM -> "in $ruleId"
+
         PushRuleKind.OVERRIDE, PushRuleKind.UNDERRIDE ->
             if (conditions.isEmpty()) "always" else conditions.joinToString("; ") { it.describe() }
     }
@@ -180,17 +207,21 @@ data class PushRule(
     /** A display title; default rules get a tidied-up name derived from their dotted id. */
     fun displayTitle(): String = when {
         kind == PushRuleKind.CONTENT && !pattern.isNullOrBlank() -> pattern
+
         ruleId.startsWith(".") -> ruleId.substringAfterLast('.')
             .replace('_', ' ')
             .replaceFirstChar { it.uppercase() }
+
         else -> ruleId
     }
 
     /** True if this rule specifically targets [roomId] (room-kind by id, or a room_id condition). */
     fun affectsRoom(roomId: String): Boolean = when (kind) {
         PushRuleKind.ROOM -> ruleId == roomId
+
         PushRuleKind.OVERRIDE, PushRuleKind.UNDERRIDE ->
             conditions.any { it.kind == "event_match" && it.key == "room_id" && it.pattern == roomId }
+
         else -> false
     }
 
@@ -200,8 +231,10 @@ data class PushRule(
      */
     fun targetRoomId(): String? = when (kind) {
         PushRuleKind.ROOM -> ruleId.takeIf { it.startsWith("!") }
+
         PushRuleKind.OVERRIDE, PushRuleKind.UNDERRIDE ->
             conditions.firstOrNull { it.kind == "event_match" && it.key == "room_id" }?.pattern
+
         else -> null
     }
 
@@ -223,9 +256,8 @@ data class PushRuleset(val byKind: Map<PushRuleKind, List<PushRule>>) {
     fun roomRule(roomId: String): PushRule? = rules(PushRuleKind.ROOM).firstOrNull { it.ruleId == roomId }
 
     /** All rules (other than the room-scoped rule itself) that specifically target [roomId]. */
-    fun rulesAffectingRoom(roomId: String): List<PushRule> =
-        PushRuleKind.ordered.flatMap { rules(it) }
-            .filter { it.affectsRoom(roomId) && !(it.kind == PushRuleKind.ROOM && it.ruleId == roomId) }
+    fun rulesAffectingRoom(roomId: String): List<PushRule> = PushRuleKind.ordered.flatMap { rules(it) }
+        .filter { it.affectsRoom(roomId) && !(it.kind == PushRuleKind.ROOM && it.ruleId == roomId) }
 
     companion object {
         val EMPTY = PushRuleset(emptyMap())
@@ -242,20 +274,27 @@ enum class RoomNotificationLevel { ALL, DEFAULT, MUTE }
 
 fun PushRuleset.roomNotificationLevel(roomId: String): RoomNotificationLevel {
     val rule = roomRule(roomId) ?: return RoomNotificationLevel.DEFAULT
-    return if (rule.actions.any { it is PushAction.Notify }) RoomNotificationLevel.ALL
-    else RoomNotificationLevel.MUTE
+    return if (rule.actions.any { it is PushAction.Notify }) {
+        RoomNotificationLevel.ALL
+    } else {
+        RoomNotificationLevel.MUTE
+    }
 }
 
 /** Wire-shape `actions` array for a selectable [NotificationPreset]. */
 fun actionsForPreset(preset: NotificationPreset): List<Any> = when (preset) {
     NotificationPreset.OFF -> emptyList()
+
     NotificationPreset.NOTIFY -> listOf("notify")
+
     NotificationPreset.NOTIFY_SOUND -> listOf("notify", mapOf("set_tweak" to "sound", "value" to "default"))
+
     NotificationPreset.HIGHLIGHT -> listOf(
         "notify",
         mapOf("set_tweak" to "highlight", "value" to true),
-        mapOf("set_tweak" to "sound", "value" to "default")
+        mapOf("set_tweak" to "sound", "value" to "default"),
     )
+
     NotificationPreset.CUSTOM -> emptyList()
 }
 
@@ -302,6 +341,6 @@ private fun parseRule(kind: PushRuleKind, obj: JSONObject): PushRule {
         enabled = obj.optBoolean("enabled", true),
         conditions = conditions,
         actions = actions,
-        pattern = obj.optString("pattern").takeIf { it.isNotEmpty() }
+        pattern = obj.optString("pattern").takeIf { it.isNotEmpty() },
     )
 }

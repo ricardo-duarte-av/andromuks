@@ -1,12 +1,10 @@
 package net.vrkknn.andromuks.utils
 
-
-
-import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
 import coil3.ImageLoader
 import coil3.annotation.ExperimentalCoilApi
 import coil3.memory.MemoryCache
+import net.vrkknn.andromuks.BuildConfig
 import okhttp3.internal.http2.StreamResetException
 import java.io.IOException
 
@@ -17,7 +15,7 @@ import java.io.IOException
  * permanently invalid or corrupt, not for transient network/server errors.
  */
 object CacheUtils {
-    
+
     /**
      * Determines if cache should be invalidated based on the error type.
      * 
@@ -36,60 +34,60 @@ object CacheUtils {
      */
     fun shouldInvalidateCache(throwable: Throwable): Boolean {
         val errorMessage = throwable.message?.lowercase() ?: ""
-        
+
         return when {
             // HTTP 404 - media not found (deleted or invalid)
             errorMessage.contains("404") || errorMessage.contains("not found") -> {
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "CacheUtils: Should invalidate - 404 Not Found")
                 true
             }
-            
+
             // HTTP 410 - media permanently removed
             errorMessage.contains("410") || errorMessage.contains("gone") -> {
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "CacheUtils: Should invalidate - 410 Gone")
                 true
             }
-            
+
             // Decode/corruption errors - cache file is damaged
             throwable is IOException && (
                 errorMessage.contains("decode") ||
-                errorMessage.contains("corrupt") ||
-                errorMessage.contains("invalid") ||
-                errorMessage.contains("malformed")
-            ) -> {
+                    errorMessage.contains("corrupt") ||
+                    errorMessage.contains("invalid") ||
+                    errorMessage.contains("malformed")
+                ) -> {
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "CacheUtils: Should invalidate - corrupt/decode error")
                 true
             }
-            
+
             // Stream reset - usually network issue, don't invalidate
             throwable is StreamResetException -> {
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "CacheUtils: Not invalidating - stream reset (transient)")
                 false
             }
-            
+
             // Network errors - transient, don't invalidate
             errorMessage.contains("timeout") ||
-            errorMessage.contains("unable to resolve host") ||
-            errorMessage.contains("failed to connect") -> {
+                errorMessage.contains("unable to resolve host") ||
+                errorMessage.contains("failed to connect") -> {
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "CacheUtils: Not invalidating - network error (transient)")
                 false
             }
-            
+
             // Auth errors - might be refreshing token, don't invalidate
             errorMessage.contains("401") || errorMessage.contains("403") -> {
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "CacheUtils: Not invalidating - auth error (transient)")
                 false
             }
-            
+
             // Server errors - transient, don't invalidate
             errorMessage.contains("500") ||
-            errorMessage.contains("502") ||
-            errorMessage.contains("503") ||
-            errorMessage.contains("504") -> {
+                errorMessage.contains("502") ||
+                errorMessage.contains("503") ||
+                errorMessage.contains("504") -> {
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "CacheUtils: Not invalidating - server error (transient)")
                 false
             }
-            
+
             // For unknown errors, be conservative and don't invalidate
             else -> {
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "CacheUtils: Not invalidating - unknown error (conservative)")
@@ -97,7 +95,7 @@ object CacheUtils {
             }
         }
     }
-    
+
     /**
      * Invalidates (removes) an image from both memory and disk cache.
      * 
@@ -110,16 +108,16 @@ object CacheUtils {
             // Remove from memory cache
             val memoryKey = MemoryCache.Key(imageUrl)
             imageLoader.memoryCache?.remove(memoryKey)
-            
+
             // Remove from disk cache
             imageLoader.diskCache?.remove(imageUrl)
-            
+
             Log.w("Andromuks", "CacheUtils: Cache invalidated for URL: $imageUrl")
         } catch (e: Exception) {
             Log.e("Andromuks", "CacheUtils: Error invalidating cache for URL: $imageUrl", e)
         }
     }
-    
+
     /**
      * Handles image load errors with smart cache invalidation.
      * Logs the error and invalidates cache if appropriate.
@@ -133,14 +131,13 @@ object CacheUtils {
         imageUrl: String?,
         throwable: Throwable,
         imageLoader: ImageLoader,
-        context: String = "Image"
+        context: String = "Image",
     ) {
         Log.e("Andromuks", "❌ $context load failed: ${imageUrl ?: "null"}")
         Log.e("Andromuks", "Error: ${throwable.message}", throwable)
-        
+
         if (imageUrl != null && shouldInvalidateCache(throwable)) {
             invalidateImageCache(imageLoader, imageUrl)
         }
     }
 }
-

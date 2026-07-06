@@ -1,19 +1,14 @@
 package net.vrkknn.andromuks.utils
 
-import net.vrkknn.andromuks.BuildConfig
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.util.Log
-import android.graphics.Color as AndroidColor
-import androidx.compose.foundation.background
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,81 +20,70 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.AwaitPointerEventScope
-import androidx.compose.ui.input.pointer.PointerInputChange
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.ImageLoader
 import coil3.compose.AsyncImage
-import coil3.gif.GifDecoder
-import coil3.gif.AnimatedImageDecoder
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
-import java.io.File
-import java.net.URLDecoder
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.AppViewModel
+import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.MediaInfo
 import net.vrkknn.andromuks.MediaMessage
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.CacheUtils
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
-import net.vrkknn.andromuks.utils.extractRoomLink
 import net.vrkknn.andromuks.utils.RoomLink
-import net.vrkknn.andromuks.AppViewModel
+import net.vrkknn.andromuks.utils.extractRoomLink
 import ru.noties.jlatexmath.JLatexMathDrawable
-
-
+import java.io.File
+import java.net.URLDecoder
+import android.graphics.Color as AndroidColor
 
 private val matrixUserRegex = Regex("matrix:(?:/+)?(?:u|user)/(@?.+)")
 
-private class SpoilerRenderContext(
-    private val states: SnapshotStateMap<String, Boolean>
-) {
+private class SpoilerRenderContext(private val states: SnapshotStateMap<String, Boolean>) {
     private var counter = 0
     private val usedIds = mutableSetOf<String>()
 
@@ -194,7 +178,7 @@ private val ALLOWED_HTML_TAGS = setOf(
     "div", "table", "thead", "tbody", "tr", "th", "td", "caption", "pre", "span",
     "font", "img", "details", "summary",
     // MSC2191 maths: gomuks emits <hicli-math displaymode="inline|block" latex="...">
-    "hicli-math"
+    "hicli-math",
 )
 
 /**
@@ -202,11 +186,7 @@ private val ALLOWED_HTML_TAGS = setOf(
  */
 sealed class HtmlNode {
     data class Text(val content: String) : HtmlNode()
-    data class Tag(
-        val name: String,
-        val attributes: Map<String, String>,
-        val children: List<HtmlNode>
-    ) : HtmlNode()
+    data class Tag(val name: String, val attributes: Map<String, String>, val children: List<HtmlNode>) : HtmlNode()
     data class LineBreak(val dummy: Unit = Unit) : HtmlNode()
 }
 
@@ -223,7 +203,7 @@ object HtmlParser {
         var pos = startPos + 1 // Skip the opening '<'
         var inSingleQuote = false
         var inDoubleQuote = false
-        
+
         while (pos < html.length) {
             val char = html[pos]
             when {
@@ -235,17 +215,17 @@ object HtmlParser {
         }
         return -1 // No closing '>' found
     }
-    
+
     /**
      * Parse sanitized HTML string into a tree of HtmlNodes
      */
     fun parse(html: String, preserveWhitespace: Boolean = false): List<HtmlNode> {
         val nodes = mutableListOf<HtmlNode>()
         var currentPos = 0
-        
+
         while (currentPos < html.length) {
             val nextTagStart = html.indexOf('<', currentPos)
-            
+
             if (nextTagStart == -1) {
                 // No more tags, add remaining text.
                 // Decode entities here (at the leaf), NOT on the whole markup before parsing —
@@ -264,7 +244,7 @@ object HtmlParser {
                 }
                 break
             }
-            
+
             // Add text before the tag
             if (nextTagStart > currentPos) {
                 val text = decodeHtmlEntities(html.substring(currentPos, nextTagStart))
@@ -273,7 +253,7 @@ object HtmlParser {
                     nodes.add(HtmlNode.Text(text))
                 }
             }
-            
+
             // Find the end of the tag (respecting quoted attribute values)
             val tagEnd = findTagEnd(html, nextTagStart)
             if (tagEnd == -1) {
@@ -292,25 +272,25 @@ object HtmlParser {
                 }
                 break
             }
-            
+
             val tagContent = html.substring(nextTagStart + 1, tagEnd)
-            
+
             // Check if it's a closing tag
             if (tagContent.startsWith("/")) {
                 // This is a closing tag, we'll handle it during recursive parsing
                 currentPos = tagEnd + 1
                 continue
             }
-            
+
             // Check if it's a self-closing tag
             val isSelfClosing = tagContent.endsWith("/")
             val actualTagContent = if (isSelfClosing) tagContent.dropLast(1).trim() else tagContent
-            
+
             // Parse tag name and attributes
             val parts = actualTagContent.split(Regex("\\s+"), limit = 2)
             val tagName = parts[0].lowercase()
             val attributesStr = if (parts.size > 1) parts[1] else ""
-            
+
             // Drop mx-reply blocks entirely (Matrix rich reply fallback)
             if (tagName == "mx-reply") {
                 val closingTagPos = findMatchingClosingTag(html, tagEnd + 1, tagName)
@@ -328,15 +308,17 @@ object HtmlParser {
                 currentPos = tagEnd + 1
                 continue
             }
-            
+
             // Parse attributes
             val attributes = parseAttributes(attributesStr)
-            
+
             // Handle self-closing tags (br, hr, img)
             if (isSelfClosing || tagName in setOf("br", "hr", "img")) {
                 when (tagName) {
                     "br" -> nodes.add(HtmlNode.LineBreak())
+
                     "hr" -> nodes.add(HtmlNode.Tag("hr", emptyMap(), emptyList()))
+
                     "img" -> {
                         // Validate img src is MXC URL
                         val src = attributes["src"] ?: ""
@@ -351,34 +333,35 @@ object HtmlParser {
                             nodes.add(HtmlNode.Tag(tagName, attributes, emptyList()))
                         }
                     }
+
                     else -> nodes.add(HtmlNode.Tag(tagName, attributes, emptyList()))
                 }
                 currentPos = tagEnd + 1
                 continue
             }
-            
+
             // Find matching closing tag
             val closingTag = "</$tagName>"
             val closingTagPos = findMatchingClosingTag(html, tagEnd + 1, tagName)
-            
+
             if (closingTagPos == -1) {
                 Log.w("Andromuks", "HtmlParser: No closing tag found for: $tagName")
                 currentPos = tagEnd + 1
                 continue
             }
-            
+
             // Parse children recursively
             val innerHtml = html.substring(tagEnd + 1, closingTagPos)
             val childPreserveWhitespace = preserveWhitespace || tagName == "pre"
             val children = parse(innerHtml, childPreserveWhitespace)
-            
+
             nodes.add(HtmlNode.Tag(tagName, attributes, children))
             currentPos = closingTagPos + closingTag.length
         }
-        
+
         return nodes
     }
-    
+
     /**
      * Find the matching closing tag, handling nested tags
      */
@@ -387,15 +370,15 @@ object HtmlParser {
         var currentPos = startPos
         val openingTag = "<$tagName"
         val closingTag = "</$tagName>"
-        
+
         while (currentPos < html.length && depth > 0) {
             val nextOpening = html.indexOf(openingTag, currentPos)
             val nextClosing = html.indexOf(closingTag, currentPos)
-            
+
             if (nextClosing == -1) {
                 return -1 // No closing tag found
             }
-            
+
             // Check if there's a nested opening tag before the closing tag
             if (nextOpening != -1 && nextOpening < nextClosing) {
                 // Make sure it's actually a tag start, not part of text
@@ -414,31 +397,31 @@ object HtmlParser {
                 currentPos = nextClosing + closingTag.length
             }
         }
-        
+
         return -1
     }
-    
+
     /**
      * Parse HTML attributes from a string
      */
     private fun parseAttributes(attributesStr: String): Map<String, String> {
         val attributes = mutableMapOf<String, String>()
-        
+
         // Improved regex to properly handle quoted values with spaces
         // Matches: attribute="value with spaces" or attribute='value' or attribute=value
         val regex = Regex("""(\w+(?:-\w+)*)=(?:"([^"]*)"|'([^']*)'|([^\s>]+))""")
         regex.findAll(attributesStr).forEach { match ->
             val name = match.groupValues[1]
             // Get value from whichever capture group matched (double quote, single quote, or no quote)
-            val value = match.groupValues[2].ifEmpty { 
-                match.groupValues[3].ifEmpty { 
-                    match.groupValues[4] 
+            val value = match.groupValues[2].ifEmpty {
+                match.groupValues[3].ifEmpty {
+                    match.groupValues[4]
                 }
             }
             attributes[name.lowercase()] = value
             if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlParser: Parsed attribute: $name=\"$value\"")
         }
-        
+
         return attributes
     }
 }
@@ -453,28 +436,20 @@ data class InlineImageData(
     val isHidden: Boolean = false,
     // MSC2191 maths: when non-null, this entry is a LaTeX equation rendered via JLaTeXMath
     // instead of a network image. `alt` holds the raw LaTeX (used as the text fallback).
-    val latex: String? = null
+    val latex: String? = null,
 )
 
-data class InlineMatrixUserChip(
-    val userId: String,
-    val displayText: String,
-    val avatarUrl: String? = null
-)
+data class InlineMatrixUserChip(val userId: String, val displayText: String, val avatarUrl: String? = null)
 
 data class InlineMatrixRoomChip(
     val roomLink: RoomLink,
     val displayText: String,
     val isJoined: Boolean,
     val roomName: String? = null,
-    val roomAvatarUrl: String? = null
+    val roomAvatarUrl: String? = null,
 )
 
-data class InlineCodeBlockPreview(
-    val previewText: String,
-    val fullCode: String,
-    val totalLines: Int
-)
+data class InlineCodeBlockPreview(val previewText: String, val fullCode: String, val totalLines: Int)
 
 private fun extractMatrixUserId(href: String): String? {
     val trimmed = href.trim()
@@ -490,10 +465,15 @@ private fun extractMatrixUserId(href: String): String? {
         val userId = if (raw.startsWith("@")) {
             raw
         } else {
-            "@${raw}"
+            "@$raw"
         }
-        val decoded = runCatching { URLDecoder.decode(userId.removePrefix("@"), Charsets.UTF_8.name()) }.getOrNull() ?: userId.removePrefix("@")
-        return "@${decoded}"
+        val decoded = runCatching {
+            URLDecoder.decode(
+                userId.removePrefix("@"),
+                Charsets.UTF_8.name(),
+            )
+        }.getOrNull() ?: userId.removePrefix("@")
+        return "@$decoded"
     }
     return null
 }
@@ -507,7 +487,7 @@ private fun AnnotatedString.Builder.appendHtmlNode(
     spoilerContext: SpoilerRenderContext? = null,
     hideContent: Boolean = false,
     previousWasLineBreak: Boolean = false,
-    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null,
 ) {
     when (node) {
         is HtmlNode.Text -> {
@@ -573,8 +553,19 @@ private fun AnnotatedString.Builder.appendHtmlNode(
                 }
             }
         }
+
         is HtmlNode.LineBreak -> append("\n")
-        is HtmlNode.Tag -> appendHtmlTag(node, baseStyle, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, inlineCodeBlocks)
+
+        is HtmlNode.Tag -> appendHtmlTag(
+            node,
+            baseStyle,
+            inlineImages,
+            inlineMatrixUsers,
+            inlineMatrixRooms,
+            spoilerContext,
+            hideContent,
+            inlineCodeBlocks,
+        )
     }
 }
 
@@ -586,7 +577,7 @@ private fun AnnotatedString.Builder.appendHtmlTag(
     inlineMatrixRooms: MutableMap<String, InlineMatrixRoomChip>,
     spoilerContext: SpoilerRenderContext?,
     hideContent: Boolean = false,
-    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null,
 ) {
     val styleAttr = tag.attributes["style"]?.lowercase() ?: ""
     if (styleAttr.contains("display") && styleAttr.contains("none")) {
@@ -606,7 +597,7 @@ private fun AnnotatedString.Builder.appendHtmlTag(
             inlineMatrixRooms = inlineMatrixRooms,
             spoilerContext = spoilerContext,
             reason = sanitizedReason,
-            inlineCodeBlocks = inlineCodeBlocks
+            inlineCodeBlocks = inlineCodeBlocks,
         )
         return
     }
@@ -614,32 +605,171 @@ private fun AnnotatedString.Builder.appendHtmlTag(
     val styledBase = applyInlineColors(tag, baseStyle)
 
     when (tag.name) {
-        "strong", "b" -> appendStyledChildren(tag, styledBase.copy(fontWeight = FontWeight.Bold), inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, inlineCodeBlocks = inlineCodeBlocks)
-        "em", "i" -> appendStyledChildren(tag, styledBase.copy(fontStyle = FontStyle.Italic), inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, inlineCodeBlocks = inlineCodeBlocks)
+        "strong", "b" -> appendStyledChildren(
+            tag,
+            styledBase.copy(fontWeight = FontWeight.Bold),
+            inlineImages,
+            inlineMatrixUsers,
+            inlineMatrixRooms,
+            spoilerContext,
+            hideContent,
+            inlineCodeBlocks = inlineCodeBlocks,
+        )
+
+        "em", "i" -> appendStyledChildren(
+            tag,
+            styledBase.copy(fontStyle = FontStyle.Italic),
+            inlineImages,
+            inlineMatrixUsers,
+            inlineMatrixRooms,
+            spoilerContext,
+            hideContent,
+            inlineCodeBlocks = inlineCodeBlocks,
+        )
+
         "u" -> {
-            val newStyle = styledBase.copy(textDecoration = (styledBase.textDecoration ?: TextDecoration.None) + TextDecoration.Underline)
-            appendStyledChildren(tag, newStyle, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, inlineCodeBlocks = inlineCodeBlocks)
+            val newStyle = styledBase.copy(
+                textDecoration = (styledBase.textDecoration ?: TextDecoration.None) + TextDecoration.Underline,
+            )
+            appendStyledChildren(
+                tag,
+                newStyle,
+                inlineImages,
+                inlineMatrixUsers,
+                inlineMatrixRooms,
+                spoilerContext,
+                hideContent,
+                inlineCodeBlocks = inlineCodeBlocks,
+            )
         }
+
         "s", "del", "strike" -> {
-            val newStyle = styledBase.copy(textDecoration = (styledBase.textDecoration ?: TextDecoration.None) + TextDecoration.LineThrough)
-            appendStyledChildren(tag, newStyle, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, inlineCodeBlocks = inlineCodeBlocks)
+            val newStyle = styledBase.copy(
+                textDecoration = (styledBase.textDecoration ?: TextDecoration.None) + TextDecoration.LineThrough,
+            )
+            appendStyledChildren(
+                tag,
+                newStyle,
+                inlineImages,
+                inlineMatrixUsers,
+                inlineMatrixRooms,
+                spoilerContext,
+                hideContent,
+                inlineCodeBlocks = inlineCodeBlocks,
+            )
         }
+
         "ins" -> {
-            val newStyle = styledBase.copy(textDecoration = (styledBase.textDecoration ?: TextDecoration.None) + TextDecoration.Underline)
-            appendStyledChildren(tag, newStyle, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, inlineCodeBlocks = inlineCodeBlocks)
+            val newStyle = styledBase.copy(
+                textDecoration = (styledBase.textDecoration ?: TextDecoration.None) + TextDecoration.Underline,
+            )
+            appendStyledChildren(
+                tag,
+                newStyle,
+                inlineImages,
+                inlineMatrixUsers,
+                inlineMatrixRooms,
+                spoilerContext,
+                hideContent,
+                inlineCodeBlocks = inlineCodeBlocks,
+            )
         }
-        "code" -> appendStyledChildren(tag, styledBase.copy(fontFamily = FontFamily.Monospace), inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, inlineCodeBlocks = inlineCodeBlocks)
-        "span", "font" -> appendSpoilerOrStyledChildren(tag, styledBase, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, inlineCodeBlocks)
+
+        "code" -> appendStyledChildren(
+            tag,
+            styledBase.copy(fontFamily = FontFamily.Monospace),
+            inlineImages,
+            inlineMatrixUsers,
+            inlineMatrixRooms,
+            spoilerContext,
+            hideContent,
+            inlineCodeBlocks = inlineCodeBlocks,
+        )
+
+        "span", "font" -> appendSpoilerOrStyledChildren(
+            tag,
+            styledBase,
+            inlineImages,
+            inlineMatrixUsers,
+            inlineMatrixRooms,
+            spoilerContext,
+            hideContent,
+            inlineCodeBlocks,
+        )
+
         "br" -> append("\n")
+
         "hr" -> appendHorizontalRule()
-        "h1", "h2", "h3", "h4", "h5", "h6" -> appendHeader(tag, styledBase, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, inlineCodeBlocks)
-        "p", "div" -> appendBlock(tag, styledBase, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, inlineCodeBlocks)
-        "blockquote" -> appendBlockQuote(tag, styledBase, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, inlineCodeBlocks)
-        "ul" -> appendUnorderedList(tag, styledBase, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, inlineCodeBlocks)
-        "ol" -> appendOrderedList(tag, styledBase, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, inlineCodeBlocks)
-        "a" -> appendAnchor(tag, styledBase, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, inlineCodeBlocks)
+
+        "h1", "h2", "h3", "h4", "h5", "h6" -> appendHeader(
+            tag,
+            styledBase,
+            inlineImages,
+            inlineMatrixUsers,
+            inlineMatrixRooms,
+            spoilerContext,
+            hideContent,
+            inlineCodeBlocks,
+        )
+
+        "p", "div" -> appendBlock(
+            tag,
+            styledBase,
+            inlineImages,
+            inlineMatrixUsers,
+            inlineMatrixRooms,
+            spoilerContext,
+            inlineCodeBlocks,
+        )
+
+        "blockquote" -> appendBlockQuote(
+            tag,
+            styledBase,
+            inlineImages,
+            inlineMatrixUsers,
+            inlineMatrixRooms,
+            spoilerContext,
+            hideContent,
+            inlineCodeBlocks,
+        )
+
+        "ul" -> appendUnorderedList(
+            tag,
+            styledBase,
+            inlineImages,
+            inlineMatrixUsers,
+            inlineMatrixRooms,
+            spoilerContext,
+            hideContent,
+            inlineCodeBlocks,
+        )
+
+        "ol" -> appendOrderedList(
+            tag,
+            styledBase,
+            inlineImages,
+            inlineMatrixUsers,
+            inlineMatrixRooms,
+            spoilerContext,
+            hideContent,
+            inlineCodeBlocks,
+        )
+
+        "a" -> appendAnchor(
+            tag,
+            styledBase,
+            inlineImages,
+            inlineMatrixUsers,
+            inlineMatrixRooms,
+            spoilerContext,
+            hideContent,
+            inlineCodeBlocks,
+        )
+
         "img" -> appendImage(tag, inlineImages, hideContent)
+
         "hicli-math" -> appendInlineMath(tag, styledBase, inlineImages, hideContent)
+
         "pre" -> {
             // Check if this is a code block (has <code> inside <pre>)
             val hasCodeTag = tag.children.any { child ->
@@ -647,13 +777,32 @@ private fun AnnotatedString.Builder.appendHtmlTag(
             }
             if (hasCodeTag && inlineCodeBlocks != null) {
                 // This is a code block - render truncated preview
-                appendCodeBlockPreview(tag, styledBase, inlineImages, inlineMatrixUsers, inlineMatrixRooms, inlineCodeBlocks)
+                appendCodeBlockPreview(
+                    tag,
+                    styledBase,
+                    inlineImages,
+                    inlineMatrixUsers,
+                    inlineMatrixRooms,
+                    inlineCodeBlocks,
+                )
             } else {
                 // Regular pre block
                 appendPreformattedBlock(tag, styledBase, inlineImages, inlineMatrixUsers, inlineMatrixRooms)
             }
         }
-        else -> tag.children.forEach { appendHtmlNode(it, styledBase, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, inlineCodeBlocks = inlineCodeBlocks) }
+
+        else -> tag.children.forEach {
+            appendHtmlNode(
+                it,
+                styledBase,
+                inlineImages,
+                inlineMatrixUsers,
+                inlineMatrixRooms,
+                spoilerContext,
+                hideContent,
+                inlineCodeBlocks = inlineCodeBlocks,
+            )
+        }
     }
 }
 
@@ -666,7 +815,7 @@ private fun AnnotatedString.Builder.appendStyledChildren(
     spoilerContext: SpoilerRenderContext?,
     hideContent: Boolean = false,
     initialPreviousWasLineBreak: Boolean = false,
-    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null,
 ) {
     var previousWasLineBreak = initialPreviousWasLineBreak
     tag.children.forEach { child ->
@@ -707,6 +856,7 @@ private fun extractSpoilerData(nodes: List<HtmlNode>): Pair<String, List<HtmlNod
  * Extract text content from HTML nodes, preserving structure for spoiler content
  * For links, shows the href URL if available, otherwise the link text
  */
+
 /**
  * Handle span tags - check if they're spoilers or regular spans
  */
@@ -718,7 +868,7 @@ private fun AnnotatedString.Builder.appendSpoilerOrStyledChildren(
     inlineMatrixRooms: MutableMap<String, InlineMatrixRoomChip>,
     spoilerContext: SpoilerRenderContext?,
     hideContent: Boolean = false,
-    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null,
 ) {
     val classAttr = tag.attributes["class"] ?: ""
 
@@ -726,7 +876,7 @@ private fun AnnotatedString.Builder.appendSpoilerOrStyledChildren(
     if (classAttr.contains("spoiler-reason")) {
         return
     }
-    
+
     // Check if this is a spoiler content span
     if (classAttr.contains("hicli-spoiler")) {
         if (spoilerContext != null && tag.children.isNotEmpty()) {
@@ -738,15 +888,24 @@ private fun AnnotatedString.Builder.appendSpoilerOrStyledChildren(
                 inlineMatrixRooms = inlineMatrixRooms,
                 spoilerContext = spoilerContext,
                 reason = null,
-                inlineCodeBlocks = inlineCodeBlocks
+                inlineCodeBlocks = inlineCodeBlocks,
             )
             return
         }
     }
-    
+
     // Regular span/font - process children with optional color/background
     val styled = applyInlineColors(tag, baseStyle)
-    appendStyledChildren(tag, styled, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, inlineCodeBlocks = inlineCodeBlocks)
+    appendStyledChildren(
+        tag,
+        styled,
+        inlineImages,
+        inlineMatrixUsers,
+        inlineMatrixRooms,
+        spoilerContext,
+        hideContent,
+        inlineCodeBlocks = inlineCodeBlocks,
+    )
 }
 
 private fun AnnotatedString.Builder.appendBlock(
@@ -756,16 +915,16 @@ private fun AnnotatedString.Builder.appendBlock(
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>,
     inlineMatrixRooms: MutableMap<String, InlineMatrixRoomChip>,
     spoilerContext: SpoilerRenderContext?,
-    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null,
 ) {
     if (length > 0 && !endsWithNewline()) append("\n")
-    
+
     // Process children, handling spoiler patterns inline
     var i = 0
     var previousWasLineBreak = false
     while (i < tag.children.size) {
         val child = tag.children[i]
-        
+
         // Check if this and next child form a spoiler pattern
         if (i + 1 < tag.children.size) {
             val spoilerData = extractSpoilerData(listOf(child, tag.children[i + 1]))
@@ -780,7 +939,7 @@ private fun AnnotatedString.Builder.appendBlock(
                         inlineMatrixRooms = inlineMatrixRooms,
                         spoilerContext = spoilerContext,
                         reason = reason,
-                        inlineCodeBlocks = inlineCodeBlocks
+                        inlineCodeBlocks = inlineCodeBlocks,
                     )
                 } else {
                     var wasLineBreak = previousWasLineBreak
@@ -794,7 +953,7 @@ private fun AnnotatedString.Builder.appendBlock(
                 continue
             }
         }
-        
+
         // No spoiler pattern, process normally
         appendHtmlNode(child, baseStyle, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent = false, previousWasLineBreak = previousWasLineBreak, inlineCodeBlocks = inlineCodeBlocks)
         previousWasLineBreak = child is HtmlNode.LineBreak
@@ -814,17 +973,19 @@ private fun AnnotatedString.Builder.appendHeader(
     inlineMatrixRooms: MutableMap<String, InlineMatrixRoomChip>,
     spoilerContext: SpoilerRenderContext?,
     hideContent: Boolean = false,
-    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null,
 ) {
     if (length > 0 && !endsWithNewline()) append("\n")
-    
+
     // Apply header styling - bold text
     // Note: We use just bold for now to avoid fontSize issues with TextUnit.Unspecified
     val headerStyle = baseStyle.copy(
-        fontWeight = FontWeight.Bold
+        fontWeight = FontWeight.Bold,
     )
-    
-    tag.children.forEach { appendHtmlNode(it, headerStyle, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, previousWasLineBreak = false, inlineCodeBlocks = inlineCodeBlocks) }
+
+    tag.children.forEach {
+        appendHtmlNode(it, headerStyle, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, previousWasLineBreak = false, inlineCodeBlocks = inlineCodeBlocks)
+    }
     append("\n")
 }
 
@@ -842,7 +1003,7 @@ private fun AnnotatedString.Builder.appendBlockQuote(
     spoilerContext: SpoilerRenderContext?,
     hideContent: Boolean = false,
     inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null,
-    quoteDepth: Int = 1
+    quoteDepth: Int = 1,
 ) {
     if (length > 0 && !endsWithNewline()) append("\n")
 
@@ -866,6 +1027,7 @@ private fun AnnotatedString.Builder.appendBlockQuote(
                     append("\n")
                     withStyle(prefixStyle) { append(prefixText) }
                 }
+
                 else -> {
                     appendHtmlNode(
                         node = child,
@@ -876,7 +1038,7 @@ private fun AnnotatedString.Builder.appendBlockQuote(
                         spoilerContext = spoilerContext,
                         hideContent = hideContent,
                         previousWasLineBreak = false,
-                        inlineCodeBlocks = inlineCodeBlocks
+                        inlineCodeBlocks = inlineCodeBlocks,
                     )
                 }
             }
@@ -895,6 +1057,7 @@ private fun AnnotatedString.Builder.appendBlockQuote(
                         appendQuoteLineContent(child.children)
                         if (!endsWithNewline()) append("\n")
                     }
+
                     "blockquote" -> {
                         appendBlockQuote(
                             tag = child,
@@ -905,9 +1068,10 @@ private fun AnnotatedString.Builder.appendBlockQuote(
                             spoilerContext = spoilerContext,
                             hideContent = hideContent,
                             inlineCodeBlocks = inlineCodeBlocks,
-                            quoteDepth = quoteDepth + 1
+                            quoteDepth = quoteDepth + 1,
                         )
                     }
+
                     else -> {
                         // Fallback: render unknown block children normally (without prefixing).
                         // This keeps the formatter accurate for edge cases like nested lists.
@@ -919,11 +1083,12 @@ private fun AnnotatedString.Builder.appendBlockQuote(
                             inlineMatrixRooms = inlineMatrixRooms,
                             spoilerContext = spoilerContext,
                             hideContent = hideContent,
-                            inlineCodeBlocks = inlineCodeBlocks
+                            inlineCodeBlocks = inlineCodeBlocks,
                         )
                     }
                 }
             }
+
             // Rare case: text directly inside <blockquote>.
             // Treat it as a single-line quote.
             is HtmlNode.Text -> {
@@ -940,11 +1105,12 @@ private fun AnnotatedString.Builder.appendBlockQuote(
                         spoilerContext = spoilerContext,
                         hideContent = hideContent,
                         previousWasLineBreak = false,
-                        inlineCodeBlocks = inlineCodeBlocks
+                        inlineCodeBlocks = inlineCodeBlocks,
                     )
                     if (!endsWithNewline()) append("\n")
                 }
             }
+
             is HtmlNode.LineBreak -> {
                 // If the quote has a raw line break, mirror it with a new prefixed line.
                 append("\n")
@@ -962,13 +1128,15 @@ private fun AnnotatedString.Builder.appendUnorderedList(
     inlineMatrixRooms: MutableMap<String, InlineMatrixRoomChip>,
     spoilerContext: SpoilerRenderContext?,
     hideContent: Boolean = false,
-    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null,
 ) {
     append("\n")
     tag.children.forEach { child ->
         if (child is HtmlNode.Tag && child.name == "li") {
             append("• ")
-            child.children.forEach { appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, previousWasLineBreak = false, inlineCodeBlocks = inlineCodeBlocks) }
+            child.children.forEach {
+                appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, previousWasLineBreak = false, inlineCodeBlocks = inlineCodeBlocks)
+            }
             append("\n")
         }
     }
@@ -982,7 +1150,7 @@ private fun AnnotatedString.Builder.appendSpoilerNodes(
     inlineMatrixRooms: MutableMap<String, InlineMatrixRoomChip>,
     spoilerContext: SpoilerRenderContext,
     reason: String?,
-    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null,
 ) {
     val spoilerId = spoilerContext.nextId()
     val revealed = spoilerContext.isRevealed(spoilerId)
@@ -1003,7 +1171,7 @@ private fun AnnotatedString.Builder.appendSpoilerNodes(
             spoilerContext = spoilerContext,
             hideContent = !revealed,
             previousWasLineBreak = false,
-            inlineCodeBlocks = inlineCodeBlocks
+            inlineCodeBlocks = inlineCodeBlocks,
         )
     }
     val end = length
@@ -1018,14 +1186,16 @@ private fun AnnotatedString.Builder.appendOrderedList(
     inlineMatrixRooms: MutableMap<String, InlineMatrixRoomChip>,
     spoilerContext: SpoilerRenderContext?,
     hideContent: Boolean = false,
-    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null,
 ) {
     append("\n")
     var index = 1
     tag.children.forEach { child ->
         if (child is HtmlNode.Tag && child.name == "li") {
-            append("${index}. ")
-            child.children.forEach { appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, previousWasLineBreak = false, inlineCodeBlocks = inlineCodeBlocks) }
+            append("$index. ")
+            child.children.forEach {
+                appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, previousWasLineBreak = false, inlineCodeBlocks = inlineCodeBlocks)
+            }
             append("\n")
             index++
         }
@@ -1043,7 +1213,7 @@ private fun AnnotatedString.Builder.appendPreformattedBlock(
     baseStyle: SpanStyle,
     inlineImages: MutableMap<String, InlineImageData>,
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>,
-    inlineMatrixRooms: MutableMap<String, InlineMatrixRoomChip>
+    inlineMatrixRooms: MutableMap<String, InlineMatrixRoomChip>,
 ) {
     if (length > 0 && !endsWithNewline()) append("\n")
     val rawText = buildString {
@@ -1066,17 +1236,17 @@ private fun AnnotatedString.Builder.appendCodeBlockPreview(
     inlineImages: MutableMap<String, InlineImageData>,
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>,
     inlineMatrixRooms: MutableMap<String, InlineMatrixRoomChip>,
-    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>,
 ) {
     if (length > 0 && !endsWithNewline()) append("\n")
-    
+
     // Extract full code text
     val fullCode = buildString {
         collectRawText(tag, this)
     }.let { text ->
         if (text.endsWith("\n")) text.dropLast(1) else text
     }
-    
+
     // Split into lines and truncate to 8 lines if needed
     val lines = fullCode.lines()
     val previewLines = if (lines.size > 8) {
@@ -1085,15 +1255,15 @@ private fun AnnotatedString.Builder.appendCodeBlockPreview(
         lines
     }
     val previewText = previewLines.joinToString("\n")
-    
+
     // Generate unique ID for this code block
     val codeBlockId = "code_${inlineCodeBlocks.size}_${fullCode.hashCode()}"
     inlineCodeBlocks[codeBlockId] = InlineCodeBlockPreview(
         previewText = previewText,
         fullCode = fullCode,
-        totalLines = lines.size
+        totalLines = lines.size,
     )
-    
+
     // Render the truncated code directly in the text flow with monospace style
     val codeStyle = baseStyle.copy(fontFamily = FontFamily.Monospace)
     val annotationStart = length
@@ -1113,7 +1283,9 @@ private fun AnnotatedString.Builder.appendCodeBlockPreview(
 private fun collectRawText(node: HtmlNode, builder: StringBuilder) {
     when (node) {
         is HtmlNode.Text -> builder.append(node.content)
+
         is HtmlNode.LineBreak -> builder.append('\n')
+
         is HtmlNode.Tag -> {
             if (node.name == "br") {
                 builder.append('\n')
@@ -1197,7 +1369,7 @@ private fun buildPlainTextAnnotatedString(text: String, linkStyle: SpanStyle): A
 private fun buildPlainTextAnnotatedStringWithCode(
     text: String,
     linkStyle: SpanStyle,
-    codeStyle: SpanStyle
+    codeStyle: SpanStyle,
 ): AnnotatedString {
     if (text.isEmpty()) return AnnotatedString("")
     return buildAnnotatedString {
@@ -1257,11 +1429,11 @@ private fun AnnotatedString.Builder.appendAnchor(
     inlineMatrixRooms: MutableMap<String, InlineMatrixRoomChip>,
     spoilerContext: SpoilerRenderContext?,
     hideContent: Boolean = false,
-    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null,
 ) {
     val href = tag.attributes["href"] ?: ""
     val classAttr = tag.attributes["class"] ?: ""
-    
+
     // Check for Matrix user links first
     val matrixUser = extractMatrixUserId(href)
     if (matrixUser != null) {
@@ -1288,16 +1460,16 @@ private fun AnnotatedString.Builder.appendAnchor(
         }
         return
     }
-    
+
     // Check for Matrix room links - either by class or by extractRoomLink
     val isRoomLink = classAttr.contains("hicli-matrix-uri") || extractRoomLink(href) != null
     val roomLink = if (isRoomLink) extractRoomLink(href) else null
-    
+
     if (roomLink != null) {
         val textBuilder = StringBuilder()
         tag.children.forEach { collectPlainText(it, textBuilder) }
         val displayText = textBuilder.toString().ifBlank { roomLink.roomIdOrAlias }
-        
+
         // For hidden spoilers, render masked text and skip inline content/annotations
         if (hideContent) {
             append(maskSpoilerText(displayText))
@@ -1306,7 +1478,7 @@ private fun AnnotatedString.Builder.appendAnchor(
             }
             return
         }
-        
+
         // Render as a pill (chip) similar to user mentions
         val chipId = "matrix_room_${inlineMatrixRooms.size}"
         inlineMatrixRooms[chipId] = InlineMatrixRoomChip(
@@ -1314,7 +1486,7 @@ private fun AnnotatedString.Builder.appendAnchor(
             displayText = displayText,
             isJoined = false, // Will be determined by the caller if needed
             roomName = null,
-            roomAvatarUrl = null
+            roomAvatarUrl = null,
         )
         pushStringAnnotation("ROOM_LINK", href)
         appendInlineContent(chipId, displayText)
@@ -1325,7 +1497,7 @@ private fun AnnotatedString.Builder.appendAnchor(
         }
         return
     }
-    
+
     // Regular URL - only add annotation if href is not empty
     if (href.isNotBlank()) {
         if (BuildConfig.DEBUG) Log.d("Andromuks", "appendAnchor: Adding URL annotation for href=$href")
@@ -1339,13 +1511,27 @@ private fun AnnotatedString.Builder.appendAnchor(
         }
         val annotationEnd = length
         pop()
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "appendAnchor: URL annotation added from $annotationStart to $annotationEnd for href=$href")
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            "Andromuks",
+            "appendAnchor: URL annotation added from $annotationStart to $annotationEnd for href=$href",
+        )
+        }
     } else {
         if (BuildConfig.DEBUG) Log.w("Andromuks", "appendAnchor: Empty href, not adding URL annotation")
         // No href, just render children with base style (shouldn't happen for valid HTML)
         var previousWasLineBreak = false
         tag.children.forEach { child ->
-            appendHtmlNode(child, baseStyle, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, previousWasLineBreak)
+            appendHtmlNode(
+                child,
+                baseStyle,
+                inlineImages,
+                inlineMatrixUsers,
+                inlineMatrixRooms,
+                spoilerContext,
+                hideContent,
+                previousWasLineBreak,
+            )
             previousWasLineBreak = child is HtmlNode.LineBreak
         }
     }
@@ -1354,7 +1540,7 @@ private fun AnnotatedString.Builder.appendAnchor(
 private fun AnnotatedString.Builder.appendImage(
     tag: HtmlNode.Tag,
     inlineImages: MutableMap<String, InlineImageData>,
-    hideContent: Boolean
+    hideContent: Boolean,
 ) {
     val src = tag.attributes["src"] ?: tag.attributes["data-mxc"] ?: ""
     val alt = tag.attributes["alt"] ?: tag.attributes["title"] ?: ""
@@ -1362,7 +1548,12 @@ private fun AnnotatedString.Builder.appendImage(
     if (src.isNotBlank()) {
         val id = "inline_img_${inlineImages.size}"
         inlineImages[id] = InlineImageData(src, alt, height, isHidden = hideContent)
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlParser: Added inline image id=$id, src=$src, alt=$alt, height=$height")
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            "Andromuks",
+            "HtmlParser: Added inline image id=$id, src=$src, alt=$alt, height=$height",
+        )
+        }
         appendInlineContent(id, "\u200B")
     } else {
         if (BuildConfig.DEBUG) Log.w("Andromuks", "HtmlParser: Image tag has no src attribute, using alt text: $alt")
@@ -1393,7 +1584,7 @@ private fun AnnotatedString.Builder.appendInlineMath(
     tag: HtmlNode.Tag,
     baseStyle: SpanStyle,
     inlineImages: MutableMap<String, InlineImageData>,
-    hideContent: Boolean
+    hideContent: Boolean,
 ) {
     val latex = extractMathLatex(tag)
     if (latex.isBlank()) return
@@ -1422,7 +1613,7 @@ private fun collectPlainText(node: HtmlNode, builder: StringBuilder) {
  */
 fun decodeHtmlEntities(html: String): String {
     var result = html
-    
+
     // Decode numeric character references (&#xxx; and &#xHH;)
     result = result.replace(Regex("&#(\\d+);")) { matchResult ->
         val code = matchResult.groupValues[1].toIntOrNull()
@@ -1432,7 +1623,7 @@ fun decodeHtmlEntities(html: String): String {
             matchResult.value
         }
     }
-    
+
     result = result.replace(Regex("&#[xX]([0-9a-fA-F]+);")) { matchResult ->
         val code = matchResult.groupValues[1].toIntOrNull(16)
         if (code != null) {
@@ -1441,40 +1632,40 @@ fun decodeHtmlEntities(html: String): String {
             matchResult.value
         }
     }
-    
+
     // Decode named character entities (most common ones)
     val namedEntities = mapOf(
         "&quot;" to "\"",
-        "&quot" to "\"",   // Also without semicolon
+        "&quot" to "\"", // Also without semicolon
         "&apos;" to "'",
-        "&apos" to "'",    // Also without semicolon
+        "&apos" to "'", // Also without semicolon
         "&amp;" to "&",
-        "&amp" to "&",     // Also without semicolon
+        "&amp" to "&", // Also without semicolon
         "&lt;" to "<",
-        "&lt" to "<",      // Also without semicolon
+        "&lt" to "<", // Also without semicolon
         "&gt;" to ">",
-        "&gt" to ">",      // Also without semicolon
+        "&gt" to ">", // Also without semicolon
         "&nbsp;" to " ",
-        "&nbsp" to " ",    // Also without semicolon
+        "&nbsp" to " ", // Also without semicolon
         "&copy;" to "©",
-        "&copy" to "©",    // Also without semicolon
+        "&copy" to "©", // Also without semicolon
         "&reg;" to "®",
-        "&reg" to "®",     // Also without semicolon
+        "&reg" to "®", // Also without semicolon
         "&euro;" to "€",
-        "&euro" to "€",    // Also without semicolon
+        "&euro" to "€", // Also without semicolon
         "&pound;" to "£",
-        "&pound" to "£",   // Also without semicolon
+        "&pound" to "£", // Also without semicolon
         "&yen;" to "¥",
-        "&yen" to "¥",     // Also without semicolon
+        "&yen" to "¥", // Also without semicolon
         "&cent;" to "¢",
-        "&cent" to "¢"     // Also without semicolon
+        "&cent" to "¢", // Also without semicolon
     )
-    
+
     // Sort by length (longest first) to avoid partial replacements
     namedEntities.entries.sortedByDescending { it.key.length }.forEach { (entity, char) ->
         result = result.replace(entity, char)
     }
-    
+
     return result
 }
 
@@ -1536,8 +1727,13 @@ fun supportsHtmlRendering(event: TimelineEvent): Boolean {
 
     val msgType = content.optString("msgtype", "")
     val supportedTypes = setOf(
-        "m.text", "m.emote", "m.notice",
-        "m.image", "m.file", "m.audio", "m.video"
+        "m.text",
+        "m.emote",
+        "m.notice",
+        "m.image",
+        "m.file",
+        "m.audio",
+        "m.video",
     )
 
     val hasFormattedBody = content.optString("formatted_body").takeIf { it.isNotEmpty() }?.isNotBlank() == true
@@ -1550,7 +1746,7 @@ fun supportsHtmlRendering(event: TimelineEvent): Boolean {
  */
 private fun extractMatrixUserIdsFromNodes(nodes: List<HtmlNode>): Set<String> {
     val userIds = mutableSetOf<String>()
-    
+
     fun processNode(node: HtmlNode) {
         when (node) {
             is HtmlNode.Text -> {
@@ -1564,6 +1760,7 @@ private fun extractMatrixUserIdsFromNodes(nodes: List<HtmlNode>): Set<String> {
                     }
                 }
             }
+
             is HtmlNode.Tag -> {
                 // Check for Matrix user links in anchor tags
                 if (node.name == "a") {
@@ -1576,12 +1773,13 @@ private fun extractMatrixUserIdsFromNodes(nodes: List<HtmlNode>): Set<String> {
                 // Process children recursively
                 node.children.forEach { processNode(it) }
             }
+
             is HtmlNode.LineBreak -> {
                 // No user IDs in line breaks
             }
         }
     }
-    
+
     nodes.forEach { processNode(it) }
     return userIds
 }
@@ -1590,6 +1788,7 @@ private fun extractMatrixUserIdsFromNodes(nodes: List<HtmlNode>): Set<String> {
  * Composable for rendering inline spoiler text with masked text and tap-to-reveal
  * This renders spoilers inline within the message text, not as block elements
  */
+
 /**
  * Composable function to render HTML content from an event
  */
@@ -1606,43 +1805,70 @@ fun HtmlMessageText(
     isEmojiOnly: Boolean = false,
     htmlContent: String? = null, // Optional HTML content (e.g., from edit) to override event extraction
     onCodeBlockClick: (String) -> Unit = {}, // Callback for code block clicks
-    onInlineImageClick: (InlineImageData) -> Unit = {} // Callback for tapping an mxc-backed inline image (custom emoji / inline <img>)
+    onInlineImageClick: (InlineImageData) -> Unit = {
+        }, // Callback for tapping an mxc-backed inline image (custom emoji / inline <img>)
 ) {
     // Don't render HTML for redacted messages
     // The parent composable should handle showing the deletion message
     if (event.redactedBy != null) {
         return
     }
-    
+
     val context = LocalContext.current
     val sanitizedHtml = remember(event, htmlContent) {
         // Use provided htmlContent if available (e.g., from edit), otherwise extract from event
         val result = if (htmlContent != null && htmlContent.isNotBlank()) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: Using provided htmlContent for event ${event.eventId}, length: ${htmlContent.length}, preview: ${htmlContent.take(100)}")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "HtmlMessageText: Using provided htmlContent for event ${event.eventId}, length: ${htmlContent.length}, preview: ${htmlContent.take(
+                    100,
+                )}",
+            )
+            }
             // Pass raw markup to the parser; entities are decoded at leaf text nodes.
             htmlContent
         } else {
             // Extract from event - prioritize sanitized_html over formatted_body
             val sanitized = extractSanitizedHtml(event)
             if (sanitized != null) {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: Using sanitized_html for event ${event.eventId}, length: ${sanitized.length}, preview: ${sanitized.take(100)}")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "HtmlMessageText: Using sanitized_html for event ${event.eventId}, length: ${sanitized.length}, preview: ${sanitized.take(
+                        100,
+                    )}",
+                )
+                }
                 sanitized
             } else {
                 val formattedBody = event.decrypted?.optString("formatted_body")?.takeIf { it.isNotBlank() }
                     ?: event.content?.optString("formatted_body")?.takeIf { it.isNotBlank() }
                 if (formattedBody != null) {
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: Using formatted_body for event ${event.eventId}, length: ${formattedBody.length}, preview: ${formattedBody.take(100)}")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        "Andromuks",
+                        "HtmlMessageText: Using formatted_body for event ${event.eventId}, length: ${formattedBody.length}, preview: ${formattedBody.take(
+                            100,
+                        )}",
+                    )
+                    }
                     // Pass raw markup to the parser; entities are decoded at leaf text nodes.
                     formattedBody
                 } else {
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: No HTML content found for event ${event.eventId}")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        "Andromuks",
+                        "HtmlMessageText: No HTML content found for event ${event.eventId}",
+                    )
+                    }
                     null
                 }
             }
         }
         result
     }
-    
+
     val plainTextBody = if (sanitizedHtml == null) {
         val content = event.content ?: event.decrypted
         val rawBody = content?.optString("body", "")?.let { decodeHtmlEntities(it) } ?: ""
@@ -1654,7 +1880,7 @@ fun HtmlMessageText(
     } else {
         ""
     }
-    
+
     // Parse HTML
     val nodes = remember(sanitizedHtml) {
         if (sanitizedHtml == null) {
@@ -1683,10 +1909,17 @@ fun HtmlMessageText(
             .filter { it.isNotBlank() }
     }
     val nonTableNodes = remember(nodes) {
-        if (tableNodes.isEmpty() && blockMathLatex.isEmpty()) nodes
-        else nodes.filter {
-            !(it is HtmlNode.Tag && (it.name == "table" ||
-                (it.name == "hicli-math" && !it.attributes["displaymode"].equals("inline", ignoreCase = true))))
+        if (tableNodes.isEmpty() && blockMathLatex.isEmpty()) {
+            nodes
+        } else {
+            nodes.filter {
+            !(
+                it is HtmlNode.Tag && (
+                    it.name == "table" ||
+                (it.name == "hicli-math" && !it.attributes["displaymode"].equals("inline", ignoreCase = true))
+                )
+            )
+        }
         }
     }
     val tableDatas = remember(tableNodes) {
@@ -1702,18 +1935,25 @@ fun HtmlMessageText(
                 // Check if we already have the profile
                 val existingProfile = vm.getUserProfile(userId, event.roomId)
                 if (existingProfile == null) {
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: Requesting profile on-demand for $userId from HTML")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        "Andromuks",
+                        "HtmlMessageText: Requesting profile on-demand for $userId from HTML",
+                    )
+                    }
                     vm.requestUserProfileOnDemand(userId, event.roomId)
                 }
             }
         }
     }
-    
+
     // Render to AnnotatedString with inline images
     val inlineImages = remember { mutableMapOf<String, InlineImageData>() }
     val inlineMatrixUsers = remember { mutableMapOf<String, InlineMatrixUserChip>() }
     val inlineMatrixRooms = remember { mutableMapOf<String, InlineMatrixRoomChip>() }
-    val inlineCodeBlocks = remember { mutableMapOf<String, InlineCodeBlockPreview>() } // Map of code block IDs to preview data
+    val inlineCodeBlocks = remember {
+        mutableMapOf<String, InlineCodeBlockPreview>()
+    } // Map of code block IDs to preview data
     val spoilerStates = remember { mutableStateMapOf<String, Boolean>() }
     val spoilerContext = remember { SpoilerRenderContext(spoilerStates) }
 
@@ -1722,7 +1962,7 @@ fun HtmlMessageText(
         buildPlainTextAnnotatedStringWithCode(
             plainTextBody,
             linkStyle,
-            SpanStyle(fontFamily = FontFamily.Monospace)
+            SpanStyle(fontFamily = FontFamily.Monospace),
         )
     } else {
         try {
@@ -1749,7 +1989,7 @@ fun HtmlMessageText(
                                 inlineMatrixRooms = inlineMatrixRooms,
                                 spoilerContext = spoilerContext,
                                 reason = null,
-                                inlineCodeBlocks = inlineCodeBlocks
+                                inlineCodeBlocks = inlineCodeBlocks,
                             )
                             previousWasLineBreak = false
                             i++
@@ -1771,7 +2011,7 @@ fun HtmlMessageText(
                                     inlineMatrixRooms = inlineMatrixRooms,
                                     spoilerContext = spoilerContext,
                                     reason = reason,
-                                    inlineCodeBlocks = inlineCodeBlocks
+                                    inlineCodeBlocks = inlineCodeBlocks,
                                 )
                                 previousWasLineBreak = false
                                 i += 2
@@ -1790,7 +2030,7 @@ fun HtmlMessageText(
                         inlineMatrixRooms = inlineMatrixRooms,
                         spoilerContext = spoilerContext,
                         previousWasLineBreak = wasLineBreak,
-                        inlineCodeBlocks = inlineCodeBlocks
+                        inlineCodeBlocks = inlineCodeBlocks,
                     )
                     previousWasLineBreak = node is HtmlNode.LineBreak
 
@@ -1838,13 +2078,13 @@ fun HtmlMessageText(
     val bodyTextStyle = MaterialTheme.typography.bodyMedium
     val textMeasurer = rememberTextMeasurer()
     val primaryColor = MaterialTheme.colorScheme.primary
-    
+
     // Calculate text line height to limit inline image height
     val textLineHeight = remember(textMeasurer, density) {
         val sampleLayout = textMeasurer.measure(text = AnnotatedString("Ag"))
         with(density) { sampleLayout.size.height.toDp().value.toInt() }
     }
-    
+
     val roomChipColor = MaterialTheme.colorScheme.tertiary
     val roomChipTextColor = MaterialTheme.colorScheme.onTertiary
 
@@ -1871,6 +2111,7 @@ fun HtmlMessageText(
             inlineImageViewer = data
         }
     }
+
     // Fullscreen viewer for a tapped inline image. Defined as a local composable so it can be
     // hosted in every render branch below (the table/block-math branch returns early).
     @Composable
@@ -1883,7 +2124,7 @@ fun HtmlMessageText(
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
                     isEncrypted = media.second,
-                    onDismiss = { inlineImageViewer = null }
+                    onDismiss = { inlineImageViewer = null },
                 )
             } else {
                 // Unconvertible src (shouldn't happen for mxc-backed images) — clear the request.
@@ -1891,7 +2132,8 @@ fun HtmlMessageText(
             }
         }
     }
-    val inlineContentMap = remember(annotatedString, inlineImagesSnapshot, inlineMatrixUsers.toMap(), inlineMatrixRooms.toMap(), inlineCodeBlocks.toMap(), onMatrixUserClick, onRoomLinkClick, onCodeBlockClick, handleInlineImageClick, density, chipTextStyle, textMeasurer, textLineHeight, primaryColor, isEmojiOnly, color, bodyTextStyle, roomChipColor, roomChipTextColor, homeserverUrl, authToken, mathColorArgb, mathTextSizePx) {
+    val inlineContentMap =
+        remember(annotatedString, inlineImagesSnapshot, inlineMatrixUsers.toMap(), inlineMatrixRooms.toMap(), inlineCodeBlocks.toMap(), onMatrixUserClick, onRoomLinkClick, onCodeBlockClick, handleInlineImageClick, density, chipTextStyle, textMeasurer, textLineHeight, primaryColor, isEmojiOnly, color, bodyTextStyle, roomChipColor, roomChipTextColor, homeserverUrl, authToken, mathColorArgb, mathTextSizePx) {
         val map = mutableMapOf<String, InlineTextContent>()
         inlineImagesSnapshot.forEach { (id, imageData) ->
             // MSC2191 maths: render the LaTeX to a JLaTeXMath drawable instead of a network image.
@@ -1911,8 +2153,8 @@ fun HtmlMessageText(
                         Placeholder(
                             width = widthSp,
                             height = heightSp,
-                            placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
-                        )
+                            placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
+                        ),
                     ) {
                         LatexDrawableImage(drawable = drawable, modifier = Modifier.fillMaxSize())
                     }
@@ -1924,8 +2166,8 @@ fun HtmlMessageText(
                         Placeholder(
                             width = with(density) { textLayout.size.width.toDp().value.sp },
                             height = with(density) { textLayout.size.height.toDp().value.sp },
-                            placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
-                        )
+                            placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
+                        ),
                     ) {
                         Text(text = latex, style = fallbackStyle)
                     }
@@ -1943,8 +2185,8 @@ fun HtmlMessageText(
                 Placeholder(
                     width = maxHeight.sp,
                     height = maxHeight.sp,
-                    placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
-                )
+                    placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
+                ),
             ) {
                 InlineImage(
                     src = imageData.src,
@@ -1953,14 +2195,14 @@ fun HtmlMessageText(
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
                     isHidden = imageData.isHidden,
-                    onClick = { handleInlineImageClick(imageData) }
+                    onClick = { handleInlineImageClick(imageData) },
                 )
             }
         }
         inlineMatrixUsers.forEach { (id, chip) ->
             val textLayout = textMeasurer.measure(
                 text = AnnotatedString(chip.displayText),
-                style = chipTextStyle.copy(color = primaryColor)
+                style = chipTextStyle.copy(color = primaryColor),
             )
             val textWidthDp = with(density) { textLayout.size.width.toDp() }
             val widthSp = with(density) { textWidthDp.value.sp }
@@ -1969,14 +2211,14 @@ fun HtmlMessageText(
                 Placeholder(
                     width = widthSp,
                     height = heightSp,
-                    placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
-                )
+                    placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
+                ),
             ) {
                 Text(
                     text = chip.displayText,
                     style = chipTextStyle,
                     color = primaryColor,
-                    modifier = Modifier.clickable { onMatrixUserClick(chip.userId) }
+                    modifier = Modifier.clickable { onMatrixUserClick(chip.userId) },
                 )
             }
         }
@@ -1987,7 +2229,7 @@ fun HtmlMessageText(
             val textLayout = textMeasurer.measure(
                 text = AnnotatedString(chip.displayText),
                 style = chipTextStyle.copy(color = roomChipTextColor),
-                constraints = Constraints(maxWidth = Int.MAX_VALUE)
+                constraints = Constraints(maxWidth = Int.MAX_VALUE),
             )
             val textWidthDp = with(density) { textLayout.size.width.toDp() }
             val textHeightDp = with(density) { textLayout.size.height.toDp() }
@@ -1998,19 +2240,19 @@ fun HtmlMessageText(
                 Placeholder(
                     width = widthSp,
                     height = heightSp,
-                    placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
-                )
+                    placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
+                ),
             ) {
                 Surface(
                     color = roomChipColor,
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.clickable { onRoomLinkClick(chip.roomLink) }
+                    modifier = Modifier.clickable { onRoomLinkClick(chip.roomLink) },
                 ) {
                     Text(
                         text = chip.displayText,
                         style = chipTextStyle,
                         color = roomChipTextColor,
-                        modifier = Modifier.padding(horizontal = horizontalPadding, vertical = verticalPadding)
+                        modifier = Modifier.padding(horizontal = horizontalPadding, vertical = verticalPadding),
                     )
                 }
             }
@@ -2019,7 +2261,7 @@ fun HtmlMessageText(
         // The inlineCodeBlocks map is still used to store full code for click handling
         map
     }
-    
+
     // Table dialog open/close state — one entry per table in the message
     val tableDialogStates = remember(tableNodes.size) {
         mutableStateListOf<Boolean>().apply {
@@ -2051,31 +2293,175 @@ fun HtmlMessageText(
                                         val xDiff = kotlin.math.abs(change.position.x - downPosition.x)
                                         val yDiff = kotlin.math.abs(change.position.y - downPosition.y)
                                         if (xDiff > 10 || yDiff > 10) wasMoved = true
-                                    } else { up = change }
+                                    } else {
+                                        up = change
+                                    }
                                 }
                             } while (up == null && event.changes.any { it.pressed })
                             val isTap = !wasMoved && (System.currentTimeMillis() - downTime) < 500
                             if (isTap && up != null) {
                                 textLayoutResult?.let { layoutResult ->
                                     val offset = layoutResult.getOffsetForPosition(downPosition)
-                                    val spoilerAnnotation = annotatedString.getStringAnnotations(tag = "SPOILER", start = offset, end = offset).firstOrNull()
-                                    if (spoilerAnnotation != null) { up.consume(); spoilerContext.toggle(spoilerAnnotation.item); return@awaitEachGesture }
-                                    val codeBlockAnnotation = annotatedString.getStringAnnotations(tag = "CODE_BLOCK", start = offset, end = offset).firstOrNull()
-                                    if (codeBlockAnnotation != null) { up.consume(); val cb = inlineCodeBlocks[codeBlockAnnotation.item]; if (cb != null) onCodeBlockClick(cb.fullCode); return@awaitEachGesture }
-                                    val hasInteractive = annotatedString.getStringAnnotations(tag = "MATRIX_USER", start = offset, end = offset).isNotEmpty() ||
-                                        annotatedString.getStringAnnotations(tag = "ROOM_LINK", start = offset, end = offset).isNotEmpty() ||
-                                        annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset).isNotEmpty()
+                                    val spoilerAnnotation = annotatedString.getStringAnnotations(
+                                        tag = "SPOILER",
+                                        start = offset,
+                                        end = offset,
+                                    ).firstOrNull()
+                                    if (spoilerAnnotation != null) {
+                                        up.consume();
+                                        spoilerContext.toggle(
+                                        spoilerAnnotation.item,
+                                    );
+                                    return@awaitEachGesture
+                                    }
+                                    val codeBlockAnnotation = annotatedString.getStringAnnotations(
+                                        tag = "CODE_BLOCK",
+                                        start = offset,
+                                        end = offset,
+                                    ).firstOrNull()
+                                    if (codeBlockAnnotation !=
+                                        null
+                                    ) {
+                                            up.consume();
+                                            val cb = inlineCodeBlocks[codeBlockAnnotation.item];
+                                            if (cb !=
+                                        null
+                                            ) {
+                                            onCodeBlockClick(
+                                        cb.fullCode,
+                                    )
+                                        };
+                                        return@awaitEachGesture
+                                        }
+                                    val hasInteractive = annotatedString.getStringAnnotations(
+                                        tag = "MATRIX_USER",
+                                        start = offset,
+                                        end = offset,
+                                    ).isNotEmpty() ||
+                                        annotatedString.getStringAnnotations(
+                                            tag = "ROOM_LINK",
+                                            start = offset,
+                                            end = offset,
+                                        ).isNotEmpty() ||
+                                        annotatedString.getStringAnnotations(
+                                            tag = "URL",
+                                            start = offset,
+                                            end = offset,
+                                        ).isNotEmpty()
                                     if (hasInteractive) {
                                         up.consume()
-                                        annotatedString.getStringAnnotations(tag = "MATRIX_USER", start = offset, end = offset).firstOrNull()?.let { onMatrixUserClick(it.item); return@awaitEachGesture }
-                                        annotatedString.getStringAnnotations(tag = "ROOM_LINK", start = offset, end = offset).firstOrNull()?.let { val rl = extractRoomLink(it.item); if (rl != null) { onRoomLinkClick(rl); return@awaitEachGesture } }
-                                        annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset).firstOrNull()?.let { annotation ->
+                                        annotatedString.getStringAnnotations(
+                                            tag = "MATRIX_USER",
+                                            start = offset,
+                                            end = offset,
+                                        ).firstOrNull()?.let {
+                                            onMatrixUserClick(it.item);
+                                            return@awaitEachGesture
+                                        }
+                                        annotatedString.getStringAnnotations(
+                                            tag = "ROOM_LINK",
+                                            start = offset,
+                                            end = offset,
+                                        ).firstOrNull()?.let {
+                                            val rl = extractRoomLink(
+                                                it.item,
+                                            );
+                                            if (rl != null) {
+                                                onRoomLinkClick(rl);
+                                                return@awaitEachGesture
+                                            }
+                                        }
+                                        annotatedString.getStringAnnotations(
+                                            tag = "URL",
+                                            start = offset,
+                                            end = offset,
+                                        ).firstOrNull()?.let { annotation ->
                                             val url = annotation.item
                                             when {
-                                                url.startsWith("matrix:u/") -> { val uid = url.removePrefix("matrix:u/").let { if (it.startsWith("@")) it else "@$it" }; onMatrixUserClick(uid) }
-                                                url.startsWith("https://matrix.to/#/") -> { val dec = runCatching { URLDecoder.decode(url.removePrefix("https://matrix.to/#/"), Charsets.UTF_8.name()) }.getOrDefault(url.removePrefix("https://matrix.to/#/")); if (dec.startsWith("@")) onMatrixUserClick(dec) else { val rl = extractRoomLink(url); if (rl != null) onRoomLinkClick(rl) else try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (_: Exception) {} } }
-                                                url.startsWith("matrix:roomid/") || url.startsWith("matrix:/roomid/") || url.startsWith("matrix:r/") || url.startsWith("matrix:/r/") -> { val rl = extractRoomLink(url); if (rl != null) onRoomLinkClick(rl) else try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (_: Exception) {} }
-                                                else -> try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (_: Exception) {}
+                                                url.startsWith(
+                                                    "matrix:u/",
+                                                ) -> {
+                                                    val uid = url.removePrefix(
+                                                    "matrix:u/",
+                                                ).let {
+                                                    if (it.startsWith(
+                                                            "@",
+                                                        )
+                                                    ) {
+                                                            it
+                                                        } else {
+                                                            "@$it"
+                                                        }
+                                                };
+                                                onMatrixUserClick(uid)
+                                                }
+
+                                                url.startsWith(
+                                                    "https://matrix.to/#/",
+                                                ) -> {
+                                                    val dec = runCatching {
+                                                    URLDecoder.decode(
+                                                        url.removePrefix("https://matrix.to/#/"),
+                                                        Charsets.UTF_8.name(),
+                                                    )
+                                                }.getOrDefault(
+                                                    url.removePrefix("https://matrix.to/#/"),
+                                                );
+                                                if (dec.startsWith(
+                                                        "@",
+                                                    )
+                                                ) {
+                                                        onMatrixUserClick(
+                                                    dec,
+                                                )
+                                                    } else {
+                                                        val rl = extractRoomLink(
+                                                    url,
+                                                );
+                                                if (rl != null) {
+                                                    onRoomLinkClick(
+                                                    rl,
+                                                )
+                                                } else {
+                                                    try {
+                                                        context.startActivity(
+                                                    Intent(Intent.ACTION_VIEW, Uri.parse(url)),
+                                                )
+                                                    } catch (_: Exception) {}
+                                                }
+                                                    }
+                                                }
+
+                                                url.startsWith(
+                                                    "matrix:roomid/",
+                                                ) || url.startsWith(
+                                                    "matrix:/roomid/",
+                                                ) || url.startsWith(
+                                                    "matrix:r/",
+                                                ) || url.startsWith(
+                                                    "matrix:/r/",
+                                                ) -> {
+                                                    val rl = extractRoomLink(
+                                                    url,
+                                                );
+                                                if (rl != null) {
+                                                    onRoomLinkClick(
+                                                    rl,
+                                                )
+                                                } else {
+                                                    try {
+                                                        context.startActivity(
+                                                    Intent(Intent.ACTION_VIEW, Uri.parse(url)),
+                                                )
+                                                    } catch (_: Exception) {}
+                                                }
+                                                }
+
+                                                else -> try {
+                                                    context.startActivity(
+                                                    Intent(Intent.ACTION_VIEW, Uri.parse(url)),
+                                                )
+                                                } catch (_: Exception) {}
                                             }
                                         }
                                     }
@@ -2083,10 +2469,16 @@ fun HtmlMessageText(
                             }
                         }
                     },
-                    style = if (isEmojiOnly) MaterialTheme.typography.bodyMedium.copy(color = color, fontSize = MaterialTheme.typography.bodyMedium.fontSize * 3)
-                            else MaterialTheme.typography.bodyMedium.copy(color = color),
+                    style = if (isEmojiOnly) {
+                        MaterialTheme.typography.bodyMedium.copy(
+                        color = color,
+                        fontSize = MaterialTheme.typography.bodyMedium.fontSize * 3,
+                    )
+                    } else {
+                        MaterialTheme.typography.bodyMedium.copy(color = color)
+                    },
                     inlineContent = inlineContentMap,
-                    onTextLayout = { textLayoutResult = it }
+                    onTextLayout = { textLayoutResult = it },
                 )
                 Spacer(Modifier.height(4.dp))
             }
@@ -2094,12 +2486,12 @@ fun HtmlMessageText(
                 if (idx > 0) Spacer(Modifier.height(4.dp))
                 HtmlTablePreviewCard(
                     tableData = tableData,
-                    onClick = { tableDialogStates[idx] = true }
+                    onClick = { tableDialogStates[idx] = true },
                 )
                 if (tableDialogStates[idx]) {
                     HtmlTableDialog(
                         tableData = tableData,
-                        onDismiss = { tableDialogStates[idx] = false }
+                        onDismiss = { tableDialogStates[idx] = false },
                     )
                 }
             }
@@ -2110,7 +2502,7 @@ fun HtmlMessageText(
                 BlockMath(
                     latex = latex,
                     colorArgb = mathColorArgb,
-                    textSizePx = blockMathTextSizePx
+                    textSizePx = blockMathTextSizePx,
                 )
             }
         }
@@ -2132,7 +2524,7 @@ fun HtmlMessageText(
             text = body,
             style = textStyle,
             modifier = modifier,
-            color = color
+            color = color,
         )
     } else {
         // Use Text with custom gesture handling that only consumes taps on interactive elements
@@ -2146,11 +2538,11 @@ fun HtmlMessageText(
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val downTime = System.currentTimeMillis()
                     val downPosition = down.position
-                    
+
                     // Wait for all pointer changes until release
                     var up: PointerInputChange? = null
                     var wasMoved = false
-                    
+
                     do {
                         val event = awaitPointerEvent()
                         event.changes.forEach { change ->
@@ -2167,19 +2559,23 @@ fun HtmlMessageText(
                             }
                         }
                     } while (up == null && event.changes.any { it.pressed })
-                    
+
                     // Check if this was a tap (short duration, no movement)
                     val upTime = System.currentTimeMillis()
                     val duration = upTime - downTime
                     val isTap = !wasMoved && duration < 500 // Less than 500ms = tap, not long press
-                    
+
                     if (isTap && up != null) {
                         // This is a tap, check if it's on an interactive element
                         textLayoutResult?.let { layoutResult ->
                             val offset = layoutResult.getOffsetForPosition(downPosition)
-                            
+
                             // Check if tap is on a Matrix user pill, room link, or URL
-                            val spoilerAnnotation = annotatedString.getStringAnnotations(tag = "SPOILER", start = offset, end = offset).firstOrNull()
+                            val spoilerAnnotation = annotatedString.getStringAnnotations(
+                                tag = "SPOILER",
+                                start = offset,
+                                end = offset,
+                            ).firstOrNull()
                             if (spoilerAnnotation != null) {
                                 up.consume()
                                 spoilerContext.toggle(spoilerAnnotation.item)
@@ -2187,7 +2583,11 @@ fun HtmlMessageText(
                             }
 
                             // Check for code block annotation first
-                            val codeBlockAnnotation = annotatedString.getStringAnnotations(tag = "CODE_BLOCK", start = offset, end = offset).firstOrNull()
+                            val codeBlockAnnotation = annotatedString.getStringAnnotations(
+                                tag = "CODE_BLOCK",
+                                start = offset,
+                                end = offset,
+                            ).firstOrNull()
                             if (codeBlockAnnotation != null) {
                                 up.consume()
                                 val codeBlockId = codeBlockAnnotation.item
@@ -2198,27 +2598,44 @@ fun HtmlMessageText(
                                 return@awaitEachGesture
                             }
 
-                            val hasMatrixUser = annotatedString.getStringAnnotations(tag = "MATRIX_USER", start = offset, end = offset).isNotEmpty()
-                            val hasRoomLink = annotatedString.getStringAnnotations(tag = "ROOM_LINK", start = offset, end = offset).isNotEmpty()
-                            val hasUrl = annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset).isNotEmpty()
-                            
+                            val hasMatrixUser = annotatedString.getStringAnnotations(
+                                tag = "MATRIX_USER",
+                                start = offset,
+                                end = offset,
+                            ).isNotEmpty()
+                            val hasRoomLink = annotatedString.getStringAnnotations(
+                                tag = "ROOM_LINK",
+                                start = offset,
+                                end = offset,
+                            ).isNotEmpty()
+                            val hasUrl = annotatedString.getStringAnnotations(
+                                tag = "URL",
+                                start = offset,
+                                end = offset,
+                            ).isNotEmpty()
+
                             if (hasMatrixUser || hasRoomLink || hasUrl) {
                                 // Consume the event since we're handling it
                                 up.consume()
-                                
+
                                 // Matrix user annotations take precedence
                                 annotatedString.getStringAnnotations(tag = "MATRIX_USER", start = offset, end = offset)
                                     .firstOrNull()?.let { annotation ->
                                         onMatrixUserClick(annotation.item)
                                         return@awaitEachGesture
                                     }
-                                
+
                                 // Matrix room link annotations
                                 annotatedString.getStringAnnotations(tag = "ROOM_LINK", start = offset, end = offset)
                                     .firstOrNull()?.let { annotation ->
                                         val roomLink = extractRoomLink(annotation.item)
                                         if (roomLink != null) {
-                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: room link tapped for ${roomLink.roomIdOrAlias}")
+                                            if (BuildConfig.DEBUG) {
+                                                Log.d(
+                                                "Andromuks",
+                                                "HtmlMessageText: room link tapped for ${roomLink.roomIdOrAlias}",
+                                            )
+                                            }
                                             onRoomLinkClick(roomLink)
                                             return@awaitEachGesture
                                         }
@@ -2231,41 +2648,77 @@ fun HtmlMessageText(
                                         when {
                                             url.startsWith("matrix:u/") -> {
                                                 val rawId = url.removePrefix("matrix:u/")
-                                                val userId = if (rawId.startsWith("@")) rawId else "@${rawId}"
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: matrix:u link tapped for $userId")
+                                                val userId = if (rawId.startsWith("@")) rawId else "@$rawId"
+                                                if (BuildConfig.DEBUG) {
+                                                    Log.d(
+                                                    "Andromuks",
+                                                    "HtmlMessageText: matrix:u link tapped for $userId",
+                                                )
+                                                }
                                                 onMatrixUserClick(userId)
                                             }
+
                                             url.startsWith("https://matrix.to/#/") -> {
                                                 val encodedPart = url.removePrefix("https://matrix.to/#/")
-                                                val decoded = runCatching { URLDecoder.decode(encodedPart, Charsets.UTF_8.name()) }
+                                                val decoded = runCatching {
+                                                    URLDecoder.decode(
+                                                        encodedPart,
+                                                        Charsets.UTF_8.name(),
+                                                    )
+                                                }
                                                     .getOrDefault(encodedPart)
                                                 if (decoded.startsWith("@")) {
                                                     // User link
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: matrix.to link tapped for $decoded")
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "HtmlMessageText: matrix.to link tapped for $decoded",
+                                                    )
+                                                    }
                                                     onMatrixUserClick(decoded)
                                                 } else {
                                                     // Check if it's a room link (starts with ! or #)
                                                     val roomLink = extractRoomLink(url)
                                                     if (roomLink != null) {
-                                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: matrix.to room link tapped for ${roomLink.roomIdOrAlias}")
+                                                        if (BuildConfig.DEBUG) {
+                                                            Log.d(
+                                                            "Andromuks",
+                                                            "HtmlMessageText: matrix.to room link tapped for ${roomLink.roomIdOrAlias}",
+                                                        )
+                                                        }
                                                         onRoomLinkClick(roomLink)
                                                     } else {
                                                         // Fallback to opening in browser for unrecognized matrix.to links
                                                         try {
                                                             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                                                             context.startActivity(intent)
-                                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "Opening URL: $url")
+                                                            if (BuildConfig.DEBUG) {
+                                                                Log.d(
+                                                                "Andromuks",
+                                                                "Opening URL: $url",
+                                                            )
+                                                            }
                                                         } catch (e: Exception) {
                                                             Log.e("Andromuks", "Failed to open URL: $url", e)
                                                         }
                                                     }
                                                 }
                                             }
-                                            url.startsWith("matrix:roomid/") || url.startsWith("matrix:/roomid/") || url.startsWith("matrix:r/") || url.startsWith("matrix:/r/") -> {
+
+                                            url.startsWith(
+                                                "matrix:roomid/",
+                                            ) || url.startsWith(
+                                                "matrix:/roomid/",
+                                            ) || url.startsWith("matrix:r/") || url.startsWith("matrix:/r/") -> {
                                                 // Matrix room link in matrix: URI format
                                                 val roomLink = extractRoomLink(url)
                                                 if (roomLink != null) {
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: matrix: room link tapped for ${roomLink.roomIdOrAlias}")
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "HtmlMessageText: matrix: room link tapped for ${roomLink.roomIdOrAlias}",
+                                                    )
+                                                    }
                                                     onRoomLinkClick(roomLink)
                                                 } else {
                                                     // Fallback to opening in browser
@@ -2278,6 +2731,7 @@ fun HtmlMessageText(
                                                     }
                                                 }
                                             }
+
                                             else -> {
                                                 // Open URL in browser
                                                 try {
@@ -2300,7 +2754,7 @@ fun HtmlMessageText(
             style = if (isEmojiOnly) {
                 MaterialTheme.typography.bodyMedium.copy(
                     color = color,
-                    fontSize = MaterialTheme.typography.bodyMedium.fontSize * 2
+                    fontSize = MaterialTheme.typography.bodyMedium.fontSize * 2,
                 )
             } else {
                 MaterialTheme.typography.bodyMedium.copy(color = color)
@@ -2308,7 +2762,7 @@ fun HtmlMessageText(
             inlineContent = inlineContentMap,
             onTextLayout = { layoutResult ->
                 textLayoutResult = layoutResult
-            }
+            },
         )
     }
     InlineImageViewerHost()
@@ -2325,10 +2779,12 @@ private fun inlineImageToMediaMessage(data: InlineImageData): Pair<MediaMessage,
     val encrypted = raw.contains("encrypted=true")
     val mxc = when {
         raw.startsWith("mxc://") -> raw.substringBefore("?")
+
         raw.startsWith("_gomuks/media/") -> {
             val parts = raw.removePrefix("_gomuks/media/").substringBefore("?").split("/", limit = 2)
             if (parts.size == 2) "mxc://${parts[0]}/${parts[1]}" else return null
         }
+
         else -> return null
     }
     val media = MediaMessage(
@@ -2336,7 +2792,7 @@ private fun inlineImageToMediaMessage(data: InlineImageData): Pair<MediaMessage,
         filename = data.alt.ifBlank { mxc.substringAfterLast("/") },
         caption = null,
         info = MediaInfo(width = 0, height = 0, size = 0L, mimeType = "image/png", blurHash = null),
-        msgType = "m.image"
+        msgType = "m.image",
     )
     return media to encrypted
 }
@@ -2347,10 +2803,7 @@ private fun inlineImageToMediaMessage(data: InlineImageData): Pair<MediaMessage,
  * intrinsics) and block maths (box sized for display).
  */
 @Composable
-private fun LatexDrawableImage(
-    drawable: android.graphics.drawable.Drawable,
-    modifier: Modifier = Modifier
-) {
+private fun LatexDrawableImage(drawable: android.graphics.drawable.Drawable, modifier: Modifier = Modifier) {
     val intrinsicWidth = drawable.intrinsicWidth.coerceAtLeast(1)
     val intrinsicHeight = drawable.intrinsicHeight.coerceAtLeast(1)
     Canvas(modifier = modifier) {
@@ -2376,12 +2829,7 @@ private fun LatexDrawableImage(
  * horizontal scrolling so very wide formulae (e.g. the quadratic formula) aren't clipped.
  */
 @Composable
-private fun BlockMath(
-    latex: String,
-    colorArgb: Int,
-    textSizePx: Float,
-    modifier: Modifier = Modifier
-) {
+private fun BlockMath(latex: String, colorArgb: Int, textSizePx: Float, modifier: Modifier = Modifier) {
     val density = LocalDensity.current
     val drawable = remember(latex, textSizePx, colorArgb) {
         runCatching {
@@ -2396,8 +2844,11 @@ private fun BlockMath(
         // Malformed LaTeX: show the raw source rather than nothing.
         Text(
             text = latex,
-            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace, color = Color(colorArgb)),
-            modifier = modifier
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontFamily = FontFamily.Monospace,
+                color = Color(colorArgb),
+            ),
+            modifier = modifier,
         )
         return
     }
@@ -2407,11 +2858,11 @@ private fun BlockMath(
         modifier = modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.Center
+        horizontalArrangement = Arrangement.Center,
     ) {
         LatexDrawableImage(
             drawable = drawable,
-            modifier = Modifier.size(width = widthDp, height = heightDp)
+            modifier = Modifier.size(width = widthDp, height = heightDp),
         )
     }
 }
@@ -2427,39 +2878,41 @@ private fun InlineImage(
     homeserverUrl: String,
     authToken: String,
     isHidden: Boolean,
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    
+
     // Use shared ImageLoader singleton with custom User-Agent
     val imageLoader = remember { ImageLoaderSingleton.get(context) }
-    
+
     // Determine the MXC URL for caching
     val mxcUrl = remember(src) {
         when {
             src.startsWith("mxc://") -> src
+
             src.startsWith("_gomuks/media/") -> {
                 // Convert _gomuks/media/server/mediaId back to mxc://server/mediaId
                 val parts = src.removePrefix("_gomuks/media/").split("?")[0].split("/", limit = 2)
                 if (parts.size == 2) "mxc://${parts[0]}/${parts[1]}" else null
             }
+
             else -> null
         }
     }
-    
+
     // Check if we have a cached version first
     // CRITICAL FIX: Use Dispatchers.IO for file I/O operations (file.exists() is blocking)
     // IntelligentMediaCache.getCachedFile() performs file.exists() which blocks the thread
     var cachedFile by remember { mutableStateOf<File?>(null) }
     LaunchedEffect(mxcUrl) {
-        cachedFile = mxcUrl?.let { 
+        cachedFile = mxcUrl?.let {
             withContext(Dispatchers.IO) {
                 IntelligentMediaCache.getCachedFile(context, it)
             }
         }
     }
-    
+
     // Convert to HTTP URL or use cached file
     val imageUrl = remember(src, homeserverUrl, cachedFile) {
         val file = cachedFile
@@ -2473,6 +2926,7 @@ private fun InlineImage(
                 src.startsWith("mxc://") -> {
                     MediaUtils.mxcToHttpUrl(src, homeserverUrl)
                 }
+
                 src.startsWith("_gomuks/media/") -> {
                     // Already in gomuks format, just prepend homeserver URL
                     // Ensure proper URL construction (handle trailing slash in homeserverUrl)
@@ -2483,6 +2937,7 @@ private fun InlineImage(
                     }
                     "$baseUrl/$src"
                 }
+
                 else -> {
                     Log.w("Andromuks", "InlineImage: Invalid image source: $src")
                     null
@@ -2494,16 +2949,16 @@ private fun InlineImage(
             url
         }
     }
-    
+
     // NOTE: Coil handles caching automatically with memoryCachePolicy and diskCachePolicy
     // No need to manually download - would cause duplicate requests (Coil + okhttp)
-    
+
     if (isHidden) {
         // Render a placeholder with the same size to avoid layout changes.
         Box(
             modifier = Modifier
                 .size(height.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp)),
         )
     } else if (imageUrl != null) {
         // CRITICAL FIX: Disable error caching for inline images to allow retries
@@ -2532,9 +2987,9 @@ private fun InlineImage(
                     imageUrl = imageUrl,
                     throwable = errorState.result.throwable,
                     imageLoader = imageLoader,
-                    context = "InlineImage"
+                    context = "InlineImage",
                 )
-            }
+            },
         )
     } else {
         // Fallback to alt text
@@ -2555,10 +3010,10 @@ fun htmlToNotificationText(htmlContent: String): android.text.Spanned {
     return try {
         // Parse raw markup; the parser decodes entities at leaf text nodes.
         val nodes = HtmlParser.parse(htmlContent)
-        
+
         // Convert to SpannableStringBuilder with styles
         val builder = android.text.SpannableStringBuilder()
-        
+
         fun appendNodeToSpannable(node: HtmlNode) {
             when (node) {
                 is HtmlNode.Text -> {
@@ -2577,10 +3032,12 @@ fun htmlToNotificationText(htmlContent: String): android.text.Spanned {
                     }
                     if (toAppend.isNotEmpty()) builder.append(toAppend)
                 }
+
                 is HtmlNode.LineBreak -> builder.append("\n")
+
                 is HtmlNode.Tag -> {
                     val startIndex = builder.length
-                    
+
                     when (node.name) {
                         "strong", "b" -> {
                             node.children.forEach { appendNodeToSpannable(it) }
@@ -2588,45 +3045,50 @@ fun htmlToNotificationText(htmlContent: String): android.text.Spanned {
                                 android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
                                 startIndex,
                                 builder.length,
-                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
                             )
                         }
+
                         "em", "i" -> {
                             node.children.forEach { appendNodeToSpannable(it) }
                             builder.setSpan(
                                 android.text.style.StyleSpan(android.graphics.Typeface.ITALIC),
                                 startIndex,
                                 builder.length,
-                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
                             )
                         }
+
                         "u" -> {
                             node.children.forEach { appendNodeToSpannable(it) }
                             builder.setSpan(
                                 android.text.style.UnderlineSpan(),
                                 startIndex,
                                 builder.length,
-                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
                             )
                         }
+
                         "s", "del" -> {
                             node.children.forEach { appendNodeToSpannable(it) }
                             builder.setSpan(
                                 android.text.style.StrikethroughSpan(),
                                 startIndex,
                                 builder.length,
-                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
                             )
                         }
+
                         "code" -> {
                             node.children.forEach { appendNodeToSpannable(it) }
                             builder.setSpan(
                                 android.text.style.TypefaceSpan("monospace"),
                                 startIndex,
                                 builder.length,
-                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
                             )
                         }
+
                         "pre" -> {
                             if (builder.isNotEmpty() && !builder.toString().endsWith("\n")) builder.append("\n")
                             node.children.forEach { appendNodeToSpannable(it) }
@@ -2634,18 +3096,22 @@ fun htmlToNotificationText(htmlContent: String): android.text.Spanned {
                                 android.text.style.TypefaceSpan("monospace"),
                                 startIndex,
                                 builder.length,
-                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
                             )
                             builder.append("\n")
                         }
+
                         "br" -> builder.append("\n")
+
                         "hr" -> {
                             if (builder.isNotEmpty() && !builder.toString().endsWith("\n")) builder.append("\n")
                             builder.append("────────\n")
                         }
+
                         "mx-reply" -> {
                             // Skip rich reply fallback block
                         }
+
                         "h1", "h2", "h3", "h4", "h5", "h6" -> {
                             if (builder.isNotEmpty() && !builder.toString().endsWith("\n")) builder.append("\n")
                             node.children.forEach { appendNodeToSpannable(it) }
@@ -2654,15 +3120,17 @@ fun htmlToNotificationText(htmlContent: String): android.text.Spanned {
                                 android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
                                 startIndex,
                                 builder.length,
-                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
                             )
                             builder.append("\n")
                         }
+
                         "p", "div" -> {
                             if (builder.isNotEmpty() && !builder.toString().endsWith("\n")) builder.append("\n")
                             node.children.forEach { appendNodeToSpannable(it) }
                             builder.append("\n")
                         }
+
                         "blockquote" -> {
                             if (builder.isNotEmpty() && !builder.toString().endsWith("\n")) builder.append("\n")
                             builder.append("│ ")
@@ -2680,10 +3148,11 @@ fun htmlToNotificationText(htmlContent: String): android.text.Spanned {
                                 android.text.style.StyleSpan(android.graphics.Typeface.ITALIC),
                                 quoteStart,
                                 builder.length,
-                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
                             )
                             builder.append("\n")
                         }
+
                         "ul" -> {
                             builder.append("\n")
                             node.children.forEach { child ->
@@ -2694,18 +3163,20 @@ fun htmlToNotificationText(htmlContent: String): android.text.Spanned {
                                 }
                             }
                         }
+
                         "ol" -> {
                             builder.append("\n")
                             var index = 1
                             node.children.forEach { child ->
                                 if (child is HtmlNode.Tag && child.name == "li") {
-                                    builder.append("${index}. ")
+                                    builder.append("$index. ")
                                     child.children.forEach { appendNodeToSpannable(it) }
                                     builder.append("\n")
                                     index++
                                 }
                             }
                         }
+
                         "a" -> {
                             val href = node.attributes["href"] ?: ""
                             node.children.forEach { appendNodeToSpannable(it) }
@@ -2714,15 +3185,17 @@ fun htmlToNotificationText(htmlContent: String): android.text.Spanned {
                                     android.text.style.URLSpan(href),
                                     startIndex,
                                     builder.length,
-                                    android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                                    android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
                                 )
                             }
                         }
+
                         "img" -> {
                             // For images in notifications, show alt text or a placeholder
                             val alt = node.attributes["alt"] ?: node.attributes["title"] ?: "[Image]"
                             builder.append(alt)
                         }
+
                         else -> {
                             // For unsupported tags, just append children
                             node.children.forEach { appendNodeToSpannable(it) }
@@ -2731,16 +3204,16 @@ fun htmlToNotificationText(htmlContent: String): android.text.Spanned {
                 }
             }
         }
-        
+
         nodes.forEach { appendNodeToSpannable(it) }
-        
+
         // Clean up multiple consecutive newlines
         var result = builder.toString()
         while (result.contains("\n\n\n")) {
             result = result.replace("\n\n\n", "\n\n")
         }
         result = result.trim()
-        
+
         // Return as SpannedString with preserved spans
         android.text.SpannableString(result).also { spanned ->
             builder.getSpans(0, builder.length, Any::class.java).forEach { span ->
@@ -2772,13 +3245,13 @@ fun renderHtmlToAnnotatedString(htmlContent: String, baseColor: Color = Color.Un
         if (nodes.isEmpty()) {
             return AnnotatedString(decodeHtmlEntities(htmlContent))
         }
-        
+
         buildAnnotatedString {
             val inlineImages = mutableMapOf<String, InlineImageData>()
             val inlineMatrixUsers = mutableMapOf<String, InlineMatrixUserChip>()
             val inlineMatrixRooms = mutableMapOf<String, InlineMatrixRoomChip>()
             var previousWasLineBreak = false
-            
+
             nodes.forEach { node ->
                 appendHtmlNode(
                     node = node,
@@ -2789,7 +3262,7 @@ fun renderHtmlToAnnotatedString(htmlContent: String, baseColor: Color = Color.Un
                     spoilerContext = null,
                     hideContent = false,
                     previousWasLineBreak = previousWasLineBreak,
-                    inlineCodeBlocks = null
+                    inlineCodeBlocks = null,
                 )
                 previousWasLineBreak = node is HtmlNode.LineBreak
             }
@@ -2806,4 +3279,3 @@ fun renderHtmlToAnnotatedString(htmlContent: String, baseColor: Color = Color.Un
         AnnotatedString(htmlContent)
     }
 }
-

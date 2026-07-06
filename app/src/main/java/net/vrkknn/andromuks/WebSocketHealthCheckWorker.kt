@@ -1,24 +1,23 @@
 package net.vrkknn.andromuks
 
-import net.vrkknn.andromuks.BuildConfig
-
-import android.content.Context
-import android.os.Build
-import android.util.Log
-import androidx.work.CoroutineWorker
-import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
-import androidx.work.WorkerParameters
-import androidx.work.ExistingWorkPolicy
-import androidx.work.OutOfQuotaPolicy
-import androidx.work.ForegroundInfo
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.Context
+import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingWorkPolicy
+import androidx.work.ForegroundInfo
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.WorkerParameters
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.BuildConfig
 import java.util.concurrent.TimeUnit
 
 /**
@@ -37,30 +36,27 @@ import java.util.concurrent.TimeUnit
  * WorkManager ensures the service gets restarted even if Android kills it aggressively.
  * Uses ServiceStartWorker for reliable service restart even when app process is killed.
  */
-class WebSocketHealthCheckWorker(
-    context: Context,
-    params: WorkerParameters
-) : CoroutineWorker(context, params) {
-    
+class WebSocketHealthCheckWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+
     private val TAG = "WebSocketHealthCheckWorker"
-    
-    override suspend fun getForegroundInfo(): ForegroundInfo {
-        return ForegroundInfo(
-            NOTIFICATION_ID,
-            createHealthCheckNotification()
-        )
-    }
-    
+
+    override suspend fun getForegroundInfo(): ForegroundInfo = ForegroundInfo(
+        NOTIFICATION_ID,
+        createHealthCheckNotification(),
+    )
+
     private fun createHealthCheckNotification(): Notification {
         val channelId = "health_check_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "Health Check"
             val importance = NotificationManager.IMPORTANCE_LOW
             val channel = NotificationChannel(channelId, name, importance)
-            val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val notificationManager = applicationContext.getSystemService(
+                Context.NOTIFICATION_SERVICE,
+            ) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
-        
+
         return NotificationCompat.Builder(applicationContext, channelId)
             .setContentTitle("Andromuks")
             .setContentText("Checking connection health...")
@@ -68,10 +64,10 @@ class WebSocketHealthCheckWorker(
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
-    
+
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         if (BuildConfig.DEBUG) Log.d(TAG, "WebSocket health check worker started")
-        
+
         try {
             // Battery-saver mode: user intentionally disconnected while backgrounded — do nothing.
             // Attempting a reconnect here would defeat the whole point of battery-saver mode.
@@ -89,103 +85,106 @@ class WebSocketHealthCheckWorker(
                 if (BuildConfig.DEBUG) Log.d(TAG, "No credentials found - user not logged in, skipping health check")
                 return@withContext Result.success()
             }
-            
+
             // Check if service is running using companion object flag (reliable, not deprecated)
             val isServiceRunning = WebSocketService.isServiceRunning()
             val isWebSocketConnected = WebSocketService.isConnected()
             val isReconnectingOrConnecting = WebSocketService.isReconnectingOrConnecting()
             val connectionState = WebSocketService.getConnectionState()
-            
+
             if (BuildConfig.DEBUG) Log.d(TAG, "Health check: serviceRunning=$isServiceRunning, websocketConnected=$isWebSocketConnected, isReconnectingOrConnecting=$isReconnectingOrConnecting, state=$connectionState")
-            
+
             if (!isServiceRunning) {
                 // Service was killed - restart it via ServiceStartWorker (more reliable than direct start)
                 // BATTERY OPTIMIZATION: Combined health check and auto-restart into single worker
                 Log.w(TAG, "WebSocketService not running - scheduling restart via ServiceStartWorker")
                 WebSocketService.logActivity("Health Check: Service Not Running - Restarting", null)
                 ServiceStartWorker.enqueue(applicationContext, "WebSocketHealthCheckWorker - service killed")
-                
+
                 // Proactive scaling: Schedule a recovery check in 1 minute
                 enqueueRecoveryCheck(applicationContext, "Service recovery check")
-                
+
                 return@withContext Result.success()
             }
-            
+
             // CRITICAL FIX: Skip reconnection if service is already reconnecting or connecting
             // This prevents redundant reconnection attempts and race conditions
             if (isReconnectingOrConnecting) {
-                if (BuildConfig.DEBUG) Log.d(TAG, "Service is already reconnecting or connecting (state=$connectionState), skipping health check reconnection action")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    TAG,
+                    "Service is already reconnecting or connecting (state=$connectionState), skipping health check reconnection action",
+                )
+                }
                 WebSocketService.logActivity("Health Check: Service Reconnecting - Skipping Redundant Action", null)
                 return@withContext Result.success()
             }
-            
+
             if (!isWebSocketConnected) {
                 // Service is running but WebSocket is disconnected - trigger reconnection
                 // Only trigger if not already reconnecting/connecting (checked above)
                 Log.w(TAG, "WebSocketService running but WebSocket disconnected - triggering reconnection")
                 WebSocketService.logActivity("Health Check: WebSocket Disconnected - Reconnecting", null)
-                
+
                 // Use safe reconnection which has fallback logic if AppViewModel is not available
                 WebSocketService.triggerReconnectionSafely(ReconnectTrigger.WorkManagerHealthCheck)
-                
+
                 // Proactive scaling: Schedule a recovery check in 1 minute
                 enqueueRecoveryCheck(applicationContext, "WebSocket reconnection check")
-                
+
                 return@withContext Result.success()
             }
-            
+
             // Everything is healthy
             if (BuildConfig.DEBUG) Log.d(TAG, "WebSocket health check passed - service running and connected")
             WebSocketService.logActivity("Health Check: Service Running and Connected", null)
             Result.success()
-            
         } catch (e: Exception) {
             Log.e(TAG, "Error in WebSocket health check worker: ${e.message}", e)
             // Don't retry immediately - wait for next scheduled run
             Result.success()
         }
     }
-    
-    
-    
+
     companion object {
         private const val WORK_NAME = "websocket_health_check"
+
         /** One-off recovery; unique name so flapping reconnects don't stack workers. */
         private const val RECOVERY_UNIQUE_WORK_NAME = "health_check_recovery"
         private const val REPEAT_INTERVAL_MINUTES = 15L // Minimum allowed by WorkManager
         private const val FLEX_INTERVAL_MINUTES = 5L // Flex window for execution
-        
+
         /**
          * Schedule periodic WebSocket health checks
          * Runs every 15 minutes (minimum allowed by WorkManager)
          */
         fun schedule(context: Context) {
             val workManager = WorkManager.getInstance(context)
-            
+
             val healthCheckWork = PeriodicWorkRequestBuilder<WebSocketHealthCheckWorker>(
                 repeatInterval = REPEAT_INTERVAL_MINUTES,
                 repeatIntervalTimeUnit = TimeUnit.MINUTES,
                 flexTimeInterval = FLEX_INTERVAL_MINUTES,
-                flexTimeIntervalUnit = TimeUnit.MINUTES
+                flexTimeIntervalUnit = TimeUnit.MINUTES,
             )
                 .addTag("websocket_health_check")
                 .setConstraints(
                     androidx.work.Constraints.Builder()
                         .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
-                        .build()
+                        .build(),
                 )
                 .build()
-            
+
             // Enqueue unique work (replaces any existing work with same name)
             workManager.enqueueUniquePeriodicWork(
                 WORK_NAME,
                 androidx.work.ExistingPeriodicWorkPolicy.KEEP,
-                healthCheckWork
+                healthCheckWork,
             )
-            
+
             if (BuildConfig.DEBUG) Log.d("WebSocketHealthCheckWorker", "Scheduled periodic WebSocket health checks (every $REPEAT_INTERVAL_MINUTES minutes)")
         }
-        
+
         /**
          * Cancel scheduled health checks
          */
@@ -193,7 +192,7 @@ class WebSocketHealthCheckWorker(
             WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
             if (BuildConfig.DEBUG) Log.d("WebSocketHealthCheckWorker", "Cancelled WebSocket health checks")
         }
-        
+
         /**
          * Schedule a one-off expedited recovery check in 1 minute
          */
@@ -203,16 +202,15 @@ class WebSocketHealthCheckWorker(
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .addTag("health_check_recovery")
                 .build()
-            
+
             WorkManager.getInstance(context).enqueueUniqueWork(
                 RECOVERY_UNIQUE_WORK_NAME,
                 ExistingWorkPolicy.REPLACE,
-                recoveryWork
+                recoveryWork,
             )
             if (BuildConfig.DEBUG) Log.d("WebSocketHealthCheckWorker", "Enqueued one-off recovery check: $reason")
         }
-        
+
         private const val NOTIFICATION_ID = 1003
     }
 }
-

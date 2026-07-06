@@ -22,9 +22,15 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
 
             val verify = prefs.getBoolean("enable_compression", !enableCompression)
             if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "AppViewModel: Saved enableCompression setting: $enableCompression (commit result: $saved, verified: $verify)")
+                android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: Saved enableCompression setting: $enableCompression (commit result: $saved, verified: $verify)",
+                )
                 if (verify != enableCompression) {
-                    android.util.Log.e("Andromuks", "AppViewModel: CRITICAL - Compression setting mismatch! Expected: $enableCompression, got: $verify")
+                    android.util.Log.e(
+                        "Andromuks",
+                        "AppViewModel: CRITICAL - Compression setting mismatch! Expected: $enableCompression, got: $verify",
+                    )
                 }
             }
 
@@ -33,11 +39,19 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
 
                 val finalValue = prefs.getBoolean("enable_compression", !enableCompression)
                 if (finalValue != enableCompression) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Compression setting still incorrect after delay! Expected: $enableCompression, got: $finalValue - retrying save")
+                    android.util.Log.e(
+                        "Andromuks",
+                        "AppViewModel: Compression setting still incorrect after delay! Expected: $enableCompression, got: $finalValue - retrying save",
+                    )
                     prefs.edit().putBoolean("enable_compression", enableCompression).commit()
                 }
 
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restarting WebSocket due to compression setting change (value: $enableCompression)")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: Restarting WebSocket due to compression setting change (value: $enableCompression)",
+                )
+                }
                 logActivity("Compression Setting Changed - Restarting", null)
                 restartWebSocket(ReconnectTrigger.Unclassified("Compression setting changed"))
             }
@@ -54,7 +68,12 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             prefs.edit()
                 .putBoolean("enter_key_sends_message", enterKeySendsMessage)
                 .commit()
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved enterKeySendsMessage setting: $enterKeySendsMessage")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Saved enterKeySendsMessage setting: $enterKeySendsMessage",
+            )
+            }
         }
     }
 
@@ -66,10 +85,12 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             prefs.edit()
                 .putBoolean("load_thumbnails_if_available", loadThumbnailsIfAvailable)
                 .commit()
-            if (BuildConfig.DEBUG) android.util.Log.d(
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Saved loadThumbnailsIfAvailable setting: $loadThumbnailsIfAvailable"
+                "AppViewModel: Saved loadThumbnailsIfAvailable setting: $loadThumbnailsIfAvailable",
             )
+            }
         }
     }
 
@@ -81,10 +102,12 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             prefs.edit()
                 .putBoolean("render_thumbnails_always", renderThumbnailsAlways)
                 .commit()
-            if (BuildConfig.DEBUG) android.util.Log.d(
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Saved renderThumbnailsAlways setting: $renderThumbnailsAlways"
+                "AppViewModel: Saved renderThumbnailsAlways setting: $renderThumbnailsAlways",
             )
+            }
         }
     }
 
@@ -94,10 +117,12 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         appContext?.let { context ->
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit().putBoolean("use_battery_saver_mode", useBatterySaverMode).commit()
-            if (BuildConfig.DEBUG) android.util.Log.d(
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Saved useBatterySaverMode setting: $useBatterySaverMode"
+                "AppViewModel: Saved useBatterySaverMode setting: $useBatterySaverMode",
             )
+            }
         }
         // The lifecycle change (close-on-background / cold-start-on-FCM-open) is handled
         // in WebSocketService observers; flipping this flag at runtime takes effect on
@@ -112,10 +137,12 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             prefs.edit()
                 .putBoolean("show_all_room_list_tabs", showAllRoomListTabs)
                 .commit()
-            if (BuildConfig.DEBUG) android.util.Log.d(
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Saved showAllRoomListTabs setting: $showAllRoomListTabs"
+                "AppViewModel: Saved showAllRoomListTabs setting: $showAllRoomListTabs",
             )
+            }
         }
     }
 
@@ -127,10 +154,12 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             prefs.edit()
                 .putBoolean("require_biometric_unlock", enabled)
                 .commit()
-            if (BuildConfig.DEBUG) android.util.Log.d(
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Saved requireBiometricUnlock setting: $enabled"
+                "AppViewModel: Saved requireBiometricUnlock setting: $enabled",
             )
+            }
         }
     }
 
@@ -142,10 +171,12 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             prefs.edit()
                 .putBoolean("move_read_receipts_to_edge", moveReadReceiptsToEdge)
                 .commit()
-            if (BuildConfig.DEBUG) android.util.Log.d(
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Saved moveReadReceiptsToEdge setting: $moveReadReceiptsToEdge"
+                "AppViewModel: Saved moveReadReceiptsToEdge setting: $moveReadReceiptsToEdge",
             )
+            }
         }
     }
 
@@ -157,10 +188,12 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             prefs.edit()
                 .putBoolean("trim_long_display_names", trimLongDisplayNames)
                 .commit()
-            if (BuildConfig.DEBUG) android.util.Log.d(
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Saved trimLongDisplayNames setting: $trimLongDisplayNames"
+                "AppViewModel: Saved trimLongDisplayNames setting: $trimLongDisplayNames",
             )
+            }
         }
     }
 
@@ -172,10 +205,12 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             prefs.edit()
                 .putString("displayname_color_mode", mode.prefValue)
                 .commit()
-            if (BuildConfig.DEBUG) android.util.Log.d(
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Saved displayNameColorMode setting: ${mode.prefValue}"
+                "AppViewModel: Saved displayNameColorMode setting: ${mode.prefValue}",
             )
+            }
         }
     }
 
@@ -187,10 +222,12 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             prefs.edit()
                 .putBoolean("show_link_previews", showLinkPreviews)
                 .commit()
-            if (BuildConfig.DEBUG) android.util.Log.d(
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Saved showLinkPreviews setting: $showLinkPreviews"
+                "AppViewModel: Saved showLinkPreviews setting: $showLinkPreviews",
             )
+            }
         }
     }
 
@@ -202,10 +239,12 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             prefs.edit()
                 .putBoolean("send_link_previews", sendLinkPreviews)
                 .commit()
-            if (BuildConfig.DEBUG) android.util.Log.d(
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Saved sendLinkPreviews setting: $sendLinkPreviews"
+                "AppViewModel: Saved sendLinkPreviews setting: $sendLinkPreviews",
             )
+            }
         }
     }
 
@@ -216,10 +255,12 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             prefs.edit()
                 .putString("element_call_base_url", elementCallBaseUrl)
                 .apply()
-            if (BuildConfig.DEBUG) android.util.Log.d(
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Saved elementCallBaseUrl setting: $elementCallBaseUrl"
+                "AppViewModel: Saved elementCallBaseUrl setting: $elementCallBaseUrl",
             )
+            }
         }
     }
 
@@ -233,8 +274,12 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 .putInt("background_purge_interval_minutes", clamped)
                 .apply()
         }
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks",
-            "AppViewModel: backgroundPurgeIntervalMinutes=$clamped → ${syncBatchProcessor.batchIntervalMs}ms")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: backgroundPurgeIntervalMinutes=$clamped → ${syncBatchProcessor.batchIntervalMs}ms",
+        )
+        }
     }
 
     fun updateBackgroundPurgeThreshold(count: Int) = with(vm) {
@@ -247,11 +292,13 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 .putInt("background_purge_message_threshold", clamped)
                 .apply()
         }
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks",
-            "AppViewModel: backgroundPurgeMessageThreshold=$clamped")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: backgroundPurgeMessageThreshold=$clamped",
+        )
+        }
     }
-
-
 
     /** Persist the tween-duration animation factor and apply it immediately to [AnimationSpeed]. */
     fun setAnimationTweenFactor(factor: Float) = with(vm) {
@@ -288,10 +335,12 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             prefs.edit()
                 .putBoolean("crash_reporting_enabled", enabled)
                 .commit()
-            if (BuildConfig.DEBUG) android.util.Log.d(
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Saved crashReportingEnabled setting: $enabled"
+                "AppViewModel: Saved crashReportingEnabled setting: $enabled",
             )
+            }
         }
     }
 
@@ -304,10 +353,12 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             prefs.edit()
                 .putBoolean("performance_monitoring_enabled", enabled)
                 .commit()
-            if (BuildConfig.DEBUG) android.util.Log.d(
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Saved performanceMonitoringEnabled setting: $enabled"
+                "AppViewModel: Saved performanceMonitoringEnabled setting: $enabled",
             )
+            }
         }
     }
 
@@ -319,8 +370,11 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         appContext?.let { ctx ->
             val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             val editor = prefs.edit()
-            if (value == null) editor.remove("gomuks_device_show_media_previews")
-            else editor.putBoolean("gomuks_device_show_media_previews", value)
+            if (value == null) {
+                editor.remove("gomuks_device_show_media_previews")
+            } else {
+                editor.putBoolean("gomuks_device_show_media_previews", value)
+            }
             editor.commit()
         }
     }
@@ -347,8 +401,11 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         appContext?.let { ctx ->
             val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             val editor = prefs.edit()
-            if (value == null) editor.remove("gomuks_device_render_url_previews")
-            else editor.putBoolean("gomuks_device_render_url_previews", value)
+            if (value == null) {
+                editor.remove("gomuks_device_render_url_previews")
+            } else {
+                editor.putBoolean("gomuks_device_render_url_previews", value)
+            }
             editor.commit()
         }
     }
@@ -375,8 +432,11 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         appContext?.let { ctx ->
             val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             val editor = prefs.edit()
-            if (value == null) editor.remove("gomuks_device_send_bundled_url_previews")
-            else editor.putBoolean("gomuks_device_send_bundled_url_previews", value)
+            if (value == null) {
+                editor.remove("gomuks_device_send_bundled_url_previews")
+            } else {
+                editor.putBoolean("gomuks_device_send_bundled_url_previews", value)
+            }
             editor.commit()
         }
     }
@@ -403,8 +463,11 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         appContext?.let { ctx ->
             val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             val editor = prefs.edit()
-            if (value == null) editor.remove("gomuks_device_send_read_receipts")
-            else editor.putBoolean("gomuks_device_send_read_receipts", value)
+            if (value == null) {
+                editor.remove("gomuks_device_send_read_receipts")
+            } else {
+                editor.putBoolean("gomuks_device_send_read_receipts", value)
+            }
             editor.commit()
         }
     }
@@ -431,8 +494,11 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         appContext?.let { ctx ->
             val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             val editor = prefs.edit()
-            if (value == null) editor.remove("gomuks_device_send_typing_notifications")
-            else editor.putBoolean("gomuks_device_send_typing_notifications", value)
+            if (value == null) {
+                editor.remove("gomuks_device_send_typing_notifications")
+            } else {
+                editor.putBoolean("gomuks_device_send_typing_notifications", value)
+            }
             editor.commit()
         }
     }
@@ -459,8 +525,11 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         appContext?.let { ctx ->
             val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             val editor = prefs.edit()
-            if (value == null) editor.remove("gomuks_device_display_read_receipts")
-            else editor.putBoolean("gomuks_device_display_read_receipts", value)
+            if (value == null) {
+                editor.remove("gomuks_device_display_read_receipts")
+            } else {
+                editor.putBoolean("gomuks_device_display_read_receipts", value)
+            }
             editor.commit()
         }
     }
@@ -487,8 +556,11 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         appContext?.let { ctx ->
             val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             val editor = prefs.edit()
-            if (value == null) editor.remove("gomuks_device_show_hidden_events")
-            else editor.putBoolean("gomuks_device_show_hidden_events", value)
+            if (value == null) {
+                editor.remove("gomuks_device_show_hidden_events")
+            } else {
+                editor.putBoolean("gomuks_device_show_hidden_events", value)
+            }
             editor.commit()
         }
     }
@@ -515,8 +587,11 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         appContext?.let { ctx ->
             val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             val editor = prefs.edit()
-            if (value == null) editor.remove("gomuks_device_show_membership_events")
-            else editor.putBoolean("gomuks_device_show_membership_events", value)
+            if (value == null) {
+                editor.remove("gomuks_device_show_membership_events")
+            } else {
+                editor.putBoolean("gomuks_device_show_membership_events", value)
+            }
             editor.commit()
         }
     }
@@ -550,60 +625,84 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             // assignment onto Main. SharedPreferences is pre-warmed at process start
             // (AndromuksApplication), so these getBoolean reads are in-memory.
             vm.viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main.immediate) {
-            enableCompression = prefs.getBoolean("enable_compression", false)
-            enterKeySendsMessage = prefs.getBoolean("enter_key_sends_message", true)
-            loadThumbnailsIfAvailable = prefs.getBoolean("load_thumbnails_if_available", true)
-            renderThumbnailsAlways = prefs.getBoolean("render_thumbnails_always", true)
-            showAllRoomListTabs = prefs.getBoolean("show_all_room_list_tabs", false)
-            moveReadReceiptsToEdge = prefs.getBoolean("move_read_receipts_to_edge", false)
-            trimLongDisplayNames = prefs.getBoolean("trim_long_display_names", true)
-            displayNameColorMode = net.vrkknn.andromuks.utils.DisplayNameColorMode
-                .fromPref(prefs.getString("displayname_color_mode", null))
-            requireBiometricUnlock = prefs.getBoolean("require_biometric_unlock", false)
-            showLinkPreviews = prefs.getBoolean("show_link_previews", true)
-            sendLinkPreviews = prefs.getBoolean("send_link_previews", true)
-            elementCallBaseUrl = prefs.getString("element_call_base_url", "") ?: ""
-            useBatterySaverMode = prefs.getBoolean("use_battery_saver_mode", false)
-            crashReportingEnabled = prefs.getBoolean("crash_reporting_enabled", false)
-            performanceMonitoringEnabled = prefs.getBoolean("performance_monitoring_enabled", false)
-            // Re-assert the persisted opt-ins into Crashlytics / Performance on every launch so our
-            // SharedPrefs stay the single source of truth for collection state.
-            errorReportingCoordinator.applyPersistedState()
-            performanceMonitoringCoordinator.applyPersistedState()
-            deviceGlobalShowMediaPreviews = booleanPrefOrNull(prefs, "gomuks_device_show_media_previews")
-            deviceGlobalRenderUrlPreviews = booleanPrefOrNull(prefs, "gomuks_device_render_url_previews")
-            deviceGlobalSendBundledUrlPreviews = booleanPrefOrNull(prefs, "gomuks_device_send_bundled_url_previews")
-            deviceGlobalSendReadReceipts = booleanPrefOrNull(prefs, "gomuks_device_send_read_receipts")
-            deviceGlobalSendTypingNotifications = booleanPrefOrNull(prefs, "gomuks_device_send_typing_notifications")
-            deviceGlobalDisplayReadReceipts = booleanPrefOrNull(prefs, "gomuks_device_display_read_receipts")
-            deviceGlobalShowHiddenEvents = booleanPrefOrNull(prefs, "gomuks_device_show_hidden_events")
-            deviceGlobalShowMembershipEvents = booleanPrefOrNull(prefs, "gomuks_device_show_membership_events")
+                enableCompression = prefs.getBoolean("enable_compression", false)
+                enterKeySendsMessage = prefs.getBoolean("enter_key_sends_message", true)
+                loadThumbnailsIfAvailable = prefs.getBoolean("load_thumbnails_if_available", true)
+                renderThumbnailsAlways = prefs.getBoolean("render_thumbnails_always", true)
+                showAllRoomListTabs = prefs.getBoolean("show_all_room_list_tabs", false)
+                moveReadReceiptsToEdge = prefs.getBoolean("move_read_receipts_to_edge", false)
+                trimLongDisplayNames = prefs.getBoolean("trim_long_display_names", true)
+                displayNameColorMode = net.vrkknn.andromuks.utils.DisplayNameColorMode
+                    .fromPref(prefs.getString("displayname_color_mode", null))
+                requireBiometricUnlock = prefs.getBoolean("require_biometric_unlock", false)
+                showLinkPreviews = prefs.getBoolean("show_link_previews", true)
+                sendLinkPreviews = prefs.getBoolean("send_link_previews", true)
+                elementCallBaseUrl = prefs.getString("element_call_base_url", "") ?: ""
+                useBatterySaverMode = prefs.getBoolean("use_battery_saver_mode", false)
+                crashReportingEnabled = prefs.getBoolean("crash_reporting_enabled", false)
+                performanceMonitoringEnabled = prefs.getBoolean("performance_monitoring_enabled", false)
+                // Re-assert the persisted opt-ins into Crashlytics / Performance on every launch so our
+                // SharedPrefs stay the single source of truth for collection state.
+                errorReportingCoordinator.applyPersistedState()
+                performanceMonitoringCoordinator.applyPersistedState()
+                deviceGlobalShowMediaPreviews = booleanPrefOrNull(prefs, "gomuks_device_show_media_previews")
+                deviceGlobalRenderUrlPreviews = booleanPrefOrNull(prefs, "gomuks_device_render_url_previews")
+                deviceGlobalSendBundledUrlPreviews = booleanPrefOrNull(prefs, "gomuks_device_send_bundled_url_previews")
+                deviceGlobalSendReadReceipts = booleanPrefOrNull(prefs, "gomuks_device_send_read_receipts")
+                deviceGlobalSendTypingNotifications = booleanPrefOrNull(prefs, "gomuks_device_send_typing_notifications")
+                deviceGlobalDisplayReadReceipts = booleanPrefOrNull(prefs, "gomuks_device_display_read_receipts")
+                deviceGlobalShowHiddenEvents = booleanPrefOrNull(prefs, "gomuks_device_show_hidden_events")
+                deviceGlobalShowMembershipEvents = booleanPrefOrNull(prefs, "gomuks_device_show_membership_events")
 
-            AnimationSpeed.tweenFactor = prefs.getFloat("anim_tween_factor", AnimationSpeed.DEFAULT_FACTOR)
-                .coerceIn(AnimationSpeed.MIN_FACTOR, AnimationSpeed.MAX_FACTOR)
-            AnimationSpeed.stiffnessFactor = prefs.getFloat("anim_stiffness_factor", AnimationSpeed.DEFAULT_FACTOR)
-                .coerceIn(AnimationSpeed.MIN_FACTOR, AnimationSpeed.MAX_FACTOR)
+                AnimationSpeed.tweenFactor = prefs.getFloat("anim_tween_factor", AnimationSpeed.DEFAULT_FACTOR)
+                    .coerceIn(AnimationSpeed.MIN_FACTOR, AnimationSpeed.MAX_FACTOR)
+                AnimationSpeed.stiffnessFactor = prefs.getFloat("anim_stiffness_factor", AnimationSpeed.DEFAULT_FACTOR)
+                    .coerceIn(AnimationSpeed.MIN_FACTOR, AnimationSpeed.MAX_FACTOR)
 
-            val defaultIntervalMin = (SyncBatchProcessor.DEFAULT_BATCH_INTERVAL_MS / 60_000L).toInt()
-            backgroundPurgeIntervalMinutes = prefs.getInt("background_purge_interval_minutes", defaultIntervalMin)
-            backgroundPurgeMessageThreshold = prefs.getInt("background_purge_message_threshold", SyncBatchProcessor.DEFAULT_MAX_BATCH_SIZE)
-            syncBatchProcessor.batchIntervalMs = backgroundPurgeIntervalMinutes.toLong() * 60_000L
-            syncBatchProcessor.maxBatchSize = backgroundPurgeMessageThreshold
-            syncBatchProcessor.batterySaverModeEnabled = useBatterySaverMode
+                val defaultIntervalMin = (SyncBatchProcessor.DEFAULT_BATCH_INTERVAL_MS / 60_000L).toInt()
+                backgroundPurgeIntervalMinutes = prefs.getInt("background_purge_interval_minutes", defaultIntervalMin)
+                backgroundPurgeMessageThreshold = prefs.getInt(
+                    "background_purge_message_threshold",
+                    SyncBatchProcessor.DEFAULT_MAX_BATCH_SIZE,
+                )
+                syncBatchProcessor.batchIntervalMs = backgroundPurgeIntervalMinutes.toLong() * 60_000L
+                syncBatchProcessor.maxBatchSize = backgroundPurgeMessageThreshold
+                syncBatchProcessor.batterySaverModeEnabled = useBatterySaverMode
 
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded enableCompression setting: $enableCompression")
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded enterKeySendsMessage setting: $enterKeySendsMessage")
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded loadThumbnailsIfAvailable setting: $loadThumbnailsIfAvailable")
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded renderThumbnailsAlways setting: $renderThumbnailsAlways")
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded showAllRoomListTabs setting: $showAllRoomListTabs")
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded moveReadReceiptsToEdge setting: $moveReadReceiptsToEdge")
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded trimLongDisplayNames setting: $trimLongDisplayNames")
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded showLinkPreviews setting: $showLinkPreviews")
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded sendLinkPreviews setting: $sendLinkPreviews")
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded elementCallBaseUrl setting: $elementCallBaseUrl")
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded backgroundPurgeIntervalMinutes=$backgroundPurgeIntervalMinutes, backgroundPurgeMessageThreshold=$backgroundPurgeMessageThreshold")
-            }
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Loaded enableCompression setting: $enableCompression")
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Loaded enterKeySendsMessage setting: $enterKeySendsMessage",
+                    )
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Loaded loadThumbnailsIfAvailable setting: $loadThumbnailsIfAvailable",
+                    )
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Loaded renderThumbnailsAlways setting: $renderThumbnailsAlways",
+                    )
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Loaded showAllRoomListTabs setting: $showAllRoomListTabs",
+                    )
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Loaded moveReadReceiptsToEdge setting: $moveReadReceiptsToEdge",
+                    )
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Loaded trimLongDisplayNames setting: $trimLongDisplayNames",
+                    )
+                    android.util.Log.d("Andromuks", "AppViewModel: Loaded showLinkPreviews setting: $showLinkPreviews")
+                    android.util.Log.d("Andromuks", "AppViewModel: Loaded sendLinkPreviews setting: $sendLinkPreviews")
+                    android.util.Log.d("Andromuks", "AppViewModel: Loaded elementCallBaseUrl setting: $elementCallBaseUrl")
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Loaded backgroundPurgeIntervalMinutes=$backgroundPurgeIntervalMinutes, backgroundPurgeMessageThreshold=$backgroundPurgeMessageThreshold",
+                    )
+                }
             } // end Main-dispatched snapshot-state writes
         }
     }

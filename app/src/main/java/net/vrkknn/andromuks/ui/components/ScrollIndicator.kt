@@ -1,6 +1,5 @@
 package net.vrkknn.andromuks.ui.components
 
-import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -16,9 +15,9 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicatorDefaults
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,9 +29,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.shape.CircleShape
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 
 /**
  * Material 3 Expressive scroll indicator - a vertical pill that moves down as the list is scrolled.
@@ -48,10 +47,10 @@ fun ExpressiveScrollIndicator(
     listState: LazyListState,
     modifier: Modifier = Modifier,
     indicatorColor: Color = LoadingIndicatorDefaults.indicatorColor,
-    hideDelayMs: Long = 1500L
+    hideDelayMs: Long = 1500L,
 ) {
     var isVisible by remember { mutableStateOf(false) }
-    
+
     // Track scroll position changes
     LaunchedEffect(listState) {
         snapshotFlow {
@@ -60,26 +59,26 @@ fun ExpressiveScrollIndicator(
             .distinctUntilChanged()
             .collect {
                 isVisible = true
-                
+
                 // Hide after scrolling stops
                 delay(hideDelayMs)
                 isVisible = false
             }
     }
-    
+
     // Calculate scroll progress (0f to 1f) based on actual scroll position
     val layoutInfo = listState.layoutInfo
     val totalItems = layoutInfo.totalItemsCount
     val viewportHeight = layoutInfo.viewportSize.height
     val firstVisibleIndex = listState.firstVisibleItemIndex
     val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: firstVisibleIndex
-    
+
     val scrollProgress = if (totalItems == 0 || viewportHeight == 0) {
         0f
     } else {
         // Check if we're at the bottom (last item is visible or past it)
         val isAtBottom = lastVisibleIndex >= totalItems - 1
-        
+
         if (isAtBottom) {
             1f // At bottom
         } else {
@@ -91,7 +90,7 @@ fun ExpressiveScrollIndicator(
             } else {
                 // Use item index ratio as base, but adjust for partial visibility
                 val itemIndexProgress = firstVisibleIndex.toFloat() / (totalItems - 1).coerceAtLeast(1)
-                
+
                 // Adjust for scroll offset within the first visible item
                 val firstItem = visibleItems.firstOrNull()
                 val scrollOffset = listState.firstVisibleItemScrollOffset
@@ -100,43 +99,43 @@ fun ExpressiveScrollIndicator(
                 } else {
                     0f
                 }
-                
+
                 // Combine index progress with offset progress
                 (itemIndexProgress + itemOffsetProgress).coerceIn(0f, 0.98f) // Cap at 0.98 until actually at bottom
             }
         }
     }
-    
+
     val animatedProgress by animateFloatAsState(
         targetValue = scrollProgress,
         animationSpec = tween(durationMillis = scaledTweenMs(200)),
-        label = "scroll_progress"
+        label = "scroll_progress",
     )
-    
+
     AnimatedVisibility(
         visible = isVisible,
         enter = fadeIn(animationSpec = tween(scaledTweenMs(200))) + scaleIn(
             initialScale = 0.8f,
-            animationSpec = tween(scaledTweenMs(200))
+            animationSpec = tween(scaledTweenMs(200)),
         ),
         exit = fadeOut(animationSpec = tween(scaledTweenMs(300))) + scaleOut(
             targetScale = 0.8f,
-            animationSpec = tween(scaledTweenMs(300))
+            animationSpec = tween(scaledTweenMs(300)),
         ),
-        modifier = modifier
+        modifier = modifier,
     ) {
         Box(
             modifier = Modifier
                 .width(4.dp)
                 .fillMaxHeight()
                 .padding(vertical = 8.dp),
-            contentAlignment = Alignment.TopCenter
+            contentAlignment = Alignment.TopCenter,
         ) {
             // Vertical pill that moves down as list scrolls
             val pillPosition = animatedProgress.coerceIn(0f, 1f)
             val availableHeight = viewportHeight - 16.dp.value // Account for padding
             val pillSize = 40.dp // Height of the pill
-            
+
             Box(
                 modifier = Modifier
                     .offset(y = (pillPosition * (availableHeight - pillSize.value)).dp)
@@ -144,10 +143,9 @@ fun ExpressiveScrollIndicator(
                     .height(pillSize)
                     .background(
                         indicatorColor,
-                        CircleShape
-                    )
+                        CircleShape,
+                    ),
             )
         }
     }
 }
-

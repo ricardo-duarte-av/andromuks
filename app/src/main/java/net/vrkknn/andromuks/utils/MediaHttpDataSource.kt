@@ -23,7 +23,7 @@ object MediaHttpDataSource {
                 chain.proceed(
                     chain.request().newBuilder()
                         .header("User-Agent", getUserAgent())
-                        .build()
+                        .build(),
                 )
             }
             .addInterceptor(EncryptedMediaRetryInterceptor())
@@ -35,7 +35,6 @@ object MediaHttpDataSource {
      * Build an [OkHttpDataSource.Factory] carrying the gomuks auth cookie. Each player builds its
      * own factory (cheap) with the current [authToken]; the underlying OkHttpClient is shared.
      */
-    fun factory(authToken: String): OkHttpDataSource.Factory =
-        OkHttpDataSource.Factory(client())
-            .setDefaultRequestProperties(mapOf("Cookie" to "gomuks_auth=$authToken"))
+    fun factory(authToken: String): OkHttpDataSource.Factory = OkHttpDataSource.Factory(client())
+        .setDefaultRequestProperties(mapOf("Cookie" to "gomuks_auth=$authToken"))
 }

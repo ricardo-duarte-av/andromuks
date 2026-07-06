@@ -14,6 +14,10 @@ okhttp = "5.4.0"
 material3 = "1.5.0-alpha19"
 baselineprofile = "1.5.0-alpha06"
 materialKolor = "4.1.1"
+# detekt 2.0.x is the line built for Kotlin 2.3+/AGP 9/Gradle 9 (stable 1.23.x targets Kotlin 2.0.21).
+# compose-rules' detekt ruleset is compiled against this same detekt 2.0 alpha.
+detekt = "2.0.0-alpha.5"
+composeRules = "0.6.2"
 
 
 [libraries]
@@ -38,10 +42,16 @@ androidx-compose-foundation-layout = { group = "androidx.compose.foundation", na
 androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
 compose-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }
 material-kolor = { group = "com.materialkolor", name = "material-kolor", version.ref = "materialKolor" }
+# Consumed via detektPlugins(...). In detekt 2.0 the ktlint formatting rules moved from the old
+# `detekt-formatting` artifact to `detekt-rules-ktlint-wrapper` under the new `dev.detekt` group.
+detekt-ktlint-wrapper = { module = "dev.detekt:detekt-rules-ktlint-wrapper", version.ref = "detekt" }
+compose-rules-detekt = { module = "io.nlopez.compose.rules:detekt", version.ref = "composeRules" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 baselineprofile = { id = "androidx.baselineprofile", version.ref = "baselineprofile" }
+# detekt 2.0 renamed its Gradle plugin id from `io.gitlab.arturbosch.detekt` to `dev.detekt`.
+detekt = { id = "dev.detekt", version.ref = "detekt" }
 

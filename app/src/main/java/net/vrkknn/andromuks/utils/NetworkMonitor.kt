@@ -24,23 +24,23 @@ import net.vrkknn.andromuks.BuildConfig
  */
 class NetworkMonitor(
     private val context: Context,
-    private val onNetworkAvailable: (NetworkType) -> Unit,  // Network became available (offline → online)
-    private val onNetworkLost: () -> Unit,                   // Network lost (online → offline)
-    private val onNetworkTypeChanged: (NetworkType, NetworkType) -> Unit,  // Network type changed (e.g., WiFi → Mobile)
-    private val onNetworkIdentityChanged: (NetworkType, String?, NetworkType, String?) -> Unit  // Network identity changed (e.g., WiFi AP Alpha → WiFi AP Beta)
+    private val onNetworkAvailable: (NetworkType) -> Unit, // Network became available (offline → online)
+    private val onNetworkLost: () -> Unit, // Network lost (online → offline)
+    private val onNetworkTypeChanged: (NetworkType, NetworkType) -> Unit, // Network type changed (e.g., WiFi → Mobile)
+    private val onNetworkIdentityChanged: (NetworkType, String?, NetworkType, String?) -> Unit, // Network identity changed (e.g., WiFi AP Alpha → WiFi AP Beta)
 ) {
-    private val connectivityManager: ConnectivityManager = 
+    private val connectivityManager: ConnectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-    private val wifiManager: WifiManager? = 
+    private val wifiManager: WifiManager? =
         context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-    
+
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
-    
+
     // Track current network state
     private var currentNetworkType: NetworkType = NetworkType.NONE
-    private var currentNetworkIdentity: String? = null  // SSID for WiFi
+    private var currentNetworkIdentity: String? = null // SSID for WiFi
     private var hasValidatedNetwork: Boolean = false
-    
+
     /**
      * Start monitoring network changes
      */
@@ -49,10 +49,10 @@ class NetworkMonitor(
             if (BuildConfig.DEBUG) Log.w("NetworkMonitor", "NetworkMonitor already started")
             return
         }
-        
+
         // Initialize current state
         updateCurrentNetworkState()
-        
+
         // Build network request to monitor all network types
         val networkRequest = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
@@ -62,28 +62,28 @@ class NetworkMonitor(
             .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
             .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
             .build()
-        
+
         networkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 val networkType = getNetworkType(network)
                 val networkIdentity = getNetworkIdentity(networkType, network)
-                
+
                 if (BuildConfig.DEBUG) {
                     Log.d("NetworkMonitor", "Network available: $networkType (identity: $networkIdentity)")
                 }
-                
+
                 // Check if this is a meaningful change
                 val previousType = currentNetworkType
                 val previousIdentity = currentNetworkIdentity
                 val wasOffline = previousType == NetworkType.NONE
-                
+
                 // Update state
                 val oldType = currentNetworkType
                 val oldIdentity = currentNetworkIdentity
                 currentNetworkType = networkType
                 currentNetworkIdentity = networkIdentity
                 hasValidatedNetwork = true
-                
+
                 // Only report if this is a meaningful change
                 if (wasOffline) {
                     // Offline → Online: Always report
@@ -100,35 +100,44 @@ class NetworkMonitor(
                 } else if (networkType == NetworkType.WIFI && oldIdentity != networkIdentity) {
                     // Same type (WiFi) but identity changed (different AP)
                     if (BuildConfig.DEBUG) {
-                        Log.i("NetworkMonitor", "Network identity changed: $oldType ($oldIdentity) → $networkType ($networkIdentity)")
+                        Log.i(
+                            "NetworkMonitor",
+                            "Network identity changed: $oldType ($oldIdentity) → $networkType ($networkIdentity)",
+                        )
                     }
                     onNetworkIdentityChanged(oldType, oldIdentity, networkType, networkIdentity)
                 } else {
                     // Same network type and identity - don't report (just a validation blip)
                     if (BuildConfig.DEBUG) {
-                        Log.d("NetworkMonitor", "Network available but no meaningful change (type: $networkType, identity: $networkIdentity) - not reporting")
+                        Log.d(
+                            "NetworkMonitor",
+                            "Network available but no meaningful change (type: $networkType, identity: $networkIdentity) - not reporting",
+                        )
                     }
                 }
             }
-            
+
             override fun onLost(network: Network) {
                 if (BuildConfig.DEBUG) {
                     Log.w("NetworkMonitor", "Network lost: $network")
                 }
-                
+
                 // Capture state BEFORE updateCurrentNetworkState() — it overwrites currentNetworkType
                 // (e.g. to NONE when no active network), so comparing after update would always see NONE.
                 val previousType = currentNetworkType
                 val previousIdentity = currentNetworkIdentity
-                
+
                 // Refresh from ConnectivityManager to see if another network is still available
                 updateCurrentNetworkState()
-                
+
                 if (currentNetworkType == NetworkType.NONE) {
                     // No validated network available — fully offline
                     if (previousType != NetworkType.NONE) {
                         if (BuildConfig.DEBUG) {
-                            Log.i("NetworkMonitor", "Network lost - going offline (was $previousType, identity=$previousIdentity)")
+                            Log.i(
+                                "NetworkMonitor",
+                                "Network lost - going offline (was $previousType, identity=$previousIdentity)",
+                            )
                         }
                         // Ensure fields match offline (updateCurrentNetworkState already set NONE for no active network)
                         currentNetworkIdentity = null
@@ -146,44 +155,55 @@ class NetworkMonitor(
                             }
                             onNetworkTypeChanged(previousType, newType)
                         }
+
                         newType == NetworkType.WIFI && previousIdentity != newIdentity -> {
                             if (BuildConfig.DEBUG) {
-                                Log.i("NetworkMonitor", "Network lost — WiFi identity changed: $previousIdentity → $newIdentity")
+                                Log.i(
+                                    "NetworkMonitor",
+                                    "Network lost — WiFi identity changed: $previousIdentity → $newIdentity",
+                                )
                             }
                             onNetworkIdentityChanged(previousType, previousIdentity, newType, newIdentity)
                         }
+
                         else -> {
                             if (BuildConfig.DEBUG) {
-                                Log.d("NetworkMonitor", "Network lost but same type/identity after switch ($newType) — no extra report")
+                                Log.d(
+                                    "NetworkMonitor",
+                                    "Network lost but same type/identity after switch ($newType) — no extra report",
+                                )
                             }
                         }
                     }
                 }
             }
-            
+
             override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
                 val networkType = getNetworkType(networkCapabilities)
                 val hasInternet = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 val isValidated = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                
+
                 if (BuildConfig.DEBUG) {
-                    Log.d("NetworkMonitor", "Network capabilities changed: $networkType (hasInternet: $hasInternet, isValidated: $isValidated)")
+                    Log.d(
+                        "NetworkMonitor",
+                        "Network capabilities changed: $networkType (hasInternet: $hasInternet, isValidated: $isValidated)",
+                    )
                 }
-                
+
                 // Only report if validation status changed meaningfully
                 val wasValidated = hasValidatedNetwork
                 val nowValidated = hasInternet && isValidated
-                
+
                 if (!wasValidated && nowValidated) {
                     // Network just became validated - treat as "available"
                     val networkIdentity = getNetworkIdentity(networkType, network)
                     val previousType = currentNetworkType
                     val previousIdentity = currentNetworkIdentity
-                    
+
                     currentNetworkType = networkType
                     currentNetworkIdentity = networkIdentity
                     hasValidatedNetwork = true
-                    
+
                     if (previousType == NetworkType.NONE) {
                         // Offline → Online
                         if (BuildConfig.DEBUG) {
@@ -199,7 +219,10 @@ class NetworkMonitor(
                     } else if (networkType == NetworkType.WIFI && previousIdentity != networkIdentity) {
                         // Identity changed
                         if (BuildConfig.DEBUG) {
-                            Log.i("NetworkMonitor", "Network validated - identity changed: $previousType ($previousIdentity) → $networkType ($networkIdentity)")
+                            Log.i(
+                                "NetworkMonitor",
+                                "Network validated - identity changed: $previousType ($previousIdentity) → $networkType ($networkIdentity)",
+                            )
                         }
                         onNetworkIdentityChanged(previousType, previousIdentity, networkType, networkIdentity)
                     }
@@ -213,7 +236,7 @@ class NetworkMonitor(
                     }
                 }
             }
-            
+
             override fun onUnavailable() {
                 if (BuildConfig.DEBUG) {
                     Log.w("NetworkMonitor", "Network unavailable")
@@ -222,13 +245,13 @@ class NetworkMonitor(
                 currentNetworkType = NetworkType.NONE
                 currentNetworkIdentity = null
                 hasValidatedNetwork = false
-                
+
                 if (previousType != NetworkType.NONE) {
                     onNetworkLost()
                 }
             }
         }
-        
+
         try {
             connectivityManager.registerNetworkCallback(networkRequest, networkCallback!!)
             if (BuildConfig.DEBUG) Log.d("NetworkMonitor", "NetworkMonitor started - monitoring network changes")
@@ -237,7 +260,7 @@ class NetworkMonitor(
             networkCallback = null
         }
     }
-    
+
     /**
      * Stop monitoring network changes
      */
@@ -255,14 +278,12 @@ class NetworkMonitor(
         currentNetworkIdentity = null
         hasValidatedNetwork = false
     }
-    
+
     /**
      * Get current network type
      */
-    fun getCurrentNetworkType(): NetworkType {
-        return currentNetworkType
-    }
-    
+    fun getCurrentNetworkType(): NetworkType = currentNetworkType
+
     /**
      * Update current network state from ConnectivityManager
      */
@@ -274,7 +295,7 @@ class NetworkMonitor(
             hasValidatedNetwork = false
             return
         }
-        
+
         val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
         if (capabilities == null) {
             currentNetworkType = NetworkType.NONE
@@ -282,26 +303,24 @@ class NetworkMonitor(
             hasValidatedNetwork = false
             return
         }
-        
+
         currentNetworkType = getNetworkType(capabilities)
         currentNetworkIdentity = getNetworkIdentity(currentNetworkType, activeNetwork)
         hasValidatedNetwork = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) &&
-                              capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
-    
+
     /**
      * Get network type from NetworkCapabilities
      */
-    private fun getNetworkType(capabilities: NetworkCapabilities): NetworkType {
-        return when {
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> NetworkType.WIFI
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> NetworkType.CELLULAR
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> NetworkType.ETHERNET
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> NetworkType.VPN
-            else -> NetworkType.OTHER
-        }
+    private fun getNetworkType(capabilities: NetworkCapabilities): NetworkType = when {
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> NetworkType.WIFI
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> NetworkType.CELLULAR
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> NetworkType.ETHERNET
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> NetworkType.VPN
+        else -> NetworkType.OTHER
     }
-    
+
     /**
      * Get network type from Network object
      */
@@ -309,13 +328,13 @@ class NetworkMonitor(
         val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return NetworkType.NONE
         return getNetworkType(capabilities)
     }
-    
+
     /**
      * Get WiFi SSID from the active network
      */
     private fun getWifiSSID(network: Network? = null): String? {
         if (wifiManager == null) return null
-        
+
         return try {
             // WifiManager.connectionInfo was soft-deprecated in API 31 in favour of
             // NetworkCapabilities.transportInfo. We intentionally keep using it: transportInfo is
@@ -343,17 +362,15 @@ class NetworkMonitor(
             null
         }
     }
-    
+
     /**
      * Get network identity string (SSID for WiFi, null for other types)
      */
-    private fun getNetworkIdentity(networkType: NetworkType, network: Network? = null): String? {
-        return when (networkType) {
-            NetworkType.WIFI -> getWifiSSID(network)
-            else -> null
-        }
+    private fun getNetworkIdentity(networkType: NetworkType, network: Network? = null): String? = when (networkType) {
+        NetworkType.WIFI -> getWifiSSID(network)
+        else -> null
     }
-    
+
     /**
      * Network type enumeration (matches WebSocketService.NetworkType)
      */
@@ -363,6 +380,6 @@ class NetworkMonitor(
         CELLULAR,
         ETHERNET,
         VPN,
-        OTHER
+        OTHER,
     }
 }

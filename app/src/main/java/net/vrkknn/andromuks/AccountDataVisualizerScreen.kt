@@ -46,8 +46,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import kotlinx.coroutines.Dispatchers
@@ -107,7 +107,7 @@ fun AccountDataVisualizerScreen(appViewModel: AppViewModel, navController: NavCo
                             selectedKey == null -> "Account data"
                             editing -> "Editing: $selectedKey"
                             else -> "Account Data: $selectedKey"
-                        }
+                        },
                     )
                 },
                 navigationIcon = {
@@ -118,14 +118,16 @@ fun AccountDataVisualizerScreen(appViewModel: AppViewModel, navController: NavCo
                                     editing = false
                                     parseError = null
                                 }
+
                                 selectedKey != null -> leaveDetail()
+
                                 else -> navController.popBackStack()
                             }
-                        }
+                        },
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = "Back",
                         )
                     }
                 },
@@ -134,11 +136,11 @@ fun AccountDataVisualizerScreen(appViewModel: AppViewModel, navController: NavCo
                         IconButton(onClick = { refreshTick++ }) {
                             Icon(
                                 imageVector = Icons.Filled.Refresh,
-                                contentDescription = "Refresh list"
+                                contentDescription = "Refresh list",
                             )
                         }
                     }
-                }
+                },
             )
         },
         floatingActionButton = {
@@ -157,7 +159,7 @@ fun AccountDataVisualizerScreen(appViewModel: AppViewModel, navController: NavCo
                             } else {
                                 parseError = result
                             }
-                        }
+                        },
                     )
                 } else {
                     ExtendedFloatingActionButton(
@@ -167,35 +169,37 @@ fun AccountDataVisualizerScreen(appViewModel: AppViewModel, navController: NavCo
                             parseError = null
                             editLoading = true
                             editing = true
-                        }
+                        },
                     )
                 }
             }
-        }
+        },
     ) { innerPadding ->
         val key = selectedKey
         when {
             key == null -> AccountDataKeyList(entries, innerPadding) { selectedKey = it }
+
             editing && editLoading -> LoadingBox(innerPadding)
+
             editing -> Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .padding(16.dp)
+                    .padding(16.dp),
             ) {
                 Text(
                     text = "Edit the JSON below. On save it is validated, then the content field is " +
                         "pushed to the server via set_account_data.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    modifier = Modifier.padding(bottom = 8.dp),
                 )
                 parseError?.let { err ->
                     Text(
                         text = err,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(bottom = 8.dp)
+                        modifier = Modifier.padding(bottom = 8.dp),
                     )
                 }
                 val vScroll = rememberScrollState()
@@ -220,7 +224,7 @@ fun AccountDataVisualizerScreen(appViewModel: AppViewModel, navController: NavCo
                         .weight(1f)
                         .border(1.dp, borderColor, RoundedCornerShape(8.dp))
                         .verticalScrollbar(vScroll, scrollbarColor)
-                        .horizontalScrollbar(hScroll, scrollbarColor)
+                        .horizontalScrollbar(hScroll, scrollbarColor),
                 ) {
                     BasicTextField(
                         value = editText,
@@ -235,13 +239,14 @@ fun AccountDataVisualizerScreen(appViewModel: AppViewModel, navController: NavCo
                             .horizontalScroll(hScroll),
                         textStyle = MaterialTheme.typography.bodySmall.copy(
                             fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
                         ),
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        visualTransformation = transformation
+                        visualTransformation = transformation,
                     )
                 }
             }
+
             else -> {
                 // Pretty-print + highlight off the main thread, split into lines. A single Text
                 // holding the whole AnnotatedString would freeze the UI thread for seconds on huge
@@ -263,20 +268,20 @@ fun AccountDataVisualizerScreen(appViewModel: AppViewModel, navController: NavCo
                     SelectionContainer(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(innerPadding)
+                            .padding(innerPadding),
                     ) {
                         LazyColumn(
                             state = listState,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .verticalScrollbar(listState, scrollbarColor),
-                            contentPadding = PaddingValues(16.dp)
+                            contentPadding = PaddingValues(16.dp),
                         ) {
                             items(current.size) { i ->
                                 Text(
                                     text = current[i],
                                     style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace
+                                    fontFamily = FontFamily.Monospace,
                                 )
                             }
                         }
@@ -296,7 +301,7 @@ private fun LoadingBox(innerPadding: PaddingValues) {
         modifier = Modifier
             .fillMaxSize()
             .padding(innerPadding),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         CircularProgressIndicator()
     }
@@ -306,25 +311,25 @@ private fun LoadingBox(innerPadding: PaddingValues) {
 private fun AccountDataKeyList(
     entries: Map<String, JSONObject>,
     innerPadding: PaddingValues,
-    onSelect: (String) -> Unit
+    onSelect: (String) -> Unit,
 ) {
     if (entries.isEmpty()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(24.dp)
+                .padding(24.dp),
         ) {
             Text(
                 text = "No account data in cache",
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
                 text = "Open the app and complete sync so account_data (m.direct, preferences, etc.) is loaded, then tap refresh.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp)
+                modifier = Modifier.padding(top = 8.dp),
             )
         }
         return
@@ -334,14 +339,14 @@ private fun AccountDataKeyList(
             .fillMaxSize()
             .padding(innerPadding),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
             Text(
                 text = "${entries.size} key${if (entries.size != 1) "s" else ""}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 4.dp)
+                modifier = Modifier.padding(bottom = 4.dp),
             )
         }
         items(entries.keys.toList(), key = { it }) { key ->
@@ -349,13 +354,13 @@ private fun AccountDataKeyList(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onSelect(key) },
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
             ) {
                 Text(
                     text = key,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(16.dp)
+                    modifier = Modifier.padding(16.dp),
                 )
             }
         }

@@ -9,9 +9,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.RoomTimelineCache
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
-import net.vrkknn.andromuks.RoomTimelineCache
 
 /**
  * Application class for Andromuks.
@@ -20,7 +20,7 @@ import net.vrkknn.andromuks.RoomTimelineCache
  * to prevent cache corruption when the system trims memory.
  */
 class AndromuksApplication : Application() {
-    
+
     companion object {
         /**
          * Process-wide fallback when [WebSocketService] is not running.
@@ -29,7 +29,7 @@ class AndromuksApplication : Application() {
         private val applicationJob = SupervisorJob()
         val applicationScope: CoroutineScope = CoroutineScope(applicationJob + Dispatchers.Default)
     }
-    
+
     override fun onCreate() {
         // StrictMode must be installed BEFORE any other work so it catches violations during
         // our own onCreate path too. Debug-only: penaltyLog only (no death), so a flood of
@@ -93,7 +93,10 @@ class AndromuksApplication : Application() {
             com.google.firebase.perf.FirebasePerformance.getInstance()
                 .isPerformanceCollectionEnabled = perfEnabled
             if (BuildConfig.DEBUG) {
-                Log.d("Andromuks", "AndromuksApplication: primed Firebase observability (crash=$crashEnabled, perf=$perfEnabled)")
+                Log.d(
+                    "Andromuks",
+                    "AndromuksApplication: primed Firebase observability (crash=$crashEnabled, perf=$perfEnabled)",
+                )
             }
         } catch (e: Exception) {
             Log.w("Andromuks", "AndromuksApplication: failed to prime Firebase observability", e)
@@ -108,7 +111,7 @@ class AndromuksApplication : Application() {
             StrictMode.ThreadPolicy.Builder(originalPolicy)
                 .permitDiskReads()
                 .permitDiskWrites()
-                .build()
+                .build(),
         )
         try {
             // Touching getAll() forces SharedPreferencesImpl to finish its async file load
@@ -129,7 +132,7 @@ class AndromuksApplication : Application() {
                 .detectNetwork()
                 .detectCustomSlowCalls()
                 .penaltyLog()
-                .build()
+                .build(),
         )
         StrictMode.setVmPolicy(
             StrictMode.VmPolicy.Builder()
@@ -141,7 +144,7 @@ class AndromuksApplication : Application() {
                 // and Coil/OkHttp can briefly hold prepared statements that look like leaks
                 // before their natural close.
                 .penaltyLog()
-                .build()
+                .build(),
         )
     }
 
@@ -151,14 +154,19 @@ class AndromuksApplication : Application() {
             applicationScope.launch(Dispatchers.IO) {
                 try {
                     legacyDir.deleteRecursively()
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "AndromuksApplication: deleted legacy cacheDir/image_cache")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        "Andromuks",
+                        "AndromuksApplication: deleted legacy cacheDir/image_cache",
+                    )
+                    }
                 } catch (e: Exception) {
                     Log.w("Andromuks", "AndromuksApplication: failed to delete legacy image cache", e)
                 }
             }
         }
     }
-    
+
     /**
      * Handle memory pressure events from Android's Low Memory Killer (LMK).
      * 
@@ -193,7 +201,7 @@ class AndromuksApplication : Application() {
             }
             Log.d("Andromuks", "AndromuksApplication: onTrimMemory($levelName)")
         }
-        
+
         // Only clear caches on ACTUAL memory pressure. TRIM_MEMORY_UI_HIDDEN is a normal
         // lifecycle hint fired every time the UI goes to background — not pressure —
         // and clearing on it caused expensive re-decoding of avatars/media on every
@@ -202,12 +210,13 @@ class AndromuksApplication : Application() {
         when (level) {
             ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW,
             ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL,
-            ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
+            ComponentCallbacks2.TRIM_MEMORY_COMPLETE,
+            -> {
                 clearImageCaches()
             }
         }
     }
-    
+
     /**
      * Clear all image-related caches to prevent corruption.
      * 
@@ -219,10 +228,10 @@ class AndromuksApplication : Application() {
             if (BuildConfig.DEBUG) {
                 Log.d("Andromuks", "AndromuksApplication: Clearing image caches due to memory pressure")
             }
-            
+
             // 1. Clear Coil's memory cache (contains Bitmap objects)
             ImageLoaderSingleton.clearMemoryCache(this)
-            
+
             // 2. Clear in-memory cache entry maps (these reference File objects,
             // but we clear them to avoid stale references after LMK kills bitmaps)
             IntelligentMediaCache.clearInMemoryCache()
@@ -232,7 +241,7 @@ class AndromuksApplication : Application() {
             // while reducing memory usage. Opened rooms are preserved (unbounded).
             // LRU eviction still acts as a hard backup if memory pressure continues.
             RoomTimelineCache.trimAllRoomsToMaxEvents()
-            
+
             if (BuildConfig.DEBUG) {
                 Log.d("Andromuks", "AndromuksApplication: Image caches cleared successfully")
             }
@@ -241,4 +250,3 @@ class AndromuksApplication : Application() {
         }
     }
 }
-

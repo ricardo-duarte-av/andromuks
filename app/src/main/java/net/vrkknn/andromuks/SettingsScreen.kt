@@ -7,24 +7,24 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.*
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import net.vrkknn.andromuks.ui.theme.AnimationSpeed
 import java.text.SimpleDateFormat
@@ -32,10 +32,7 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(
-    appViewModel: AppViewModel,
-    navController: NavController
-) {
+fun SettingsScreen(appViewModel: AppViewModel, navController: NavController) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -44,12 +41,12 @@ fun SettingsScreen(
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = "Back",
                         )
                     }
-                }
+                },
             )
-        }
+        },
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -57,7 +54,7 @@ fun SettingsScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             var elementCallBaseUrl by remember { mutableStateOf(appViewModel.elementCallBaseUrl) }
             LaunchedEffect(appViewModel.elementCallBaseUrl) {
@@ -71,39 +68,39 @@ fun SettingsScreen(
                 text = "Room List",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
             )
 
             // Room list bottom bar layout (4 vs 6 tabs)
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
                     ) {
                         Text(
                             text = "Show all room list tabs",
                             style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
                         )
                         Text(
                             text = "Enable the full 6-button bottom bar (adds Favourites and Bridges tabs). When disabled, a compact 4-button bar is used.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
 
                     Switch(
                         checked = appViewModel.showAllRoomListTabs,
-                        onCheckedChange = { appViewModel.toggleShowAllRoomListTabs() }
+                        onCheckedChange = { appViewModel.toggleShowAllRoomListTabs() },
                     )
                 }
             }
@@ -114,39 +111,39 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 16.dp)
+                modifier = Modifier.padding(top = 16.dp),
             )
 
             // Move read receipts to the edge
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
                     ) {
                         Text(
                             text = "Move read receipts to the edge",
                             style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
                         )
                         Text(
                             text = "Show read receipts on the opposite side of the screen from the message bubble (left for your messages, right for others).",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
 
                     Switch(
                         checked = appViewModel.moveReadReceiptsToEdge,
-                        onCheckedChange = { appViewModel.toggleMoveReadReceiptsToEdge() }
+                        onCheckedChange = { appViewModel.toggleMoveReadReceiptsToEdge() },
                     )
                 }
             }
@@ -154,33 +151,33 @@ fun SettingsScreen(
             // Trim long display names
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
                     ) {
                         Text(
                             text = "Trim long display names",
                             style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
                         )
                         Text(
                             text = "If a user's display name is longer than 40 characters, it will be trimmed and suffixed with \"...\" when rendering in the timeline.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
 
                     Switch(
                         checked = appViewModel.trimLongDisplayNames,
-                        onCheckedChange = { appViewModel.toggleTrimLongDisplayNames() }
+                        onCheckedChange = { appViewModel.toggleTrimLongDisplayNames() },
                     )
                 }
             }
@@ -188,47 +185,61 @@ fun SettingsScreen(
             // Display name colors
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
                         text = "Display name colors",
                         style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
                     )
                     val currentMode = appViewModel.displayNameColorMode
                     Text(
                         text = when (currentMode) {
                             net.vrkknn.andromuks.utils.DisplayNameColorMode.DYNAMIC ->
                                 "Per-user colors derived from your current Material You theme and harmonized to match it."
+
                             net.vrkknn.andromuks.utils.DisplayNameColorMode.FIXED ->
                                 "Per-user colors from a fixed palette (matches the web app)."
+
                             net.vrkknn.andromuks.utils.DisplayNameColorMode.THEME ->
                                 "No per-user colors: a single theme color, one for your messages and one for everyone else."
                         },
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                         SegmentedButton(
                             selected = currentMode == net.vrkknn.andromuks.utils.DisplayNameColorMode.DYNAMIC,
-                            onClick = { appViewModel.setDisplayNameColorMode(net.vrkknn.andromuks.utils.DisplayNameColorMode.DYNAMIC) },
-                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3)
+                            onClick = {
+                                appViewModel.setDisplayNameColorMode(
+                                    net.vrkknn.andromuks.utils.DisplayNameColorMode.DYNAMIC,
+                                )
+                            },
+                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
                         ) { Text("Dynamic") }
                         SegmentedButton(
                             selected = currentMode == net.vrkknn.andromuks.utils.DisplayNameColorMode.FIXED,
-                            onClick = { appViewModel.setDisplayNameColorMode(net.vrkknn.andromuks.utils.DisplayNameColorMode.FIXED) },
-                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3)
+                            onClick = {
+                                appViewModel.setDisplayNameColorMode(
+                                    net.vrkknn.andromuks.utils.DisplayNameColorMode.FIXED,
+                                )
+                            },
+                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
                         ) { Text("Fixed") }
                         SegmentedButton(
                             selected = currentMode == net.vrkknn.andromuks.utils.DisplayNameColorMode.THEME,
-                            onClick = { appViewModel.setDisplayNameColorMode(net.vrkknn.andromuks.utils.DisplayNameColorMode.THEME) },
-                            shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3)
+                            onClick = {
+                                appViewModel.setDisplayNameColorMode(
+                                    net.vrkknn.andromuks.utils.DisplayNameColorMode.THEME,
+                                )
+                            },
+                            shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
                         ) { Text("Theme") }
                     }
                 }
@@ -240,53 +251,53 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 16.dp)
+                modifier = Modifier.padding(top = 16.dp),
             )
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     Text(
                         text = "Tune the speed of UI animations. Both default to 1.0 (no change). " +
                             "Continuous indicators like spinners are not affected.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
                     // Tween/duration factor: lower = snappier.
                     Text(
                         text = "Transition speed (duration)",
                         style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
                     )
                     Text(
                         text = "Scales time-based animations (fades, slides, expansions). Lower is faster.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Slider(
                             value = AnimationSpeed.tweenFactor,
                             onValueChange = { appViewModel.setAnimationTweenFactor(it) },
                             valueRange = AnimationSpeed.MIN_FACTOR..AnimationSpeed.MAX_FACTOR,
                             steps = 18, // 0.1 increments across 0.1..2.0
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
                         )
                         Text(
                             text = String.format(Locale.US, "%.1f×", AnimationSpeed.tweenFactor),
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.widthIn(min = 48.dp)
+                            modifier = Modifier.widthIn(min = 48.dp),
                         )
                     }
 
@@ -296,30 +307,30 @@ fun SettingsScreen(
                     Text(
                         text = "Spring speed (stiffness)",
                         style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
                     )
                     Text(
                         text = "Scales spring-based animations (default show/hide transitions). " +
                             "Higher is faster — springs have no fixed duration.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Slider(
                             value = AnimationSpeed.stiffnessFactor,
                             onValueChange = { appViewModel.setAnimationStiffnessFactor(it) },
                             valueRange = AnimationSpeed.MIN_FACTOR..AnimationSpeed.MAX_FACTOR,
                             steps = 18,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
                         )
                         Text(
                             text = String.format(Locale.US, "%.1f×", AnimationSpeed.stiffnessFactor),
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.widthIn(min = 48.dp)
+                            modifier = Modifier.widthIn(min = 48.dp),
                         )
                     }
                 }
@@ -331,27 +342,27 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 16.dp)
+                modifier = Modifier.padding(top = 16.dp),
             )
 
             val context = LocalContext.current
             val biometricAvailable = remember { canAuthenticate(context) }
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Require biometric unlock",
                             style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
                         )
                         Text(
                             text = if (biometricAvailable) {
@@ -364,14 +375,14 @@ fun SettingsScreen(
                                     "Enrol a biometric or screen lock in system settings to use this."
                             },
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
 
                     Switch(
                         checked = appViewModel.requireBiometricUnlock,
                         enabled = biometricAvailable,
-                        onCheckedChange = { appViewModel.setRequireBiometricUnlock(it) }
+                        onCheckedChange = { appViewModel.setRequireBiometricUnlock(it) },
                     )
                 }
             }
@@ -382,37 +393,37 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 16.dp)
+                modifier = Modifier.padding(top = 16.dp),
             )
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "Battery saver mode",
                                 style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Medium,
                             )
                             Text(
                                 text = "When enabled, the app disconnects from the server while backgrounded and relies on push notifications, saving significant battery on cellular. Notification reply and mark-as-read are routed through the gomuks backend's HTTP command endpoint (<homeserver>/_gomuks/exec). The WebSocket is automatically reconnected while a chat bubble is open and torn down again 60 s after the last bubble closes. When disabled, a persistent foreground-service WebSocket stays connected for real-time delivery.",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         Switch(
                             checked = appViewModel.useBatterySaverMode,
-                            onCheckedChange = { appViewModel.toggleUseBatterySaverMode() }
+                            onCheckedChange = { appViewModel.toggleUseBatterySaverMode() },
                         )
                     }
                 }
@@ -424,7 +435,7 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 16.dp)
+                modifier = Modifier.padding(top = 16.dp),
             )
 
             if (appViewModel.useBatterySaverMode) {
@@ -433,13 +444,13 @@ fun SettingsScreen(
                 // with a notice instead of hiding outright so the user understands why.
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                 ) {
                     Text(
                         text = "Disabled while \"Battery saver mode\" is enabled. In battery saver mode the WebSocket is closed in the background, so there is no sync_complete stream to buffer.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(16.dp)
+                        modifier = Modifier.padding(16.dp),
                     )
                 }
             } else {
@@ -449,33 +460,33 @@ fun SettingsScreen(
             // Compression Setting
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
                     ) {
                         Text(
                             text = "Compression",
                             style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
                         )
                         Text(
                             text = "Request compression from server to client. ⚠️ WARNING: Enabling compression significantly increases battery usage, even when the app is idle. Each message (4-8 per second) requires CPU-intensive decompression, preventing the device from entering deep sleep.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    
+
                     Switch(
                         checked = appViewModel.enableCompression,
-                        onCheckedChange = { appViewModel.toggleCompression() }
+                        onCheckedChange = { appViewModel.toggleCompression() },
                     )
                 }
             }
@@ -486,28 +497,28 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 16.dp)
+                modifier = Modifier.padding(top = 16.dp),
             )
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
                         text = "Element Call base URL",
                         style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
                     )
                     Text(
                         text = "Set the base URL of your Element Call deployment. If it does not point to /element-call-embedded, the app will use the gomuks backend's embedded endpoint when available.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     TextField(
                         value = elementCallBaseUrl,
@@ -517,40 +528,40 @@ fun SettingsScreen(
                         },
                         singleLine = true,
                         placeholder = { Text("https://call.example.com/") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }
-            
+
             // ── Crash Reporting Section ──────────────────────────────────────
             Text(
                 text = "Crash Reporting",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 16.dp)
+                modifier = Modifier.padding(top = 16.dp),
             )
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "Send crash reports",
                                 style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Medium,
                             )
                             Text(
                                 text = "Off by default. When enabled, crashes and handled errors are sent to " +
@@ -558,13 +569,13 @@ fun SettingsScreen(
                                     "stack trace, device model, OS version, and app state — never your messages, " +
                                     "room names, or account details. You can turn this off at any time.",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
 
                         Switch(
                             checked = appViewModel.crashReportingEnabled,
-                            onCheckedChange = { appViewModel.setCrashReportingEnabled(it) }
+                            onCheckedChange = { appViewModel.setCrashReportingEnabled(it) },
                         )
                     }
 
@@ -579,8 +590,8 @@ fun SettingsScreen(
                         },
                         enabled = appViewModel.crashReportingEnabled,
                         colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error
-                        )
+                            contentColor = MaterialTheme.colorScheme.error,
+                        ),
                     ) {
                         Text("Crash the app")
                     }
@@ -593,25 +604,25 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 16.dp)
+                modifier = Modifier.padding(top = 16.dp),
             )
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Send performance data",
                             style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
                         )
                         Text(
                             text = "Off by default. When enabled, app startup time, network request " +
@@ -619,13 +630,13 @@ fun SettingsScreen(
                                 "Firebase Performance Monitoring (Google) to help find slow paths. This is " +
                                 "aggregate timing data — never your messages, room names, or account details.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
 
                     Switch(
                         checked = appViewModel.performanceMonitoringEnabled,
-                        onCheckedChange = { appViewModel.setPerformanceMonitoringEnabled(it) }
+                        onCheckedChange = { appViewModel.setPerformanceMonitoringEnabled(it) },
                     )
                 }
             }
@@ -636,32 +647,32 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 16.dp)
+                modifier = Modifier.padding(top = 16.dp),
             )
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
                         text = "Gomuks preferences",
                         style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
                     )
                     Text(
                         text = "Fine-grained preferences synced across devices (via account data) or kept local to this device.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Button(
                         onClick = { navController.navigate("client_preferences") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Open Client Preferences")
                     }
@@ -670,27 +681,27 @@ fun SettingsScreen(
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
                         text = "Push rules",
                         style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
                     )
                     Text(
                         text = "Control which messages notify you, play a sound, or are highlighted — synced across devices via account data.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Button(
                         onClick = { navController.navigate("push_rules") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Open Push Rules")
                     }
@@ -703,32 +714,32 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 16.dp)
+                modifier = Modifier.padding(top = 16.dp),
             )
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
                         text = "Push Notifications Details",
                         style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
                     )
                     Text(
                         text = "View FCM registration state, identifiers, and debug values on a dedicated screen.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Button(
                         onClick = { navController.navigate("push_notifications_debug") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Open Push Notifications")
                     }
@@ -741,32 +752,32 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 16.dp)
+                modifier = Modifier.padding(top = 16.dp),
             )
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
                         text = "Memory & Cache Usage",
                         style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
                     )
                     Text(
                         text = "Open a dedicated view with detailed memory and cache usage information.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Button(
                         onClick = { navController.navigate("cache_memory_stats") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Open Memory & Cache")
                     }
@@ -779,32 +790,32 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 16.dp)
+                modifier = Modifier.padding(top = 16.dp),
             )
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
                         text = "Account data viewer",
                         style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
                     )
                     Text(
                         text = "Inspect cached account_data keys from sync (e.g. m.direct, m.push_rules, preferences). Tap a key to view its JSON.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Button(
                         onClick = { navController.navigate("account_data_visualizer") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Open account data")
                     }
@@ -817,33 +828,33 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 16.dp)
+                modifier = Modifier.padding(top = 16.dp),
             )
-            
+
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
                         text = "Activity Log",
                         style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
                     )
                     Text(
                         text = "View WebSocket activity history (connections, disconnections, etc.)",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    
+
                     Button(
                         onClick = { navController.navigate("reconnection_log") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("View Activity Log")
                     }
@@ -852,28 +863,28 @@ fun SettingsScreen(
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
                         text = "Androlog",
                         style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
                     )
                     Text(
                         text = "View cherry-picked events logged via Androlog(...). These are kept and persisted in both debug and release builds (unlike debug logcat output, which is stripped from release).",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
                     Button(
                         onClick = { navController.navigate("androlog") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("View Androlog")
                     }
@@ -886,33 +897,33 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 16.dp)
+                modifier = Modifier.padding(top = 16.dp),
             )
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp)
+                        .padding(16.dp),
                 ) {
                     Text(
                         text = "Andromuks",
                         style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
                     )
                     Text(
                         text = "A Matrix client for Android",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
                         text = "Version ${BuildConfig.VERSION_NAME}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp)
+                        modifier = Modifier.padding(top = 8.dp),
                     )
                 }
             }
@@ -922,10 +933,7 @@ fun SettingsScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PushNotificationsDebugScreen(
-    appViewModel: AppViewModel,
-    navController: NavController
-) {
+fun PushNotificationsDebugScreen(appViewModel: AppViewModel, navController: NavController) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -934,16 +942,16 @@ fun PushNotificationsDebugScreen(
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
             )
-        }
+        },
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp)
+                .padding(16.dp),
         ) {
             FCMInfoSection(appViewModel = appViewModel)
         }
@@ -952,10 +960,7 @@ fun PushNotificationsDebugScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CacheMemoryStatsScreen(
-    appViewModel: AppViewModel,
-    navController: NavController
-) {
+fun CacheMemoryStatsScreen(appViewModel: AppViewModel, navController: NavController) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -964,16 +969,16 @@ fun CacheMemoryStatsScreen(
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
             )
-        }
+        },
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp)
+                .padding(16.dp),
         ) {
             CacheStatisticsSection(appViewModel = appViewModel, navController = navController)
         }
@@ -988,28 +993,34 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
     var lastReceivedRequestId by remember { mutableStateOf(0) }
     var lastRegistration by remember { mutableStateOf(0L) }
     var refreshTrigger by remember { mutableStateOf(0) }
-    
+
     // Load persisted values when section is first shown
     LaunchedEffect(Unit) {
         lastReceivedRequestId = appViewModel.getLastReceivedRequestId()
-        lastRegistration = context.getSharedPreferences("web_client_prefs", Context.MODE_PRIVATE).getLong("last_push_reg", 0L)
+        lastRegistration = context.getSharedPreferences(
+            "web_client_prefs",
+            Context.MODE_PRIVATE,
+        ).getLong("last_push_reg", 0L)
     }
     // After user taps "Re-register", refresh values once response may have been written
     LaunchedEffect(refreshTrigger) {
         if (refreshTrigger > 0) {
             delay(2000)
             lastReceivedRequestId = appViewModel.getLastReceivedRequestId()
-            lastRegistration = context.getSharedPreferences("web_client_prefs", Context.MODE_PRIVATE).getLong("last_push_reg", 0L)
+            lastRegistration = context.getSharedPreferences(
+                "web_client_prefs",
+                Context.MODE_PRIVATE,
+            ).getLong("last_push_reg", 0L)
         }
     }
-    
+
     // Get FCM-related data
     val fcmNotificationManager = remember { FCMNotificationManager(context) }
     val webClientPushIntegration = remember { WebClientPushIntegration(context) }
-    
+
     val fcmToken = remember { fcmNotificationManager.getTokenForGomuksBackend() }
     val deviceId = remember { webClientPushIntegration.getDeviceID() }
-    val encryptionKey = remember { 
+    val encryptionKey = remember {
         try {
             val prefs = context.getSharedPreferences("web_client_prefs", Context.MODE_PRIVATE)
             prefs.getString("push_encryption_key", null)
@@ -1020,9 +1031,9 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
     val vapidKey = remember { appViewModel.getVapidKey() }
     val runId = remember { appViewModel.getCurrentRunId() }
     val currentRequestId = remember { appViewModel.getCurrentRequestId() }
-    
+
     val isRegistered = remember { fcmNotificationManager.isRegisteredWithBackend() }
-    
+
     // Helper function to copy to clipboard
     fun copyToClipboard(label: String, text: String) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -1031,23 +1042,23 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
         snackbarMessage = "$label copied to clipboard"
         showSnackbar = true
     }
-    
+
     // Helper function to format timestamp
     fun formatTimestamp(timestamp: Long): String {
         if (timestamp == 0L) return "Never"
         val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
         return sdf.format(Date(timestamp))
     }
-    
+
     Card(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // Registration Status (tappable to re-send register_push)
             Row(
@@ -1060,149 +1071,167 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
                         refreshTrigger++
                     },
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Registration Status",
                         style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
                     )
                     Text(
                         text = "Tap to re-send register_push",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 2.dp)
+                        modifier = Modifier.padding(top = 2.dp),
                     )
                 }
                 Surface(
-                    color = if (isRegistered) MaterialTheme.colorScheme.primaryContainer 
-                           else MaterialTheme.colorScheme.errorContainer,
-                    shape = MaterialTheme.shapes.small
+                    color = if (isRegistered) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.errorContainer
+                    },
+                    shape = MaterialTheme.shapes.small,
                 ) {
                     Text(
                         text = if (isRegistered) "Registered" else "Not Registered",
                         style = MaterialTheme.typography.labelMedium,
-                        color = if (isRegistered) MaterialTheme.colorScheme.onPrimaryContainer 
-                               else MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        color = if (isRegistered) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onErrorContainer
+                        },
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                     )
                 }
             }
-            
+
             HorizontalDivider()
-            
+
             // FCM Token
             FCMInfoItem(
                 label = "FCM Token",
                 value = fcmToken ?: "Not available",
                 onCopy = if (fcmToken != null) {
                     { copyToClipboard("FCM Token", fcmToken) }
-                } else null
+                } else {
+                    null
+                },
             )
-            
+
             HorizontalDivider()
-            
+
             // Device ID
             FCMInfoItem(
                 label = "Device ID",
                 value = deviceId ?: "Not available",
                 onCopy = if (deviceId != null) {
                     { copyToClipboard("Device ID", deviceId) }
-                } else null
+                } else {
+                    null
+                },
             )
-            
+
             HorizontalDivider()
-            
+
             // Encryption Key
             FCMInfoItem(
                 label = "Encryption Key",
                 value = encryptionKey ?: "Not available",
                 onCopy = if (encryptionKey != null) {
                     { copyToClipboard("Encryption Key", encryptionKey) }
-                } else null
+                } else {
+                    null
+                },
             )
-            
+
             HorizontalDivider()
-            
+
             // VAPID Key
             FCMInfoItem(
                 label = "VAPID Key",
                 value = if (vapidKey.isNotBlank()) vapidKey else "Not available",
                 onCopy = if (vapidKey.isNotBlank()) {
                     { copyToClipboard("VAPID Key", vapidKey) }
-                } else null
+                } else {
+                    null
+                },
             )
-            
+
             HorizontalDivider()
-            
+
             // Run ID
             FCMInfoItem(
                 label = "Run ID",
                 value = runId.ifEmpty { "Not available" },
                 onCopy = if (runId.isNotEmpty()) {
                     { copyToClipboard("Run ID", runId) }
-                } else null
+                } else {
+                    null
+                },
             )
-            
+
             HorizontalDivider()
-            
+
             // Current Request ID
             FCMInfoItem(
                 label = "Current Request ID",
                 value = currentRequestId.toString(),
-                onCopy = { copyToClipboard("Current Request ID", currentRequestId.toString()) }
+                onCopy = { copyToClipboard("Current Request ID", currentRequestId.toString()) },
             )
-            
+
             HorizontalDivider()
-            
+
             // Last Received Request ID
             FCMInfoItem(
                 label = "Last Received Request ID",
                 value = if (lastReceivedRequestId != 0) lastReceivedRequestId.toString() else "Not set",
                 onCopy = if (lastReceivedRequestId != 0) {
                     { copyToClipboard("Last Received Request ID", lastReceivedRequestId.toString()) }
-                } else null
+                } else {
+                    null
+                },
             )
-            
+
             HorizontalDivider()
-            
+
             // Last Registration
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.Top,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Last Registration",
                         style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
                     )
                     Text(
                         text = formatTimestamp(lastRegistration),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp)
+                        modifier = Modifier.padding(top = 4.dp),
                     )
                 }
             }
         }
     }
-    
+
     // Snackbar for copy confirmation
     if (showSnackbar) {
         LaunchedEffect(snackbarMessage) {
             delay(2000)
             showSnackbar = false
         }
-        
+
         Snackbar(
             modifier = Modifier.padding(16.dp),
             action = {
                 TextButton(onClick = { showSnackbar = false }) {
                     Text("Dismiss")
                 }
-            }
+            },
         ) {
             Text(snackbarMessage)
         }
@@ -1210,35 +1239,31 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
 }
 
 @Composable
-fun FCMInfoItem(
-    label: String,
-    value: String,
-    onCopy: (() -> Unit)?
-) {
+fun FCMInfoItem(label: String, value: String, onCopy: (() -> Unit)?) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top
+        verticalAlignment = Alignment.Top,
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
             )
             Text(
                 text = value,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp)
+                modifier = Modifier.padding(top = 4.dp),
             )
         }
-        
+
         if (onCopy != null) {
             IconButton(onClick = onCopy) {
                 Icon(
                     imageVector = Icons.Filled.ContentCopy,
                     contentDescription = "Copy $label",
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }
@@ -1251,7 +1276,7 @@ fun CacheStatisticsSection(appViewModel: AppViewModel, navController: NavControl
     val coroutineScope = rememberCoroutineScope()
     var cacheStats by remember { mutableStateOf<Map<String, String>?>(null) }
     var isRefreshing by remember { mutableStateOf(false) }
-    
+
     // Helper function to refresh cache stats
     fun refreshStats() {
         coroutineScope.launch {
@@ -1263,70 +1288,70 @@ fun CacheStatisticsSection(appViewModel: AppViewModel, navController: NavControl
             isRefreshing = false
         }
     }
-    
+
     // Refresh cache statistics when screen is composed
     LaunchedEffect(Unit) {
         refreshStats()
     }
-    
+
     Card(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = "Memory & Cache Usage",
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
                 )
                 IconButton(
                     onClick = { refreshStats() },
-                    enabled = !isRefreshing
+                    enabled = !isRefreshing,
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Refresh,
                         contentDescription = "Refresh cache statistics",
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(20.dp),
                     )
                 }
             }
-            
+
             if (isRefreshing) {
                 Box(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     ExpressiveLoadingIndicator(modifier = Modifier.size(24.dp))
                 }
             } else if (cacheStats != null) {
                 HorizontalDivider()
-                
+
                 // App RAM Usage
                 CacheStatItem(
                     label = "App RAM Usage",
                     value = cacheStats!!["app_ram_usage"] ?: "N/A",
-                    description = "Max: ${cacheStats!!["app_ram_max"] ?: "N/A"}"
+                    description = "Max: ${cacheStats!!["app_ram_max"] ?: "N/A"}",
                 )
-                
+
                 HorizontalDivider()
-                
+
                 // Room Timeline Memory Cache
                 CacheStatItem(
                     label = "Room Timeline Cache",
                     value = cacheStats!!["timeline_memory_cache"] ?: "N/A",
-                    description = cacheStats!!["timeline_event_count"] ?: ""
+                    description = cacheStats!!["timeline_event_count"] ?: "",
                 )
-                
+
                 HorizontalDivider()
 
                 // Profiles memory cache (room-specific)
@@ -1334,7 +1359,7 @@ fun CacheStatisticsSection(appViewModel: AppViewModel, navController: NavControl
                     label = "User Profiles (Per-Room Memory)",
                     value = cacheStats!!["user_profiles_room_memory_cache"] ?: "N/A",
                     description = cacheStats!!["user_profiles_room_count"] ?: "",
-                    onClick = { navController.navigate("cached_profiles/per_room") }
+                    onClick = { navController.navigate("cached_profiles/per_room") },
                 )
 
                 HorizontalDivider()
@@ -1344,41 +1369,37 @@ fun CacheStatisticsSection(appViewModel: AppViewModel, navController: NavControl
                     label = "User Profiles (Global Memory)",
                     value = cacheStats!!["user_profiles_global_memory_cache"] ?: "N/A",
                     description = cacheStats!!["user_profiles_global_count"] ?: "",
-                    onClick = { navController.navigate("cached_profiles/global") }
+                    onClick = { navController.navigate("cached_profiles/global") },
                 )
 
                 HorizontalDivider()
-                
+
                 // Media Memory Cache
                 CacheStatItem(
                     label = "Media Cache (Memory)",
                     value = cacheStats!!["media_memory_cache"] ?: "N/A",
-                    description = cacheStats!!["media_memory_cache_max"]?.let { "Max size: $it (actual usage not available)" } ?: "Coil image cache (max size)",
-                    onClick = { navController.navigate("cached_media/memory") }
+                    description =
+                    cacheStats!!["media_memory_cache_max"]?.let { "Max size: $it (actual usage not available)" }
+                        ?: "Coil image cache (max size)",
+                    onClick = { navController.navigate("cached_media/memory") },
                 )
-                
+
                 HorizontalDivider()
-                
+
                 // Media Disk Cache
                 CacheStatItem(
                     label = "Media Cache (Disk)",
                     value = cacheStats!!["media_disk_cache"] ?: "N/A",
                     description = "Coil disk cache",
-                    onClick = { navController.navigate("cached_media/disk") }
+                    onClick = { navController.navigate("cached_media/disk") },
                 )
-                
             }
         }
     }
 }
 
 @Composable
-fun CacheStatItem(
-    label: String,
-    value: String,
-    description: String,
-    onClick: (() -> Unit)? = null
-) {
+fun CacheStatItem(label: String, value: String, description: String, onClick: (() -> Unit)? = null) {
     val modifier = if (onClick != null) {
         Modifier
             .fillMaxWidth()
@@ -1386,25 +1407,25 @@ fun CacheStatItem(
     } else {
         Modifier.fillMaxWidth()
     }
-    
+
     Column(modifier = modifier) {
         Text(
             text = label,
             style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.Medium,
         )
         Text(
             text = value,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 4.dp)
+            modifier = Modifier.padding(top = 4.dp),
         )
         if (description.isNotEmpty()) {
             Text(
                 text = description,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp)
+                modifier = Modifier.padding(top = 2.dp),
             )
         }
     }
@@ -1428,37 +1449,37 @@ fun BackgroundSyncSettings(appViewModel: AppViewModel) {
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
                 text = "While the app is backgrounded, incoming sync messages are buffered to save battery. " +
-                        "The buffer is purged automatically when either threshold below is reached, " +
-                        "or immediately when an FCM notification arrives.",
+                    "The buffer is purged automatically when either threshold below is reached, " +
+                    "or immediately when an FCM notification arrives.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             // ── Interval slider + text field ─────────────────────────────────
             Text(
                 text = "Purge interval",
                 style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
             )
             Text(
                 text = "Maximum time between automatic background purges (minutes).",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Slider(
                     value = appViewModel.backgroundPurgeIntervalMinutes.toFloat(),
@@ -1468,12 +1489,12 @@ fun BackgroundSyncSettings(appViewModel: AppViewModel) {
                     },
                     valueRange = 1f..60f,
                     steps = 58, // 1-minute increments
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 )
                 Text(
                     text = "${appViewModel.backgroundPurgeIntervalMinutes} min",
                     style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.widthIn(min = 52.dp)
+                    modifier = Modifier.widthIn(min = 52.dp),
                 )
             }
 
@@ -1483,17 +1504,17 @@ fun BackgroundSyncSettings(appViewModel: AppViewModel) {
             Text(
                 text = "Message count threshold",
                 style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
             )
             Text(
                 text = "Maximum buffered sync messages before an automatic purge is triggered, even if the interval hasn't elapsed.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Slider(
                     value = appViewModel.backgroundPurgeMessageThreshold.toFloat(),
@@ -1503,12 +1524,12 @@ fun BackgroundSyncSettings(appViewModel: AppViewModel) {
                     },
                     valueRange = 10f..2000f,
                     steps = 0, // continuous
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 )
                 Text(
                     text = "${appViewModel.backgroundPurgeMessageThreshold}",
                     style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.widthIn(min = 52.dp)
+                    modifier = Modifier.widthIn(min = 52.dp),
                 )
             }
 
@@ -1521,7 +1542,7 @@ fun BackgroundSyncSettings(appViewModel: AppViewModel) {
                 Text(
                     text = "⚠️ Lower values mean more frequent background processing, which may increase battery usage.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
         }
@@ -1532,10 +1553,7 @@ fun BackgroundSyncSettings(appViewModel: AppViewModel) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ClientPreferencesScreen(
-    appViewModel: AppViewModel,
-    navController: NavController
-) {
+fun ClientPreferencesScreen(appViewModel: AppViewModel, navController: NavController) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -1544,9 +1562,9 @@ fun ClientPreferencesScreen(
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
             )
-        }
+        },
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -1554,13 +1572,13 @@ fun ClientPreferencesScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
                 text = "Global (all devices)",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
             )
 
             GomuksPreferenceCard(
@@ -1568,7 +1586,7 @@ fun ClientPreferencesScreen(
                 description = "Stored in account data — applies across all your Matrix clients. " +
                     "When enabled, images and videos are rendered inline. When disabled, only a blurhash placeholder is shown until tapped.",
                 value = appViewModel.accountGlobalShowMediaPreviews,
-                onValueChange = { appViewModel.setGomuksGlobalPrefs(it) }
+                onValueChange = { appViewModel.setGomuksGlobalPrefs(it) },
             )
 
             GomuksPreferenceCard(
@@ -1576,7 +1594,7 @@ fun ClientPreferencesScreen(
                 description = "Stored in account data — applies across all your Matrix clients. " +
                     "When enabled, link preview cards from messages are displayed below the bubble.",
                 value = appViewModel.accountGlobalRenderUrlPreviews,
-                onValueChange = { appViewModel.setGomuksGlobalRenderUrlPreviews(it) }
+                onValueChange = { appViewModel.setGomuksGlobalRenderUrlPreviews(it) },
             )
 
             GomuksPreferenceCard(
@@ -1584,7 +1602,7 @@ fun ClientPreferencesScreen(
                 description = "Stored in account data — applies across all your Matrix clients. " +
                     "When enabled, a preview bar appears above the text input when a URL is typed and the preview is attached on send.",
                 value = appViewModel.accountGlobalSendBundledUrlPreviews,
-                onValueChange = { appViewModel.setGomuksGlobalSendBundledUrlPreviews(it) }
+                onValueChange = { appViewModel.setGomuksGlobalSendBundledUrlPreviews(it) },
             )
 
             GomuksPreferenceCard(
@@ -1592,7 +1610,7 @@ fun ClientPreferencesScreen(
                 description = "Stored in account data — applies across all your Matrix clients. " +
                     "When disabled, mark_read commands are not sent, so others cannot see when you have read messages.",
                 value = appViewModel.accountGlobalSendReadReceipts,
-                onValueChange = { appViewModel.setGomuksGlobalSendReadReceipts(it) }
+                onValueChange = { appViewModel.setGomuksGlobalSendReadReceipts(it) },
             )
 
             GomuksPreferenceCard(
@@ -1600,7 +1618,7 @@ fun ClientPreferencesScreen(
                 description = "Stored in account data — applies across all your Matrix clients. " +
                     "When disabled, no typing indicator is sent while you type.",
                 value = appViewModel.accountGlobalSendTypingNotifications,
-                onValueChange = { appViewModel.setGomuksGlobalSendTypingNotifications(it) }
+                onValueChange = { appViewModel.setGomuksGlobalSendTypingNotifications(it) },
             )
 
             GomuksPreferenceCard(
@@ -1608,7 +1626,7 @@ fun ClientPreferencesScreen(
                 description = "Stored in account data — applies across all your Matrix clients. " +
                     "When disabled, read receipt avatars are hidden from the timeline.",
                 value = appViewModel.accountGlobalDisplayReadReceipts,
-                onValueChange = { appViewModel.setGomuksGlobalDisplayReadReceipts(it) }
+                onValueChange = { appViewModel.setGomuksGlobalDisplayReadReceipts(it) },
             )
 
             GomuksPreferenceCard(
@@ -1616,7 +1634,7 @@ fun ClientPreferencesScreen(
                 description = "Stored in account data — applies across all your Matrix clients. " +
                     "When enabled, event types not normally rendered (call notifications, state changes, unknown types) are shown in the timeline.",
                 value = appViewModel.accountGlobalShowHiddenEvents,
-                onValueChange = { appViewModel.setGomuksGlobalShowHiddenEvents(it) }
+                onValueChange = { appViewModel.setGomuksGlobalShowHiddenEvents(it) },
             )
 
             GomuksPreferenceCard(
@@ -1625,7 +1643,7 @@ fun ClientPreferencesScreen(
                     "Controls joins, leaves and display-name/avatar changes (moderation events stay visible). " +
                     "Default shows them in DMs and hides them in group rooms.",
                 value = appViewModel.accountGlobalShowMembershipEvents,
-                onValueChange = { appViewModel.setGomuksGlobalShowMembershipEvents(it) }
+                onValueChange = { appViewModel.setGomuksGlobalShowMembershipEvents(it) },
             )
 
             Text(
@@ -1633,7 +1651,7 @@ fun ClientPreferencesScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 8.dp)
+                modifier = Modifier.padding(top = 8.dp),
             )
 
             GomuksPreferenceCard(
@@ -1641,69 +1659,69 @@ fun ClientPreferencesScreen(
                 description = "Stored locally on this device. Overrides the global (all-devices) setting. " +
                     "Use \"Default\" to inherit from the global preference.",
                 value = appViewModel.deviceGlobalShowMediaPreviews,
-                onValueChange = { appViewModel.setDeviceGlobalShowMediaPreviews(it) }
+                onValueChange = { appViewModel.setDeviceGlobalShowMediaPreviews(it) },
             )
 
             GomuksPreferenceCard(
                 title = "Show link previews",
                 description = "Stored locally on this device. Overrides the global (all-devices) setting.",
                 value = appViewModel.deviceGlobalRenderUrlPreviews,
-                onValueChange = { appViewModel.setDeviceGlobalRenderUrlPreviews(it) }
+                onValueChange = { appViewModel.setDeviceGlobalRenderUrlPreviews(it) },
             )
 
             GomuksPreferenceCard(
                 title = "Send link previews",
                 description = "Stored locally on this device. Overrides the global (all-devices) setting.",
                 value = appViewModel.deviceGlobalSendBundledUrlPreviews,
-                onValueChange = { appViewModel.setDeviceGlobalSendBundledUrlPreviews(it) }
+                onValueChange = { appViewModel.setDeviceGlobalSendBundledUrlPreviews(it) },
             )
 
             GomuksPreferenceCard(
                 title = "Send read receipts",
                 description = "Stored locally on this device. Overrides the global (all-devices) setting.",
                 value = appViewModel.deviceGlobalSendReadReceipts,
-                onValueChange = { appViewModel.setDeviceGlobalSendReadReceipts(it) }
+                onValueChange = { appViewModel.setDeviceGlobalSendReadReceipts(it) },
             )
 
             GomuksPreferenceCard(
                 title = "Send typing notifications",
                 description = "Stored locally on this device. Overrides the global (all-devices) setting.",
                 value = appViewModel.deviceGlobalSendTypingNotifications,
-                onValueChange = { appViewModel.setDeviceGlobalSendTypingNotifications(it) }
+                onValueChange = { appViewModel.setDeviceGlobalSendTypingNotifications(it) },
             )
 
             GomuksPreferenceCard(
                 title = "Display read receipts",
                 description = "Stored locally on this device. Overrides the global (all-devices) setting.",
                 value = appViewModel.deviceGlobalDisplayReadReceipts,
-                onValueChange = { appViewModel.setDeviceGlobalDisplayReadReceipts(it) }
+                onValueChange = { appViewModel.setDeviceGlobalDisplayReadReceipts(it) },
             )
 
             GomuksPreferenceCard(
                 title = "Show hidden events",
                 description = "Stored locally on this device. Overrides the global (all-devices) setting.",
                 value = appViewModel.deviceGlobalShowHiddenEvents,
-                onValueChange = { appViewModel.setDeviceGlobalShowHiddenEvents(it) }
+                onValueChange = { appViewModel.setDeviceGlobalShowHiddenEvents(it) },
             )
 
             GomuksPreferenceCard(
                 title = "Show membership events",
                 description = "Stored locally on this device. Overrides the global (all-devices) setting.",
                 value = appViewModel.deviceGlobalShowMembershipEvents,
-                onValueChange = { appViewModel.setDeviceGlobalShowMembershipEvents(it) }
+                onValueChange = { appViewModel.setDeviceGlobalShowMembershipEvents(it) },
             )
 
             Text(
                 text = "Resolution order",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp)
+                modifier = Modifier.padding(top = 4.dp),
             )
             Text(
                 text = "Room (this device) > Room (all devices) > Global (this device) > Global (all devices). " +
                     "The first explicitly set value wins; \"Default\" means inherit from the next level.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -1711,47 +1729,42 @@ fun ClientPreferencesScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GomuksPreferenceCard(
-    title: String,
-    description: String,
-    value: Boolean?,
-    onValueChange: (Boolean?) -> Unit
-) {
+fun GomuksPreferenceCard(title: String, description: String, value: Boolean?, onValueChange: (Boolean?) -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
             )
             Text(
                 text = description,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 SegmentedButton(
                     selected = value == true,
                     onClick = { onValueChange(true) },
-                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3)
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
                 ) { Text("On") }
                 SegmentedButton(
                     selected = value == null,
                     onClick = { onValueChange(null) },
-                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3)
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
                 ) { Text("Default") }
                 SegmentedButton(
                     selected = value == false,
                     onClick = { onValueChange(false) },
-                    shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3)
+                    shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
                 ) { Text("Off") }
             }
         }
@@ -1762,11 +1775,7 @@ fun GomuksPreferenceCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RoomPreferencesScreen(
-    roomId: String,
-    appViewModel: AppViewModel,
-    navController: NavController
-) {
+fun RoomPreferencesScreen(roomId: String, appViewModel: AppViewModel, navController: NavController) {
     val roomPrefsVersion = appViewModel.gomuksRoomPrefsVersion
     var roomAccountShowMedia by remember(roomId, roomPrefsVersion) {
         mutableStateOf(appViewModel.getAccountRoomShowMediaPreviews(roomId))
@@ -1825,9 +1834,9 @@ fun RoomPreferencesScreen(
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
             )
-        }
+        },
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -1835,13 +1844,13 @@ fun RoomPreferencesScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
                 text = "Room (all devices)",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
             )
 
             GomuksPreferenceCard(
@@ -1852,7 +1861,7 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomAccountShowMedia = it
                     appViewModel.setGomuksRoomPrefs(roomId, it)
-                }
+                },
             )
 
             GomuksPreferenceCard(
@@ -1863,7 +1872,7 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomAccountRenderUrl = it
                     appViewModel.setGomuksRoomRenderUrlPreviews(roomId, it)
-                }
+                },
             )
 
             GomuksPreferenceCard(
@@ -1874,7 +1883,7 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomAccountSendBundled = it
                     appViewModel.setGomuksRoomSendBundledUrlPreviews(roomId, it)
-                }
+                },
             )
 
             GomuksPreferenceCard(
@@ -1885,7 +1894,7 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomAccountSendReadReceipts = it
                     appViewModel.setGomuksRoomSendReadReceipts(roomId, it)
-                }
+                },
             )
 
             GomuksPreferenceCard(
@@ -1896,7 +1905,7 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomAccountSendTyping = it
                     appViewModel.setGomuksRoomSendTypingNotifications(roomId, it)
-                }
+                },
             )
 
             GomuksPreferenceCard(
@@ -1907,7 +1916,7 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomAccountDisplayReceipts = it
                     appViewModel.setGomuksRoomDisplayReadReceipts(roomId, it)
-                }
+                },
             )
 
             GomuksPreferenceCard(
@@ -1918,7 +1927,7 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomAccountShowHidden = it
                     appViewModel.setGomuksRoomShowHiddenEvents(roomId, it)
-                }
+                },
             )
 
             GomuksPreferenceCard(
@@ -1930,7 +1939,7 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomAccountShowMembership = it
                     appViewModel.setGomuksRoomShowMembershipEvents(roomId, it)
-                }
+                },
             )
 
             Text(
@@ -1938,18 +1947,19 @@ fun RoomPreferencesScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 8.dp)
+                modifier = Modifier.padding(top = 8.dp),
             )
 
             GomuksPreferenceCard(
                 title = "Show image and video previews",
-                description = "Stored locally on this device for this room. Overrides all other preferences for this room on this device. " +
+                description =
+                "Stored locally on this device for this room. Overrides all other preferences for this room on this device. " +
                     "Use \"Default\" to inherit from the room (all-devices) setting.",
                 value = roomDeviceShowMedia,
                 onValueChange = {
                     roomDeviceShowMedia = it
                     appViewModel.setDeviceRoomShowMediaPreviews(roomId, it)
-                }
+                },
             )
 
             GomuksPreferenceCard(
@@ -1959,7 +1969,7 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomDeviceRenderUrl = it
                     appViewModel.setDeviceRoomRenderUrlPreviews(roomId, it)
-                }
+                },
             )
 
             GomuksPreferenceCard(
@@ -1969,7 +1979,7 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomDeviceSendBundled = it
                     appViewModel.setDeviceRoomSendBundledUrlPreviews(roomId, it)
-                }
+                },
             )
 
             GomuksPreferenceCard(
@@ -1979,7 +1989,7 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomDeviceSendReadReceipts = it
                     appViewModel.setDeviceRoomSendReadReceipts(roomId, it)
-                }
+                },
             )
 
             GomuksPreferenceCard(
@@ -1989,7 +1999,7 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomDeviceSendTyping = it
                     appViewModel.setDeviceRoomSendTypingNotifications(roomId, it)
-                }
+                },
             )
 
             GomuksPreferenceCard(
@@ -1999,7 +2009,7 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomDeviceDisplayReceipts = it
                     appViewModel.setDeviceRoomDisplayReadReceipts(roomId, it)
-                }
+                },
             )
 
             GomuksPreferenceCard(
@@ -2009,7 +2019,7 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomDeviceShowHidden = it
                     appViewModel.setDeviceRoomShowHiddenEvents(roomId, it)
-                }
+                },
             )
 
             GomuksPreferenceCard(
@@ -2019,20 +2029,20 @@ fun RoomPreferencesScreen(
                 onValueChange = {
                     roomDeviceShowMembership = it
                     appViewModel.setDeviceRoomShowMembershipEvents(roomId, it)
-                }
+                },
             )
 
             Text(
                 text = "Resolution order",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp)
+                modifier = Modifier.padding(top = 4.dp),
             )
             Text(
                 text = "Room (this device) > Room (all devices) > Global (this device) > Global (all devices). " +
                     "The first explicitly set value wins; \"Default\" means inherit from the next level.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

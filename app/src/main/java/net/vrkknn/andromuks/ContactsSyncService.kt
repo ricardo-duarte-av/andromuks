@@ -3,8 +3,9 @@ package net.vrkknn.andromuks
 import android.accounts.Account
 import android.accounts.AccountManager
 import android.content.ContentProviderOperation
-import android.content.ContentResolver
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.provider.ContactsContract
 import android.provider.ContactsContract.CommonDataKinds
@@ -12,16 +13,12 @@ import android.provider.ContactsContract.Data
 import android.provider.ContactsContract.RawContacts
 import android.provider.ContactsContract.RawContacts.DefaultAccount
 import android.provider.ContactsContract.RawContacts.DefaultAccount.DefaultAccountAndState
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.BuildConfig
-import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import java.io.ByteArrayOutputStream
-import java.io.File
 
 /**
  * Service to sync Matrix users to Android Contacts
@@ -38,18 +35,18 @@ import java.io.File
 class ContactsSyncService(
     private val context: Context,
     private val accountName: String,
-    private val accountType: String = "net.vrkknn.andromuks.matrix"
+    private val accountType: String = "net.vrkknn.andromuks.matrix",
 ) {
     companion object {
         private const val TAG = "ContactsSyncService"
-        
+
         // Custom MIME type for Matrix user IDs
         // This allows Android to recognize Matrix contacts and show "Send Matrix message" option
         private const val MIME_TYPE_MATRIX_USER = "vnd.android.cursor.item/vnd.net.vrkknn.andromuks.matrix.user"
-        
+
         // Authority for Matrix contacts (matches account type)
         private const val AUTHORITY = "net.vrkknn.andromuks.contacts"
-        
+
         /**
          * Get the default contact account for creating new contacts
          * 
@@ -64,7 +61,7 @@ class ContactsSyncService(
                 try {
                     val defaultAccountAndState: DefaultAccountAndState =
                         DefaultAccount.getDefaultAccountForNewContacts(context.contentResolver)
-                    
+
                     // .account is only non-null for STATE_CLOUD or STATE_SIM
                     val account = defaultAccountAndState.account
                     if (account != null) {
@@ -77,7 +74,7 @@ class ContactsSyncService(
                     Log.e(TAG, "Error getting default contact account", e)
                 }
             }
-            
+
             // Fallback: first Google account
             val accountManager = AccountManager.get(context)
             val googleAccount = accountManager.getAccountsByType("com.google").firstOrNull()
@@ -87,7 +84,7 @@ class ContactsSyncService(
                 }
                 return Pair(googleAccount.name, "com.google")
             }
-            
+
             // Last resort: any non-local syncing account
             val anyAccount = accountManager.accounts.firstOrNull { it.type != "local" }
             if (anyAccount != null) {
@@ -96,7 +93,7 @@ class ContactsSyncService(
                 }
                 return Pair(anyAccount.name, anyAccount.type)
             }
-            
+
             // No account available - return null (local account)
             // Note: This may fail on Android 14+ if a cloud account is set as default
             if (BuildConfig.DEBUG) {
@@ -114,21 +111,18 @@ class ContactsSyncService(
         val count = context.contentResolver.delete(
             deleteUri,
             "${RawContacts.SYNC1} LIKE ?",
-            arrayOf("@%:%")
+            arrayOf("@%:%"),
         )
         Log.d(TAG, "Nuked $count Matrix raw contacts")
     }
-    
+
     /**
      * Sync Matrix users to Android contacts
      * 
      * @param users List of Matrix users to sync (from DMs or room members)
      * @param syncAvatars Whether to sync avatars (can be disabled for performance)
      */
-    suspend fun syncContacts(
-        users: List<MatrixUser>,
-        syncAvatars: Boolean = true
-    ) = withContext(Dispatchers.IO) {
+    suspend fun syncContacts(users: List<MatrixUser>, syncAvatars: Boolean = true) = withContext(Dispatchers.IO) {
         if (BuildConfig.DEBUG) {
             Log.d(TAG, "Starting contact sync for ${users.size} Matrix users")
         }
@@ -191,7 +185,7 @@ class ContactsSyncService(
             Log.e(TAG, "Error during contact sync", e)
         }
     }
-    
+
     /**
      * Add a new Matrix user as a contact
      */
@@ -199,11 +193,10 @@ class ContactsSyncService(
         operations: MutableList<ContentProviderOperation>,
         account: Account,
         user: MatrixUser,
-        syncAvatars: Boolean
+        syncAvatars: Boolean,
     ) {
         val displayName = user.displayName ?: extractUsername(user.userId)
-        
-        
+
         // Create raw contact
         // This prevents Android from auto-merging with existing contacts
         val rawContactInsertIndex = operations.size
@@ -213,18 +206,18 @@ class ContactsSyncService(
                 .withValue(RawContacts.ACCOUNT_TYPE, account.type)
                 .withValue(RawContacts.SOURCE_ID, user.userId) // Store Matrix user ID as source ID
                 .withValue(RawContacts.SYNC1, user.userId) // Also store in SYNC1 for backward compatibility
-                .build()
+                .build(),
         )
-        
+
         // Add display name
         operations.add(
             ContentProviderOperation.newInsert(Data.CONTENT_URI)
                 .withValueBackReference(Data.RAW_CONTACT_ID, rawContactInsertIndex)
                 .withValue(Data.MIMETYPE, CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE)
                 .withValue(CommonDataKinds.StructuredName.DISPLAY_NAME, displayName)
-                .build()
+                .build(),
         )
-        
+
         // Add phone number if provided (enables automatic contact matching)
         if (user.phoneNumber != null && user.phoneNumber.isNotBlank()) {
             operations.add(
@@ -233,10 +226,10 @@ class ContactsSyncService(
                     .withValue(Data.MIMETYPE, CommonDataKinds.Phone.CONTENT_ITEM_TYPE)
                     .withValue(CommonDataKinds.Phone.NUMBER, user.phoneNumber)
                     .withValue(CommonDataKinds.Phone.TYPE, CommonDataKinds.Phone.TYPE_MOBILE)
-                    .build()
+                    .build(),
             )
         }
-        
+
         // Add email if provided (enables automatic contact matching)
         if (user.email != null && user.email.isNotBlank()) {
             operations.add(
@@ -245,10 +238,10 @@ class ContactsSyncService(
                     .withValue(Data.MIMETYPE, CommonDataKinds.Email.CONTENT_ITEM_TYPE)
                     .withValue(CommonDataKinds.Email.DATA, user.email)
                     .withValue(CommonDataKinds.Email.TYPE, CommonDataKinds.Email.TYPE_OTHER)
-                    .build()
+                    .build(),
             )
         }
-        
+
         // Add Matrix user ID as custom MIME type
         // This is what allows Android to recognize this as a Matrix contact
         // Use matrix:u/ URI format so MainActivity can handle it automatically
@@ -261,9 +254,9 @@ class ContactsSyncService(
                 .withValue(Data.DATA2, "Matrix") // Type/label
                 .withValue(Data.DATA3, "Send Matrix message") // Action label
                 .withValue(Data.DATA4, user.userId) // Store full user ID for reference
-                .build()
+                .build(),
         )
-                
+
         // Add avatar if available
         if (syncAvatars && user.avatarUrl != null) {
             val avatarBytes = getAvatarBytes(user.avatarUrl)
@@ -273,12 +266,12 @@ class ContactsSyncService(
                         .withValueBackReference(Data.RAW_CONTACT_ID, rawContactInsertIndex)
                         .withValue(Data.MIMETYPE, CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
                         .withValue(CommonDataKinds.Photo.PHOTO, avatarBytes)
-                        .build()
+                        .build(),
                 )
             }
         }
     }
-    
+
     /**
      * Update an existing Matrix contact
      */
@@ -286,10 +279,10 @@ class ContactsSyncService(
         operations: MutableList<ContentProviderOperation>,
         rawContactId: Long,
         user: MatrixUser,
-        syncAvatars: Boolean
+        syncAvatars: Boolean,
     ) {
         val displayName = user.displayName ?: extractUsername(user.userId)
-        
+
         // Update display name
         val nameId = getNameDataId(rawContactId)
         if (nameId != null) {
@@ -297,7 +290,7 @@ class ContactsSyncService(
                 ContentProviderOperation.newUpdate(Data.CONTENT_URI)
                     .withSelection("${Data._ID} = ?", arrayOf(nameId.toString()))
                     .withValue(CommonDataKinds.StructuredName.DISPLAY_NAME, displayName)
-                    .build()
+                    .build(),
             )
         } else {
             // Name doesn't exist, add it
@@ -306,10 +299,10 @@ class ContactsSyncService(
                     .withValue(Data.RAW_CONTACT_ID, rawContactId)
                     .withValue(Data.MIMETYPE, CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE)
                     .withValue(CommonDataKinds.StructuredName.DISPLAY_NAME, displayName)
-                    .build()
+                    .build(),
             )
         }
-        
+
         // Update/add phone number if provided
         if (user.phoneNumber != null && user.phoneNumber.isNotBlank()) {
             val phoneId = getPhoneDataId(rawContactId, user.phoneNumber)
@@ -319,7 +312,7 @@ class ContactsSyncService(
                     ContentProviderOperation.newUpdate(Data.CONTENT_URI)
                         .withSelection("${Data._ID} = ?", arrayOf(phoneId.toString()))
                         .withValue(CommonDataKinds.Phone.NUMBER, user.phoneNumber)
-                        .build()
+                        .build(),
                 )
             } else {
                 // Phone doesn't exist, add it
@@ -329,11 +322,11 @@ class ContactsSyncService(
                         .withValue(Data.MIMETYPE, CommonDataKinds.Phone.CONTENT_ITEM_TYPE)
                         .withValue(CommonDataKinds.Phone.NUMBER, user.phoneNumber)
                         .withValue(CommonDataKinds.Phone.TYPE, CommonDataKinds.Phone.TYPE_MOBILE)
-                        .build()
+                        .build(),
                 )
             }
         }
-        
+
         // Update/add email if provided
         if (user.email != null && user.email.isNotBlank()) {
             val emailId = getEmailDataId(rawContactId, user.email)
@@ -343,7 +336,7 @@ class ContactsSyncService(
                     ContentProviderOperation.newUpdate(Data.CONTENT_URI)
                         .withSelection("${Data._ID} = ?", arrayOf(emailId.toString()))
                         .withValue(CommonDataKinds.Email.DATA, user.email)
-                        .build()
+                        .build(),
                 )
             } else {
                 // Email doesn't exist, add it
@@ -353,16 +346,16 @@ class ContactsSyncService(
                         .withValue(Data.MIMETYPE, CommonDataKinds.Email.CONTENT_ITEM_TYPE)
                         .withValue(CommonDataKinds.Email.DATA, user.email)
                         .withValue(CommonDataKinds.Email.TYPE, CommonDataKinds.Email.TYPE_OTHER)
-                        .build()
+                        .build(),
                 )
             }
         }
-        
+
         // Update avatar if available
         if (syncAvatars && user.avatarUrl != null) {
             val avatarBytes = getAvatarBytes(user.avatarUrl)
             val photoId = getPhotoDataId(rawContactId)
-            
+
             if (avatarBytes != null) {
                 if (photoId != null) {
                     // Update existing photo
@@ -370,7 +363,7 @@ class ContactsSyncService(
                         ContentProviderOperation.newUpdate(Data.CONTENT_URI)
                             .withSelection("${Data._ID} = ?", arrayOf(photoId.toString()))
                             .withValue(CommonDataKinds.Photo.PHOTO, avatarBytes)
-                            .build()
+                            .build(),
                     )
                 } else {
                     // Add new photo
@@ -379,36 +372,34 @@ class ContactsSyncService(
                             .withValue(Data.RAW_CONTACT_ID, rawContactId)
                             .withValue(Data.MIMETYPE, CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
                             .withValue(CommonDataKinds.Photo.PHOTO, avatarBytes)
-                            .build()
+                            .build(),
                     )
                 }
             }
         }
     }
-    
+
     /**
      * Check if a Matrix user is already in contacts
      */
-    fun isUserInContacts(userId: String): Boolean {
-        return getRawContactId(userId) != null
-    }
-    
+    fun isUserInContacts(userId: String): Boolean = getRawContactId(userId) != null
+
     /**
      * Get the contact URI for opening in Contacts app
      * Returns null if contact doesn't exist
      */
     fun getContactUri(userId: String): android.net.Uri? {
         val rawContactId = getRawContactId(userId) ?: return null
-        
+
         // Get the contact ID from the raw contact ID
         val rawContactCursor = context.contentResolver.query(
             RawContacts.CONTENT_URI,
             arrayOf(RawContacts.CONTACT_ID),
             "${RawContacts._ID} = ?",
             arrayOf(rawContactId.toString()),
-            null
+            null,
         )
-        
+
         val contactId = rawContactCursor?.use {
             if (it.moveToFirst()) {
                 it.getLong(it.getColumnIndexOrThrow(RawContacts.CONTACT_ID))
@@ -416,16 +407,16 @@ class ContactsSyncService(
                 null
             }
         } ?: return null
-        
+
         // Get the lookup key from the Contacts table
         val contactsCursor = context.contentResolver.query(
             ContactsContract.Contacts.CONTENT_URI,
             arrayOf(ContactsContract.Contacts.LOOKUP_KEY),
             "${ContactsContract.Contacts._ID} = ?",
             arrayOf(contactId.toString()),
-            null
+            null,
         )
-        
+
         return contactsCursor?.use {
             if (it.moveToFirst()) {
                 val lookupKey = it.getString(it.getColumnIndexOrThrow(ContactsContract.Contacts.LOOKUP_KEY))
@@ -436,7 +427,7 @@ class ContactsSyncService(
             }
         }
     }
-    
+
     /**
      * Get raw contact ID for a Matrix user ID
      * CRITICAL FIX: Excludes deleted contacts (DELETED = 1)
@@ -448,9 +439,9 @@ class ContactsSyncService(
             arrayOf(RawContacts._ID, RawContacts.SYNC1, RawContacts.ACCOUNT_TYPE, RawContacts.DELETED),
             "${RawContacts.SYNC1} = ? AND (${RawContacts.DELETED} = 0 OR ${RawContacts.DELETED} IS NULL)",
             arrayOf(userId),
-            null
+            null,
         )
-        
+
         return cursor?.use {
             if (it.moveToFirst()) {
                 val id = it.getLong(it.getColumnIndexOrThrow(RawContacts._ID))
@@ -466,7 +457,7 @@ class ContactsSyncService(
             }
         }
     }
-    
+
     /**
      * Get name data ID for a raw contact
      */
@@ -476,9 +467,9 @@ class ContactsSyncService(
             arrayOf(Data._ID),
             "${Data.RAW_CONTACT_ID} = ? AND ${Data.MIMETYPE} = ?",
             arrayOf(rawContactId.toString(), CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE),
-            null
+            null,
         )
-        
+
         return cursor?.use {
             if (it.moveToFirst()) {
                 it.getLong(it.getColumnIndexOrThrow(Data._ID))
@@ -487,7 +478,7 @@ class ContactsSyncService(
             }
         }
     }
-    
+
     /**
      * Get photo data ID for a raw contact
      */
@@ -497,9 +488,9 @@ class ContactsSyncService(
             arrayOf(Data._ID),
             "${Data.RAW_CONTACT_ID} = ? AND ${Data.MIMETYPE} = ?",
             arrayOf(rawContactId.toString(), CommonDataKinds.Photo.CONTENT_ITEM_TYPE),
-            null
+            null,
         )
-        
+
         return cursor?.use {
             if (it.moveToFirst()) {
                 it.getLong(it.getColumnIndexOrThrow(Data._ID))
@@ -508,7 +499,7 @@ class ContactsSyncService(
             }
         }
     }
-    
+
     /**
      * Get phone data ID for a raw contact and phone number
      */
@@ -518,9 +509,9 @@ class ContactsSyncService(
             arrayOf(Data._ID),
             "${Data.RAW_CONTACT_ID} = ? AND ${Data.MIMETYPE} = ? AND ${CommonDataKinds.Phone.NUMBER} = ?",
             arrayOf(rawContactId.toString(), CommonDataKinds.Phone.CONTENT_ITEM_TYPE, phoneNumber),
-            null
+            null,
         )
-        
+
         return cursor?.use {
             if (it.moveToFirst()) {
                 it.getLong(it.getColumnIndexOrThrow(Data._ID))
@@ -529,7 +520,7 @@ class ContactsSyncService(
             }
         }
     }
-    
+
     /**
      * Get email data ID for a raw contact and email
      */
@@ -539,9 +530,9 @@ class ContactsSyncService(
             arrayOf(Data._ID),
             "${Data.RAW_CONTACT_ID} = ? AND ${Data.MIMETYPE} = ? AND ${CommonDataKinds.Email.DATA} = ?",
             arrayOf(rawContactId.toString(), CommonDataKinds.Email.CONTENT_ITEM_TYPE, email),
-            null
+            null,
         )
-        
+
         return cursor?.use {
             if (it.moveToFirst()) {
                 it.getLong(it.getColumnIndexOrThrow(Data._ID))
@@ -550,7 +541,7 @@ class ContactsSyncService(
             }
         }
     }
-    
+
     /**
      * Find existing contact by phone number or email
      * Returns the raw contact ID if a match is found
@@ -560,16 +551,16 @@ class ContactsSyncService(
         if (phoneNumber == null && email == null) {
             return null
         }
-        
+
         val selection = mutableListOf<String>()
         val selectionArgs = mutableListOf<String>()
-        
+
         if (phoneNumber != null && phoneNumber.isNotBlank()) {
             selection.add("${Data.MIMETYPE} = ? AND ${CommonDataKinds.Phone.NUMBER} = ?")
             selectionArgs.add(CommonDataKinds.Phone.CONTENT_ITEM_TYPE)
             selectionArgs.add(phoneNumber)
         }
-        
+
         if (email != null && email.isNotBlank()) {
             if (selection.isNotEmpty()) {
                 selection.add("OR")
@@ -578,15 +569,15 @@ class ContactsSyncService(
             selectionArgs.add(CommonDataKinds.Email.CONTENT_ITEM_TYPE)
             selectionArgs.add(email)
         }
-        
+
         val cursor = context.contentResolver.query(
             Data.CONTENT_URI,
             arrayOf(Data.RAW_CONTACT_ID),
             selection.joinToString(" "),
             selectionArgs.toTypedArray(),
-            null
+            null,
         )
-        
+
         return cursor?.use {
             if (it.moveToFirst()) {
                 val rawContactId = it.getLong(it.getColumnIndexOrThrow(Data.RAW_CONTACT_ID))
@@ -602,7 +593,7 @@ class ContactsSyncService(
             }
         }
     }
-    
+
     /**
      * Check if a raw contact ID belongs to a Matrix contact
      */
@@ -610,75 +601,72 @@ class ContactsSyncService(
         val cursor = context.contentResolver.query(
             RawContacts.CONTENT_URI,
             arrayOf(RawContacts.SYNC1),
-            "${RawContacts._ID} = ?",        // query by _ID, not SYNC1
+            "${RawContacts._ID} = ?", // query by _ID, not SYNC1
             arrayOf(rawContactId.toString()), // single arg
-            null
+            null,
         )
-        
+
         return cursor?.use {
             if (it.moveToFirst()) it.getString(it.getColumnIndexOrThrow(RawContacts.SYNC1)) else null
         }
     }
-    
+
     /**
      * Merge Matrix contact with existing contact
      * This adds Matrix data to an existing contact instead of creating a new one
      */
-    suspend fun mergeWithExistingContact(
-        existingRawContactId: Long,
-        user: MatrixUser,
-        syncAvatars: Boolean
-    ) = withContext(Dispatchers.IO) {
-        val operations = mutableListOf<ContentProviderOperation>()
-        
-        // Add Matrix user ID as custom MIME type to existing contact
-        val matrixUri = "matrix:u/${user.userId.removePrefix("@")}"
-        operations.add(
-            ContentProviderOperation.newInsert(Data.CONTENT_URI)
-                .withValue(Data.RAW_CONTACT_ID, existingRawContactId)
-                .withValue(Data.MIMETYPE, MatrixContactsProvider.MIME_TYPE_MATRIX_USER)
-                .withValue(Data.DATA1, matrixUri)
-                .withValue(Data.DATA2, "Matrix")
-                .withValue(Data.DATA3, "Send Matrix message")
-                .withValue(Data.DATA4, user.userId)
-                .build()
-        )   
-        
-        // Add avatar if available
-        if (syncAvatars && user.avatarUrl != null) {
-            val avatarBytes = getAvatarBytes(user.avatarUrl)
-            if (avatarBytes != null) {
-                // Only add if contact doesn't already have a photo
-                val photoId = getPhotoDataId(existingRawContactId)
-                if (photoId == null) {
-                    operations.add(
-                        ContentProviderOperation.newInsert(Data.CONTENT_URI)
-                            .withValue(Data.RAW_CONTACT_ID, existingRawContactId)
-                            .withValue(Data.MIMETYPE, CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
-                            .withValue(CommonDataKinds.Photo.PHOTO, avatarBytes)
-                            .build()
-                    )
+    suspend fun mergeWithExistingContact(existingRawContactId: Long, user: MatrixUser, syncAvatars: Boolean) =
+        withContext(Dispatchers.IO) {
+            val operations = mutableListOf<ContentProviderOperation>()
+
+            // Add Matrix user ID as custom MIME type to existing contact
+            val matrixUri = "matrix:u/${user.userId.removePrefix("@")}"
+            operations.add(
+                ContentProviderOperation.newInsert(Data.CONTENT_URI)
+                    .withValue(Data.RAW_CONTACT_ID, existingRawContactId)
+                    .withValue(Data.MIMETYPE, MatrixContactsProvider.MIME_TYPE_MATRIX_USER)
+                    .withValue(Data.DATA1, matrixUri)
+                    .withValue(Data.DATA2, "Matrix")
+                    .withValue(Data.DATA3, "Send Matrix message")
+                    .withValue(Data.DATA4, user.userId)
+                    .build(),
+            )
+
+            // Add avatar if available
+            if (syncAvatars && user.avatarUrl != null) {
+                val avatarBytes = getAvatarBytes(user.avatarUrl)
+                if (avatarBytes != null) {
+                    // Only add if contact doesn't already have a photo
+                    val photoId = getPhotoDataId(existingRawContactId)
+                    if (photoId == null) {
+                        operations.add(
+                            ContentProviderOperation.newInsert(Data.CONTENT_URI)
+                                .withValue(Data.RAW_CONTACT_ID, existingRawContactId)
+                                .withValue(Data.MIMETYPE, CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
+                                .withValue(CommonDataKinds.Photo.PHOTO, avatarBytes)
+                                .build(),
+                        )
+                    }
                 }
             }
-        }
-        
-        try {
-            context.contentResolver.applyBatch(ContactsContract.AUTHORITY, ArrayList(operations))
-            if (BuildConfig.DEBUG) {
-                Log.d(TAG, "Merged Matrix contact with existing contact: ${user.userId}")
+
+            try {
+                context.contentResolver.applyBatch(ContactsContract.AUTHORITY, ArrayList(operations))
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "Merged Matrix contact with existing contact: ${user.userId}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error merging contact", e)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error merging contact", e)
         }
-    }
-    
+
     /**
      * Ensure the sync account exists
      */
     private fun ensureAccountExists(account: Account) {
         val accountManager = android.accounts.AccountManager.get(context)
         val accounts = accountManager.getAccountsByType(accountType)
-        
+
         if (accounts.none { it.name == account.name }) {
             accountManager.addAccountExplicitly(account, null, null)
             if (BuildConfig.DEBUG) {
@@ -686,39 +674,35 @@ class ContactsSyncService(
             }
         }
     }
-    
+
     /**
      * Extract username from Matrix user ID (@username:server.com -> username)
      */
-    private fun extractUsername(userId: String): String {
-        return userId.removePrefix("@").substringBefore(":")
-    }
-    
+    private fun extractUsername(userId: String): String = userId.removePrefix("@").substringBefore(":")
+
     /**
      * Get avatar as byte array for contact photo
      */
-    private suspend fun getAvatarBytes(avatarUrl: String): ByteArray? {
-        return try {
-            val avatarFile = IntelligentMediaCache.getCachedFile(context, avatarUrl)
-            if (avatarFile != null && avatarFile.exists()) {
-                val bitmap = BitmapFactory.decodeFile(avatarFile.absolutePath)
-                if (bitmap != null) {
-                    // Convert bitmap to byte array (PNG format)
-                    val outputStream = ByteArrayOutputStream()
-                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
-                    outputStream.toByteArray()
-                } else {
-                    null
-                }
+    private suspend fun getAvatarBytes(avatarUrl: String): ByteArray? = try {
+        val avatarFile = IntelligentMediaCache.getCachedFile(context, avatarUrl)
+        if (avatarFile != null && avatarFile.exists()) {
+            val bitmap = BitmapFactory.decodeFile(avatarFile.absolutePath)
+            if (bitmap != null) {
+                // Convert bitmap to byte array (PNG format)
+                val outputStream = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+                outputStream.toByteArray()
             } else {
                 null
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error loading avatar bytes for contact", e)
+        } else {
             null
         }
+    } catch (e: Exception) {
+        Log.e(TAG, "Error loading avatar bytes for contact", e)
+        null
     }
-    
+
     /**
      * Remove a Matrix user from contacts
      */
@@ -729,9 +713,9 @@ class ContactsSyncService(
             operations.add(
                 ContentProviderOperation.newDelete(RawContacts.CONTENT_URI)
                     .withSelection("${RawContacts._ID} = ?", arrayOf(rawContactId.toString()))
-                    .build()
+                    .build(),
             )
-            
+
             try {
                 context.contentResolver.applyBatch(ContactsContract.AUTHORITY, ArrayList(operations))
                 if (BuildConfig.DEBUG) {
@@ -742,7 +726,7 @@ class ContactsSyncService(
             }
         }
     }
-    
+
     /**
      * Clear all Matrix contacts
      */
@@ -753,20 +737,20 @@ class ContactsSyncService(
             arrayOf(RawContacts._ID),
             "${RawContacts.ACCOUNT_TYPE} = ?",
             arrayOf(accountType),
-            null
+            null,
         )
-        
+
         cursor?.use {
             while (it.moveToNext()) {
                 val rawContactId = it.getLong(it.getColumnIndexOrThrow(RawContacts._ID))
                 operations.add(
                     ContentProviderOperation.newDelete(RawContacts.CONTENT_URI)
                         .withSelection("${RawContacts._ID} = ?", arrayOf(rawContactId.toString()))
-                        .build()
+                        .build(),
                 )
             }
         }
-        
+
         if (operations.isNotEmpty()) {
             try {
                 context.contentResolver.applyBatch(ContactsContract.AUTHORITY, ArrayList(operations))
@@ -787,9 +771,6 @@ data class MatrixUser(
     val userId: String,
     val displayName: String?,
     val avatarUrl: String?,
-    val phoneNumber: String? = null,  // Phone number for contact matching (e.g., "+351919100753")
-    val email: String? = null          // Email for contact matching (e.g., "thalitasantos_877@gmail.com")
+    val phoneNumber: String? = null, // Phone number for contact matching (e.g., "+351919100753")
+    val email: String? = null, // Email for contact matching (e.g., "thalitasantos_877@gmail.com")
 )
-
-
-

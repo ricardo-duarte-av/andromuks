@@ -2,8 +2,8 @@ package net.vrkknn.andromuks.ui.components
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.remember
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.RoomListUiState
 
@@ -30,9 +30,8 @@ fun AppViewModel.rememberRoomListUiState(): State<RoomListUiState> {
                 notificationActionInProgress = notificationActionInProgress,
                 timestampUpdateCounter = timestampUpdateCounter,
                 pendingSyncCompleteCount = pendingSyncCompleteCount,
-                processedSyncCompleteCount = processedSyncCompleteCount
+                processedSyncCompleteCount = processedSyncCompleteCount,
             )
         }
     }
 }
-

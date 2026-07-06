@@ -1,7 +1,5 @@
 package net.vrkknn.andromuks
 
-import net.vrkknn.andromuks.BuildConfig
-
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
@@ -10,12 +8,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import okhttp3.*
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONObject
-import java.io.IOException
+import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.getUserAgent
+import okhttp3.*
 
 /**
  * Data class to hold all FCM-related components after initialization
@@ -24,11 +19,11 @@ data class FCMComponents(
     val fcmNotificationManager: FCMNotificationManager,
     val conversationsApi: ConversationsApi,
     val personsApi: PersonsApi,
-    val webClientPushIntegration: WebClientPushIntegration
+    val webClientPushIntegration: WebClientPushIntegration,
 )
 
 class FCMNotificationManager(private val context: Context) {
-    
+
     companion object {
         private const val TAG = "FCMNotificationManager"
         private const val PREFS_NAME = "fcm_prefs"
@@ -37,7 +32,7 @@ class FCMNotificationManager(private val context: Context) {
         private const val KEY_HOMESERVER_URL = "homeserver_url"
         private const val KEY_USER_ID = "user_id"
         private const val KEY_ACCESS_TOKEN = "access_token"
-        
+
         /**
          * Initializes all FCM-related components including notification manager,
          * conversations API, and web client push integration.
@@ -58,25 +53,25 @@ class FCMNotificationManager(private val context: Context) {
             context: Context,
             homeserverUrl: String = "",
             authToken: String = "",
-            realMatrixHomeserverUrl: String = ""
+            realMatrixHomeserverUrl: String = "",
         ): FCMComponents {
             if (BuildConfig.DEBUG) android.util.Log.d(TAG, "Initializing FCM components")
-            
+
             val fcmNotificationManager = FCMNotificationManager(context)
             val conversationsApi = ConversationsApi(context, homeserverUrl, authToken, realMatrixHomeserverUrl)
             val personsApi = PersonsApi(context, homeserverUrl, authToken, realMatrixHomeserverUrl)
             val webClientPushIntegration = WebClientPushIntegration(context)
-            
+
             if (BuildConfig.DEBUG) android.util.Log.d(TAG, "FCM components initialized successfully")
-            
+
             return FCMComponents(
                 fcmNotificationManager = fcmNotificationManager,
                 conversationsApi = conversationsApi,
                 personsApi = personsApi,
-                webClientPushIntegration = webClientPushIntegration
+                webClientPushIntegration = webClientPushIntegration,
             )
         }
-        
+
         /**
          * Registers FCM notifications with the backend.
          * 
@@ -100,79 +95,101 @@ class FCMNotificationManager(private val context: Context) {
             homeserverUrl: String,
             authToken: String,
             currentUserId: String,
-            onTokenReady: () -> Unit
+            onTokenReady: () -> Unit,
         ) {
             if (homeserverUrl.isBlank() || authToken.isBlank() || currentUserId.isBlank()) {
                 android.util.Log.w(TAG, "Cannot register FCM notifications - missing required parameters")
-                if (BuildConfig.DEBUG) android.util.Log.d(TAG, "homeserverUrl: ${if (homeserverUrl.isBlank()) "BLANK" else "OK"}")
-                if (BuildConfig.DEBUG) android.util.Log.d(TAG, "authToken: ${if (authToken.isBlank()) "BLANK" else "OK"}")
-                if (BuildConfig.DEBUG) android.util.Log.d(TAG, "currentUserId: ${if (currentUserId.isBlank()) "BLANK" else "OK"}")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    TAG,
+                    "homeserverUrl: ${if (homeserverUrl.isBlank()) "BLANK" else "OK"}",
+                )
+                }
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    TAG,
+                    "authToken: ${if (authToken.isBlank()) "BLANK" else "OK"}",
+                )
+                }
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    TAG,
+                    "currentUserId: ${if (currentUserId.isBlank()) "BLANK" else "OK"}",
+                )
+                }
                 return
             }
-            
+
             if (BuildConfig.DEBUG) android.util.Log.d(TAG, "Registering FCM notifications for user: $currentUserId")
-            
+
             // Set callback to register with Gomuks backend when FCM token is ready
             fcmNotificationManager.setOnTokenReadyCallback {
-                if (BuildConfig.DEBUG) android.util.Log.d(TAG, "FCM token ready, triggering Gomuks Backend registration callback")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    TAG,
+                    "FCM token ready, triggering Gomuks Backend registration callback",
+                )
+                }
                 onTokenReady()
             }
-            
+
             // Initialize and register with FCM
             fcmNotificationManager.initializeAndRegister(homeserverUrl, currentUserId, authToken)
         }
     }
-    
+
     // Callback to notify when FCM token is ready for Gomuks backend registration
     private var onTokenReadyCallback: (() -> Unit)? = null
-    
+
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val httpClient = OkHttpClient()
-    
+
     /**
      * Initialize FCM and register with backend
      */
-    fun initializeAndRegister(
-        homeserverUrl: String,
-        userId: String,
-        accessToken: String
-    ) {
-        if (BuildConfig.DEBUG) Log.d(TAG, "initializeAndRegister called with homeserverUrl=$homeserverUrl, userId=$userId, accessToken=${accessToken.take(20)}...")
-        
+    fun initializeAndRegister(homeserverUrl: String, userId: String, accessToken: String) {
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            TAG,
+            "initializeAndRegister called with homeserverUrl=$homeserverUrl, userId=$userId, accessToken=${accessToken.take(
+                20,
+            )}...",
+        )
+        }
+
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Getting FCM token...")
                 // Get FCM token
                 val fcmToken = FirebaseMessaging.getInstance().token.await()
                 if (BuildConfig.DEBUG) Log.d(TAG, "FCM Token received: ${fcmToken.take(50)}...")
-                
+
                 // Store credentials
                 storeCredentials(homeserverUrl, userId, accessToken)
                 if (BuildConfig.DEBUG) Log.d(TAG, "Credentials stored")
-                
+
                 // Register with backend
                 val success = registerWithBackend(fcmToken, homeserverUrl, userId, accessToken)
                 if (BuildConfig.DEBUG) Log.d(TAG, "Backend registration result: $success")
-                
+
                 if (success) {
                     prefs.edit().putString(KEY_FCM_TOKEN, fcmToken).apply()
                     prefs.edit().putBoolean(KEY_BACKEND_REGISTERED, true).apply()
                     if (BuildConfig.DEBUG) Log.d(TAG, "Successfully registered FCM token with backend")
-                    
+
                     // Notify that token is ready for Gomuks backend registration
                     if (BuildConfig.DEBUG) Log.d(TAG, "Calling onTokenReadyCallback")
                     onTokenReadyCallback?.invoke()
                 } else {
                     Log.e(TAG, "Failed to register FCM token with backend")
                 }
-                
             } catch (e: Exception) {
                 Log.e(TAG, "Error initializing FCM", e)
                 e.printStackTrace()
             }
         }
     }
-    
+
     /**
      * Set callback to be called when FCM token is ready for Gomuks backend registration
      * 
@@ -182,12 +199,17 @@ class FCMNotificationManager(private val context: Context) {
      */
     fun setOnTokenReadyCallback(callback: () -> Unit) {
         onTokenReadyCallback = callback
-        
+
         // REMOVED: Don't call callback immediately if token exists - this causes duplicate registrations
         // The callback will be called when initializeAndRegister() completes with a new token
-        if (BuildConfig.DEBUG) Log.d(TAG, "setOnTokenReadyCallback: Callback set (will be called when new token is ready)")
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            TAG,
+            "setOnTokenReadyCallback: Callback set (will be called when new token is ready)",
+        )
+        }
     }
-    
+
     /**
      * Register FCM token with Gomuks Backend
      * This stores the token for the AppViewModel to send via WebSocket
@@ -196,30 +218,27 @@ class FCMNotificationManager(private val context: Context) {
         fcmToken: String,
         homeserverUrl: String,
         userId: String,
-        accessToken: String
-    ): Boolean {
-        return try {
-            // Store the FCM token for Gomuks Backend registration
-            prefs.edit().putString("fcm_token_for_gomuks", fcmToken).apply()
-            
-            // Store other registration data
-            prefs.edit()
-                .putString("homeserver_url", homeserverUrl)
-                .putString("user_id", userId)
-                .putString("access_token", accessToken)
-                .apply()
-            
-            if (BuildConfig.DEBUG) Log.d(TAG, "Stored FCM token for Gomuks Backend registration: $fcmToken")
-            
-            // Return true as we've prepared the token for registration
-            true
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error preparing FCM token for Gomuks Backend registration", e)
-            false
-        }
+        accessToken: String,
+    ): Boolean = try {
+        // Store the FCM token for Gomuks Backend registration
+        prefs.edit().putString("fcm_token_for_gomuks", fcmToken).apply()
+
+        // Store other registration data
+        prefs.edit()
+            .putString("homeserver_url", homeserverUrl)
+            .putString("user_id", userId)
+            .putString("access_token", accessToken)
+            .apply()
+
+        if (BuildConfig.DEBUG) Log.d(TAG, "Stored FCM token for Gomuks Backend registration: $fcmToken")
+
+        // Return true as we've prepared the token for registration
+        true
+    } catch (e: Exception) {
+        Log.e(TAG, "Error preparing FCM token for Gomuks Backend registration", e)
+        false
     }
-    
+
     /**
      * Unregister FCM token from backend
      */
@@ -228,19 +247,19 @@ class FCMNotificationManager(private val context: Context) {
             try {
                 val homeserverUrl = prefs.getString(KEY_HOMESERVER_URL, null)
                 val accessToken = prefs.getString(KEY_ACCESS_TOKEN, null)
-                
+
                 if (homeserverUrl != null && accessToken != null) {
                     val pushGatewayUrl = "$homeserverUrl/_matrix/push/v1/register"
-                    
+
                     val request = Request.Builder()
                         .url(pushGatewayUrl)
                         .delete()
                         .addHeader("Authorization", "Bearer $accessToken")
                         .addHeader("User-Agent", getUserAgent())
                         .build()
-                    
+
                     val response = httpClient.newCall(request).execute()
-                    
+
                     if (response.isSuccessful) {
                         prefs.edit().putBoolean(KEY_BACKEND_REGISTERED, false).apply()
                         if (BuildConfig.DEBUG) Log.d(TAG, "Successfully unregistered from backend")
@@ -251,28 +270,22 @@ class FCMNotificationManager(private val context: Context) {
             }
         }
     }
-    
+
     /**
      * Get current FCM token
      */
-    fun getCurrentToken(): String? {
-        return prefs.getString(KEY_FCM_TOKEN, null)
-    }
-    
+    fun getCurrentToken(): String? = prefs.getString(KEY_FCM_TOKEN, null)
+
     /**
      * Get FCM token for Gomuks Backend registration
      */
-    fun getTokenForGomuksBackend(): String? {
-        return prefs.getString("fcm_token_for_gomuks", null)
-    }
-    
+    fun getTokenForGomuksBackend(): String? = prefs.getString("fcm_token_for_gomuks", null)
+
     /**
      * Check if registered with backend
      */
-    fun isRegisteredWithBackend(): Boolean {
-        return prefs.getBoolean(KEY_BACKEND_REGISTERED, false)
-    }
-    
+    fun isRegisteredWithBackend(): Boolean = prefs.getBoolean(KEY_BACKEND_REGISTERED, false)
+
     /**
      * Store user credentials for FCM registration
      */
@@ -283,14 +296,14 @@ class FCMNotificationManager(private val context: Context) {
             .putString(KEY_ACCESS_TOKEN, accessToken)
             .apply()
     }
-    
+
     /**
      * Clear stored credentials
      */
     fun clearCredentials() {
         prefs.edit().clear().apply()
     }
-    
+
     /**
      * Refresh FCM token and re-register with backend
      */
@@ -301,10 +314,10 @@ class FCMNotificationManager(private val context: Context) {
                 val homeserverUrl = prefs.getString(KEY_HOMESERVER_URL, null)
                 val userId = prefs.getString(KEY_USER_ID, null)
                 val accessToken = prefs.getString(KEY_ACCESS_TOKEN, null)
-                
+
                 if (homeserverUrl != null && userId != null && accessToken != null) {
                     val success = registerWithBackend(newToken, homeserverUrl, userId, accessToken)
-                    
+
                     if (success) {
                         prefs.edit().putString(KEY_FCM_TOKEN, newToken).apply()
                         if (BuildConfig.DEBUG) Log.d(TAG, "Successfully refreshed FCM token")

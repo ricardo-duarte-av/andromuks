@@ -1,8 +1,7 @@
 package net.vrkknn.andromuks
 
-import net.vrkknn.andromuks.BuildConfig
-
 import android.util.Log
+import net.vrkknn.andromuks.BuildConfig
 
 /**
  * Singleton tracker for active chat bubbles.
@@ -15,14 +14,14 @@ import android.util.Log
  */
 object BubbleTracker {
     private const val TAG = "BubbleTracker"
-    
+
     // Thread-safe set of room IDs that currently have open bubbles
     private val openBubbles = mutableSetOf<String>()
-    
+
     // Thread-safe set of room IDs that currently have visible/maximized bubbles
     // A bubble can be open but minimized (not visible)
     private val visibleBubbles = mutableSetOf<String>()
-    
+
     /**
      * Called when a bubble is opened for a room.
      * Should be called from ChatBubbleActivity.onCreate() or when the bubble screen becomes visible.
@@ -33,7 +32,7 @@ object BubbleTracker {
             if (BuildConfig.DEBUG) Log.d(TAG, "Bubble opened for room: $roomId (total open: ${openBubbles.size})")
         }
     }
-    
+
     /**
      * Called when a bubble is closed for a room.
      * Should be called from ChatBubbleActivity.onDestroy() or when the bubble screen is destroyed.
@@ -45,7 +44,7 @@ object BubbleTracker {
             if (BuildConfig.DEBUG) Log.d(TAG, "Bubble closed for room: $roomId (total open: ${openBubbles.size})")
         }
     }
-    
+
     /**
      * Called when a bubble becomes visible/maximized.
      * Should be called from ChatBubbleActivity.onResume().
@@ -54,13 +53,18 @@ object BubbleTracker {
         synchronized(openBubbles) {
             if (roomId in openBubbles) {
                 visibleBubbles.add(roomId)
-                if (BuildConfig.DEBUG) Log.d(TAG, "Bubble became visible for room: $roomId (total visible: ${visibleBubbles.size})")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    TAG,
+                    "Bubble became visible for room: $roomId (total visible: ${visibleBubbles.size})",
+                )
+                }
             } else {
                 Log.w(TAG, "Bubble visibility set for room $roomId but bubble is not tracked as open")
             }
         }
     }
-    
+
     /**
      * Called when a bubble becomes invisible/minimized.
      * Should be called from ChatBubbleActivity.onPause().
@@ -68,10 +72,15 @@ object BubbleTracker {
     fun onBubbleInvisible(roomId: String) {
         synchronized(openBubbles) {
             visibleBubbles.remove(roomId)
-            if (BuildConfig.DEBUG) Log.d(TAG, "Bubble became invisible for room: $roomId (total visible: ${visibleBubbles.size})")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                TAG,
+                "Bubble became invisible for room: $roomId (total visible: ${visibleBubbles.size})",
+            )
+            }
         }
     }
-    
+
     /**
      * Check if a bubble is currently open for the given room.
      * 
@@ -85,7 +94,7 @@ object BubbleTracker {
             return isOpen
         }
     }
-    
+
     /**
      * Check if a bubble is currently visible/maximized for the given room.
      * A bubble can be open but minimized (not visible).
@@ -100,7 +109,7 @@ object BubbleTracker {
             return isVisible
         }
     }
-    
+
     /**
      * Get all currently open bubble room IDs (for debugging).
      */
@@ -109,7 +118,7 @@ object BubbleTracker {
             return openBubbles.toSet()
         }
     }
-    
+
     /**
      * Get all currently visible bubble room IDs (for debugging).
      */
@@ -143,7 +152,7 @@ object BubbleTracker {
             return openBubbles.isNotEmpty()
         }
     }
-    
+
     /**
      * Clear all tracked bubbles (useful for testing or app reset).
      */
@@ -153,8 +162,12 @@ object BubbleTracker {
             val visibleCount = visibleBubbles.size
             openBubbles.clear()
             visibleBubbles.clear()
-            if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all bubble tracking (was tracking $count bubbles, $visibleCount visible)")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                TAG,
+                "Cleared all bubble tracking (was tracking $count bubbles, $visibleCount visible)",
+            )
+            }
         }
     }
 }
-

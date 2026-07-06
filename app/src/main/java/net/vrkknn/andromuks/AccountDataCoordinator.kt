@@ -1,6 +1,5 @@
 package net.vrkknn.andromuks
 
-
 /**
  * Account data: recent emojis, m.direct, ignored users, room tags — for [AppViewModel].
  */
@@ -8,7 +7,12 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
 
     fun updateRecentEmojis(emoji: String) = with(vm) {
         if (!hasLoadedRecentEmojisFromServer) {
-            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Skipping updateRecentEmojis - haven't loaded full recent emoji list from server yet. Will update after sync completes.")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Skipping updateRecentEmojis - haven't loaded full recent emoji list from server yet. Will update after sync completes.",
+            )
+            }
             return@with
         }
 
@@ -27,14 +31,30 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         val updatedFrequencies = sortedFrequencies.take(20)
 
         if (updatedFrequencies.isEmpty()) {
-            android.util.Log.e("Andromuks", "AppViewModel: updateRecentEmojis resulted in empty list for emoji '$emoji' - this should never happen!")
+            android.util.Log.e(
+                "Andromuks",
+                "AppViewModel: updateRecentEmojis resulted in empty list for emoji '$emoji' - this should never happen!",
+            )
             return@with
         }
 
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: Preparing to send emoji update - current list has ${recentEmojiFrequencies.size} emojis, updated list will have ${updatedFrequencies.size} emojis")
-            android.util.Log.d("Andromuks", "AppViewModel: Emoji '$emoji' will have count ${updatedFrequencies.find { it.first == emoji }?.second ?: 1}")
-            android.util.Log.d("Andromuks", "AppViewModel: Full list being sent: ${updatedFrequencies.joinToString(", ") { "${it.first}(${it.second})" }}")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Preparing to send emoji update - current list has ${recentEmojiFrequencies.size} emojis, updated list will have ${updatedFrequencies.size} emojis",
+            )
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Emoji '$emoji' will have count ${updatedFrequencies.find {
+                    it.first == emoji
+                }?.second ?: 1}",
+            )
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Full list being sent: ${updatedFrequencies.joinToString(
+                    ", ",
+                ) { "${it.first}(${it.second})" }}",
+            )
         }
 
         sendAccountDataUpdate(updatedFrequencies)
@@ -48,7 +68,10 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         WebSocketService.getWebSocket() ?: return@with
 
         if (frequencies.isEmpty()) {
-            android.util.Log.w("Andromuks", "AppViewModel: sendAccountDataUpdate called with empty frequencies list - skipping send to prevent clearing recent emojis")
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: sendAccountDataUpdate called with empty frequencies list - skipping send to prevent clearing recent emojis",
+            )
             return@with
         }
 
@@ -59,17 +82,28 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         val commandData = mapOf(
             "type" to "io.element.recent_emoji",
             "content" to mapOf(
-                "recent_emoji" to recentEmojiArray
-            )
+                "recent_emoji" to recentEmojiArray,
+            ),
         )
 
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: set_account_data with ${frequencies.size} emojis")
-            android.util.Log.d("Andromuks", "AppViewModel: Emojis being sent: ${frequencies.joinToString(", ") { "${it.first}(${it.second})" }}")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: About to send WebSocket command: set_account_data with ${frequencies.size} emojis",
+            )
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Emojis being sent: ${frequencies.joinToString(", ") { "${it.first}(${it.second})" }}",
+            )
             android.util.Log.d("Andromuks", "AppViewModel: Full command data: $commandData")
         }
         sendWebSocketCommand("set_account_data", accountDataRequestId, commandData)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $accountDataRequestId")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: WebSocket command sent with request_id: $accountDataRequestId",
+        )
+        }
     }
 
     /**
@@ -120,7 +154,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: set_account_data m.direct — ${contentMap.size} user keys, ${map.values.sumOf { it.size }} room entries (local caches updated on next sync_complete)"
+                "AppViewModel: set_account_data m.direct — ${contentMap.size} user keys, ${map.values.sumOf {
+                    it.size
+                }} room entries (local caches updated on next sync_complete)",
             )
         }
         sendWebSocketCommand(
@@ -128,8 +164,8 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
             requestId,
             mapOf(
                 "type" to "m.direct",
-                "content" to contentMap
-            )
+                "content" to contentMap,
+            ),
         )
     }
 
@@ -145,12 +181,17 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         val requestId = WebSocketService.allocateRequestId()
         val commandData = mutableMapOf<String, Any>(
             "type" to type,
-            "content" to content
+            "content" to content,
         )
         if (roomId != null) commandData["room_id"] = roomId
 
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AccountDataCoordinator: setAccountDataRaw type=$type roomId=$roomId content=${content.toString().take(200)}")
+            android.util.Log.d(
+                "Andromuks",
+                "AccountDataCoordinator: setAccountDataRaw type=$type roomId=$roomId content=${content.toString().take(
+                    200,
+                )}",
+            )
         }
 
         sendWebSocketCommand("set_account_data", requestId, commandData)
@@ -194,12 +235,15 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         val commandData = mapOf(
             "type" to "m.ignored_user_list",
             "content" to mapOf(
-                "ignored_users" to ignoredUsersMap
-            )
+                "ignored_users" to ignoredUsersMap,
+            ),
         )
 
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: Setting ignored users: ${if (ignore) "ignoring" else "unignoring"} $userId")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Setting ignored users: ${if (ignore) "ignoring" else "unignoring"} $userId",
+            )
             android.util.Log.d("Andromuks", "AppViewModel: Total ignored users: ${currentIgnored.size}")
         }
 
@@ -210,7 +254,10 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
 
     fun setRoomTag(roomId: String, tagType: String, enabled: Boolean, triggerSort: Boolean = true) = with(vm) {
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: Setting room tag - roomId: $roomId, tagType: $tagType, enabled: $enabled")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Setting room tag - roomId: $roomId, tagType: $tagType, enabled: $enabled",
+            )
         }
 
         val requestId = WebSocketService.allocateRequestId()
@@ -235,8 +282,8 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
             "type" to "m.tag",
             "room_id" to roomId,
             "content" to mapOf(
-                "tags" to existingTags
-            )
+                "tags" to existingTags,
+            ),
         )
 
         val updatedRoom = existingRoom?.let { room ->
@@ -254,7 +301,10 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         }
 
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: Sending set_account_data for room tag - commandData: $commandData")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Sending set_account_data for room tag - commandData: $commandData",
+            )
         }
 
         sendWebSocketCommand("set_account_data", requestId, commandData)
@@ -276,10 +326,13 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         }
         if (value != null) contentMap[key] = value else contentMap.remove(key)
         val requestId = WebSocketService.allocateRequestId()
-        sendWebSocketCommand("set_account_data", requestId, mapOf(
+        sendWebSocketCommand(
+            "set_account_data", requestId,
+            mapOf(
             "type" to "fi.mau.gomuks.preferences",
-            "content" to contentMap
-        ))
+            "content" to contentMap,
+        )
+        )
     }
 
     private fun sendGomuksRoomPref(roomId: String, key: String, value: Boolean?) = with(vm) {
@@ -296,11 +349,14 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         }
         if (value != null) contentMap[key] = value else contentMap.remove(key)
         val requestId = WebSocketService.allocateRequestId()
-        sendWebSocketCommand("set_account_data", requestId, mapOf(
+        sendWebSocketCommand(
+            "set_account_data", requestId,
+            mapOf(
             "type" to "fi.mau.gomuks.preferences",
             "content" to contentMap,
-            "room_id" to roomId
-        ))
+            "room_id" to roomId,
+        )
+        )
         val contentObj = existingContent?.let { org.json.JSONObject(it.toString()) } ?: org.json.JSONObject()
         if (value != null) contentObj.put(key, value) else contentObj.remove(key)
         val dataObj = org.json.JSONObject()
@@ -314,88 +370,168 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
     fun setGomuksGlobalPrefs(showMediaPreviews: Boolean?) = with(vm) {
         sendGomuksGlobalPref("show_media_previews", showMediaPreviews)
         accountGlobalShowMediaPreviews = showMediaPreviews
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: global show_media_previews=$showMediaPreviews")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AccountDataCoordinator: global show_media_previews=$showMediaPreviews",
+        )
+        }
     }
 
     fun setGomuksGlobalRenderUrlPreviews(value: Boolean?) = with(vm) {
         sendGomuksGlobalPref("render_url_previews", value)
         accountGlobalRenderUrlPreviews = value
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: global render_url_previews=$value")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AccountDataCoordinator: global render_url_previews=$value",
+        )
+        }
     }
 
     fun setGomuksGlobalSendBundledUrlPreviews(value: Boolean?) = with(vm) {
         sendGomuksGlobalPref("send_bundled_url_previews", value)
         accountGlobalSendBundledUrlPreviews = value
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: global send_bundled_url_previews=$value")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AccountDataCoordinator: global send_bundled_url_previews=$value",
+        )
+        }
     }
 
     fun setGomuksRoomPrefs(roomId: String, showMediaPreviews: Boolean?) {
         sendGomuksRoomPref(roomId, "show_media_previews", showMediaPreviews)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: room $roomId show_media_previews=$showMediaPreviews")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AccountDataCoordinator: room $roomId show_media_previews=$showMediaPreviews",
+        )
+        }
     }
 
     fun setGomuksRoomRenderUrlPreviews(roomId: String, value: Boolean?) {
         sendGomuksRoomPref(roomId, "render_url_previews", value)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: room $roomId render_url_previews=$value")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AccountDataCoordinator: room $roomId render_url_previews=$value",
+        )
+        }
     }
 
     fun setGomuksRoomSendBundledUrlPreviews(roomId: String, value: Boolean?) {
         sendGomuksRoomPref(roomId, "send_bundled_url_previews", value)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: room $roomId send_bundled_url_previews=$value")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AccountDataCoordinator: room $roomId send_bundled_url_previews=$value",
+        )
+        }
     }
 
     fun setGomuksGlobalSendReadReceipts(value: Boolean?) = with(vm) {
         sendGomuksGlobalPref("send_read_receipts", value)
         accountGlobalSendReadReceipts = value
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: global send_read_receipts=$value")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AccountDataCoordinator: global send_read_receipts=$value",
+        )
+        }
     }
 
     fun setGomuksGlobalSendTypingNotifications(value: Boolean?) = with(vm) {
         sendGomuksGlobalPref("send_typing_notifications", value)
         accountGlobalSendTypingNotifications = value
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: global send_typing_notifications=$value")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AccountDataCoordinator: global send_typing_notifications=$value",
+        )
+        }
     }
 
     fun setGomuksRoomSendReadReceipts(roomId: String, value: Boolean?) {
         sendGomuksRoomPref(roomId, "send_read_receipts", value)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: room $roomId send_read_receipts=$value")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AccountDataCoordinator: room $roomId send_read_receipts=$value",
+        )
+        }
     }
 
     fun setGomuksRoomSendTypingNotifications(roomId: String, value: Boolean?) {
         sendGomuksRoomPref(roomId, "send_typing_notifications", value)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: room $roomId send_typing_notifications=$value")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AccountDataCoordinator: room $roomId send_typing_notifications=$value",
+        )
+        }
     }
 
     fun setGomuksGlobalDisplayReadReceipts(value: Boolean?) = with(vm) {
         sendGomuksGlobalPref("display_read_receipts", value)
         accountGlobalDisplayReadReceipts = value
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: global display_read_receipts=$value")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AccountDataCoordinator: global display_read_receipts=$value",
+        )
+        }
     }
 
     fun setGomuksRoomDisplayReadReceipts(roomId: String, value: Boolean?) {
         sendGomuksRoomPref(roomId, "display_read_receipts", value)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: room $roomId display_read_receipts=$value")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AccountDataCoordinator: room $roomId display_read_receipts=$value",
+        )
+        }
     }
 
     fun setGomuksGlobalShowHiddenEvents(value: Boolean?) = with(vm) {
         sendGomuksGlobalPref("show_hidden_events", value)
         accountGlobalShowHiddenEvents = value
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: global show_hidden_events=$value")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AccountDataCoordinator: global show_hidden_events=$value",
+        )
+        }
     }
 
     fun setGomuksRoomShowHiddenEvents(roomId: String, value: Boolean?) {
         sendGomuksRoomPref(roomId, "show_hidden_events", value)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: room $roomId show_hidden_events=$value")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AccountDataCoordinator: room $roomId show_hidden_events=$value",
+        )
+        }
     }
 
     fun setGomuksGlobalShowMembershipEvents(value: Boolean?) = with(vm) {
         sendGomuksGlobalPref("show_membership_events", value)
         accountGlobalShowMembershipEvents = value
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: global show_membership_events=$value")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AccountDataCoordinator: global show_membership_events=$value",
+        )
+        }
     }
 
     fun setGomuksRoomShowMembershipEvents(roomId: String, value: Boolean?) {
         sendGomuksRoomPref(roomId, "show_membership_events", value)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AccountDataCoordinator: room $roomId show_membership_events=$value")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AccountDataCoordinator: room $roomId show_membership_events=$value",
+        )
+        }
     }
 }

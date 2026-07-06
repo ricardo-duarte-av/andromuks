@@ -8,7 +8,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.TimelineEvent
-import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -23,30 +22,30 @@ import org.json.JSONObject
 class SyncIngestor(private val context: Context) {
     // All room/space/account/invite data is in-memory only
     private val TAG = "SyncIngestor"
-    
+
     // SharedPreferences for run_id and since token (replacing syncMetaDao)
     private val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-    
+
     companion object {
-        
+
         // Adaptive threshold for pending rooms (starts high, reduces if processing takes too long)
         // This prevents massive payload accumulation while adapting to device performance
         @Volatile
         private var pendingRoomThreshold = 200 // Start with 200 rooms threshold
-        
+
         // Minimum threshold (never go below this)
         private const val MIN_THRESHOLD = 50
-        
+
         // Maximum threshold (never go above this)
         private const val MAX_THRESHOLD = 500
-        
+
         // Processing time threshold in milliseconds (if processing takes longer, reduce threshold)
         private const val PROCESSING_TIME_THRESHOLD_MS = 1000L // 1 second
-        
+
         // Threshold adjustment factor (reduce by this percentage if processing too slow)
         private const val THRESHOLD_REDUCTION_FACTOR = 0.7f // Reduce by 30%
     }
-    
+
     /**
      * Callback interface for notifying ViewModel about events for cached rooms.
      * This allows SyncIngestor to update the LRU cache when new events arrive.
@@ -54,23 +53,22 @@ class SyncIngestor(private val context: Context) {
     interface CacheUpdateListener {
         /** Returns set of room IDs currently in the LRU cache */
         fun getCachedRoomIds(): Set<String>
-        
+
         /** 
          * Called when new events arrive for a cached room.
          * Returns true if events were appended, false if cache was invalidated (needs re-render).
          */
         fun onEventsForCachedRoom(roomId: String, events: List<TimelineEvent>, requiresFullRerender: Boolean): Boolean
-        
+
         /**
          * Called when a sync_complete message indicates a notification will arrive (sound/highlight).
          * This allows preemptive pagination to be triggered before the FCM notification arrives.
          */
         fun onNotificationExpected(roomId: String)
     }
-    
+
     // Listener for cache updates (set by AppViewModel)
     var cacheUpdateListener: CacheUpdateListener? = null
-    
 
     /**
      * Analyzes a room object from sync_complete and returns a summary of its contents.
@@ -82,7 +80,7 @@ class SyncIngestor(private val context: Context) {
         val receipts = roomObj.optJSONObject("receipts")
         val accountData = roomObj.optJSONObject("account_data")
         val notifications = roomObj.optJSONArray("notifications")
-        
+
         val parts = mutableListOf<String>()
         if (timeline != null) {
             parts.add("timeline=${timeline.length()}")
@@ -99,13 +97,27 @@ class SyncIngestor(private val context: Context) {
                 val keys = meta.keys().asSequence().toList()
                 if (keys.isNotEmpty()) {
                     // Show key count and some important keys if present
-                    val importantKeys = keys.filter { it in listOf("name", "avatar", "topic", "unread_messages", "unread_highlights", "sorting_timestamp") }
+                    val importantKeys = keys.filter {
+                        it in listOf(
+                            "name",
+                            "avatar",
+                            "topic",
+                            "unread_messages",
+                            "unread_highlights",
+                            "sorting_timestamp",
+                        )
+                    }
                     if (importantKeys.isNotEmpty()) {
                         val keyDetails = importantKeys.joinToString(",") { key ->
                             val value = when (key) {
-                                "name", "avatar", "topic" -> meta.optString(key)?.takeIf { it.isNotBlank() }?.let { "\"$it\"" } ?: "null"
+                                "name", "avatar", "topic" -> meta.optString(
+                                    key,
+                                )?.takeIf { it.isNotBlank() }?.let { "\"$it\"" } ?: "null"
+
                                 "unread_messages", "unread_highlights" -> meta.optInt(key, 0).toString()
+
                                 "sorting_timestamp" -> meta.optLong(key, 0L).toString()
+
                                 else -> "present"
                             }
                             "$key=$value"
@@ -123,8 +135,8 @@ class SyncIngestor(private val context: Context) {
             parts.add("meta=$metaKeys")
         }
         if (receipts != null) {
-            val receiptCount = receipts.keys().asSequence().sumOf { 
-                receipts.optJSONArray(it)?.length() ?: 0 
+            val receiptCount = receipts.keys().asSequence().sumOf {
+                receipts.optJSONArray(it)?.length() ?: 0
             }
             parts.add("receipts=$receiptCount")
         }
@@ -145,7 +157,7 @@ class SyncIngestor(private val context: Context) {
         } else {
             parts.add("notifications=null")
         }
-        
+
         return parts.joinToString(", ")
     }
 
@@ -154,7 +166,7 @@ class SyncIngestor(private val context: Context) {
         eventJson: JSONObject?,
         source: String,
         reason: String,
-        exception: Exception? = null
+        exception: Exception? = null,
     ) {
         val eventId = try {
             eventJson?.optString("event_id")?.takeIf { it.isNotBlank() } ?: "<missing>"
@@ -195,11 +207,11 @@ class SyncIngestor(private val context: Context) {
             aggregatedReactions?.let { json.put("reactions", it) }
             transactionId?.let { json.put("transaction_id", it) }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to build JSON for unprocessed TimelineEvent ${eventId}", e)
+            Log.w(TAG, "Failed to build JSON for unprocessed TimelineEvent $eventId", e)
         }
         return json
     }
-    
+
     /**
      * Check if run_id has changed and update it if needed
      * 
@@ -212,7 +224,7 @@ class SyncIngestor(private val context: Context) {
      */
     suspend fun checkAndHandleRunIdChange(newRunId: String): Boolean = withContext(Dispatchers.IO) {
         val storedRunId = sharedPrefs.getString("ws_run_id", "") ?: ""
-        
+
         if (storedRunId.isNotEmpty() && storedRunId != newRunId) {
             Log.w(TAG, "Run ID changed from '$storedRunId' to '$newRunId' - updating run_id")
             sharedPrefs.edit().putString("ws_run_id", newRunId).apply()
@@ -221,27 +233,29 @@ class SyncIngestor(private val context: Context) {
             // First time - store run_id
             sharedPrefs.edit().putString("ws_run_id", newRunId).apply()
         }
-        
+
         return@withContext false
     }
-    
+
     /**
      * Clear all derived room/space state when server sends clear_state=true.
      * All data is now in-memory only - nothing to clear from DB.
      */
     suspend fun handleClearStateSignal() = withContext(Dispatchers.IO) {
-        if (BuildConfig.DEBUG) Log.w(TAG, "SyncIngestor: clear_state=true received - all data is in-memory only, nothing to clear from DB")
+        if (BuildConfig.DEBUG) {
+            Log.w(
+            TAG,
+            "SyncIngestor: clear_state=true received - all data is in-memory only, nothing to clear from DB",
+        )
+        }
         // All room/space/invite/account data is in-memory only - no DB cleanup needed
     }
-    
+
     /**
      * Result of ingesting a sync_complete message
      */
-    data class IngestResult(
-        val roomsWithEvents: Set<String>,
-        val invites: List<net.vrkknn.andromuks.RoomInvite>
-    )
-    
+    data class IngestResult(val roomsWithEvents: Set<String>, val invites: List<net.vrkknn.andromuks.RoomInvite>)
+
     /**
      * Ingest a sync_complete message - updates cache for cached rooms only, no DB persistence
      * 
@@ -255,46 +269,51 @@ class SyncIngestor(private val context: Context) {
         syncJson: JSONObject,
         requestId: Int,
         runId: String,
-        isAppVisible: Boolean = true
+        isAppVisible: Boolean = true,
     ): IngestResult = withContext(Dispatchers.IO) {
         // Track which rooms had events added to cache (for notifying timeline screens)
         val roomsWithEvents = mutableSetOf<String>()
-        
+
         // Check which rooms are currently cached before processing
         // CRITICAL: This is called once at the start, so rooms must be marked as actively cached
         // BEFORE ingestSyncComplete is called (e.g., in navigateToRoomWithCache before forceFlushBatch)
         val cachedRoomIds = cacheUpdateListener?.getCachedRoomIds() ?: emptySet()
         if (BuildConfig.DEBUG && cachedRoomIds.isNotEmpty()) {
-            Log.d(TAG, "SyncIngestor: ingestSyncComplete - ${cachedRoomIds.size} rooms are actively cached: ${cachedRoomIds.take(5).joinToString(", ")}${if (cachedRoomIds.size > 5) "..." else ""}")
+            Log.d(
+                TAG,
+                "SyncIngestor: ingestSyncComplete - ${cachedRoomIds.size} rooms are actively cached: ${cachedRoomIds.take(
+                    5,
+                ).joinToString(", ")}${if (cachedRoomIds.size > 5) "..." else ""}",
+            )
         }
-        
+
         // Check run_id first - this is critical!
         val runIdChanged = checkAndHandleRunIdChange(runId)
         if (runIdChanged) {
             Log.w(TAG, "Run ID changed - updated run_id, preserving all user data and ingesting sync")
         }
-        
+
         val data = syncJson.optJSONObject("data") ?: run {
             Log.w(TAG, "No 'data' field in sync_complete")
             return@withContext IngestResult(emptySet(), emptyList())
         }
-        
+
         // If server instructs us to clear state, all data is in-memory only - nothing to clear
         val clearState = data.optBoolean("clear_state", false)
         if (clearState) {
             handleClearStateSignal()
         }
-        
+
         // Extract "since" token (sync token from server) - store in SharedPreferences
         val since = data.optString("since", "")
         if (since.isNotEmpty()) {
             sharedPrefs.edit().putString("ws_since_token", since).apply()
         }
-        
+
         // Account data and spaces are now in-memory only - processed by SpaceRoomParser
         // Invites are parsed and returned (in-memory only, no DB persistence)
         val invites = processInvitedRooms(data)
-        
+
         // Process left_rooms - all data is in-memory only, no DB cleanup needed
         val leftRooms = data.optJSONArray("left_rooms")
         if (leftRooms != null && leftRooms.length() > 0) {
@@ -309,16 +328,16 @@ class SyncIngestor(private val context: Context) {
                 Log.d(TAG, "Left rooms (in-memory only, no DB cleanup): ${leftRoomIds.joinToString(", ")}")
             }
         }
-        
+
         // All data is in-memory only - no pending room processing needed
-        
+
         // Process rooms - all data is in-memory only, no DB operations
         val roomsJson = data.optJSONObject("rooms")
         if (roomsJson != null) {
             // PERFORMANCE: Extract all room data upfront to avoid repeated JSON operations
             val roomKeys = roomsJson.keys()
             val roomsToProcess = mutableListOf<Pair<String, JSONObject>>()
-            
+
             while (roomKeys.hasNext()) {
                 val roomId = roomKeys.next()
                 val roomObj = roomsJson.optJSONObject(roomId)
@@ -326,11 +345,11 @@ class SyncIngestor(private val context: Context) {
                     roomsToProcess.add(Pair(roomId, roomObj))
                 }
             }
-            
+
             if (BuildConfig.DEBUG) {
                 Log.d(TAG, "SyncIngestor: Processing all ${roomsToProcess.size} rooms from sync_complete")
             }
-            
+
             if (roomsToProcess.isEmpty()) {
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "SyncIngestor: No rooms in this sync_complete - skipping event processing")
@@ -348,7 +367,7 @@ class SyncIngestor(private val context: Context) {
                             Pair(roomId, hadEvents)
                         }
                     }
-                    
+
                     // Collect results (maintains order - await in sequence)
                     for ((index, deferred) in roomResults.withIndex()) {
                         val (roomId, hadEvents) = deferred.await()
@@ -362,9 +381,9 @@ class SyncIngestor(private val context: Context) {
                     }
                 }
             }
-            
+
             // Enhanced logging to show what sync_complete actually contained
-            //if (BuildConfig.DEBUG) {
+            // if (BuildConfig.DEBUG) {
             //   val roomsWithoutEvents = roomsToProcess.size - roomsWithEvents.size
             //    val summary = buildString {
             //        append("Ingested sync_complete: requestId=$requestId, since=$since, ")
@@ -385,15 +404,15 @@ class SyncIngestor(private val context: Context) {
             //        }
             //    }
             //    Log.d(TAG, summary)
-            //}
+            // }
         } else {
             if (BuildConfig.DEBUG) Log.d(TAG, "Ingested sync_complete: $requestId, 0 rooms (no rooms object)")
         }
-        
+
         // Return result with rooms that had events and parsed invites
         IngestResult(roomsWithEvents, invites)
     }
-    
+
     /**
      * Process a single room from sync_complete
      * 
@@ -407,29 +426,32 @@ class SyncIngestor(private val context: Context) {
         roomId: String,
         roomObj: JSONObject,
         isAppVisible: Boolean = true,
-        isRoomCached: Boolean = false // Pass cached status to avoid double-checking
+        isRoomCached: Boolean = false, // Pass cached status to avoid double-checking
     ): Boolean {
         val existingTimelineRowCache = mutableMapOf<String, Long?>()
         var hasPersistedEvents = false
-        
+
         // CRITICAL FIX: Check reset flag - if true, clear existing timeline cache before processing events
         // According to Webmucks docs: "If true, the frontend should discard the existing timeline cache for this room"
         // and "Timeline events replace (not append) the existing list when reset is set"
         val reset = roomObj.optBoolean("reset", false)
         if (reset && isRoomCached) {
             if (BuildConfig.DEBUG) {
-                Log.w(TAG, "SyncIngestor: ⚠️ reset=true for room $roomId - clearing existing timeline cache before processing new events")
+                Log.w(
+                    TAG,
+                    "SyncIngestor: ⚠️ reset=true for room $roomId - clearing existing timeline cache before processing new events",
+                )
             }
             // Clear the room's timeline cache (will be replaced with new events from this sync_complete)
             net.vrkknn.andromuks.RoomTimelineCache.clearRoomCache(roomId)
             // Also clear processed timeline state
             net.vrkknn.andromuks.RoomTimelineCache.clearProcessedTimelineState(roomId)
         }
-        
+
         // LRU CACHE: Track events for cache notification
         val eventsForCacheUpdate = mutableListOf<TimelineEvent>()
         var hasEditRedactionReaction = false
-        
+
         // 1. Process room state (meta)
         val meta = roomObj.optJSONObject("meta")
         if (meta != null) {
@@ -439,7 +461,7 @@ class SyncIngestor(private val context: Context) {
             // Room metadata is handled by SpaceRoomParser.parseSyncUpdate() which builds in-memory RoomItem objects
             // No DB persistence needed - all data is in-memory only
         }
-        
+
         // CRITICAL FIX: Build timeline_rowid mapping from 'timeline' array BEFORE processing events
         // The 'timeline' array maps event_rowid -> timeline_rowid (events in 'events' array may have timeline_rowid=0)
         // Format: [{"timeline_rowid": 1542930, "event_rowid": 2261550}, ...]
@@ -456,7 +478,10 @@ class SyncIngestor(private val context: Context) {
                     if (eventRowid != -1L && timelineRowid != -1L) {
                         timelineRowidMapping[eventRowid] = timelineRowid
                         if (BuildConfig.DEBUG) {
-                            Log.d(TAG, "SyncIngestor: Built timeline mapping: event_rowid=$eventRowid -> timeline_rowid=$timelineRowid")
+                            Log.d(
+                                TAG,
+                                "SyncIngestor: Built timeline mapping: event_rowid=$eventRowid -> timeline_rowid=$timelineRowid",
+                            )
                         }
                     }
                 } else if (timelineEntry.has("event")) {
@@ -471,10 +496,13 @@ class SyncIngestor(private val context: Context) {
                 }
             }
             if (BuildConfig.DEBUG && timelineRowidMapping.isNotEmpty()) {
-                Log.d(TAG, "SyncIngestor: Built ${timelineRowidMapping.size} timeline_rowid mappings from timeline array for room $roomId")
+                Log.d(
+                    TAG,
+                    "SyncIngestor: Built ${timelineRowidMapping.size} timeline_rowid mappings from timeline array for room $roomId",
+                )
             }
         }
-        
+
         // CRITICAL: Process related_events FIRST before processing main events
         // This ensures that when main events are processed and rendered, the reply targets
         // from related_events are already in the cache and can be found immediately
@@ -484,7 +512,12 @@ class SyncIngestor(private val context: Context) {
             // Use passed cached status (already checked in ingestSyncComplete)
             // This avoids double-checking and ensures consistency
             if (isRoomCached) {
-                if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Processing ${relatedEventsArray.length()} related_events from sync_complete for room $roomId (BEFORE main events)")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    TAG,
+                    "SyncIngestor: Processing ${relatedEventsArray.length()} related_events from sync_complete for room $roomId (BEFORE main events)",
+                )
+                }
 
                 // Parse related_events and collect them in a separate list first
                 for (i in 0 until relatedEventsArray.length()) {
@@ -500,7 +533,7 @@ class SyncIngestor(private val context: Context) {
                             eventJson = eventJson,
                             timelineRowid = timelineRowid,
                             source = sourceLabel,
-                            existingTimelineRowCache = existingTimelineRowCache
+                            existingTimelineRowCache = existingTimelineRowCache,
                         )
                     } catch (e: Exception) {
                         logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_exception", e)
@@ -525,10 +558,15 @@ class SyncIngestor(private val context: Context) {
                 // of eventsForCacheUpdate.
                 net.vrkknn.andromuks.RoomTimelineCache.addReplyContextEvents(roomId, relatedEventsList)
 
-                if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Stored ${relatedEventsList.size} related_events as reply-context for room $roomId")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    TAG,
+                    "SyncIngestor: Stored ${relatedEventsList.size} related_events as reply-context for room $roomId",
+                )
+                }
             }
         }
-        
+
         // 2. Process timeline events (old format with event objects) - only update cache if room is cached
         // NOTE: This handles the legacy format where timeline array contains event objects
         // The new format uses timeline array as a mapping (handled above) and events are in 'events' array
@@ -538,26 +576,29 @@ class SyncIngestor(private val context: Context) {
             if (isRoomCached) {
                 // Check if timeline array contains event objects (old format) or just mappings (new format)
                 val hasEventObjects = timeline.length() > 0 && timeline.optJSONObject(0)?.has("event") == true
-                
+
                 if (hasEventObjects) {
                     if (BuildConfig.DEBUG) {
-                        Log.d(TAG, "SyncIngestor: Processing ${timeline.length()} timeline events (old format with event objects) for cached room $roomId")
+                        Log.d(
+                            TAG,
+                            "SyncIngestor: Processing ${timeline.length()} timeline events (old format with event objects) for cached room $roomId",
+                        )
                     }
                     for (i in 0 until timeline.length()) {
                         val timelineEntry = timeline.optJSONObject(i) ?: continue
                         val timelineRowid = timelineEntry.optLong("timeline_rowid", -1)
                         val eventJson = timelineEntry.optJSONObject("event") ?: continue
-                        
+
                         val sourceLabel = "timeline[$i]"
                         val eventId = eventJson.optString("event_id") ?: "<missing>"
-                        
+
                         val timelineEvent = try {
                             parseEventFromJson(
                                 roomId = roomId,
                                 eventJson = eventJson,
                                 timelineRowid = timelineRowid,
                                 source = sourceLabel,
-                                existingTimelineRowCache = existingTimelineRowCache
+                                existingTimelineRowCache = existingTimelineRowCache,
                             )
                         } catch (e: Exception) {
                             logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_exception", e)
@@ -576,14 +617,14 @@ class SyncIngestor(private val context: Context) {
                             eventsForCacheUpdate.add(timelineEvent)
                         }
                     }
-                    
+
                     if (eventsForCacheUpdate.isNotEmpty()) {
                         hasPersistedEvents = true
                     }
                 }
             }
         }
-        
+
         // 3. Process events array (preview/additional events) - only update cache if room is cached
         // CRITICAL FIX: Use timeline_rowid mapping from 'timeline' array if event has timeline_rowid=0
         val eventsArray = roomObj.optJSONArray("events")
@@ -592,39 +633,51 @@ class SyncIngestor(private val context: Context) {
             // This avoids double-checking and ensures consistency
             if (isRoomCached) {
                 if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "SyncIngestor: Processing ${eventsArray.length()} events from 'events' array for cached room $roomId")
+                    Log.d(
+                        TAG,
+                        "SyncIngestor: Processing ${eventsArray.length()} events from 'events' array for cached room $roomId",
+                    )
                 }
                 for (i in 0 until eventsArray.length()) {
                     val eventJson = eventsArray.optJSONObject(i) ?: continue
-                    
+
                     // CRITICAL FIX: Get timeline_rowid from event, but resolve from mapping if it's 0
                     var timelineRowid = eventJson.optLong("timeline_rowid", -1)
                     val eventRowid = eventJson.optLong("rowid", -1)
-                    
+
                     // If timeline_rowid is 0 or missing, look it up in the mapping using event_rowid
                     if ((timelineRowid == 0L || timelineRowid == -1L) && eventRowid != -1L) {
                         val mappedTimelineRowid = timelineRowidMapping[eventRowid]
                         if (mappedTimelineRowid != null && mappedTimelineRowid != 0L) {
                             timelineRowid = mappedTimelineRowid
                             if (BuildConfig.DEBUG) {
-                                Log.d(TAG, "SyncIngestor: Resolved timeline_rowid=$timelineRowid for event rowid=$eventRowid (was ${eventJson.optLong("timeline_rowid", -1)})")
+                                Log.d(
+                                    TAG,
+                                    "SyncIngestor: Resolved timeline_rowid=$timelineRowid for event rowid=$eventRowid (was ${eventJson.optLong(
+                                        "timeline_rowid",
+                                        -1,
+                                    )})",
+                                )
                             }
                         } else if (timelineRowid == 0L) {
                             // Event has timeline_rowid=0 but no mapping found - this is a bug!
-                            Log.w(TAG, "SyncIngestor: ⚠️ Event rowid=$eventRowid has timeline_rowid=0 but no mapping found in timeline array! Event will be cached with timeline_rowid=0 (may cause pagination issues)")
+                            Log.w(
+                                TAG,
+                                "SyncIngestor: ⚠️ Event rowid=$eventRowid has timeline_rowid=0 but no mapping found in timeline array! Event will be cached with timeline_rowid=0 (may cause pagination issues)",
+                            )
                         }
                     }
-                    
+
                     val sourceLabel = "events[$i]"
                     val eventId = eventJson.optString("event_id") ?: "<missing>"
-                    
+
                     val timelineEvent = try {
                         parseEventFromJson(
                             roomId = roomId,
                             eventJson = eventJson,
                             timelineRowid = timelineRowid,
                             source = sourceLabel,
-                            existingTimelineRowCache = existingTimelineRowCache
+                            existingTimelineRowCache = existingTimelineRowCache,
                         )
                     } catch (e: Exception) {
                         logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_exception", e)
@@ -634,9 +687,12 @@ class SyncIngestor(private val context: Context) {
                     if (timelineEvent != null) {
                         // CRITICAL VALIDATION: Ensure we never cache events with timeline_rowid=0 (except as fallback)
                         if (timelineEvent.timelineRowid == 0L) {
-                            Log.w(TAG, "SyncIngestor: ⚠️ Event ${timelineEvent.eventId} will be cached with timeline_rowid=0! This may cause pagination issues. event_rowid=$eventRowid, mapping=${timelineRowidMapping[eventRowid]}")
+                            Log.w(
+                                TAG,
+                                "SyncIngestor: ⚠️ Event ${timelineEvent.eventId} will be cached with timeline_rowid=0! This may cause pagination issues. event_rowid=$eventRowid, mapping=${timelineRowidMapping[eventRowid]}",
+                            )
                         }
-                        
+
                         // LRU CACHE: Collect for cache update and detect edit/redaction/reaction
                         if (timelineEvent.type == "m.room.redaction" || timelineEvent.type == "m.reaction") {
                             hasEditRedactionReaction = true
@@ -647,7 +703,7 @@ class SyncIngestor(private val context: Context) {
                         eventsForCacheUpdate.add(timelineEvent)
                     }
                 }
-                
+
                 if (eventsForCacheUpdate.isNotEmpty()) {
                     hasPersistedEvents = true
                 }
@@ -659,26 +715,29 @@ class SyncIngestor(private val context: Context) {
                 }
             }
         }
-        
+
         // No longer persisting reactions - they're received from paginate and sync_complete
         // Reactions are stored in the event's aggregatedReactions field in the cache
-        
+
         // No longer persisting receipts - they're received from paginate and sync_complete
         // Receipts are available in the sync_complete response when needed
-        
+
         // Note: related_events are now processed FIRST (before timeline and events arrays)
         // to ensure reply targets are in cache when main events are processed
-        
+
         // 4. Room summaries are no longer persisted to DB - they're built in-memory from sync_complete
         // via SpaceRoomParser.parseSyncUpdate() which creates RoomItem objects with all needed data.
         // This eliminates DB I/O during sync and simplifies the architecture.
-        
+
         // LRU CACHE: Notify listener if this room is cached and has new events
         if (hasPersistedEvents && eventsForCacheUpdate.isNotEmpty()) {
             val listener = cacheUpdateListener
             if (listener != null) {
                 if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "SyncIngestor: ✓ Notifying cache listener for room $roomId (${eventsForCacheUpdate.size} events, requiresRerender=$hasEditRedactionReaction, reset=$reset)")
+                    Log.d(
+                        TAG,
+                        "SyncIngestor: ✓ Notifying cache listener for room $roomId (${eventsForCacheUpdate.size} events, requiresRerender=$hasEditRedactionReaction, reset=$reset)",
+                    )
                 }
                 // CRITICAL: Ensure ALL events for ANY room are passed to the listener (AppViewModel)
                 // so they can be added to RoomTimelineCache. Filtering here causes message loss.
@@ -687,13 +746,16 @@ class SyncIngestor(private val context: Context) {
         } else if (BuildConfig.DEBUG && !hasPersistedEvents && eventsForCacheUpdate.isEmpty()) {
             // Log when no events were found for a cached room
             if (isRoomCached) {
-                Log.d(TAG, "SyncIngestor: Room $roomId is cached but sync_complete had no events to cache (reset=$reset)")
+                Log.d(
+                    TAG,
+                    "SyncIngestor: Room $roomId is cached but sync_complete had no events to cache (reset=$reset)",
+                )
             }
         }
-        
+
         return hasPersistedEvents
     }
-    
+
     /**
      * Parse an event JSON into TimelineEvent for in-memory cache updates.
      */
@@ -702,23 +764,23 @@ class SyncIngestor(private val context: Context) {
         eventJson: JSONObject,
         timelineRowid: Long,
         source: String,
-        existingTimelineRowCache: MutableMap<String, Long?>
+        existingTimelineRowCache: MutableMap<String, Long?>,
     ): TimelineEvent? {
         val eventIdRaw = eventJson.opt("event_id")
         if (eventIdRaw !is String || eventIdRaw.isBlank()) {
             Log.w(
                 TAG,
-                "SyncIngestor: Skipping event (room=$roomId, source=$source) - missing event_id. Payload keys=${eventJson.names()}"
+                "SyncIngestor: Skipping event (room=$roomId, source=$source) - missing event_id. Payload keys=${eventJson.names()}",
             )
             return null
         }
         val eventId = eventIdRaw
-        
+
         val typeRaw = eventJson.opt("type")
         if (typeRaw !is String || typeRaw.isBlank()) {
             Log.w(
                 TAG,
-                "SyncIngestor: Skipping event (room=$roomId, source=$source, eventId=$eventId) - missing type."
+                "SyncIngestor: Skipping event (room=$roomId, source=$source, eventId=$eventId) - missing type.",
             )
             return null
         }
@@ -739,15 +801,19 @@ class SyncIngestor(private val context: Context) {
             }
         }
         val decryptedType = eventJson.optString("decrypted_type")
-        
+
         // CRITICAL: Only use timeline_rowid, never rowid (rowid is for backend debugging only)
         // timeline_rowid can be negative (for state events or certain syncs), so we accept any value
         var resolvedTimelineRowId = when {
-            timelineRowid != -1L -> timelineRowid  // Use parameter if provided (can be negative)
-            eventJson.has("timeline_row_id") -> eventJson.optLong("timeline_row_id")  // Can be negative
+            timelineRowid != -1L -> timelineRowid
+
+            // Use parameter if provided (can be negative)
+            eventJson.has("timeline_row_id") -> eventJson.optLong("timeline_row_id")
+
+            // Can be negative
             else -> -1L
         }
-        
+
         // Only preserve from cache if we didn't get a valid timeline_rowid (i.e., it's -1)
         // Negative values are valid timeline_rowid values, so we should NOT override them
         // NOTE: No longer querying local storage since events are not persisted
@@ -758,14 +824,14 @@ class SyncIngestor(private val context: Context) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
                         TAG,
-                        "SyncIngestor: Preserving timelineRowId $resolvedTimelineRowId for event $eventId (source=$source) from cache"
+                        "SyncIngestor: Preserving timelineRowId $resolvedTimelineRowId for event $eventId (source=$source) from cache",
                     )
                 }
             }
         } else {
             existingTimelineRowCache[eventId] = resolvedTimelineRowId
         }
-        
+
         // Extract relates_to for edits/reactions
         // For encrypted messages, check decrypted content if available
         val content = eventJson.optJSONObject("content")
@@ -792,9 +858,11 @@ class SyncIngestor(private val context: Context) {
         }
         val messageContent = when {
             type == "m.room.message" -> content
+
             type == "m.room.encrypted" && decryptedType == "m.room.message" -> {
                 eventJson.optJSONObject("decrypted") ?: content
             }
+
             else -> content
         }
         var relatesTo = messageContent?.optJSONObject("m.relates_to")
@@ -813,20 +881,23 @@ class SyncIngestor(private val context: Context) {
                 relatesTo = synthetic
                 relType = "m.replace"
                 if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "parseEventFromJson: Injected content.m.relates_to from top-level relation_type/relates_to for edit $eventId -> $topRelatesToId")
+                    Log.d(
+                        TAG,
+                        "parseEventFromJson: Injected content.m.relates_to from top-level relation_type/relates_to for edit $eventId -> $topRelatesToId",
+                    )
                 }
             }
         }
         val isThreadMessage = relType == "m.thread"
-        
+
         // Check if this is a redaction (can be m.room.redaction or m.room.encrypted with decryptedType == m.room.redaction)
         val isRedaction = type == "m.room.redaction" ||
             (type == "m.room.encrypted" && decryptedType == "m.room.redaction")
-        
+
         // Extract thread root and relates_to based on message type
         var threadRootEventId: String? = null
         var relatesToEventId: String? = null
-        
+
         if (isThreadMessage) {
             // For thread messages:
             // - threadRootEventId = m.relates_to.event_id (the original thread root)
@@ -841,7 +912,7 @@ class SyncIngestor(private val context: Context) {
             relatesToEventId = relatesTo.optString("event_id")?.takeIf { it.isNotBlank() }
                 ?: relatesTo.optJSONObject("m.in_reply_to")?.optString("event_id")?.takeIf { it.isNotBlank() }
         }
-        
+
         // For redactions, the redacted event ID is in content.redacts (or decrypted.redacts for encrypted redactions), not m.relates_to
         if (isRedaction && relatesToEventId == null) {
             // For encrypted redactions, check decrypted content; for non-encrypted, check content
@@ -849,12 +920,13 @@ class SyncIngestor(private val context: Context) {
                 type == "m.room.encrypted" && decryptedType == "m.room.redaction" -> {
                     eventJson.optJSONObject("decrypted")?.optString("redacts")?.takeIf { it.isNotBlank() }
                 }
+
                 else -> {
                     messageContent?.optString("redacts")?.takeIf { it.isNotBlank() }
                 }
             }
         }
-        
+
         // Include aggregated reactions (if any) in content for cache consumption
         val reactionsObj = eventJson.optJSONObject("reactions") ?: content?.optJSONObject("reactions")
         if (reactionsObj != null && content != null && !content.has("reactions")) {
@@ -885,18 +957,17 @@ class SyncIngestor(private val context: Context) {
             relationType = relType?.takeIf { it.isNotBlank() },
             relatesTo = threadRootEventId ?: relatesToEventId,
             aggregatedReactions = reactionsObj,
-            transactionId = transactionId
+            transactionId = transactionId,
         )
     }
-    
-    
+
     /**
      * Get stored since token from SharedPreferences
      */
     suspend fun getSinceToken(): String = withContext(Dispatchers.IO) {
         sharedPrefs.getString("ws_since_token", "") ?: ""
     }
-    
+
     /**
      * @deprecated No longer persisting paginated events - cache is in-memory only.
      */
@@ -906,7 +977,7 @@ class SyncIngestor(private val context: Context) {
             Log.d(TAG, "SyncIngestor: Skipping paginated persistence for ${events.size} events (in-memory cache only)")
         }
     }
-    
+
     /**
      * Process spaces from sync_complete (top_level_spaces and space_edges)
      * All data is in-memory only - handled by SpaceRoomParser.parseSyncUpdate()
@@ -917,58 +988,61 @@ class SyncIngestor(private val context: Context) {
         if (BuildConfig.DEBUG) {
             val topLevelSpaces = data.optJSONArray("top_level_spaces")
             val spaceEdges = data.optJSONObject("space_edges")
-            Log.d(TAG, "processSpaces: Spaces handled in-memory (top_level_spaces=${topLevelSpaces?.length() ?: 0}, space_edges=${spaceEdges?.length() ?: 0})")
+            Log.d(
+                TAG,
+                "processSpaces: Spaces handled in-memory (top_level_spaces=${topLevelSpaces?.length() ?: 0}, space_edges=${spaceEdges?.length() ?: 0})",
+            )
         }
     }
-    
+
     /**
      * Get stored run_id from SharedPreferences
      */
     suspend fun getStoredRunId(): String = withContext(Dispatchers.IO) {
         sharedPrefs.getString("ws_run_id", "") ?: ""
     }
-    
+
     /**
      * Get current user ID from SharedPreferences
      */
-    private fun getCurrentUserId(): String {
-        return try {
-            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            sharedPrefs.getString("current_user_id", "") ?: ""
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to get current user ID from SharedPreferences: ${e.message}", e)
-            ""
-        }
+    private fun getCurrentUserId(): String = try {
+        val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+        sharedPrefs.getString("current_user_id", "") ?: ""
+    } catch (e: Exception) {
+        Log.w(TAG, "Failed to get current user ID from SharedPreferences: ${e.message}", e)
+        ""
     }
-    
+
     /**
      * Process invited_rooms from sync_complete
      * Extracts room metadata and inviter information from invite_state events
      * Returns list of RoomInvite objects (in-memory only, no DB persistence)
      */
-    private suspend fun processInvitedRooms(data: JSONObject): List<net.vrkknn.andromuks.RoomInvite> = withContext(Dispatchers.IO) {
+    private suspend fun processInvitedRooms(data: JSONObject): List<net.vrkknn.andromuks.RoomInvite> = withContext(
+        Dispatchers.IO,
+    ) {
         val invitedRooms = data.optJSONArray("invited_rooms") ?: return@withContext emptyList()
-        
+
         if (invitedRooms.length() == 0) return@withContext emptyList()
-        
+
         val currentUserId = getCurrentUserId()
         if (currentUserId.isBlank()) {
             Log.w(TAG, "SyncIngestor: Cannot process invites - current user ID not available")
             return@withContext emptyList()
         }
-        
+
         if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Processing ${invitedRooms.length()} room invitations")
-        
+
         val invites = mutableListOf<net.vrkknn.andromuks.RoomInvite>()
-        
+
         for (i in 0 until invitedRooms.length()) {
             val inviteJson = invitedRooms.optJSONObject(i) ?: continue
             val roomId = inviteJson.optString("room_id", "")
             val createdAt = inviteJson.optLong("created_at", 0)
             val inviteState = inviteJson.optJSONArray("invite_state")
-            
+
             if (roomId.isBlank() || inviteState == null) continue
-            
+
             var inviterUserId = ""
             var inviterDisplayName: String? = null
             var roomName: String? = null
@@ -977,7 +1051,7 @@ class SyncIngestor(private val context: Context) {
             var roomCanonicalAlias: String? = null
             var inviteReason: String? = null
             var isDirectMessage = false
-            
+
             // Parse invite_state events to extract room metadata and inviter info
             // First pass: Find our invite event to identify the inviter
             for (j in 0 until inviteState.length()) {
@@ -985,7 +1059,7 @@ class SyncIngestor(private val context: Context) {
                 val eventType = stateEvent.optString("type", "")
                 val stateKey = stateEvent.optString("state_key", "")
                 val content = stateEvent.optJSONObject("content")
-                
+
                 if (eventType == "m.room.member") {
                     val membership = content?.optString("membership", "")
                     // Our invite event: state_key matches current user and membership="invite"
@@ -1003,14 +1077,14 @@ class SyncIngestor(private val context: Context) {
                     }
                 }
             }
-            
+
             // Second pass: Extract all metadata and inviter details
             for (j in 0 until inviteState.length()) {
                 val stateEvent = inviteState.optJSONObject(j) ?: continue
                 val eventType = stateEvent.optString("type", "")
                 val stateKey = stateEvent.optString("state_key", "")
                 val content = stateEvent.optJSONObject("content")
-                
+
                 when (eventType) {
                     "m.room.member" -> {
                         val membership = content?.optString("membership", "")
@@ -1024,15 +1098,18 @@ class SyncIngestor(private val context: Context) {
                             }
                         }
                     }
+
                     "m.room.name" -> {
                         roomName = content?.optString("name")?.takeIf { it.isNotBlank() }
                     }
+
                     "m.room.avatar" -> {
                         val avatarUrl = content?.optString("url")?.takeIf { it.isNotBlank() }
                         if (avatarUrl != null) {
                             roomAvatar = avatarUrl
                         }
                     }
+
                     "m.room.topic" -> {
                         // Handle both simple topic format and complex m.topic format
                         val simpleTopic = content?.optString("topic")?.takeIf { it.isNotBlank() }
@@ -1051,9 +1128,11 @@ class SyncIngestor(private val context: Context) {
                             }
                         }
                     }
+
                     "m.room.canonical_alias" -> {
                         roomCanonicalAlias = content?.optString("alias")?.takeIf { it.isNotBlank() }
                     }
+
                     "m.room.create" -> {
                         // Check if additional_creators contains current user ID (indicates DM)
                         val additionalCreators = content?.optJSONArray("additional_creators")
@@ -1062,7 +1141,12 @@ class SyncIngestor(private val context: Context) {
                                 val creatorId = additionalCreators.optString(k, "")
                                 if (creatorId == currentUserId) {
                                     isDirectMessage = true
-                                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Detected DM invite - additional_creators contains current user")
+                                    if (BuildConfig.DEBUG) {
+                                        Log.d(
+                                        TAG,
+                                        "SyncIngestor: Detected DM invite - additional_creators contains current user",
+                                    )
+                                    }
                                     break
                                 }
                             }
@@ -1070,12 +1154,12 @@ class SyncIngestor(private val context: Context) {
                     }
                 }
             }
-            
+
             // For DMs, if we have an inviter but no room name, use inviter's display name
             if (isDirectMessage && roomName.isNullOrBlank() && inviterDisplayName != null) {
                 roomName = inviterDisplayName
             }
-            
+
             // Only create invite if we have an inviter (required field)
             if (inviterUserId.isNotBlank()) {
                 val roomInvite = net.vrkknn.andromuks.RoomInvite(
@@ -1088,15 +1172,21 @@ class SyncIngestor(private val context: Context) {
                     roomTopic = roomTopic,
                     roomCanonicalAlias = roomCanonicalAlias,
                     inviteReason = inviteReason,
-                    isDirectMessage = isDirectMessage
+                    isDirectMessage = isDirectMessage,
                 )
                 invites.add(roomInvite)
-                
+
                 if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "SyncIngestor: Parsed invite for room $roomId: name=$roomName, inviter=$inviterUserId (displayName=$inviterDisplayName, DM: $isDirectMessage)")
+                    Log.d(
+                        TAG,
+                        "SyncIngestor: Parsed invite for room $roomId: name=$roomName, inviter=$inviterUserId (displayName=$inviterDisplayName, DM: $isDirectMessage)",
+                    )
                 }
             } else {
-                Log.w(TAG, "SyncIngestor: Skipping invite for room $roomId - no inviter found (currentUserId=$currentUserId)")
+                Log.w(
+                    TAG,
+                    "SyncIngestor: Skipping invite for room $roomId - no inviter found (currentUserId=$currentUserId)",
+                )
                 // Debug: Log invite_state to understand why inviter wasn't found
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "SyncIngestor: Debug - invite_state events for room $roomId:")
@@ -1109,19 +1199,22 @@ class SyncIngestor(private val context: Context) {
                             if (eventType == "m.room.member") {
                                 val content = stateEvent.optJSONObject("content")
                                 val membership = content?.optString("membership", "")
-                                Log.d(TAG, "SyncIngestor:   - member event: state_key=$stateKey, sender=$sender, membership=$membership")
+                                Log.d(
+                                    TAG,
+                                    "SyncIngestor:   - member event: state_key=$stateKey, sender=$sender, membership=$membership",
+                                )
                             }
                         }
                     }
                 }
             }
         }
-        
+
         // Return invites (in-memory only, no DB persistence)
         if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Parsed ${invites.size} invites (in-memory only)")
         invites
     }
-    
+
     /**
      * @deprecated No longer processing pending items - all data is in-memory only
      */
@@ -1129,20 +1222,20 @@ class SyncIngestor(private val context: Context) {
     suspend fun rushProcessPendingItems() = withContext(Dispatchers.IO) {
         // No-op - all data is in-memory only
     }
-    
+
     /**
      * @deprecated No longer processing receipts - they're not persisted locally
      */
     @Deprecated("Receipts are no longer persisted locally", level = DeprecationLevel.HIDDEN)
     @Suppress("DEPRECATION")
     suspend fun rushProcessPendingReceipts() = rushProcessPendingItems()
-    
+
     /**
      * @deprecated No longer tracking pending receipts - they're not persisted locally
      */
     @Deprecated("Receipts are no longer persisted locally")
     fun getPendingReceiptsCount(): Int = 0
-    
+
     /**
      * Check if there are any pending rooms to process
      * @deprecated All data is in-memory only, no pending items
@@ -1151,6 +1244,4 @@ class SyncIngestor(private val context: Context) {
     suspend fun hasPendingItems(): Boolean = withContext(Dispatchers.IO) {
         false // No pending items - all data is in-memory only
     }
-    
 }
-

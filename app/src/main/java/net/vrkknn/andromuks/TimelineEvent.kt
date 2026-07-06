@@ -27,7 +27,7 @@ data class TimelineEvent(
     // Stored directly on the event so rendering never needs a secondary cache lookup.
     val redactionSender: String? = null,
     val redactionReason: String? = null,
-    val redactionTimestamp: Long? = null
+    val redactionTimestamp: Long? = null,
 ) {
     /**
      * Best-effort reconstruction of the raw event JSON for inspection/debugging UI.
@@ -62,13 +62,11 @@ data class TimelineEvent(
         return json
     }
 
-    fun toRawJsonString(indentSpaces: Int = 2): String {
-        return try {
-            toRawJsonObject().toString(indentSpaces)
-        } catch (_: Exception) {
-            // Fallback to compact string to avoid crashing UI if JSON formatting fails.
-            toRawJsonObject().toString()
-        }
+    fun toRawJsonString(indentSpaces: Int = 2): String = try {
+        toRawJsonObject().toString(indentSpaces)
+    } catch (_: Exception) {
+        // Fallback to compact string to avoid crashing UI if JSON formatting fails.
+        toRawJsonObject().toString()
     }
 
     companion object {
@@ -142,11 +140,11 @@ data class TimelineEvent(
                 transactionId = transactionId,
                 redactionSender = json.optString("redaction_sender").takeIf { it.isNotBlank() },
                 redactionReason = json.optString("redaction_reason").takeIf { it.isNotBlank() },
-                redactionTimestamp = json.optLong("redaction_timestamp", 0L).takeIf { it > 0L }
+                redactionTimestamp = json.optLong("redaction_timestamp", 0L).takeIf { it > 0L },
             )
         }
     }
-    
+
     /**
      * Extract reply information from this event
      * Note: For thread messages, this returns the fallback reply-to event, NOT the thread root
@@ -157,7 +155,7 @@ data class TimelineEvent(
             type == "m.room.encrypted" && decryptedType == "m.room.message" -> decrypted
             else -> null
         } ?: return null
-        
+
         val relatesTo = messageContent?.optJSONObject("m.relates_to")
         // Thread fallback messages (is_falling_back=true) are not treated as replies
         val isFallback = relatesTo?.optBoolean("is_falling_back", false) ?: false
@@ -165,55 +163,53 @@ data class TimelineEvent(
 
         val inReplyTo = relatesTo?.optJSONObject("m.in_reply_to")
         val repliedToEventId = inReplyTo?.optString("event_id")?.takeIf { it.isNotBlank() }
-        
+
         return if (repliedToEventId != null) {
             ReplyInfo(
                 eventId = repliedToEventId,
                 sender = sender,
                 body = messageContent.optString("body", ""),
-                msgType = messageContent.optString("msgtype", "m.text")
+                msgType = messageContent.optString("msgtype", "m.text"),
             )
         } else {
             null
         }
     }
-    
+
     /**
      * Check if this message is part of a thread
      */
-    fun isThreadMessage(): Boolean {
-        return relationType == "m.thread" && relatesTo != null
-    }
-    
+    fun isThreadMessage(): Boolean = relationType == "m.thread" && relatesTo != null
+
     /**
      * Check if this event is pinned
      * Note: This requires the AppViewModel to check against room state
      */
-    
+
     /**
      * Get thread information from this event
      * Returns ThreadInfo if this is a thread message, null otherwise
      */
     fun getThreadInfo(): ThreadInfo? {
         if (!isThreadMessage()) return null
-        
+
         val messageContent = when {
             type == "m.room.message" -> content
             type == "m.room.encrypted" && decryptedType == "m.room.message" -> decrypted
             else -> null
         } ?: return null
-        
+
         val relatesTo = messageContent.optJSONObject("m.relates_to")
         val threadRootId = relatesTo?.optString("event_id")?.takeIf { it.isNotBlank() }
             ?: this.relatesTo // Fallback to top-level relates_to
-        
+
         val inReplyTo = relatesTo?.optJSONObject("m.in_reply_to")
         val fallbackReplyId = inReplyTo?.optString("event_id")?.takeIf { it.isNotBlank() }
-        
+
         return if (threadRootId != null) {
             ThreadInfo(
                 threadRootEventId = threadRootId,
-                fallbackReplyToEventId = fallbackReplyId
+                fallbackReplyToEventId = fallbackReplyId,
             )
         } else {
             null
@@ -231,17 +227,14 @@ data class TimelineEvent(
 }
 
 @Immutable
-data class UserReaction(
-    val userId: String,
-    val timestamp: Long
-)
+data class UserReaction(val userId: String, val timestamp: Long)
 
 @Immutable
 data class MessageReaction(
     val emoji: String,
     val count: Int,
     val users: List<String>,
-    val userReactions: List<UserReaction> = emptyList()
+    val userReactions: List<UserReaction> = emptyList(),
 )
 
 @Immutable
@@ -251,7 +244,7 @@ data class ReactionEvent(
     val sender: String,
     val emoji: String,
     val relatesToEventId: String,
-    val timestamp: Long
+    val timestamp: Long,
 )
 
 @Immutable
@@ -268,7 +261,7 @@ data class MediaInfo(
     val duration: Int? = null, // Video/audio duration in milliseconds
     val thumbnailIsEncrypted: Boolean = false, // Whether thumbnail is encrypted (from thumbnail_file vs thumbnail_url)
     val isAnimated: Boolean? = null, // From MSC4230: true if the original image is animated (GIF, animated PNG, animated WebP)
-    val waveform: List<Int>? = null // MSC1767 voice-message amplitude samples (org.matrix.msc1767.audio.waveform)
+    val waveform: List<Int>? = null, // MSC1767 voice-message amplitude samples (org.matrix.msc1767.audio.waveform)
 )
 
 @Immutable
@@ -277,7 +270,7 @@ data class MediaMessage(
     val filename: String,
     val caption: String?,
     val info: MediaInfo,
-    val msgType: String // "m.image", "m.video", "m.audio", or "m.file"
+    val msgType: String, // "m.image", "m.video", "m.audio", or "m.file"
 )
 
 @Immutable
@@ -286,7 +279,7 @@ data class ReadReceipt(
     val eventId: String,
     val timestamp: Long,
     val receiptType: String,
-    val roomId: String = "" // Room ID to prevent cross-room receipt corruption
+    val roomId: String = "", // Room ID to prevent cross-room receipt corruption
 )
 
 @Immutable
@@ -300,19 +293,14 @@ data class RoomInvite(
     val roomTopic: String?,
     val roomCanonicalAlias: String?,
     val inviteReason: String?,
-    val isDirectMessage: Boolean = false
+    val isDirectMessage: Boolean = false,
 )
 
 @Immutable
-data class ReplyInfo(
-    val eventId: String,
-    val sender: String,
-    val body: String,
-    val msgType: String = "m.text"
-)
+data class ReplyInfo(val eventId: String, val sender: String, val body: String, val msgType: String = "m.text")
 
 @Immutable
 data class ThreadInfo(
     val threadRootEventId: String, // The event ID that started the thread
-    val fallbackReplyToEventId: String? = null // The specific message being replied to (for clients without thread support)
+    val fallbackReplyToEventId: String? = null, // The specific message being replied to (for clients without thread support)
 )

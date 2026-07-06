@@ -52,13 +52,16 @@ object NotificationSuppressionState {
     fun setCurrentOpenRoomId(context: Context, roomId: String?) {
         val normalized = roomId?.takeIf { it.isNotEmpty() }
         currentOpenRoomId.set(normalized)
-        initialized.set(true)  // memory is now authoritative
+        initialized.set(true) // memory is now authoritative
         val editor = context.applicationContext
             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
-        if (normalized != null) editor.putString(KEY_ROOM_ID, normalized)
-        else editor.remove(KEY_ROOM_ID)
-        editor.apply()  // async — happy-path readers never see the disk write
+        if (normalized != null) {
+            editor.putString(KEY_ROOM_ID, normalized)
+        } else {
+            editor.remove(KEY_ROOM_ID)
+        }
+        editor.apply() // async — happy-path readers never see the disk write
     }
 
     fun setAppVisible(context: Context, visible: Boolean) {

@@ -1,8 +1,5 @@
 package net.vrkknn.andromuks.utils
 
-import okio.source
-
-import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
@@ -12,11 +9,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.utils.getUserAgent
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.source
 import java.io.ByteArrayOutputStream
-import net.vrkknn.andromuks.utils.getUserAgent
 
 /**
  * Data class representing the result of a video upload
@@ -32,14 +31,14 @@ data class VideoUploadResult(
     val thumbnailBlurHash: String,
     val thumbnailWidth: Int,
     val thumbnailHeight: Int,
-    val thumbnailSize: Long
+    val thumbnailSize: Long,
 )
 
 /**
  * Utilities for uploading videos with thumbnail extraction
  */
 object VideoUploadUtils {
-    
+
     /**
      * Upload video to the server with thumbnail extraction
      */
@@ -49,51 +48,57 @@ object VideoUploadUtils {
         homeserverUrl: String,
         authToken: String,
         isEncrypted: Boolean = false,
-        onProgress: ((String, Float) -> Unit)? = null
+        onProgress: ((String, Float) -> Unit)? = null,
     ): VideoUploadResult? = withContext(Dispatchers.IO) {
         onProgress?.invoke("thumbnail", 0.01f)
         onProgress?.invoke("original", 0.01f)
-        
+
         try {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Starting video upload for URI: $uri")
-            
+
             // Extract video metadata
             val retriever = MediaMetadataRetriever()
             retriever.setDataSource(context, uri)
-            
+
             // Get video dimensions and duration
             val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
             val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
             val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toIntOrNull() ?: 0
-            
+
             // Extract frame at 10% for thumbnail
             val thumbnailTimeUs = (duration * 1000L * 0.1).toLong()
             var thumbnailFrame = retriever.getFrameAtTime(thumbnailTimeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 ?: retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST)
-            
+
             if (thumbnailFrame == null) {
                 Log.e("Andromuks", "VideoUploadUtils: Failed to extract frame")
                 retriever.release()
                 return@withContext null
             }
-            
+
             val displayWidth = thumbnailFrame.width
             val displayHeight = thumbnailFrame.height
-            
+
             // Create high-quality thumbnail
             val maxThumbDim = 800
             val thumbnailBitmap = if (displayWidth > maxThumbDim || displayHeight > maxThumbDim) {
                 val scale = maxThumbDim.toFloat() / maxOf(displayWidth, displayHeight)
-                MediaUploadUtils.createHighQualityThumbnail(thumbnailFrame, (displayWidth * scale).toInt(), (displayHeight * scale).toInt()).also {
+                MediaUploadUtils.createHighQualityThumbnail(
+                    thumbnailFrame,
+                    (displayWidth * scale).toInt(),
+                    (displayHeight * scale).toInt(),
+                ).also {
                     if (it != thumbnailFrame) thumbnailFrame.recycle()
                 }
-            } else thumbnailFrame
-            
-            val thumbBytes = ByteArrayOutputStream().use { 
+            } else {
+                thumbnailFrame
+            }
+
+            val thumbBytes = ByteArrayOutputStream().use {
                 thumbnailBitmap.compress(Bitmap.CompressFormat.JPEG, 85, it)
                 it.toByteArray()
             }
-            
+
             // OPTIMIZATION: Scale down for BlurHash calculation
             val blurHashInput = Bitmap.createScaledBitmap(thumbnailBitmap, 64, 64, true)
             val thumbnailBlurHash = MediaUploadUtils.encodeBlurHash(blurHashInput)
@@ -119,7 +124,7 @@ object VideoUploadUtils {
             val videoRequestBody = ProgressRequestBody(
                 mimeType.toMediaType(),
                 contentLength,
-                context.contentResolver.openInputStream(uri)!!.source()
+                context.contentResolver.openInputStream(uri)!!.source(),
             ) { written ->
                 onProgress?.invoke("original", written.toFloat() / contentLength)
             }
@@ -133,9 +138,17 @@ object VideoUploadUtils {
 
             // Execute in parallel
             coroutineScope {
-                val thumbDeferred = async { MediaUploadUtils.executeAndParseProgress(thumbRequest) { p -> onProgress?.invoke("thumbnail", p) } }
-                val videoDeferred = async { MediaUploadUtils.executeAndParseProgress(videoRequest) { _ -> /* Already handled by local progress */ } }
-                
+                val thumbDeferred = async {
+                    MediaUploadUtils.executeAndParseProgress(
+                        thumbRequest,
+                    ) { p -> onProgress?.invoke("thumbnail", p) }
+                }
+                val videoDeferred = async {
+                    MediaUploadUtils.executeAndParseProgress(
+                        videoRequest,
+                    ) { _ -> /* Already handled by local progress */ }
+                }
+
                 val thumbMxc = thumbDeferred.await()
                 val videoMxc = videoDeferred.await() ?: return@coroutineScope null
 
@@ -150,7 +163,7 @@ object VideoUploadUtils {
                     thumbnailBlurHash = thumbnailBlurHash,
                     thumbnailWidth = thumbWidth,
                     thumbnailHeight = thumbHeight,
-                    thumbnailSize = thumbBytes.size.toLong()
+                    thumbnailSize = thumbBytes.size.toLong(),
                 )
             }
         } catch (e: Exception) {
@@ -158,13 +171,11 @@ object VideoUploadUtils {
             null
         }
     }
-    
-    private fun getContentLength(context: Context, uri: Uri): Long {
-        return try {
-            context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
-        } catch (e: Exception) {
-            -1L
-        }
+
+    private fun getContentLength(context: Context, uri: Uri): Long = try {
+        context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
+    } catch (e: Exception) {
+        -1L
     }
 
     private fun getFileNameFromUri(context: Context, uri: Uri): String? {

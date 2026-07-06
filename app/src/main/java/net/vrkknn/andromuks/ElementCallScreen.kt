@@ -24,7 +24,7 @@ fun ElementCallScreen(
     roomId: String,
     navController: NavController,
     appViewModel: AppViewModel,
-    modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier
+    modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
 ) {
     LaunchedEffect(roomId) {
         appViewModel.startCall(roomId)
@@ -45,7 +45,7 @@ internal fun buildElementCallUrl(
     perParticipantE2EE: Boolean,
     theme: String,
     widgetId: String,
-    parentOrigin: String
+    parentOrigin: String,
 ): String {
     val normalizedBase = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
     val baseUri = Uri.parse(normalizedBase)
@@ -88,7 +88,7 @@ internal fun buildElementCallUrl(
         .appendQueryParameter("parentUrl", "$parentOrigin/")
         .appendQueryParameter("widgetId", widgetId)
         .build()
-    return "${callBaseWithWidgetId}#?$hashParams"
+    return "$callBaseWithWidgetId#?$hashParams"
 }
 
 internal fun deriveHomeserverBaseUrl(configuredBaseUrl: String, userId: String): String {
@@ -136,7 +136,7 @@ internal class ElementCallJsBridge(
     private val roomId: String,
     private val appViewModel: AppViewModel,
     private val onCallEnded: () -> Unit,
-    private val onAlwaysOnScreen: (Boolean) -> Unit
+    private val onAlwaysOnScreen: (Boolean) -> Unit,
 ) {
     private val syntheticDelayIds = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     private val screenOpenTimestamp = System.currentTimeMillis()
@@ -144,7 +144,9 @@ internal class ElementCallJsBridge(
     @JavascriptInterface
     fun postMessage(message: String) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ElementCallJsBridge: received $message")
-        val json = try { JSONObject(message) } catch (e: Exception) {
+        val json = try {
+            JSONObject(message)
+        } catch (e: Exception) {
             android.util.Log.e("Andromuks", "ElementCallJsBridge: invalid JSON: $message", e)
             return
         }
@@ -164,7 +166,11 @@ internal class ElementCallJsBridge(
         }
 
         if (requestData is JSONObject &&
-            (normalizedAction.contains("send_event") || normalizedAction.contains("send_state") || normalizedAction.contains("set_state"))
+            (
+                normalizedAction.contains(
+                "send_event",
+            ) || normalizedAction.contains("send_state") || normalizedAction.contains("set_state")
+            )
         ) {
             val eventType = requestData.optString("type")
             if (eventType == "org.matrix.msc3401.call.member") {
@@ -172,9 +178,11 @@ internal class ElementCallJsBridge(
                 if (!requestData.has("state_key") && deviceId.isNotBlank()) {
                     requestData.put("state_key", "_${appViewModel.currentUserId}_${deviceId}_m.call")
                 }
-                val content = requestData.optJSONObject("content") ?: JSONObject().also { requestData.put("content", it) }
+                val content = requestData.optJSONObject(
+                    "content",
+                ) ?: JSONObject().also { requestData.put("content", it) }
                 if (content.length() > 0 && !content.has("membershipID") && deviceId.isNotBlank()) {
-                    content.put("membershipID", "${appViewModel.currentUserId}:${deviceId}")
+                    content.put("membershipID", "${appViewModel.currentUserId}:$deviceId")
                 }
                 if (content.length() > 0) appViewModel.setCallReadyForPip(true)
             }
@@ -184,14 +192,20 @@ internal class ElementCallJsBridge(
             // Respond immediately so Element Call never hits its ~11s timeout and retries.
             sendWidgetResponse(action, widgetRequestId, JSONObject())
             val delayId = (requestData as? JSONObject)?.optString("delay_id").orEmpty()
-            if (delayId.isNotBlank() && !delayId.startsWith("andromuks-") && syntheticDelayIds.remove(delayId) != true) {
+            if (delayId.isNotBlank() && !delayId.startsWith(
+                    "andromuks-",
+                ) && syntheticDelayIds.remove(delayId) != true
+            ) {
                 val payload = ensureRoomId(requestData, roomId)
                 appViewModel.sendWidgetCommand("update_delayed_event", payload) { /* fire-and-forget */ }
             }
             return
         }
 
-        if (normalizedAction.contains("hangup") || normalizedAction.contains("leave_call") || normalizedAction.contains("call_ended")) {
+        if (normalizedAction.contains(
+                "hangup",
+            ) || normalizedAction.contains("leave_call") || normalizedAction.contains("call_ended")
+        ) {
             appViewModel.setCallReadyForPip(false)
             webView.post { onCallEnded() }
             sendWidgetResponse(action, widgetRequestId, JSONObject())
@@ -241,11 +255,21 @@ internal class ElementCallJsBridge(
 
         appViewModel.sendWidgetCommand(command, payload) { result ->
             result.onSuccess { response ->
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ElementCallJsBridge: response for $action -> $response")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "ElementCallJsBridge: response for $action -> $response",
+                )
+                }
                 val normalizedResponse = normalizeWidgetResponse(action, response, requestData)
                 sendWidgetResponse(action, widgetRequestId, normalizedResponse)
             }.onFailure { error ->
-                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "ElementCallJsBridge: error for $action -> ${error.message}")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.w(
+                    "Andromuks",
+                    "ElementCallJsBridge: error for $action -> ${error.message}",
+                )
+                }
                 sendWidgetError(action, widgetRequestId, error.message ?: "Unknown error")
             }
         }
@@ -253,16 +277,33 @@ internal class ElementCallJsBridge(
 
     private fun mapWidgetActionToCommand(action: String, requestData: Any?): String? {
         val normalized = action.lowercase()
-        if (normalized.contains("send_event") && requestData is JSONObject && requestData.has("state_key")) return "set_state"
+        if (normalized.contains(
+                "send_event",
+            ) && requestData is JSONObject && requestData.has("state_key")
+        ) {
+                return "set_state"
+            }
         return when {
             normalized.contains("send_state") || normalized.contains("set_state") -> "set_state"
+
             normalized.contains("send_event") -> "send_event"
+
             normalized.contains("send_to_device") || normalized.contains("send.to_device") -> "send_to_device"
+
             normalized.contains("openid") -> "request_openid_token"
-            normalized.contains("listen_to_device") || normalized.contains("receive_to_device") || normalized.contains("receive.to_device") -> "listen_to_device"
+
+            normalized.contains(
+                "listen_to_device",
+            ) || normalized.contains(
+                "receive_to_device",
+            ) || normalized.contains("receive.to_device") -> "listen_to_device"
+
             normalized.contains("update_delayed_event") -> "update_delayed_event"
+
             normalized.contains("read_state") || normalized.contains("get_state") -> "get_room_state"
+
             normalized.contains("read_events") -> "get_room_state"
+
             else -> null
         }
     }
@@ -332,7 +373,10 @@ internal class ElementCallJsBridge(
                                 val eventTs = normalizedEvent.optLong("origin_server_ts", 0L).takeIf { it > 0 }
                                     ?: normalizedEvent.optLong("timestamp", 0L)
                                 if (eventTs > screenOpenTimestamp) {
-                                    android.util.Log.d("Andromuks", "ElementCallJsBridge: own disconnect detected, closing")
+                                    android.util.Log.d(
+                                        "Andromuks",
+                                        "ElementCallJsBridge: own disconnect detected, closing",
+                                    )
                                     webView.post { onCallEnded() }
                                     continue
                                 }
@@ -353,7 +397,10 @@ internal class ElementCallJsBridge(
             if (!obj.has("state")) obj.put("state", "allowed")
             return obj
         }
-        if (normalized.contains("send_event") || normalized.contains("set_state") || normalized.contains("send_state")) {
+        if (normalized.contains(
+                "send_event",
+            ) || normalized.contains("set_state") || normalized.contains("send_state")
+        ) {
             val requestJson = requestData as? JSONObject
             val hasDelay = requestJson?.has("delay_ms") == true || requestJson?.has("delay") == true
             if (hasDelay) {
@@ -372,17 +419,25 @@ internal class ElementCallJsBridge(
         if (normalized.contains("send_event")) {
             return when (response) {
                 is String -> JSONObject().put("event_id", response)
+
                 is JSONObject -> {
                     if (!response.has("event_id")) {
                         response.optString("eventId").takeIf { it.isNotBlank() }?.let { response.put("event_id", it) }
                     }
                     response
                 }
+
                 is Map<*, *> -> {
                     val obj = JSONObject(response)
-                    if (!obj.has("event_id")) obj.optString("eventId").takeIf { it.isNotBlank() }?.let { obj.put("event_id", it) }
+                    if (!obj.has(
+                            "event_id",
+                        )
+                    ) {
+                            obj.optString("eventId").takeIf { it.isNotBlank() }?.let { obj.put("event_id", it) }
+                        }
                     obj
                 }
+
                 else -> response
             }
         }
@@ -393,17 +448,33 @@ internal class ElementCallJsBridge(
         val event = JSONObject()
         raw.optString("event_id").takeIf { it.isNotBlank() }?.let { event.put("event_id", it) }
         val decryptedType = raw.optString("decrypted_type").takeIf { it.isNotBlank() }
-        if (decryptedType != null) event.put("type", decryptedType)
-        else raw.optString("type").takeIf { it.isNotBlank() }?.let { event.put("type", it) }
+        if (decryptedType != null) {
+            event.put("type", decryptedType)
+        } else {
+            raw.optString("type").takeIf { it.isNotBlank() }?.let { event.put("type", it) }
+        }
         raw.optString("sender").takeIf { it.isNotBlank() }?.let { event.put("sender", it) }
         if (raw.has("state_key")) event.put("state_key", raw.optString("state_key"))
         raw.optString("room_id").takeIf { it.isNotBlank() }?.let { event.put("room_id", it) }
-        val originTs = if (raw.has("origin_server_ts")) raw.optLong("origin_server_ts", 0L) else raw.optLong("timestamp", 0L)
+        val originTs = if (raw.has(
+                "origin_server_ts",
+            )
+        ) {
+                raw.optLong("origin_server_ts", 0L)
+            } else {
+                raw.optLong("timestamp", 0L)
+            }
         if (originTs > 0) event.put("origin_server_ts", originTs)
-        if (decryptedType != null && raw.has("decrypted")) event.put("content", raw.opt("decrypted"))
-        else if (raw.has("content")) event.put("content", raw.opt("content"))
+        if (decryptedType != null && raw.has("decrypted")) {
+            event.put("content", raw.opt("decrypted"))
+        } else if (raw.has("content")) {
+            event.put("content", raw.opt("content"))
+        }
         val contentObject = event.optJSONObject("content")
-        if (contentObject != null && contentObject.length() == 0 && event.optString("type") != "org.matrix.msc3401.call.member") {
+        if (contentObject != null && contentObject.length() == 0 && event.optString(
+                "type",
+            ) != "org.matrix.msc3401.call.member"
+        ) {
             val prevContent = raw.optJSONObject("unsigned")?.optJSONObject("prev_content")
             if (prevContent != null && prevContent.length() > 0) event.put("content", prevContent)
         }
@@ -418,7 +489,12 @@ internal class ElementCallJsBridge(
                     val membership = extractMembershipParts(stateKey)
                     val userId = membership?.first ?: event.optString("sender")
                     val deviceId = membership?.second ?: content.optString("device_id")
-                    if (!userId.isNullOrBlank() && !deviceId.isNullOrBlank()) content.put("membershipID", "$userId:$deviceId")
+                    if (!userId.isNullOrBlank() && !deviceId.isNullOrBlank()) {
+                        content.put(
+                        "membershipID",
+                        "$userId:$deviceId",
+                    )
+                    }
                 }
             }
         }

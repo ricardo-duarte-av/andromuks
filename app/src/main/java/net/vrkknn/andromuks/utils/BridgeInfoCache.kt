@@ -99,7 +99,10 @@ object BridgeInfoCache {
             for (key in all.keys) {
                 when {
                     key.startsWith(BRIDGE_INFO_PREFIX) -> roomIds.add(key.removePrefix(BRIDGE_INFO_PREFIX))
-                    key.startsWith(BRIDGE_DISPLAY_NAME_PREFIX) -> roomIds.add(key.removePrefix(BRIDGE_DISPLAY_NAME_PREFIX))
+
+                    key.startsWith(
+                        BRIDGE_DISPLAY_NAME_PREFIX,
+                    ) -> roomIds.add(key.removePrefix(BRIDGE_DISPLAY_NAME_PREFIX))
                 }
             }
             roomIds.map { roomId ->

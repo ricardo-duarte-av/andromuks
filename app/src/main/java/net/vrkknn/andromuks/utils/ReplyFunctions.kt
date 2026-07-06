@@ -1,10 +1,5 @@
 package net.vrkknn.andromuks.utils
 
-import net.vrkknn.andromuks.ui.theme.scaledTweenMs
-import net.vrkknn.andromuks.ui.theme.scaledSpring
-import net.vrkknn.andromuks.BuildConfig
-import kotlinx.coroutines.launch
-import net.vrkknn.andromuks.utils.SingleEventRendererDialog
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -14,109 +9,85 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Button
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.offset
-import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.drawOutline
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.foundation.Canvas
-import androidx.compose.ui.unit.toIntRect
-import androidx.compose.ui.window.PopupProperties
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.zIndex
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Reply
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.TagFaces
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Visibility
+import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.LocalScrollHighlightState
 import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.ReplyInfo
 import net.vrkknn.andromuks.TimelineEvent
-import net.vrkknn.andromuks.LocalScrollHighlightState
-import net.vrkknn.andromuks.utils.RedactionUtils
+import net.vrkknn.andromuks.ui.theme.scaledSpring
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.utils.HtmlMessageText
-import net.vrkknn.andromuks.utils.supportsHtmlRendering
 import net.vrkknn.andromuks.utils.MessageMenuConfig
+import net.vrkknn.andromuks.utils.RedactionUtils
+import net.vrkknn.andromuks.utils.SingleEventRendererDialog
+import net.vrkknn.andromuks.utils.supportsHtmlRendering
 
 val LocalActiveMessageMenuEventId = compositionLocalOf<String?> { null }
-
-
 
 /**
  * Displays a reply preview showing the original message being replied to.
@@ -152,7 +123,7 @@ fun ReplyPreview(
     onOriginalMessageClick: () -> Unit = {},
     timelineEvents: List<TimelineEvent> = emptyList(),
     onMatrixUserClick: (String) -> Unit = {},
-    appViewModel: net.vrkknn.andromuks.AppViewModel? = null
+    appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
 ) {
     // OPTIMIZED: Use version cache if available, otherwise fall back to chain resolution
     val latestOriginalEvent = if (appViewModel != null && originalEvent != null) {
@@ -162,12 +133,17 @@ fun ReplyPreview(
             RedactionUtils.resolveEventChain(event.eventId, timelineEvents)
         }
     }
-    
+
     val originalSender = latestOriginalEvent?.sender ?: replyInfo.sender
     val originalBody = latestOriginalEvent?.let { event ->
         // OPTIMIZED: Check if redacted using O(1) lookup
         if (event.redactedBy != null) {
-            RedactionUtils.createDeletionMessage(event.redactionSender, event.redactionReason, event.redactionTimestamp, userProfileCache)
+            RedactionUtils.createDeletionMessage(
+                event.redactionSender,
+                event.redactionReason,
+                event.redactionTimestamp,
+                userProfileCache,
+            )
         } else {
             // Latest version is still available - show its content
             when {
@@ -181,6 +157,7 @@ fun ReplyPreview(
                         event.content?.optString("body", "")
                     }
                 }
+
                 event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> {
                     // For encrypted messages, check if it's an edit
                     val isEdit = event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
@@ -193,6 +170,7 @@ fun ReplyPreview(
                         event.decrypted?.optString("body", "")
                     }
                 }
+
                 else -> {
                     // For non-message events (system events, stickers, etc.), use the formatting function
                     // This handles all event types including joins, leaves, ACL changes, etc.
@@ -220,8 +198,13 @@ fun ReplyPreview(
             val payload = fallback.getMessagePayload()
             if (fallback.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace") {
                 payload?.optJSONObject("m.new_content")?.optString("body", "") ?: payload?.optString("body", "")
-            } else if (fallback.type == "m.room.encrypted" && fallback.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace") {
-                fallback.decrypted?.optJSONObject("m.new_content")?.optString("body", "") ?: fallback.decrypted?.optString("body", "")
+            } else if (fallback.type == "m.room.encrypted" && fallback.decrypted?.optJSONObject(
+                    "m.relates_to",
+                )?.optString("rel_type") == "m.replace"
+            ) {
+                fallback.decrypted?.optJSONObject(
+                    "m.new_content",
+                )?.optString("body", "") ?: fallback.decrypted?.optString("body", "")
             } else {
                 payload?.optString("body", "")
             }
@@ -229,7 +212,7 @@ fun ReplyPreview(
         ?: mediaFallback
         ?: originalBody
         ?: "Reply to unknown event"
-    
+
     val memberProfile = userProfileCache[originalSender]
     val baseSenderName = memberProfile?.displayName ?: originalSender
     val senderName = if (appViewModel?.trimLongDisplayNames == true && baseSenderName.length > 40) {
@@ -237,20 +220,20 @@ fun ReplyPreview(
     } else {
         baseSenderName
     }
-    
+
     val colorScheme = MaterialTheme.colorScheme
     Row(
         modifier = modifier
             .height(IntrinsicSize.Min)
             .wrapContentWidth(Alignment.Start),
-        verticalAlignment = Alignment.Top
+        verticalAlignment = Alignment.Top,
     ) {
         Box(
             modifier = Modifier
                 .width(4.dp)
                 .fillMaxHeight()
                 .clip(RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
-                .background(previewColors.stripe)
+                .background(previewColors.stripe),
         )
         Surface(
             modifier = Modifier
@@ -260,21 +243,21 @@ fun ReplyPreview(
                 topStart = 0.dp,
                 topEnd = 10.dp,
                 bottomEnd = 10.dp,
-                bottomStart = 0.dp
+                bottomStart = 0.dp,
             ),
             color = BubblePalette.replyPreviewBackground(colorScheme, previewColors),
             tonalElevation = 1.dp,
-            border = BorderStroke(1.dp, previewColors.stripe.copy(alpha = 0.25f))
+            border = BorderStroke(1.dp, previewColors.stripe.copy(alpha = 0.25f)),
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
             ) {
                 Text(
                     text = senderName,
                     style = MaterialTheme.typography.labelMedium,
                     color = previewColors.accent,
                     fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(bottom = 2.dp)
+                    modifier = Modifier.padding(bottom = 2.dp),
                 )
 
                 if (latestOriginalEvent != null && supportsHtmlRendering(latestOriginalEvent)) {
@@ -285,7 +268,7 @@ fun ReplyPreview(
                         color = previewColors.content,
                         modifier = Modifier,
                         onMatrixUserClick = onMatrixUserClick,
-                        appViewModel = appViewModel
+                        appViewModel = appViewModel,
                     )
                 } else {
                     Text(
@@ -294,7 +277,7 @@ fun ReplyPreview(
                         color = previewColors.content,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 0.9
+                        lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 0.9,
                     )
                 }
             }
@@ -313,7 +296,7 @@ fun Modifier.messageBubbleMenu(
     onReply: () -> Unit,
     onReact: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
 ): Modifier {
     var showMenu by remember { mutableStateOf(false) }
     var showErrorDialog by remember { mutableStateOf(false) }
@@ -321,29 +304,29 @@ fun Modifier.messageBubbleMenu(
     var showDeletedDialog by remember { mutableStateOf(false) }
     var deletedDialogText by remember { mutableStateOf<String?>(null) }
     var deletedReason by remember { mutableStateOf<String?>(null) }
-    
+
     return this
-        .clickable { 
+        .clickable {
             if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleMenu: Click detected, showing menu")
-            showMenu = !showMenu 
+            showMenu = !showMenu
         }
         .then(
             Modifier.pointerInput(Unit) {
                 detectDragGestures(
-                    onDragStart = { 
+                    onDragStart = {
                         if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleMenu: Long press detected")
-                        showMenu = true 
+                        showMenu = true
                     },
-                    onDragEnd = { 
+                    onDragEnd = {
                         if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleMenu: Drag end")
-                        showMenu = false 
+                        showMenu = false
                     },
-                    onDrag = { _, _ -> }
+                    onDrag = { _, _ -> },
                 )
-            }
+            },
         )
         .then(
-            Modifier.background(androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.1f)) // Temporary debug background
+            Modifier.background(androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.1f)), // Temporary debug background
         )
 }
 
@@ -359,7 +342,7 @@ fun Modifier.messageBubbleMenu(
 fun formatEventForReplyPreview(
     event: TimelineEvent,
     appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
-    roomId: String? = null
+    roomId: String? = null,
 ): String {
     val eventType = event.type
     // CRITICAL FIX: For encrypted events, prioritize decrypted content over encrypted content
@@ -369,7 +352,7 @@ fun formatEventForReplyPreview(
     } else {
         event.content ?: event.decrypted
     }
-    
+
     return when (eventType) {
         "m.room.message", "m.room.encrypted" -> {
             // Handle message events
@@ -384,7 +367,7 @@ fun formatEventForReplyPreview(
                 content?.optString("msgtype", "") ?: ""
             }
             // For encrypted messages, check if it's an edit (m.replace relationship)
-            val isEdit = eventType == "m.room.encrypted" && 
+            val isEdit = eventType == "m.room.encrypted" &&
                 event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
             val body = if (isEdit) {
                 // For edits, get the body from m.new_content
@@ -392,42 +375,51 @@ fun formatEventForReplyPreview(
             } else {
                 content?.optString("body", "") ?: ""
             }
-            
+
             when (actualMsgType) {
                 "m.image" -> "📷 Sent a photo"
+
                 "m.video" -> "📹 Sent a video"
+
                 "m.audio" -> "🎶 Sent an audio"
+
                 "m.file" -> "📁 Sent a file"
+
                 "m.sticker" -> {
                     // Try to get sticker body/name
                     val stickerBody = body.takeIf { it.isNotBlank() } ?: "Sticker"
                     "🎨 $stickerBody"
                 }
+
                 "m.emote" -> {
                     // For emote, show the action text (body without /me prefix)
                     if (body.isNotBlank()) body else "Emote"
                 }
+
                 "m.text" -> {
                     if (body.isBlank()) "Empty message" else body
                 }
+
                 else -> {
                     // Fallback for other msgtypes or if msgtype is missing
                     if (body.isNotBlank()) body else "Message"
                 }
             }
         }
+
         "m.sticker" -> {
             // Standalone sticker event
             val body = content?.optString("body", "") ?: ""
             val stickerBody = body.takeIf { it.isNotBlank() } ?: "Sticker"
             "🎨 $stickerBody"
         }
+
         "m.room.member" -> {
             // Handle member events (join, leave, ban, kick, invite, profile changes)
             val membership = content?.optString("membership", "")
             val reason = content?.optString("reason", "")
             val reasonText = if (!reason.isNullOrBlank()) ": $reason" else ""
-            
+
             when (membership) {
                 "join" -> {
                     // Check if this is a profile change vs actual join
@@ -435,14 +427,14 @@ fun formatEventForReplyPreview(
                     val prevContent = unsigned?.optJSONObject("prev_content")
                     val prevMembership = prevContent?.optString("membership", "")
                     val isProfileChange = prevContent != null && prevMembership == "join"
-                    
+
                     if (isProfileChange) {
                         // Profile change - check what changed
                         val prevDisplayName = prevContent.optString("displayname", "")
                         val prevAvatar = prevContent.optString("avatar_url", "")
                         val currentDisplayName = content?.optString("displayname", "") ?: ""
                         val currentAvatar = content?.optString("avatar_url", "") ?: ""
-                        
+
                         when {
                             prevDisplayName != currentDisplayName && prevAvatar != currentAvatar -> "Changed profile"
                             prevDisplayName != currentDisplayName -> "Changed display name"
@@ -453,7 +445,9 @@ fun formatEventForReplyPreview(
                         "Joined the room"
                     }
                 }
+
                 "leave" -> "Left the room$reasonText"
+
                 "ban" -> {
                     val bannedUserId = event.stateKey
                     val bannedDisplayName = bannedUserId?.let { userId ->
@@ -461,6 +455,7 @@ fun formatEventForReplyPreview(
                     } ?: bannedUserId ?: "Unknown"
                     "Banned $bannedDisplayName$reasonText"
                 }
+
                 "kick" -> {
                     val kickedUserId = event.stateKey
                     val kickedDisplayName = kickedUserId?.let { userId ->
@@ -468,6 +463,7 @@ fun formatEventForReplyPreview(
                     } ?: kickedUserId ?: "Unknown"
                     "Kicked $kickedDisplayName$reasonText"
                 }
+
                 "invite" -> {
                     val invitedUserId = event.stateKey
                     val invitedDisplayName = invitedUserId?.let { userId ->
@@ -475,9 +471,11 @@ fun formatEventForReplyPreview(
                     } ?: invitedUserId ?: "Unknown"
                     "Invited $invitedDisplayName$reasonText"
                 }
+
                 else -> "Member event"
             }
         }
+
         "m.room.name" -> {
             val roomName = content?.optString("name", "") ?: ""
             if (roomName.isNotBlank()) {
@@ -486,10 +484,15 @@ fun formatEventForReplyPreview(
                 "Changed room name"
             }
         }
+
         "m.room.topic" -> "Changed room topic"
+
         "m.room.avatar" -> "Changed room avatar"
+
         "m.room.pinned_events" -> "Updated pinned events"
+
         "m.room.power_levels" -> "Changed power levels"
+
         "m.room.tombstone" -> {
             val replacementRoom = content?.optString("replacement_room", "") ?: ""
             if (replacementRoom.isNotBlank()) {
@@ -498,8 +501,11 @@ fun formatEventForReplyPreview(
                 "Tombstoned this room"
             }
         }
+
         "m.room.server_acl" -> "Updated server ACL"
+
         "m.space.parent" -> "Updated space parent"
+
         else -> {
             // Fallback for unknown event types
             if (BuildConfig.DEBUG) {
@@ -522,7 +528,7 @@ fun ReplyPreviewInput(
     onCancel: () -> Unit,
     appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
     roomId: String? = null,
-    onMatrixUserClick: (String) -> Unit = {}
+    onMatrixUserClick: (String) -> Unit = {},
 ) {
     // CRITICAL FIX: Use reactive member map from appViewModel if available
     // This ensures the display name updates when profiles are loaded opportunistically
@@ -533,42 +539,57 @@ fun ReplyPreviewInput(
     } else {
         null
     }
-    
+
     // Prefer reactive member map over static userProfileCache
     val profile = reactiveMemberMap?.get(event.sender) ?: userProfileCache[event.sender]
     var displayName = profile?.displayName ?: event.sender
-    
+
     // If we don't have a display name, try to fetch it
     var isFetchingProfile by remember { mutableStateOf(false) }
-    
+
     if (profile?.displayName == null && appViewModel != null && roomId != null && !isFetchingProfile) {
         LaunchedEffect(event.sender) {
-            if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "No display name for ${event.sender}, fetching profile...")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "ReplyPreviewInput",
+                "No display name for ${event.sender}, fetching profile...",
+            )
+            }
             isFetchingProfile = true
             // Use opportunistic profile loading (same as timeline screens)
             appViewModel.requestUserProfileOnDemand(event.sender, roomId)
             // Note: The profile will be updated via the reactive member map when the response comes back
         }
     }
-    
+
     // Get the event to use (may be fetched if original was incomplete)
     var currentEvent = event
     var isFetchingEvent by remember { mutableStateOf(false) }
     var fetchedEvent by remember { mutableStateOf<TimelineEvent?>(null) }
-    
+
     // Check if we need to fetch the full event (for non-message events or if content is missing)
     val content = event.content ?: event.decrypted
-    val needsFullEvent = content == null || 
+    val needsFullEvent = content == null ||
         (event.type !in listOf("m.room.message", "m.room.encrypted", "m.sticker") && content.optString("body", "").isBlank())
-    
+
     if (needsFullEvent && appViewModel != null && roomId != null && !isFetchingEvent && fetchedEvent == null) {
         LaunchedEffect(event.eventId) {
-            if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Missing content or non-message event, fetching full event details for: ${event.eventId}, type: ${event.type}")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "ReplyPreviewInput",
+                "Missing content or non-message event, fetching full event details for: ${event.eventId}, type: ${event.type}",
+            )
+            }
             isFetchingEvent = true
             appViewModel.getEvent(roomId, event.eventId) { fullEvent ->
                 isFetchingEvent = false
                 if (fullEvent != null) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Successfully fetched event: ${fullEvent.eventId}, type: ${fullEvent.type}")
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                        "ReplyPreviewInput",
+                        "Successfully fetched event: ${fullEvent.eventId}, type: ${fullEvent.type}",
+                    )
+                    }
                     fetchedEvent = fullEvent
                 } else {
                     android.util.Log.w("ReplyPreviewInput", "Failed to fetch event: ${event.eventId}")
@@ -576,15 +597,15 @@ fun ReplyPreviewInput(
             }
         }
     }
-    
+
     // Use fetched event if available
     if (fetchedEvent != null) {
         currentEvent = fetchedEvent!!
     }
-    
+
     // Format the event description using the helper function
     val eventDescription = formatEventForReplyPreview(currentEvent, appViewModel, roomId)
-    
+
     // CRITICAL FIX: Re-read profile from reactive member map to get latest display name
     // This ensures we show the display name once it's loaded, even if it wasn't available initially
     val latestProfile = reactiveMemberMap?.get(event.sender) ?: profile
@@ -594,7 +615,7 @@ fun ReplyPreviewInput(
     } else {
         baseFinalDisplayName
     }
-    
+
     // Final debug logging
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "=== FINAL VALUES ===")
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Event sender: ${event.sender}")
@@ -606,7 +627,7 @@ fun ReplyPreviewInput(
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Fetched event null: ${fetchedEvent == null}")
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Is fetching event: $isFetchingEvent")
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Is fetching profile: $isFetchingProfile")
-    
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -614,23 +635,23 @@ fun ReplyPreviewInput(
             .padding(bottom = 4.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
         shape = RoundedCornerShape(12.dp),
-        tonalElevation = 2.dp  // Use tonalElevation for dark mode visibility
+        tonalElevation = 2.dp, // Use tonalElevation for dark mode visibility
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             // Reply icon
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.Reply,
                 contentDescription = "Replying to",
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(16.dp),
             )
             Spacer(modifier = Modifier.width(8.dp))
-            
+
             // Message preview
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -638,7 +659,7 @@ fun ReplyPreviewInput(
                     style = MaterialTheme.typography.labelMedium,
                     color = net.vrkknn.andromuks.utils.rememberUserColor(event.sender, appViewModel),
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = when {
@@ -648,20 +669,20 @@ fun ReplyPreviewInput(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            
+
             // Cancel button
             IconButton(
                 onClick = onCancel,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(24.dp),
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = "Cancel reply",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(16.dp),
                 )
             }
         }
@@ -673,15 +694,12 @@ fun ReplyPreviewInput(
  * Displays the original message text and a cancel button.
  */
 @Composable
-fun EditPreviewInput(
-    event: TimelineEvent,
-    onCancel: () -> Unit
-) {
+fun EditPreviewInput(event: TimelineEvent, onCancel: () -> Unit) {
     // Encrypted events: body is in decrypted only; content is ciphertext
     val content = event.getMessagePayload()
     val body = content?.optString("body", "") ?: ""
     val msgType = content?.optString("msgtype", "") ?: ""
-    
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -689,23 +707,23 @@ fun EditPreviewInput(
             .padding(bottom = 4.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
         shape = RoundedCornerShape(12.dp),
-        tonalElevation = 2.dp  // Use tonalElevation for dark mode visibility
+        tonalElevation = 2.dp, // Use tonalElevation for dark mode visibility
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             // Edit icon
             Icon(
                 imageVector = Icons.Default.Edit,
                 contentDescription = "Editing",
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(16.dp),
             )
             Spacer(modifier = Modifier.width(8.dp))
-            
+
             // Message preview
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -713,7 +731,7 @@ fun EditPreviewInput(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = when {
@@ -727,20 +745,20 @@ fun EditPreviewInput(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            
+
             // Cancel button
             IconButton(
                 onClick = onCancel,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(24.dp),
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = "Cancel edit",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(16.dp),
                 )
             }
         }
@@ -752,28 +770,25 @@ fun EditPreviewInput(
  * Shows a dialog above the timeline for confirming message deletion with optional reason.
  */
 @Composable
-fun DeleteMessageDialog(
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
-) {
+fun DeleteMessageDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     var reason by remember { mutableStateOf("") }
-    
+
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
                 text = "Delete message",
-                style = MaterialTheme.typography.titleMedium
+                style = MaterialTheme.typography.titleMedium,
             )
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
                     text = "Reason (optional):",
                     style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    modifier = Modifier.padding(bottom = 8.dp),
                 )
                 OutlinedTextField(
                     value = reason,
@@ -783,7 +798,7 @@ fun DeleteMessageDialog(
                         .height(120.dp),
                     placeholder = { Text("Enter reason for deletion...") },
                     maxLines = 4,
-                    shape = RoundedCornerShape(8.dp)
+                    shape = RoundedCornerShape(8.dp),
                 )
             }
         },
@@ -793,8 +808,8 @@ fun DeleteMessageDialog(
                     onConfirm(reason)
                 },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error
-                )
+                    containerColor = MaterialTheme.colorScheme.error,
+                ),
             ) {
                 Text("Remove")
             }
@@ -803,24 +818,21 @@ fun DeleteMessageDialog(
             TextButton(onClick = onDismiss) {
                 Text("Cancel")
             }
-        }
+        },
     )
 }
 
 @Composable
-private fun PendingShimmerOverlay(
-    bubbleShape: androidx.compose.ui.graphics.Shape,
-    modifier: Modifier = Modifier
-) {
+private fun PendingShimmerOverlay(bubbleShape: androidx.compose.ui.graphics.Shape, modifier: Modifier = Modifier) {
     val infiniteTransition = rememberInfiniteTransition(label = "pendingShimmer")
     val progress by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 1000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
+            repeatMode = RepeatMode.Restart,
         ),
-        label = "shimmerProgress"
+        label = "shimmerProgress",
     )
     Canvas(modifier = modifier.clip(bubbleShape)) {
         val bandWidth = size.width * 0.4f
@@ -830,11 +842,11 @@ private fun PendingShimmerOverlay(
                 colors = listOf(
                     Color.Transparent,
                     Color.White.copy(alpha = 0.25f),
-                    Color.Transparent
+                    Color.Transparent,
                 ),
                 start = Offset(x, 0f),
-                end = Offset(x + bandWidth, 0f)
-            )
+                end = Offset(x + bandWidth, 0f),
+            ),
         )
     }
 }
@@ -868,11 +880,11 @@ fun MessageBubbleWithMenu(
     onShowReactions: (() -> Unit)? = null, // Callback to show reactions dialog
     dragOffset: Float = 0f, // Drag offset for visual feedback (not used, kept for API compatibility)
     replyIconOpacity: Float = 0f, // Opacity for reply icon (not used, kept for API compatibility)
-    content: @Composable RowScope.() -> Unit
+    content: @Composable RowScope.() -> Unit,
 ) {
     var showErrorDialog by remember { mutableStateOf(false) }
     var errorDialogText by remember { mutableStateOf<String?>(null) }
-    
+
     var bubbleBounds by remember { mutableStateOf(Rect.Zero) }
     val hapticFeedback = LocalHapticFeedback.current
 
@@ -889,10 +901,18 @@ fun MessageBubbleWithMenu(
     val deletedMsgType = event.localContent?.optString("deleted_msgtype")?.takeIf { it.isNotBlank() }
     val deletedContentJson = event.localContent?.optString("deleted_content_json")?.takeIf { it.isNotBlank() }
     val redactionReason = event.localContent?.optString("redaction_reason")?.takeIf { it.isNotBlank() }
-    val deletedContentSummary = remember(event.eventId, deletedBody, deletedFormattedBody, deletedMsgType, deletedContentJson) {
+    val deletedContentSummary = remember(
+        event.eventId,
+        deletedBody,
+        deletedFormattedBody,
+        deletedMsgType,
+        deletedContentJson,
+    ) {
         when {
             deletedFormattedBody != null -> deletedFormattedBody
+
             deletedBody != null -> deletedBody
+
             deletedContentJson != null -> {
                 val obj = runCatching { org.json.JSONObject(deletedContentJson) }.getOrNull()
                 val url = obj?.optString("url")?.takeIf { it.isNotBlank() }
@@ -911,10 +931,12 @@ fun MessageBubbleWithMenu(
                     msgTypeLabel?.let { "Deleted content ($it)" },
                     fileName?.let { "Name: $it" },
                     mime?.let { "MIME: $it" },
-                    url?.let { "URL: $it" }
+                    url?.let { "URL: $it" },
                 ).joinToString("\n").ifBlank { "Deleted content (no preview available)" }
             }
-            deletedMsgType != null -> "Deleted content (${deletedMsgType})"
+
+            deletedMsgType != null -> "Deleted content ($deletedMsgType)"
+
             else -> null
         }
     }
@@ -936,27 +958,27 @@ fun MessageBubbleWithMenu(
             highlightAnim.snapTo(1f)
             highlightAnim.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(durationMillis = scaledTweenMs(5000), easing = FastOutSlowInEasing)
+                animationSpec = tween(durationMillis = scaledTweenMs(5000), easing = FastOutSlowInEasing),
             )
         } else if (!isHighlightTarget && highlightAnim.value > 0f) {
             highlightAnim.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(durationMillis = scaledTweenMs(150), easing = FastOutSlowInEasing)
+                animationSpec = tween(durationMillis = scaledTweenMs(150), easing = FastOutSlowInEasing),
             )
         }
     }
 
     val highlightValue = highlightAnim.value
-    
+
     // Check if message has been edited (O(1) lookup)
     val hasBeenEdited = remember(event.eventId, appViewModel?.timelineUpdateCounter) {
         appViewModel?.isMessageEdited(event.eventId) ?: false
     }
-    
+
     // Use powerLevels from parameter, with reactive fallback from appViewModel when null
     // (e.g. in e2ee rooms where room state may load asynchronously)
     val effectivePowerLevels = powerLevels ?: appViewModel?.currentRoomState?.powerLevels
-    
+
     // Calculate power level permissions (works for both e2ee and non-e2ee rooms)
     // Matrix: "redact" is the minimum PL to redact *others'* messages. You can always redact your own.
     // If my PL >= redact PL, we can redact anyone's messages (no comparison to sender's PL).
@@ -967,7 +989,7 @@ fun MessageBubbleWithMenu(
     }
     val redactPowerLevel = effectivePowerLevels?.redact ?: 50
     val canRedactOthersMessages = myPowerLevel >= redactPowerLevel
-    
+
     // Determine which buttons to show (same logic for m.room.message and m.room.encrypted)
     // Own messages: always edit/delete (server allows redacting own events without redact PL).
     // Others' messages: delete only when we have redact PL or above.
@@ -985,10 +1007,16 @@ fun MessageBubbleWithMenu(
     } else {
         onDelete
     }
-    val effectiveOnReply: () -> Unit = if (isFailedEcho || isPendingEcho) { {} } else onReply
-    val effectiveOnReact: () -> Unit = if (isFailedEcho || isPendingEcho) { {} } else onReact
-    val effectiveOnEdit: () -> Unit = if (isFailedEcho || isPendingEcho) { {} } else onEdit
-    
+    val effectiveOnReply: () -> Unit = if (isFailedEcho || isPendingEcho) {
+        {}
+    } else onReply
+    val effectiveOnReact: () -> Unit = if (isFailedEcho || isPendingEcho) {
+        {}
+    } else onReact
+    val effectiveOnEdit: () -> Unit = if (isFailedEcho || isPendingEcho) {
+        {}
+    } else onEdit
+
     // Calculate pin/unpin permissions
     val roomId = event.roomId
     val currentRoomState = appViewModel?.currentRoomState
@@ -1005,7 +1033,7 @@ fun MessageBubbleWithMenu(
         myPowerLevel >= pinnedEventsPowerLevel
     }
     val canUnpin = canPin
-    
+
     // Watch external trigger and show menu when it changes
     LaunchedEffect(externalMenuTrigger) {
         if (externalMenuTrigger > 0) {
@@ -1034,14 +1062,14 @@ fun MessageBubbleWithMenu(
                 },
                 onShowEditHistory = onShowEditHistory,
                 appViewModel = appViewModel,
-                onShowReactions = onShowReactions
+                onShowReactions = onShowReactions,
             )
             onShowMenu?.invoke(menuConfig)
         }
     }
 
-    //android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: isMine=$isMine, myPL=$myPowerLevel, redactPL=$redactPowerLevel, canEdit=$canEdit, canDelete=$canDelete")
-    
+    // android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: isMine=$isMine, myPL=$myPowerLevel, redactPL=$redactPowerLevel, canEdit=$canEdit, canDelete=$canDelete")
+
     // Detect dark mode for custom shadow/glow
     val isDarkMode = isSystemInDarkTheme()
     val highlightColor = MaterialTheme.colorScheme.tertiary
@@ -1063,11 +1091,11 @@ fun MessageBubbleWithMenu(
             mentionPulseAnim.snapTo(0f)
             mentionPulseAnim.animateTo(
                 targetValue = 1f,
-                animationSpec = tween(durationMillis = scaledTweenMs(900), easing = FastOutSlowInEasing)
+                animationSpec = tween(durationMillis = scaledTweenMs(900), easing = FastOutSlowInEasing),
             )
             mentionPulseAnim.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(durationMillis = scaledTweenMs(1100), easing = FastOutSlowInEasing)
+                animationSpec = tween(durationMillis = scaledTweenMs(1100), easing = FastOutSlowInEasing),
             )
         }
     }
@@ -1075,12 +1103,12 @@ fun MessageBubbleWithMenu(
         if (mentionBorder != null) {
             BorderStroke(
                 width = 2.dp + (1.dp * mentionPulseAnim.value),
-                color = mentionBorder.copy(alpha = 0.35f + (0.45f * mentionPulseAnim.value))
+                color = mentionBorder.copy(alpha = 0.35f + (0.45f * mentionPulseAnim.value)),
             )
         } else {
             null
         }
-    
+
     // Thread accent: instead of the old thin neutral border, thread messages get a per-thread
     // colored bar down the inner edge (see threadBarModifier below). The color is seeded by the
     // thread root event ID via the same generator used for user-name colors, so every message in
@@ -1102,11 +1130,11 @@ fun MessageBubbleWithMenu(
         threadBorder?.let {
             BorderStroke(
                 width = 2.dp,
-                color = it
+                color = it,
             )
         }
     }
-    
+
     // Use mention border if present, otherwise thread border, otherwise highlight border
     val activeMenuEventId = LocalActiveMessageMenuEventId.current
     val isMenuActiveForThisBubble = activeMenuEventId == event.eventId
@@ -1117,11 +1145,11 @@ fun MessageBubbleWithMenu(
             while (true) {
                 menuPulseAnim.animateTo(
                     targetValue = 1f,
-                    animationSpec = tween(durationMillis = scaledTweenMs(700), easing = FastOutSlowInEasing)
+                    animationSpec = tween(durationMillis = scaledTweenMs(700), easing = FastOutSlowInEasing),
                 )
                 menuPulseAnim.animateTo(
                     targetValue = 0f,
-                    animationSpec = tween(durationMillis = scaledTweenMs(700), easing = FastOutSlowInEasing)
+                    animationSpec = tween(durationMillis = scaledTweenMs(700), easing = FastOutSlowInEasing),
                 )
             }
         } else {
@@ -1132,7 +1160,7 @@ fun MessageBubbleWithMenu(
     val menuPulseBorder = if (isMenuActiveForThisBubble) {
         BorderStroke(
             width = 2.dp + (1.dp * menuPulseAnim.value),
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f + (0.45f * menuPulseAnim.value))
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f + (0.45f * menuPulseAnim.value)),
         )
     } else {
         null
@@ -1147,7 +1175,7 @@ fun MessageBubbleWithMenu(
     val showHighlightRing = combinedBorder == null && highlightValue > 0.01f
     val highlightRingColor = highlightColor.copy(alpha = 0.45f * highlightValue)
     val highlightRingWidth = 2.dp + 3.dp * highlightValue
-    
+
     // Adjust bubble color based on local echo state, animating transitions (Sending/Sent → Confirmed
     // happens via item swap, but Sent → Failed animates in place).
     val bubbleColorTarget = when {
@@ -1158,13 +1186,13 @@ fun MessageBubbleWithMenu(
     val bubbleColorAdjusted = androidx.compose.animation.animateColorAsState(
         targetValue = bubbleColorTarget,
         animationSpec = scaledSpring(),
-        label = "echoBubbleColor"
+        label = "echoBubbleColor",
     ).value
     // Lift the bubble while it's still being sent (no server response yet); settle flat once Sent.
     val echoElevation = androidx.compose.animation.core.animateDpAsState(
         targetValue = if (isSendingEcho) 6.dp else 0.dp,
         animationSpec = scaledSpring(),
-        label = "echoElevation"
+        label = "echoElevation",
     ).value
 
     // Thread accent bar: shift the bubble inward by [threadBarInset] on its outer edge (right for
@@ -1176,8 +1204,8 @@ fun MessageBubbleWithMenu(
     // as a distinct color band. drawBehind is the *outer* modifier (before the padding), so its
     // coordinate space spans the full footprint including the padded strip; the caller's modifier
     // (width constraints, size tracking) and the highlight ring stay hugged to the bubble.
-    val threadBarInset = 6.dp   // visible strip width = how far the bubble shifts inward
-    val threadBarTuck = 12.dp   // extra width tucked behind the bubble to cover its rounded corners
+    val threadBarInset = 6.dp // visible strip width = how far the bubble shifts inward
+    val threadBarTuck = 12.dp // extra width tucked behind the bubble to cover its rounded corners
     val threadBarModifier = if (threadAccent != null) {
         Modifier
             .drawBehind {
@@ -1190,7 +1218,7 @@ fun MessageBubbleWithMenu(
                     color = threadAccent,
                     topLeft = Offset(left, 0f),
                     size = Size(barPx, size.height),
-                    cornerRadius = radius
+                    cornerRadius = radius,
                 )
             }
             .padding(start = if (isMine) 0.dp else threadBarInset, end = if (isMine) threadBarInset else 0.dp)
@@ -1218,7 +1246,7 @@ fun MessageBubbleWithMenu(
                                 drawOutline(
                                     outline = outline,
                                     color = highlightRingColor,
-                                    style = Stroke(width = ringPx)
+                                    style = Stroke(width = ringPx),
                                 )
                             }
                         }
@@ -1227,17 +1255,27 @@ fun MessageBubbleWithMenu(
                 .onGloballyPositioned { layoutCoordinates ->
                     // Capture the bubble's position on screen
                     bubbleBounds = layoutCoordinates.boundsInWindow()
-                    //android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Bubble bounds: $bubbleBounds")
+                    // android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Bubble bounds: $bubbleBounds")
                 }
                 .combinedClickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                     onClick = {
-                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Regular tap detected")
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d(
+                            "ReplyFunctions",
+                            "MessageBubbleWithMenu: Regular tap detected",
+                        )
+                        }
                         onBubbleClick?.invoke()
                     },
                     onLongClick = {
-                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Long press detected via combinedClickable")
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d(
+                            "ReplyFunctions",
+                            "MessageBubbleWithMenu: Long press detected via combinedClickable",
+                        )
+                        }
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         // Calculate menu config and trigger callback
                         val historyButtonEnabled = hasBeenEdited && onShowEditHistory != null
@@ -1263,17 +1301,22 @@ fun MessageBubbleWithMenu(
                             },
                             onShowEditHistory = onShowEditHistory,
                             appViewModel = appViewModel,
-                            onShowReactions = onShowReactions
+                            onShowReactions = onShowReactions,
                         )
                         onShowMenu?.invoke(menuConfig)
-                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Menu callback triggered")
-                    }
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d(
+                            "ReplyFunctions",
+                            "MessageBubbleWithMenu: Menu callback triggered",
+                        )
+                        }
+                    },
                 ),
             color = bubbleColorAdjusted,
             shape = bubbleShape,
-            tonalElevation = 0.dp,  // No tonal overlay
-            shadowElevation = echoElevation,  // Lifted while Sending, flat otherwise
-            border = combinedBorder
+            tonalElevation = 0.dp, // No tonal overlay
+            shadowElevation = echoElevation, // Lifted while Sending, flat otherwise
+            border = combinedBorder,
         ) {
             Row(content = content)
         }
@@ -1283,7 +1326,7 @@ fun MessageBubbleWithMenu(
         if (isPendingEcho && !isFailedEcho) {
             PendingShimmerOverlay(
                 bubbleShape = bubbleShape,
-                modifier = Modifier.matchParentSize()
+                modifier = Modifier.matchParentSize(),
             )
         }
 
@@ -1296,9 +1339,8 @@ fun MessageBubbleWithMenu(
                     TextButton(onClick = { showErrorDialog = false }) {
                         Text("Close")
                     }
-                }
+                },
             )
         }
     }
 }
-

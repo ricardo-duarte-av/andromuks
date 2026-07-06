@@ -28,7 +28,7 @@ import net.vrkknn.andromuks.AppViewModel
 data class EmojiSuggestion(
     val shortcode: String,
     val emoji: String? = null,
-    val customEmoji: AppViewModel.CustomEmoji? = null
+    val customEmoji: AppViewModel.CustomEmoji? = null,
 )
 
 object EmojiShortcodes {
@@ -4022,7 +4022,7 @@ object EmojiShortcodes {
     fun getSuggestions(
         query: String,
         customEmojiPacks: List<AppViewModel.EmojiPack>,
-        maxResults: Int = 25
+        maxResults: Int = 25,
     ): List<EmojiSuggestion> {
         val trimmed = query.trim().lowercase()
 
@@ -4049,7 +4049,7 @@ object EmojiShortcodes {
 
     fun findByShortcode(
         shortcodeWithoutColons: String,
-        customEmojiPacks: List<AppViewModel.EmojiPack>
+        customEmojiPacks: List<AppViewModel.EmojiPack>,
     ): EmojiSuggestion? {
         val key = shortcodeWithoutColons.trim().lowercase()
         shortcodeToEmoji[key]?.let { return EmojiSuggestion(shortcode = key, emoji = it) }
@@ -4069,7 +4069,7 @@ fun EmojiSuggestionList(
     homeserverUrl: String,
     authToken: String,
     onSuggestionSelected: (EmojiSuggestion) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val suggestions = remember(query, customEmojiPacks) {
         EmojiShortcodes.getSuggestions(query, customEmojiPacks)
@@ -4083,39 +4083,40 @@ fun EmojiSuggestionList(
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant,
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(16.dp),
             ),
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp
+        tonalElevation = 8.dp,
     ) {
         LazyColumn(
             modifier = Modifier.height(200.dp),
             contentPadding = PaddingValues(8.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             items(suggestions) { suggestion ->
                 Row(
                     modifier = Modifier
                         .clickable { onSuggestionSelected(suggestion) }
                         .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(
                         modifier = Modifier
                             .width(32.dp)
                             .height(32.dp),
-                        contentAlignment = Alignment.Center
+                        contentAlignment = Alignment.Center,
                     ) {
                         when {
                             suggestion.emoji != null -> Text(
                                 text = suggestion.emoji,
-                                style = MaterialTheme.typography.titleLarge
+                                style = MaterialTheme.typography.titleLarge,
                             )
+
                             suggestion.customEmoji != null -> ImageEmoji(
                                 mxcUrl = suggestion.customEmoji.mxcUrl,
                                 homeserverUrl = homeserverUrl,
-                                authToken = authToken
+                                authToken = authToken,
                             )
                         }
                     }
@@ -4125,7 +4126,7 @@ fun EmojiSuggestionList(
                     Text(
                         text = ":${suggestion.shortcode}:",
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
             }

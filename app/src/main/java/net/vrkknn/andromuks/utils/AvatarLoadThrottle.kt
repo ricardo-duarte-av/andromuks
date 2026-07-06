@@ -1,8 +1,8 @@
 package net.vrkknn.andromuks.utils
 
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.delay
 
 /**
  * Global throttling mechanism for avatar loading during fast scrolling.
@@ -15,11 +15,11 @@ import kotlinx.coroutines.delay
 object AvatarLoadThrottle {
     private const val MAX_CONCURRENT_LOADS = 5 // Limit to 5 concurrent avatar decodings
     private const val BASE_DELAY_MS = 20L // Base delay between loads (20ms)
-    
+
     private val loadMutex = Mutex()
     private var activeLoads = 0
     private var loadCounter = 0L
-    
+
     /**
      * Request permission to load an avatar with throttling.
      * Returns the delay to wait before loading.
@@ -40,16 +40,16 @@ object AvatarLoadThrottle {
                     calculatedDelay
                 }
             }
-            
+
             if (result != null) {
                 return result
             }
-            
+
             // Wait before checking again (mutex is unlocked here)
             delay(BASE_DELAY_MS)
         }
     }
-    
+
     /**
      * Release the load slot when avatar loading completes.
      */
@@ -57,4 +57,3 @@ object AvatarLoadThrottle {
         activeLoads = (activeLoads - 1).coerceAtLeast(0)
     }
 }
-

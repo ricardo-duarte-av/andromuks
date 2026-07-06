@@ -19,6 +19,7 @@ object ReadReceiptCache {
 
     // roomId → eventId → receipts
     private val receiptCache = ConcurrentHashMap<String, HashMap<String, MutableList<ReadReceipt>>>()
+
     // roomId → userId → eventId  (inverted index)
     private val userEventIndex = ConcurrentHashMap<String, HashMap<String, String>>()
     private val cacheLock = Any()
@@ -27,11 +28,7 @@ object ReadReceiptCache {
      * Replace a single room's receipts and rebuild its inverted index from [userIndex].
      * Other rooms are untouched.
      */
-    fun setForRoom(
-        roomId: String,
-        receiptsMap: Map<String, List<ReadReceipt>>,
-        userIndex: Map<String, String>
-    ) {
+    fun setForRoom(roomId: String, receiptsMap: Map<String, List<ReadReceipt>>, userIndex: Map<String, String>) {
         synchronized(cacheLock) {
             val roomCache = HashMap<String, MutableList<ReadReceipt>>(receiptsMap.size)
             receiptsMap.forEach { (eventId, receipts) ->
@@ -39,34 +36,33 @@ object ReadReceiptCache {
             }
             receiptCache[roomId] = roomCache
             userEventIndex[roomId] = HashMap(userIndex)
-            if (BuildConfig.DEBUG) Log.d(TAG, "setForRoom $roomId: ${roomCache.size} events, ${userIndex.size} indexed users")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                TAG,
+                "setForRoom $roomId: ${roomCache.size} events, ${userIndex.size} indexed users",
+            )
+            }
         }
     }
 
     /**
      * Get all receipts for a single room (eventId → immutable list).
      */
-    fun getForRoom(roomId: String): Map<String, List<ReadReceipt>> {
-        return synchronized(cacheLock) {
-            receiptCache[roomId]?.mapValues { it.value.toList() } ?: emptyMap()
-        }
+    fun getForRoom(roomId: String): Map<String, List<ReadReceipt>> = synchronized(cacheLock) {
+        receiptCache[roomId]?.mapValues { it.value.toList() } ?: emptyMap()
     }
 
     /**
      * O(1) lookup: which eventId does [userId] have a receipt on in [roomId]?
      */
-    fun getUserEventId(roomId: String, userId: String): String? {
-        return synchronized(cacheLock) {
-            userEventIndex[roomId]?.get(userId)
-        }
+    fun getUserEventId(roomId: String, userId: String): String? = synchronized(cacheLock) {
+        userEventIndex[roomId]?.get(userId)
     }
 
     /**
      * IDs of all rooms that have cached receipts.
      */
-    fun getRoomIds(): Set<String> {
-        return synchronized(cacheLock) { receiptCache.keys.toSet() }
-    }
+    fun getRoomIds(): Set<String> = synchronized(cacheLock) { receiptCache.keys.toSet() }
 
     /**
      * Clear all receipts for [roomId] — O(1).

@@ -50,12 +50,12 @@ internal class PushRulesCoordinator(private val vm: AppViewModel) {
         ruleId: String,
         actions: List<Any>,
         conditions: List<Map<String, Any>> = emptyList(),
-        pattern: String = ""
+        pattern: String = "",
     ) = with(vm) {
         val newContent = mapOf(
             "actions" to actions,
             "conditions" to conditions,
-            "pattern" to pattern
+            "pattern" to pattern,
         )
         send(kind, ruleId, "put", extra = mapOf("new_content" to newContent))
         val newRule = PushRule(
@@ -65,7 +65,7 @@ internal class PushRulesCoordinator(private val vm: AppViewModel) {
             enabled = true,
             conditions = conditions.map { conditionFromMap(it) },
             actions = wireActionsToModel(actions),
-            pattern = pattern.takeIf { it.isNotEmpty() }
+            pattern = pattern.takeIf { it.isNotEmpty() },
         )
         upsert(kind, newRule)
     }
@@ -92,12 +92,7 @@ internal class PushRulesCoordinator(private val vm: AppViewModel) {
 
     // ── internals ──────────────────────────────────────────────────────────
 
-    private fun AppViewModel.send(
-        kind: PushRuleKind,
-        ruleId: String,
-        action: String,
-        extra: Map<String, Any>
-    ) {
+    private fun AppViewModel.send(kind: PushRuleKind, ruleId: String, action: String, extra: Map<String, Any>) {
         val requestId = WebSocketService.allocateRequestId()
         val data = buildMap<String, Any> {
             put("kind", kind.apiName)
@@ -105,10 +100,12 @@ internal class PushRulesCoordinator(private val vm: AppViewModel) {
             put("action", action)
             putAll(extra)
         }
-        if (BuildConfig.DEBUG) android.util.Log.d(
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
             "Andromuks",
-            "PushRulesCoordinator: update_push_rule kind=${kind.apiName} rule_id=$ruleId action=$action"
+            "PushRulesCoordinator: update_push_rule kind=${kind.apiName} rule_id=$ruleId action=$action",
         )
+        }
         sendWebSocketCommand("update_push_rule", requestId, data)
     }
 
@@ -144,7 +141,7 @@ internal class PushRulesCoordinator(private val vm: AppViewModel) {
         pattern = map["pattern"]?.toString(),
         value = map["value"],
         memberCountCondition = map["is"]?.toString(),
-        relType = map["rel_type"]?.toString()
+        relType = map["rel_type"]?.toString(),
     )
 }
 

@@ -3,16 +3,16 @@ package net.vrkknn.andromuks.utils
 import android.content.Context
 import android.os.Build
 import android.util.Log
-import net.vrkknn.andromuks.BuildConfig
-import net.vrkknn.andromuks.utils.getUserAgent
 import coil3.ImageLoader
-import coil3.gif.GifDecoder
-import coil3.gif.AnimatedImageDecoder
 import coil3.disk.DiskCache
+import coil3.gif.AnimatedImageDecoder
+import coil3.gif.GifDecoder
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
-import okhttp3.OkHttpClient
+import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.utils.getUserAgent
 import okhttp3.Dispatcher
+import okhttp3.OkHttpClient
 import okio.Path.Companion.toOkioPath
 import java.util.concurrent.TimeUnit
 
@@ -42,10 +42,8 @@ object ImageLoaderSingleton {
     private const val MEMORY_CACHE_PERCENT = 0.35 // Increased to 35% to keep more avatars in memory
     private const val DISK_CACHE_SIZE_MB = 1024L // Persistent storage — keep reasonable
 
-    fun get(context: Context): ImageLoader {
-        return instance ?: synchronized(this) {
-            instance ?: createImageLoader(context).also { instance = it }
-        }
+    fun get(context: Context): ImageLoader = instance ?: synchronized(this) {
+        instance ?: createImageLoader(context).also { instance = it }
     }
 
     fun clearMemoryCache(context: Context) {
@@ -84,7 +82,9 @@ object ImageLoaderSingleton {
                     // Read live holder first; fall back to SharedPreferences for the narrow
                     // window before updateAuthToken has been called in the current process.
                     val token = authToken.takeIf { it.isNotBlank() }
-                        ?: net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(appContext.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE))
+                        ?: net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(
+                            appContext.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE),
+                        )
                     var builder = req.newBuilder()
                     if (token.isNotBlank()) {
                         builder = builder.header("Cookie", "gomuks_auth=$token")
@@ -95,10 +95,17 @@ object ImageLoaderSingleton {
                     }
                     val builtReq = builder.build()
                     if (BuildConfig.DEBUG) {
-                        Log.d("Andromuks", "CoilInterceptor: url=${builtReq.url} cookie=${builtReq.header("Cookie")} tokenLen=${token.length}")
+                        Log.d(
+                            "Andromuks",
+                            "CoilInterceptor: url=${builtReq.url} cookie=${builtReq.header(
+                                "Cookie",
+                            )} tokenLen=${token.length}",
+                        )
                     }
                     builtReq
-                } else req
+                } else {
+                    req
+                }
                 chain.proceed(newReq)
             }
             // Added last so it sees the fully-resolved request (cookie + encrypted flag injected

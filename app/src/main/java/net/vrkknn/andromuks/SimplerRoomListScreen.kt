@@ -3,7 +3,6 @@ package net.vrkknn.andromuks
 import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -19,6 +18,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
@@ -60,7 +60,7 @@ import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 fun SimplerRoomListScreen(
     navController: NavController,
     modifier: Modifier = Modifier,
-    appViewModel: AppViewModel = viewModel()
+    appViewModel: AppViewModel = viewModel(),
 ) {
     val context = LocalContext.current
     val sharedPreferences =
@@ -76,14 +76,14 @@ fun SimplerRoomListScreen(
     // Observe rooms from the view model. allRooms already updates reactively via mutableStateOf.
     val rooms = appViewModel.allRooms
     val pendingShare = appViewModel.pendingShare
-    
+
     // Wait for initial sync to complete before showing rooms
     // This ensures rooms are loaded from WebSocket before displaying
-    var showRooms by remember { 
+    var showRooms by remember {
         mutableStateOf(uiState.initialSyncComplete || rooms.isNotEmpty())
     }
     var loadingTimeout by remember { mutableStateOf(false) }
-    
+
     LaunchedEffect(uiState.initialSyncComplete, rooms.size) {
         // Show rooms if:
         // 1. Initial sync is complete, OR
@@ -92,7 +92,7 @@ fun SimplerRoomListScreen(
             showRooms = true
         }
     }
-    
+
     // Timeout fallback: show rooms after 15 seconds even if sync not complete
     LaunchedEffect(showRooms) {
         if (!showRooms) {
@@ -126,13 +126,13 @@ fun SimplerRoomListScreen(
     AndromuksTheme {
         Surface(
             modifier = modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.background
+            color = MaterialTheme.colorScheme.background,
         ) {
             if (pendingShare == null) {
                 EmptyRoomListPlaceholder(
                     title = "Nothing to share",
                     message = "We couldn't access the media you tried to share.",
-                    actionLabel = "Go back"
+                    actionLabel = "Go back",
                 ) {
                     navController.popBackStack()
                     appViewModel.clearPendingShare()
@@ -142,20 +142,20 @@ fun SimplerRoomListScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .windowInsetsPadding(WindowInsets.statusBars)
-                        .navigationBarsPadding()
+                        .navigationBarsPadding(),
                 ) {
                     var searchQuery by rememberSaveable { mutableStateOf("") }
 
                     Text(
                         text = "Select a room to share this media",
                         style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                     )
                     Text(
                         text = "Media will be uploaded after you confirm in the preview.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 0.dp)
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 0.dp),
                     )
 
                     // Material 3 Expressive-style search bar (expressive shape, theme colors)
@@ -165,7 +165,7 @@ fun SimplerRoomListScreen(
                         tonalElevation = 1.dp,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
                     ) {
                         TextField(
                             value = searchQuery,
@@ -173,13 +173,13 @@ fun SimplerRoomListScreen(
                             placeholder = {
                                 Text(
                                     "Search rooms…",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             },
                             leadingIcon = {
                                 androidx.compose.material3.Icon(
                                     imageVector = Icons.Filled.Search,
-                                    contentDescription = "Search rooms"
+                                    contentDescription = "Search rooms",
                                 )
                             },
                             colors = TextFieldDefaults.colors(
@@ -190,12 +190,12 @@ fun SimplerRoomListScreen(
                                 unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
                                 focusedTextColor = MaterialTheme.colorScheme.onSurface,
                                 unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
                             ),
                             singleLine = true,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
                         )
                     }
 
@@ -210,7 +210,7 @@ fun SimplerRoomListScreen(
                             } else {
                                 "Syncing rooms from server. This may take a moment."
                             },
-                            actionLabel = "Go back"
+                            actionLabel = "Go back",
                         ) {
                             navController.popBackStack()
                             appViewModel.clearPendingShare()
@@ -219,7 +219,7 @@ fun SimplerRoomListScreen(
                         EmptyRoomListPlaceholder(
                             title = "No rooms available",
                             message = "No rooms found. Make sure you're connected and have joined some rooms.",
-                            actionLabel = "Go back"
+                            actionLabel = "Go back",
                         ) {
                             navController.popBackStack()
                             appViewModel.clearPendingShare()
@@ -238,7 +238,7 @@ fun SimplerRoomListScreen(
                         if (filteredRooms.isEmpty()) {
                             EmptyRoomListPlaceholder(
                                 title = "No rooms match your search",
-                                message = "Try a different room name or identifier."
+                                message = "Try a different room name or identifier.",
                             )
                         } else {
                             // Material 3 Expressive list container (rounded top, elevated)
@@ -246,7 +246,7 @@ fun SimplerRoomListScreen(
                                 topStart = 24.dp,
                                 topEnd = 24.dp,
                                 bottomStart = 0.dp,
-                                bottomEnd = 0.dp
+                                bottomEnd = 0.dp,
                             )
                             Surface(
                                 modifier = Modifier
@@ -255,7 +255,7 @@ fun SimplerRoomListScreen(
                                     .clip(listShape),
                                 color = MaterialTheme.colorScheme.surface,
                                 shape = listShape,
-                                tonalElevation = 2.dp
+                                tonalElevation = 2.dp,
                             ) {
                                 LazyColumn(
                                     modifier = Modifier.fillMaxSize(),
@@ -263,13 +263,13 @@ fun SimplerRoomListScreen(
                                         top = 12.dp,
                                         bottom = 12.dp,
                                         start = 12.dp,
-                                        end = 12.dp
+                                        end = 12.dp,
                                     ),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
                                     items(
                                         items = filteredRooms,
-                                        key = { room -> room.id }
+                                        key = { room -> room.id },
                                     ) { room ->
                                         Surface(
                                             modifier = Modifier
@@ -283,13 +283,13 @@ fun SimplerRoomListScreen(
                                                 },
                                             shape = MaterialTheme.shapes.medium,
                                             color = MaterialTheme.colorScheme.surfaceContainerLow,
-                                            tonalElevation = 1.dp
+                                            tonalElevation = 1.dp,
                                         ) {
                                             RoomListRow(
                                                 room = room,
                                                 homeserverUrl = homeserverUrl,
                                                 authToken = imageToken,
-                                                onClick = null
+                                                onClick = null,
                                             )
                                         }
                                     }
@@ -309,7 +309,7 @@ private fun RoomListRow(
     homeserverUrl: String,
     authToken: String,
     modifier: Modifier = Modifier,
-    onClick: (() -> Unit)? = {}
+    onClick: (() -> Unit)? = {},
 ) {
     val rowModifier = if (onClick != null) {
         modifier
@@ -323,7 +323,7 @@ private fun RoomListRow(
     }
     Row(
         modifier = rowModifier,
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         AvatarImage(
             mxcUrl = room.avatarUrl,
@@ -332,7 +332,7 @@ private fun RoomListRow(
             fallbackText = room.name,
             size = 48.dp,
             userId = room.id,
-            displayName = room.name
+            displayName = room.name,
         )
         Spacer(modifier = Modifier.size(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -340,7 +340,7 @@ private fun RoomListRow(
                 text = room.name,
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
@@ -348,7 +348,7 @@ private fun RoomListRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -359,25 +359,25 @@ private fun EmptyRoomListPlaceholder(
     title: String,
     message: String,
     actionLabel: String? = null,
-    onAction: (() -> Unit)? = null
+    onAction: (() -> Unit)? = null,
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(24.dp),
         verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = message,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (actionLabel != null && onAction != null) {
             Spacer(modifier = Modifier.height(16.dp))
@@ -387,4 +387,3 @@ private fun EmptyRoomListPlaceholder(
         }
     }
 }
-

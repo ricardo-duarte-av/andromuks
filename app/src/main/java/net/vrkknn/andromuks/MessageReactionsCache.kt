@@ -14,11 +14,11 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object MessageReactionsCache {
     private const val TAG = "MessageReactionsCache"
-    
+
     // Thread-safe map storing reactions: eventId -> List<MessageReaction>
     private val reactionsCache = ConcurrentHashMap<String, List<MessageReaction>>()
     private val cacheLock = Any()
-    
+
     /**
      * Update or add reactions for an event
      */
@@ -31,7 +31,7 @@ object MessageReactionsCache {
             }
         }
     }
-    
+
     /**
      * Update all reactions from a map
      */
@@ -39,37 +39,36 @@ object MessageReactionsCache {
         synchronized(cacheLock) {
             reactionsCache.clear()
             reactionsCache.putAll(reactionsMap)
-            if (BuildConfig.DEBUG) Log.d(TAG, "MessageReactionsCache: setAll - updated cache with ${reactionsMap.size} events")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                TAG,
+                "MessageReactionsCache: setAll - updated cache with ${reactionsMap.size} events",
+            )
+            }
         }
     }
-    
+
     /**
      * Get reactions for a specific event
      */
-    fun getReactions(eventId: String): List<MessageReaction> {
-        return synchronized(cacheLock) {
-            reactionsCache[eventId] ?: emptyList()
-        }
+    fun getReactions(eventId: String): List<MessageReaction> = synchronized(cacheLock) {
+        reactionsCache[eventId] ?: emptyList()
     }
-    
+
     /**
      * Get all reactions from the cache
      */
-    fun getAllReactions(): Map<String, List<MessageReaction>> {
-        return synchronized(cacheLock) {
-            HashMap(reactionsCache) // Return a copy to avoid concurrent modification
-        }
+    fun getAllReactions(): Map<String, List<MessageReaction>> = synchronized(cacheLock) {
+        HashMap(reactionsCache) // Return a copy to avoid concurrent modification
     }
-    
+
     /**
      * Get the number of events with reactions
      */
-    fun getEventCount(): Int {
-        return synchronized(cacheLock) {
-            reactionsCache.size
-        }
+    fun getEventCount(): Int = synchronized(cacheLock) {
+        reactionsCache.size
     }
-    
+
     /**
      * Clear all reactions from the cache
      */
@@ -79,7 +78,7 @@ object MessageReactionsCache {
             if (BuildConfig.DEBUG) Log.d(TAG, "MessageReactionsCache: Cleared all reactions")
         }
     }
-    
+
     /**
      * Clear reactions for a specific room (by checking eventIds)
      * Note: This is a simple implementation - in practice, you might want to track roomId -> eventIds
@@ -87,10 +86,15 @@ object MessageReactionsCache {
     fun clearForRoom(roomId: String) {
         // This would require tracking roomId -> eventIds mapping
         // For now, we'll just clear all (caller should handle room-specific clearing)
-        if (BuildConfig.DEBUG) Log.d(TAG, "MessageReactionsCache: clearForRoom called for $roomId (clearing all - room tracking not implemented)")
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            TAG,
+            "MessageReactionsCache: clearForRoom called for $roomId (clearing all - room tracking not implemented)",
+        )
+        }
         clear()
     }
-    
+
     /**
      * Clear reactions for specific event IDs (used when evicting a room)
      */
@@ -102,8 +106,12 @@ object MessageReactionsCache {
                     removedCount++
                 }
             }
-            if (BuildConfig.DEBUG) Log.d(TAG, "MessageReactionsCache: Cleared reactions for ${removedCount} events (out of ${eventIds.size} requested)")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                TAG,
+                "MessageReactionsCache: Cleared reactions for $removedCount events (out of ${eventIds.size} requested)",
+            )
+            }
         }
     }
 }
-

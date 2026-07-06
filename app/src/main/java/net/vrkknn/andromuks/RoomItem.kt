@@ -1,8 +1,6 @@
 package net.vrkknn.andromuks
 
-import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Immutable
-import java.lang.reflect.Modifier
 
 // roomId: String
 // name: String
@@ -10,7 +8,6 @@ import java.lang.reflect.Modifier
 // unreadCount: Int
 // avatarUrl: String?
 // isInvite: Boolean
-
 
 @Immutable
 data class RoomItem(
@@ -37,23 +34,18 @@ data class RoomItem(
      * AppViewModel.refreshSenderDisplayNameForRooms.
      * Null means "not yet resolved" — RoomListItem falls back to usernameFromMatrixId.
      */
-    val senderDisplayName: String? = null
+    val senderDisplayName: String? = null,
 )
 
 @Immutable
-data class SpaceItem(
-    val id: String,
-    val name: String,
-    val avatarUrl: String?,
-    val rooms: List<RoomItem>
-)
+data class SpaceItem(val id: String, val name: String, val avatarUrl: String?, val rooms: List<RoomItem>)
 
 @Immutable
 data class RoomSection(
     val type: RoomSectionType,
     val rooms: List<RoomItem>,
     val spaces: List<SpaceItem> = emptyList(),
-    val unreadCount: Int = 0
+    val unreadCount: Int = 0,
 )
 
 enum class RoomSectionType {
@@ -63,14 +55,14 @@ enum class RoomSectionType {
     UNREAD,
     FAVOURITES,
     BRIDGES,
-    MENTIONS
+    MENTIONS,
 }
 
 @Immutable
 data class SyncUpdateResult(
     val updatedRooms: List<RoomItem>,
     val newRooms: List<RoomItem>,
-    val removedRoomIds: List<String>
+    val removedRoomIds: List<String>,
 )
 
 @Immutable
@@ -83,7 +75,7 @@ data class RoomState(
     val isEncrypted: Boolean = false,
     val powerLevels: PowerLevelsInfo? = null,
     val pinnedEventIds: List<String> = emptyList(),
-    val bridgeInfo: BridgeInfo? = null
+    val bridgeInfo: BridgeInfo? = null,
 )
 
 /** Power levels information for a room */
@@ -96,7 +88,7 @@ data class PowerLevelsInfo(
     val ban: Int = 50, // Default ban power level
     val events: Map<String, Int> = emptyMap(),
     val eventsDefault: Int = 0,
-    val stateDefault: Int = 50 // Per Matrix spec: default PL for state events not in events map
+    val stateDefault: Int = 50, // Per Matrix spec: default PL for state events not in events map
 )
 
 @Immutable
@@ -105,7 +97,7 @@ data class RoomAnimationState(
     val lastUpdateTime: Long,
     val isAnimating: Boolean = false,
     val previousPosition: Int? = null,
-    val currentPosition: Int? = null
+    val currentPosition: Int? = null,
 )
 
 /**
@@ -115,7 +107,4 @@ data class RoomAnimationState(
  *                   i.e. when the bridge confirmed the message reached the other network.
  * @param deliveries Map of userId → timestamp (ms) for each user confirmed to have received it.
  */
-data class BridgeDeliveryInfo(
-    val sentAt: Long? = null,
-    val deliveries: Map<String, Long> = emptyMap()
-)
+data class BridgeDeliveryInfo(val sentAt: Long? = null, val deliveries: Map<String, Long> = emptyMap())

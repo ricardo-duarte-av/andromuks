@@ -1,20 +1,18 @@
 package net.vrkknn.andromuks.utils
 
-
-
-import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.BuildConfig
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import okhttp3.OkHttpClient
-import okhttp3.Request
 
 /**
  * Intelligent media cache with viewport prioritization.
@@ -32,7 +30,7 @@ object IntelligentMediaCache {
     private const val VISIBLE_PRIORITY_BOOST = 1000L
     private const val RECENTLY_VIEWED_BOOST = 500L
     private const val ACCESS_COUNT_BOOST = 100L
-    
+
     data class CacheEntry(
         val file: File,
         val mxcUrl: String,
@@ -41,9 +39,9 @@ object IntelligentMediaCache {
         val isVisible: Boolean = false,
         val accessCount: Int = 0,
         val priority: Long = 0,
-        val fileType: String = "unknown"
+        val fileType: String = "unknown",
     )
-    
+
     // Thread-safe collections for cache management
     private val cacheEntries = ConcurrentHashMap<String, CacheEntry>()
     private val visibleMedia = ConcurrentHashMap<String, Boolean>()
@@ -69,7 +67,7 @@ object IntelligentMediaCache {
             .callTimeout(60, TimeUnit.SECONDS)
             .build()
     }
-    
+
     /**
      * Get cache directory for media files.
      */
@@ -80,23 +78,21 @@ object IntelligentMediaCache {
         }
         return cacheDir
     }
-    
+
     /**
      * Generate cache key from MXC URL (returns relative path with server subdirectory).
      * MXC URLs are immutable and their server/mediaId path is already filesystem-safe.
      * Uses subdirectories per server to avoid thousands of files in a single directory.
      * e.g. "mxc://aguiarvieira.pt/MGUPvTkAoIFxQBkqdQIlyvxP" → "aguiarvieira.pt/MGUPvTkAoIFxQBkqdQIlyvxP"
      */
-    fun getCacheKey(mxcUrl: String): String {
-        return mxcUrl.removePrefix("mxc://")
-    }
-    
+    fun getCacheKey(mxcUrl: String): String = mxcUrl.removePrefix("mxc://")
+
     private fun getCacheFile(context: Context, mxcUrl: String): File {
         val cacheDir = getCacheDir(context)
         val relativePath = getCacheKey(mxcUrl)
         return File(cacheDir, relativePath)
     }
-    
+
     /**
      * Update visibility status for media items.
      * 
@@ -108,39 +104,39 @@ object IntelligentMediaCache {
         visibleUrls.forEach { url ->
             visibleMedia[url] = true
         }
-        
+
         // Update cache entries with new visibility status
         cacheEntries.values.forEach { entry ->
             val isVisible = visibleMedia.containsKey(entry.mxcUrl)
             if (entry.isVisible != isVisible) {
                 cacheEntries[entry.mxcUrl] = entry.copy(
                     isVisible = isVisible,
-                    priority = calculatePriority(entry, isVisible)
+                    priority = calculatePriority(entry, isVisible),
                 )
             }
         }
-        
+
         if (BuildConfig.DEBUG) Log.d(TAG, "Updated visibility for ${visibleUrls.size} media items")
     }
-    
+
     /**
      * Calculate priority score for cache entry.
      */
     private fun calculatePriority(entry: CacheEntry, isVisible: Boolean): Long {
         var priority = entry.accessCount * ACCESS_COUNT_BOOST
         priority += (System.currentTimeMillis() - entry.lastAccessed) / 1000L
-        
+
         if (isVisible) {
             priority += VISIBLE_PRIORITY_BOOST
         }
-        
+
         if (entry.accessCount > 0) {
             priority += RECENTLY_VIEWED_BOOST
         }
-        
+
         return priority
     }
-    
+
     /**
      * Get cached file for MXC URL.
      * 
@@ -152,52 +148,52 @@ object IntelligentMediaCache {
     // callers from a Main-bound LaunchedEffect (e.g. ImageViewerDialog) don't trip StrictMode.
     suspend fun getCachedFile(context: Context, mxcUrl: String): File? = withContext(Dispatchers.IO) {
         cacheMutex.withLock {
-        val entry = cacheEntries[mxcUrl]
-        if (entry != null && entry.file.exists() && entry.file.length() > 0L) {
-            // Update access statistics
-            val updatedEntry = entry.copy(
-                lastAccessed = System.currentTimeMillis(),
-                accessCount = entry.accessCount + 1,
-                priority = calculatePriority(entry, entry.isVisible)
-            )
-            cacheEntries[mxcUrl] = updatedEntry
-            
-            // PERFORMANCE: Reduce logging frequency to avoid log spam during fast scrolling
-            // Only log every 10th access to reduce overhead
-            if (BuildConfig.DEBUG && updatedEntry.accessCount % 10 == 0) {
-                Log.d(TAG, "Cache hit for $mxcUrl (access count: ${updatedEntry.accessCount})")
+            val entry = cacheEntries[mxcUrl]
+            if (entry != null && entry.file.exists() && entry.file.length() > 0L) {
+                // Update access statistics
+                val updatedEntry = entry.copy(
+                    lastAccessed = System.currentTimeMillis(),
+                    accessCount = entry.accessCount + 1,
+                    priority = calculatePriority(entry, entry.isVisible),
+                )
+                cacheEntries[mxcUrl] = updatedEntry
+
+                // PERFORMANCE: Reduce logging frequency to avoid log spam during fast scrolling
+                // Only log every 10th access to reduce overhead
+                if (BuildConfig.DEBUG && updatedEntry.accessCount % 10 == 0) {
+                    Log.d(TAG, "Cache hit for $mxcUrl (access count: ${updatedEntry.accessCount})")
+                }
+                return@withLock entry.file
             }
-            return@withLock entry.file
-        }
-        
-        // RAM<->Disk mismatch recovery:
-        // - We keep an in-memory index in `cacheEntries`.
-        // - `AndromuksApplication` clears that index on memory pressure via clearInMemoryCache().
-        // - After being idle/trimmed, disk files may still exist, but the index is gone.
-        // So, fall back to checking the expected on-disk cache location.
-        val diskFile = getCacheFile(context, mxcUrl)
-        if (diskFile.exists() && diskFile.length() > 0L) {
-            val isVisible = visibleMedia.containsKey(mxcUrl)
-            val now = System.currentTimeMillis()
-            val baseEntry = CacheEntry(
-                file = diskFile,
-                mxcUrl = mxcUrl,
-                size = diskFile.length(),
-                lastAccessed = now,
-                isVisible = isVisible,
-                accessCount = 1,
-                priority = 0L,
-                fileType = entry?.fileType ?: "unknown"
-            )
-            val diskEntry = baseEntry.copy(priority = calculatePriority(baseEntry, isVisible))
-            cacheEntries[mxcUrl] = diskEntry
-            return@withLock diskFile
-        }
 
-        // PERFORMANCE: Only log misses in debug builds, and reduce frequency
-        if (BuildConfig.DEBUG) Log.d(TAG, "Cache miss for $mxcUrl")
+            // RAM<->Disk mismatch recovery:
+            // - We keep an in-memory index in `cacheEntries`.
+            // - `AndromuksApplication` clears that index on memory pressure via clearInMemoryCache().
+            // - After being idle/trimmed, disk files may still exist, but the index is gone.
+            // So, fall back to checking the expected on-disk cache location.
+            val diskFile = getCacheFile(context, mxcUrl)
+            if (diskFile.exists() && diskFile.length() > 0L) {
+                val isVisible = visibleMedia.containsKey(mxcUrl)
+                val now = System.currentTimeMillis()
+                val baseEntry = CacheEntry(
+                    file = diskFile,
+                    mxcUrl = mxcUrl,
+                    size = diskFile.length(),
+                    lastAccessed = now,
+                    isVisible = isVisible,
+                    accessCount = 1,
+                    priority = 0L,
+                    fileType = entry?.fileType ?: "unknown",
+                )
+                val diskEntry = baseEntry.copy(priority = calculatePriority(baseEntry, isVisible))
+                cacheEntries[mxcUrl] = diskEntry
+                return@withLock diskFile
+            }
 
-        return@withLock null
+            // PERFORMANCE: Only log misses in debug builds, and reduce frequency
+            if (BuildConfig.DEBUG) Log.d(TAG, "Cache miss for $mxcUrl")
+
+            return@withLock null
         }
     }
 
@@ -209,80 +205,78 @@ object IntelligentMediaCache {
      * @param file File to cache
      * @param fileType Type of file (image, video, audio, etc.)
      */
-    suspend fun cacheFile(
-        context: Context,
-        mxcUrl: String,
-        file: File,
-        fileType: String = "unknown"
-    ) = cacheMutex.withLock {
-        val entry = CacheEntry(
-            file = file,
-            mxcUrl = mxcUrl,
-            size = file.length(),
-            lastAccessed = System.currentTimeMillis(),
-            isVisible = visibleMedia.containsKey(mxcUrl),
-            accessCount = 1,
-            priority = calculatePriority(
-                CacheEntry(file, mxcUrl, file.length(), System.currentTimeMillis()),
-                visibleMedia.containsKey(mxcUrl)
-            ),
-            fileType = fileType
-        )
-        
-        cacheEntries[mxcUrl] = entry
-        if (BuildConfig.DEBUG) Log.d(TAG, "Cached file for $mxcUrl (size: ${entry.size / 1024}KB, type: $fileType)")
-        
-        // Ensure cache size is within limits
-        ensureCacheSize(context)
-    }
-    
+    suspend fun cacheFile(context: Context, mxcUrl: String, file: File, fileType: String = "unknown") =
+        cacheMutex.withLock {
+            val entry = CacheEntry(
+                file = file,
+                mxcUrl = mxcUrl,
+                size = file.length(),
+                lastAccessed = System.currentTimeMillis(),
+                isVisible = visibleMedia.containsKey(mxcUrl),
+                accessCount = 1,
+                priority = calculatePriority(
+                    CacheEntry(file, mxcUrl, file.length(), System.currentTimeMillis()),
+                    visibleMedia.containsKey(mxcUrl),
+                ),
+                fileType = fileType,
+            )
+
+            cacheEntries[mxcUrl] = entry
+            if (BuildConfig.DEBUG) Log.d(TAG, "Cached file for $mxcUrl (size: ${entry.size / 1024}KB, type: $fileType)")
+
+            // Ensure cache size is within limits
+            ensureCacheSize(context)
+        }
+
     /**
      * Ensure cache size is within limits with intelligent eviction.
      */
     private suspend fun ensureCacheSize(context: Context) {
         val totalSize = cacheEntries.values.sumOf { it.size }
         if (totalSize <= MAX_CACHE_SIZE) return
-        
+
         if (BuildConfig.DEBUG) Log.d(TAG, "Cache size ${totalSize / 1024 / 1024}MB exceeds limit ${MAX_CACHE_SIZE / 1024 / 1024}MB, evicting...")
-        
+
         // Sort by priority (lowest first for eviction)
         val sortedEntries = cacheEntries.values.sortedBy { it.priority }
-        
+
         var currentSize = totalSize
         var evictedCount = 0
-        
+
         for (entry in sortedEntries) {
             if (currentSize <= MAX_CACHE_SIZE) break
-            
+
             // Don't evict visible media unless absolutely necessary
             if (entry.isVisible && currentSize > MAX_CACHE_SIZE * 0.8) continue
-            
+
             // Evict low-priority entries
             if (entry.file.delete()) {
                 cacheEntries.remove(entry.mxcUrl)
                 currentSize -= entry.size
                 evictedCount++
-                if (BuildConfig.DEBUG) Log.d(TAG, "Evicted ${entry.mxcUrl} (priority: ${entry.priority}, size: ${entry.size / 1024}KB)")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    TAG,
+                    "Evicted ${entry.mxcUrl} (priority: ${entry.priority}, size: ${entry.size / 1024}KB)",
+                )
+                }
             }
         }
-        
+
         if (BuildConfig.DEBUG) Log.d(TAG, "Evicted $evictedCount files, new cache size: ${currentSize / 1024 / 1024}MB")
     }
-    
+
     /**
      * Check if MXC URL is cached.
      */
-    fun isCached(mxcUrl: String): Boolean {
-        return cacheEntries.containsKey(mxcUrl) && cacheEntries[mxcUrl]?.file?.exists() == true
-    }
-    
+    fun isCached(mxcUrl: String): Boolean =
+        cacheEntries.containsKey(mxcUrl) && cacheEntries[mxcUrl]?.file?.exists() == true
+
     /**
      * Check if MXC URL is cached (compatibility method with context parameter).
      */
-    fun isCached(context: Context, mxcUrl: String): Boolean {
-        return isCached(mxcUrl)
-    }
-    
+    fun isCached(context: Context, mxcUrl: String): Boolean = isCached(mxcUrl)
+
     /**
      * Download and cache MXC URL (compatibility method matching MediaCache API).
      *
@@ -294,89 +288,105 @@ object IntelligentMediaCache {
      * - Rejects non-image responses (captive-portal HTML, 302 login pages, error bodies)
      *   by sniffing magic bytes, then retries instead of caching the garbage.
      */
-    suspend fun downloadAndCache(
-        context: Context,
-        mxcUrl: String,
-        httpUrl: String,
-        authToken: String
-    ): File? = withContext(Dispatchers.IO) {
-        val cachedFile = getCacheFile(context, mxcUrl)
-        cachedFile.parentFile?.mkdirs()
+    suspend fun downloadAndCache(context: Context, mxcUrl: String, httpUrl: String, authToken: String): File? =
+        withContext(Dispatchers.IO) {
+            val cachedFile = getCacheFile(context, mxcUrl)
+            cachedFile.parentFile?.mkdirs()
 
-        // Already fully cached (non-empty) — register and return.
-        if (cachedFile.exists() && cachedFile.length() > 0L) {
-            cacheFile(context, mxcUrl, cachedFile, "unknown")
-            return@withContext cachedFile
-        }
-
-        val tmpFile = File(cachedFile.parentFile, "${cachedFile.name}.tmp")
-
-        repeat(DOWNLOAD_ATTEMPTS) { attempt ->
-            tmpFile.delete()
-            try {
-                val request = Request.Builder()
-                    .url(httpUrl)
-                    .header("Cookie", "gomuks_auth=$authToken")
-                    .header("User-Agent", getUserAgent())
-                    .build()
-
-                downloadClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        // Log enough to diagnose auth/URL failures without leaking the token: the full
-                        // URL (shows whether image_auth was appended), the cookie token length, and the
-                        // server's error body (gomuks returns e.g. FI.MAU.GOMUKS.INVALID_COOKIE here).
-                        val bodySnippet = try { response.body?.string()?.take(300) } catch (e: Exception) { "<unreadable: ${e.message}>" }
-                        Log.w(TAG, "Media download HTTP ${response.code} for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS) " +
-                            "url=$httpUrl hasImageAuth=${httpUrl.contains("image_auth=")} cookieLen=${authToken.length} body=$bodySnippet")
-                        return@use
-                    }
-
-                    val body = response.body ?: run {
-                        Log.w(TAG, "Empty body for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)")
-                        return@use
-                    }
-
-                    val expectedLength = body.contentLength() // -1 if unknown / chunked
-                    tmpFile.outputStream().use { output ->
-                        body.byteStream().use { input -> input.copyTo(output) }
-                    }
-
-                    // Validate before promoting the temp file to the real cache path.
-                    if (tmpFile.length() == 0L) {
-                        Log.w(TAG, "Zero-byte download for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)")
-                        return@use
-                    }
-                    if (expectedLength > 0 && tmpFile.length() != expectedLength) {
-                        Log.w(TAG, "Truncated download for $mxcUrl: got ${tmpFile.length()} of $expectedLength bytes (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)")
-                        return@use
-                    }
-                    if (!looksLikeImage(tmpFile)) {
-                        Log.w(TAG, "Download for $mxcUrl is not an image (captive portal / error page?) (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)")
-                        return@use
-                    }
-
-                    // Atomic-ish promotion: rename is atomic on the same filesystem; fall back to copy.
-                    cachedFile.delete()
-                    if (!tmpFile.renameTo(cachedFile)) {
-                        tmpFile.copyTo(cachedFile, overwrite = true)
-                        tmpFile.delete()
-                    }
-
-                    cacheFile(context, mxcUrl, cachedFile, "image")
-                    return@withContext cachedFile
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Media download failed for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS): ${e.message}")
+            // Already fully cached (non-empty) — register and return.
+            if (cachedFile.exists() && cachedFile.length() > 0L) {
+                cacheFile(context, mxcUrl, cachedFile, "unknown")
+                return@withContext cachedFile
             }
 
-            // Short linear backoff between in-call attempts; the worker handles longer outages.
-            if (attempt < DOWNLOAD_ATTEMPTS - 1) delay(500L * (attempt + 1))
-        }
+            val tmpFile = File(cachedFile.parentFile, "${cachedFile.name}.tmp")
 
-        tmpFile.delete()
-        Log.e(TAG, "Failed to cache media after $DOWNLOAD_ATTEMPTS attempts: $mxcUrl")
-        null
-    }
+            repeat(DOWNLOAD_ATTEMPTS) { attempt ->
+                tmpFile.delete()
+                try {
+                    val request = Request.Builder()
+                        .url(httpUrl)
+                        .header("Cookie", "gomuks_auth=$authToken")
+                        .header("User-Agent", getUserAgent())
+                        .build()
+
+                    downloadClient.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) {
+                            // Log enough to diagnose auth/URL failures without leaking the token: the full
+                            // URL (shows whether image_auth was appended), the cookie token length, and the
+                            // server's error body (gomuks returns e.g. FI.MAU.GOMUKS.INVALID_COOKIE here).
+                            val bodySnippet = try {
+                                response.body?.string()?.take(
+                                300,
+                            )
+                            } catch (e: Exception) {
+                                "<unreadable: ${e.message}>"
+                            }
+                            Log.w(
+                                TAG,
+                                "Media download HTTP ${response.code} for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS) " +
+                                    "url=$httpUrl hasImageAuth=${httpUrl.contains(
+                                        "image_auth=",
+                                    )} cookieLen=${authToken.length} body=$bodySnippet",
+                            )
+                            return@use
+                        }
+
+                        val body = response.body ?: run {
+                            Log.w(TAG, "Empty body for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)")
+                            return@use
+                        }
+
+                        val expectedLength = body.contentLength() // -1 if unknown / chunked
+                        tmpFile.outputStream().use { output ->
+                            body.byteStream().use { input -> input.copyTo(output) }
+                        }
+
+                        // Validate before promoting the temp file to the real cache path.
+                        if (tmpFile.length() == 0L) {
+                            Log.w(TAG, "Zero-byte download for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)")
+                            return@use
+                        }
+                        if (expectedLength > 0 && tmpFile.length() != expectedLength) {
+                            Log.w(
+                                TAG,
+                                "Truncated download for $mxcUrl: got ${tmpFile.length()} of $expectedLength bytes (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)",
+                            )
+                            return@use
+                        }
+                        if (!looksLikeImage(tmpFile)) {
+                            Log.w(
+                                TAG,
+                                "Download for $mxcUrl is not an image (captive portal / error page?) (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)",
+                            )
+                            return@use
+                        }
+
+                        // Atomic-ish promotion: rename is atomic on the same filesystem; fall back to copy.
+                        cachedFile.delete()
+                        if (!tmpFile.renameTo(cachedFile)) {
+                            tmpFile.copyTo(cachedFile, overwrite = true)
+                            tmpFile.delete()
+                        }
+
+                        cacheFile(context, mxcUrl, cachedFile, "image")
+                        return@withContext cachedFile
+                    }
+                } catch (e: Exception) {
+                    Log.w(
+                        TAG,
+                        "Media download failed for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS): ${e.message}",
+                    )
+                }
+
+                // Short linear backoff between in-call attempts; the worker handles longer outages.
+                if (attempt < DOWNLOAD_ATTEMPTS - 1) delay(500L * (attempt + 1))
+            }
+
+            tmpFile.delete()
+            Log.e(TAG, "Failed to cache media after $DOWNLOAD_ATTEMPTS attempts: $mxcUrl")
+            null
+        }
 
     /**
      * Sniff the leading bytes of a file to decide whether it is a real raster image.
@@ -395,17 +405,23 @@ object IntelligentMediaCache {
             when {
                 // JPEG: FF D8 FF
                 u(0) == 0xFF && u(1) == 0xD8 && u(2) == 0xFF -> true
+
                 // PNG: 89 50 4E 47 0D 0A 1A 0A
                 u(0) == 0x89 && u(1) == 0x50 && u(2) == 0x4E && u(3) == 0x47 -> true
+
                 // GIF: "GIF8"
                 u(0) == 0x47 && u(1) == 0x49 && u(2) == 0x46 && u(3) == 0x38 -> true
+
                 // BMP: "BM"
                 u(0) == 0x42 && u(1) == 0x4D -> true
+
                 // WEBP: "RIFF"...."WEBP"
                 read >= 12 && u(0) == 0x52 && u(1) == 0x49 && u(2) == 0x46 && u(3) == 0x46 &&
                     u(8) == 0x57 && u(9) == 0x45 && u(10) == 0x42 && u(11) == 0x50 -> true
+
                 // HEIC/HEIF/AVIF: bytes 4..7 == "ftyp"
                 read >= 8 && u(4) == 0x66 && u(5) == 0x74 && u(6) == 0x79 && u(7) == 0x70 -> true
+
                 else -> false
             }
         } catch (e: Exception) {
@@ -413,7 +429,7 @@ object IntelligentMediaCache {
             false
         }
     }
-    
+
     /**
      * Clean up cache if size exceeds limit (compatibility method matching MediaCache API).
      */
@@ -421,10 +437,15 @@ object IntelligentMediaCache {
         try {
             // Calculate total cache size (recursively handles subdirectories)
             val totalSize = getCacheDirectorySize(context)
-            
+
             if (totalSize > MAX_CACHE_SIZE) {
-                if (BuildConfig.DEBUG) Log.d(TAG, "Cache size ${totalSize / 1024 / 1024}MB exceeds limit ${MAX_CACHE_SIZE / 1024 / 1024}MB, cleaning up...")
-                
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    TAG,
+                    "Cache size ${totalSize / 1024 / 1024}MB exceeds limit ${MAX_CACHE_SIZE / 1024 / 1024}MB, cleaning up...",
+                )
+                }
+
                 // Use intelligent eviction (uses in-memory cacheEntries map)
                 ensureCacheSize(context)
             }
@@ -432,7 +453,7 @@ object IntelligentMediaCache {
             Log.e(TAG, "Failed to cleanup cache", e)
         }
     }
-    
+
     /**
      * Get cache statistics for monitoring.
      */
@@ -442,8 +463,10 @@ object IntelligentMediaCache {
         val totalAccessCount = cacheEntries.values.sumOf { it.accessCount }
         val averageAccessCount = if (cacheEntries.isNotEmpty()) {
             totalAccessCount / cacheEntries.size
-        } else 0
-        
+        } else {
+            0
+        }
+
         return mapOf(
             "total_entries" to cacheEntries.size,
             "total_size_mb" to (totalSize / 1024 / 1024),
@@ -451,16 +474,16 @@ object IntelligentMediaCache {
             "visible_entries" to visibleCount,
             "total_access_count" to totalAccessCount,
             "average_access_count" to averageAccessCount,
-            "cache_utilization" to ((totalSize.toDouble() / MAX_CACHE_SIZE) * 100).toInt()
+            "cache_utilization" to ((totalSize.toDouble() / MAX_CACHE_SIZE) * 100).toInt(),
         )
     }
-    
+
     /**
      * Get detailed cache entry information.
      */
     fun getCacheEntryInfo(mxcUrl: String): Map<String, Any>? {
         val entry = cacheEntries[mxcUrl] ?: return null
-        
+
         return mapOf(
             "mxc_url" to entry.mxcUrl,
             "file_path" to entry.file.absolutePath,
@@ -469,10 +492,10 @@ object IntelligentMediaCache {
             "is_visible" to entry.isVisible,
             "access_count" to entry.accessCount,
             "priority" to entry.priority,
-            "file_type" to entry.fileType
+            "file_type" to entry.fileType,
         )
     }
-    
+
     /**
      * Clean up old cache files manually.
      */
@@ -481,10 +504,10 @@ object IntelligentMediaCache {
         val oldEntries = cacheEntries.values.filter { entry ->
             currentTime - entry.lastAccessed > maxAge && !entry.isVisible
         }
-        
+
         var cleanedCount = 0
         var cleanedSize = 0L
-        
+
         oldEntries.forEach { entry ->
             if (entry.file.delete()) {
                 cacheEntries.remove(entry.mxcUrl)
@@ -492,17 +515,17 @@ object IntelligentMediaCache {
                 cleanedSize += entry.size
             }
         }
-        
+
         if (BuildConfig.DEBUG) Log.d(TAG, "Cleaned up $cleanedCount old files (${cleanedSize / 1024 / 1024}MB)")
     }
-    
+
     /**
      * Clear all cache entries.
      * Recursively deletes files from subdirectories.
      */
     suspend fun clearCache(context: Context) = cacheMutex.withLock {
         val cacheDir = getCacheDir(context)
-        
+
         // Recursively delete all files from subdirectories
         fun deleteFiles(dir: File): Pair<Int, Long> {
             var deletedCount = 0
@@ -524,22 +547,22 @@ object IntelligentMediaCache {
             }
             return deletedCount to deletedSize
         }
-        
+
         val (deletedCount, deletedSize) = deleteFiles(cacheDir)
-        
+
         cacheEntries.clear()
         visibleMedia.clear()
-        
+
         if (BuildConfig.DEBUG) Log.d(TAG, "Cleared cache: $deletedCount files (${deletedSize / 1024 / 1024}MB)")
     }
-    
+
     /**
      * Get cache directory size.
      * Recursively sums files from subdirectories.
      */
     fun getCacheDirectorySize(context: Context): Long {
         val cacheDir = getCacheDir(context)
-        
+
         fun sumFiles(dir: File): Long {
             var total = 0L
             dir.listFiles()?.forEach { file ->
@@ -551,21 +574,19 @@ object IntelligentMediaCache {
             }
             return total
         }
-        
+
         return sumFiles(cacheDir)
     }
-    
+
     /**
      * Get all cached MXC URLs (for gallery display).
      * Returns a map of cache key (file name) to MXC URL.
      */
-    fun getAllCachedMxcUrls(): Map<String, String> {
-        return cacheEntries.map { (mxcUrl, entry) ->
-            val cacheKey = getCacheKey(mxcUrl)
-            cacheKey to mxcUrl
-        }.toMap()
-    }
-    
+    fun getAllCachedMxcUrls(): Map<String, String> = cacheEntries.map { (mxcUrl, entry) ->
+        val cacheKey = getCacheKey(mxcUrl)
+        cacheKey to mxcUrl
+    }.toMap()
+
     /**
      * Get MXC URL for a cache file by matching cache key.
      */
@@ -580,7 +601,7 @@ object IntelligentMediaCache {
         }
         return null
     }
-    
+
     /**
      * Clear in-memory cache entries (non-suspend version for onTrimMemory).
      * 
@@ -593,7 +614,7 @@ object IntelligentMediaCache {
         // Clear cache entries map (thread-safe, no mutex needed for clear)
         cacheEntries.clear()
         visibleMedia.clear()
-        
+
         if (BuildConfig.DEBUG) {
             Log.d(TAG, "Cleared in-memory cache entries (disk files preserved)")
         }

@@ -1,49 +1,37 @@
 package net.vrkknn.andromuks
 
-import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import android.content.BroadcastReceiver
-import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
-import android.os.Bundle
-import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Bundle
 import android.util.Log
-import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.animation.ExperimentalAnimationApi
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.material3.Scaffold
 import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
-import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicatorDefaults
 import androidx.compose.runtime.Composable
@@ -54,42 +42,43 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Matrix
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import androidx.fragment.app.FragmentActivity
+import androidx.graphics.shapes.Morph
+import androidx.graphics.shapes.toPath
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavType
-import androidx.navigation.navArgument
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.MatrixContactsProvider
+import net.vrkknn.andromuks.SharedMediaItem
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.utils.CrashHandler
 import net.vrkknn.andromuks.utils.CrashReportDialog
 import net.vrkknn.andromuks.utils.isValidMatrixRoomId
-import net.vrkknn.andromuks.BuildConfig
-import net.vrkknn.andromuks.MatrixContactsProvider
-
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
-import net.vrkknn.andromuks.SharedMediaItem
-import androidx.graphics.shapes.Morph
-import androidx.graphics.shapes.toPath
 import java.net.URLDecoder
 
 @Composable
@@ -104,18 +93,18 @@ private fun rememberMorphingStartupAvatarMaskModifier(): Modifier {
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 6800, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
+            repeatMode = RepeatMode.Restart,
         ),
-        label = "main_startup_avatar_morph_cycle"
+        label = "main_startup_avatar_morph_cycle",
     )
     val shapeRotation by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 11000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
+            repeatMode = RepeatMode.Restart,
         ),
-        label = "main_startup_avatar_mask_rotation"
+        label = "main_startup_avatar_mask_rotation",
     )
 
     val segmentCount = shapes.size
@@ -144,7 +133,7 @@ private fun rememberMorphingStartupAvatarMaskModifier(): Modifier {
                 Matrix().apply {
                     translate(dx, dy)
                     scale(scale, scale)
-                }
+                },
             )
             val cx = size.width / 2f
             val cy = size.height / 2f
@@ -153,7 +142,7 @@ private fun rememberMorphingStartupAvatarMaskModifier(): Modifier {
                     translate(cx, cy)
                     rotateZ(shapeRotation)
                     translate(-cx, -cy)
-                }
+                },
             )
         }
 
@@ -170,12 +159,13 @@ class MainActivity : FragmentActivity() {
     private var viewModelVisibilitySynced = false
     private var pendingShareIntent: Intent? = null
     private var pendingReplyIntent: Intent? = null
+
     // Set by onUserLeaveHint (HOME / recents) and consumed in onStop.
     // onUserLeaveHint is NOT called when we launch a child activity from within the app,
     // so this flag is only true when the user genuinely left the task.
     private var userLeftTask = false
     private var hasBeenStopped = false
-    
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -187,7 +177,8 @@ class MainActivity : FragmentActivity() {
         // the brief window before the ViewModel has loaded settings. The reactive effect in
         // AndromuksApp keeps it in sync afterwards (incl. runtime toggles).
         if (getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                .getBoolean("require_biometric_unlock", false)) {
+                .getBoolean("require_biometric_unlock", false)
+        ) {
             window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         }
 
@@ -208,47 +199,58 @@ class MainActivity : FragmentActivity() {
         val isServiceRunning = net.vrkknn.andromuks.WebSocketService.isServiceRunning()
         if (!isServiceRunning) {
             if (BuildConfig.DEBUG) {
-                Log.d("Andromuks", "MainActivity: Service not running - clearing last_received_request_id (true cold start)")
+                Log.d(
+                    "Andromuks",
+                    "MainActivity: Service not running - clearing last_received_request_id (true cold start)",
+                )
             }
             net.vrkknn.andromuks.WebSocketService.clearLastReceivedRequestId(this)
         } else {
             if (BuildConfig.DEBUG) {
-                Log.d("Andromuks", "MainActivity: Service already running - preserving last_received_request_id for resume sync")
+                Log.d(
+                    "Andromuks",
+                    "MainActivity: Service already running - preserving last_received_request_id for resume sync",
+                )
             }
         }
-        
+
         enableEdgeToEdge()
 
         pendingShareIntent = intent.takeIf { isShareIntent(it) }
-        
+
         // Handle ACTION_REPLY from notification when MainActivity is started from NotificationReplyReceiver
         if (intent.action == "net.vrkknn.andromuks.ACTION_REPLY") {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - ACTION_REPLY received")
             // Store the reply intent to process after ViewModel is initialized
             pendingReplyIntent = intent
         }
-        
+
         // CRITICAL FIX: Handle process death recovery when app is recreated from service notification
         // After ~6 hours, Android may kill the app process but keep the service running
         // When user taps the notification, the app process is recreated and we need to recover state
         val fromServiceNotification = intent.getBooleanExtra("from_service_notification", false)
         if (fromServiceNotification) {
-            android.util.Log.i("Andromuks", "MainActivity: onCreate - Recovered from process death (tapped service notification)")
+            android.util.Log.i(
+                "Andromuks",
+                "MainActivity: onCreate - Recovered from process death (tapped service notification)",
+            )
             // The service is still running, so we just need to ensure the app initializes properly
             // AppViewModel will be created and will register with the service
         }
-        
 
-        
         setContent {
             AndromuksTheme {
                 // Check for crash and show dialog if needed
-                var showCrashDialog by remember { mutableStateOf(CrashHandler.checkAndShowCrashDialog(this@MainActivity)) }
+                var showCrashDialog by remember {
+                    mutableStateOf(
+                        CrashHandler.checkAndShowCrashDialog(this@MainActivity),
+                    )
+                }
                 val crashLogPath = remember { CrashHandler.getLastCrashLogPath(this@MainActivity) }
-                
+
                 // CRITICAL FIX: Track which ViewModel instances we've already attached to prevent infinite loops
                 val attachedViewModelIds = remember { mutableSetOf<String>() }
-                
+
                 if (showCrashDialog && crashLogPath != null) {
                     CrashReportDialog(
                         crashLogPath = crashLogPath,
@@ -256,33 +258,43 @@ class MainActivity : FragmentActivity() {
                         onEmail = {
                             CrashHandler.emailCrashLog(this@MainActivity, crashLogPath)
                             showCrashDialog = false
-                        }
+                        },
                     )
                 }
-                
+
                 AppNavigation(
                     modifier = Modifier.fillMaxSize(),
                     onViewModelCreated = { viewModel ->
                         if (!::appViewModel.isInitialized) {
                             appViewModel = viewModel
-                            
+
                             // CRITICAL FIX: Check if WebSocket is already connected and there's already a primary instance
                             // If so, this instance should attach as SECONDARY, not PRIMARY
                             // This prevents creating a new PRIMARY when opening via app shortcut after pinned shortcut
                             val isWebSocketConnected = net.vrkknn.andromuks.WebSocketService.isWebSocketConnected()
                             val existingPrimaryId = net.vrkknn.andromuks.WebSocketService.getPrimaryViewModelId()
-                            
+
                             if (isWebSocketConnected && existingPrimaryId != null) {
                                 // WebSocket is already connected and there's already a primary instance
                                 // This instance should attach as SECONDARY (don't call markAsPrimaryInstance)
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: WebSocket already connected with primary instance $existingPrimaryId - attaching as SECONDARY")
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "MainActivity: WebSocket already connected with primary instance $existingPrimaryId - attaching as SECONDARY",
+                                )
+                                }
                                 // Don't call markAsPrimaryInstance() - let it attach as secondary via attachToExistingWebSocketIfAvailable()
                             } else {
                                 // No existing primary or WebSocket not connected - this instance should be PRIMARY
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Marking as PRIMARY (isWebSocketConnected=$isWebSocketConnected, existingPrimaryId=$existingPrimaryId)")
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "MainActivity: Marking as PRIMARY (isWebSocketConnected=$isWebSocketConnected, existingPrimaryId=$existingPrimaryId)",
+                                )
+                                }
                                 appViewModel.markAsPrimaryInstance()
                             }
-                            
+
                             // OPTIMIZATION: Check if opening from notification BEFORE initializing FCM
                             // This allows us to skip cache clearing to preserve preemptive pagination cache
                             val shortcutUserId = intent.getStringExtra(PersonsApi.EXTRA_USER_ID)
@@ -291,14 +303,19 @@ class MainActivity : FragmentActivity() {
                             val fromNotification = intent.getBooleanExtra("from_notification", false)
                             var matrixUri = intent.data
                             val notificationEventId = intent.getStringExtra("event_id")
-                            
+
                             // Handle custom MIME type from contacts
                             val mimeType = intent.type
                             if (mimeType == MatrixContactsProvider.MIME_TYPE_MATRIX_USER && matrixUri != null) {
                                 // Mark that we were opened from external app (Contacts)
                                 appViewModel.setOpenedFromExternalApp(true)
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Opened from Contacts app - will finish activity on back navigation")
-                                
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "MainActivity: Opened from Contacts app - will finish activity on back navigation",
+                                )
+                                }
+
                                 // Extract Matrix URI from contact data
                                 try {
                                     // Android Contacts sends a content:// URI pointing to the contact's data row
@@ -308,42 +325,84 @@ class MainActivity : FragmentActivity() {
                                         arrayOf(android.provider.ContactsContract.Data.DATA1), // Matrix URI is in DATA1
                                         null,
                                         null,
-                                        null
+                                        null,
                                     )
                                     cursor?.use {
                                         if (it.moveToFirst() && it.columnCount > 0) {
                                             val matrixUriString = it.getString(0)
-                                            if (!matrixUriString.isNullOrBlank() && matrixUriString.startsWith("matrix:")) {
+                                            if (!matrixUriString.isNullOrBlank() && matrixUriString.startsWith(
+                                                    "matrix:",
+                                                )
+                                            ) {
                                                 matrixUri = android.net.Uri.parse(matrixUriString)
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Extracted Matrix URI from contact MIME type: $matrixUriString")
+                                                if (BuildConfig.DEBUG) {
+                                                    Log.d(
+                                                    "Andromuks",
+                                                    "MainActivity: Extracted Matrix URI from contact MIME type: $matrixUriString",
+                                                )
+                                                }
                                             } else {
-                                                if (BuildConfig.DEBUG) Log.w("Andromuks", "MainActivity: Contact data row exists but DATA1 is empty or invalid: '$matrixUriString'")
+                                                if (BuildConfig.DEBUG) {
+                                                    Log.w(
+                                                    "Andromuks",
+                                                    "MainActivity: Contact data row exists but DATA1 is empty or invalid: '$matrixUriString'",
+                                                )
+                                                }
                                             }
                                         } else {
-                                            if (BuildConfig.DEBUG) Log.w("Andromuks", "MainActivity: Contact data row query returned no results for URI: $matrixUri")
+                                            if (BuildConfig.DEBUG) {
+                                                Log.w(
+                                                "Andromuks",
+                                                "MainActivity: Contact data row query returned no results for URI: $matrixUri",
+                                            )
+                                            }
                                         }
                                     } ?: run {
-                                        if (BuildConfig.DEBUG) Log.w("Andromuks", "MainActivity: Contact data row query returned null cursor for URI: $matrixUri")
+                                        if (BuildConfig.DEBUG) {
+                                            Log.w(
+                                            "Andromuks",
+                                            "MainActivity: Contact data row query returned null cursor for URI: $matrixUri",
+                                        )
+                                        }
                                     }
                                 } catch (e: SecurityException) {
-                                    Log.e("Andromuks", "MainActivity: Security exception querying contact (missing READ_CONTACTS permission?)", e)
+                                    Log.e(
+                                        "Andromuks",
+                                        "MainActivity: Security exception querying contact (missing READ_CONTACTS permission?)",
+                                        e,
+                                    )
                                 } catch (e: Exception) {
-                                    Log.e("Andromuks", "MainActivity: Error extracting Matrix URI from contact MIME type", e)
+                                    Log.e(
+                                        "Andromuks",
+                                        "MainActivity: Error extracting Matrix URI from contact MIME type",
+                                        e,
+                                    )
                                 }
                             }
-                            
+
                             // Also check if opened from matrix:u/ URI (could be from Contacts or other apps)
                             if (matrixUri != null && matrixUri.toString().startsWith("matrix:u/", ignoreCase = true)) {
                                 // Check if the calling package is Contacts app
                                 val callingPackage = callingPackage
-                                if (callingPackage != null && (callingPackage.contains("contacts", ignoreCase = true) || callingPackage == "com.android.contacts")) {
+                                if (callingPackage != null && (
+                                    callingPackage.contains(
+                                        "contacts",
+                                        ignoreCase = true,
+                                    ) || callingPackage == "com.android.contacts"
+                                )
+                                ) {
                                     appViewModel.setOpenedFromExternalApp(true)
-                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Opened from Contacts app via matrix:u/ URI - will finish activity on back navigation")
+                                    if (BuildConfig.DEBUG) {
+                                        Log.d(
+                                        "Andromuks",
+                                        "MainActivity: Opened from Contacts app via matrix:u/ URI - will finish activity on back navigation",
+                                    )
+                                    }
                                 }
                             }
-                            
+
                             if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
-                            
+
                             // Extract userId from matrix:u/ URI if present
                             var extractedUserId: String? = null
                             if (matrixUri != null) {
@@ -355,18 +414,33 @@ class MainActivity : FragmentActivity() {
                                         java.net.URLDecoder.decode(encodedUser, Charsets.UTF_8.name())
                                     }.getOrDefault(encodedUser)
                                     extractedUserId = if (decodedUser.startsWith("@")) decodedUser else "@$decodedUser"
-                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Extracted userId from matrix:u/ URI: $extractedUserId")
+                                    if (BuildConfig.DEBUG) {
+                                        Log.d(
+                                        "Andromuks",
+                                        "MainActivity: Extracted userId from matrix:u/ URI: $extractedUserId",
+                                    )
+                                    }
                                 }
                             }
-                            
+
                             val candidateRoomId = if (directNavigation && roomId != null) {
                                 // OPTIMIZATION #2: Fast path - room ID already extracted
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId")
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "MainActivity: onCreate - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId",
+                                )
+                                }
                                 roomId
                             } else {
                                 // Fallback to URI parsing for legacy intents
                                 val uriRoomId = extractRoomIdFromMatrixUri(matrixUri)
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - Fallback URI parsing: $uriRoomId")
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "MainActivity: onCreate - Fallback URI parsing: $uriRoomId",
+                                )
+                                }
                                 uriRoomId
                             }
                             // Reject malformed IDs from third-party intents before they reach any
@@ -375,17 +449,23 @@ class MainActivity : FragmentActivity() {
                             val extractedRoomId = candidateRoomId?.takeIf { isValidMatrixRoomId(it) }
                                 ?: run {
                                     if (candidateRoomId != null) {
-                                        Log.w("Andromuks", "MainActivity: onCreate - rejected malformed room_id from intent (length=${candidateRoomId.length})")
+                                        Log.w(
+                                            "Andromuks",
+                                            "MainActivity: onCreate - rejected malformed room_id from intent (length=${candidateRoomId.length})",
+                                        )
                                         // Release-visible: a malformed id silently drops the tap to
                                         // room_list (no setDirectRoomNavigation), so record why.
-                                        Androlog("FCMOpen", "onCreate REJECTED malformed room_id (length=${candidateRoomId.length}) directNav=$directNavigation fromNotif=$fromNotification → will land on room_list")
+                                        Androlog(
+                                            "FCMOpen",
+                                            "onCreate REJECTED malformed room_id (length=${candidateRoomId.length}) directNav=$directNavigation fromNotif=$fromNotification → will land on room_list",
+                                        )
                                     }
                                     null
                                 }
-                            
+
                             // OPTIMIZATION: Skip cache clearing if opening from notification to preserve preemptive pagination cache
                             val skipCacheClear = extractedRoomId != null && (fromNotification || directNavigation)
-                            
+
                             // CRITICAL: Initialize FCM first to set appContext before loading profiles
                             // Get homeserver URL and auth token from SharedPreferences
                             val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
@@ -411,7 +491,12 @@ class MainActivity : FragmentActivity() {
                                 net.vrkknn.andromuks.utils.ImageLoaderSingleton.initFromStorage(this@MainActivity)
                                 net.vrkknn.andromuks.utils.ImageLoaderSingleton.get(this@MainActivity)
                                 if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
-                                    appViewModel.initializeFCM(this@MainActivity, homeserverUrl, authToken, skipCacheClear)
+                                    appViewModel.initializeFCM(
+                                        this@MainActivity,
+                                        homeserverUrl,
+                                        authToken,
+                                        skipCacheClear,
+                                    )
                                 }
                                 appViewModel.loadCachedProfiles(this@MainActivity)
                                 appViewModel.loadSettings(this@MainActivity)
@@ -422,11 +507,16 @@ class MainActivity : FragmentActivity() {
                             // Do this BEFORE loading profiles so roomMap is populated early. These are
                             // in-memory state writes (Compose-observable), must stay on Main.
                             if (fromNotification || directNavigation) {
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Opening from notification/shortcut - populating roomMap from singleton cache")
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "MainActivity: Opening from notification/shortcut - populating roomMap from singleton cache",
+                                )
+                                }
                                 appViewModel.populateRoomMapFromCache()
                                 appViewModel.populateSpacesFromCache()
                             }
-                            
+
                             // CRITICAL FIX #2: Check for pending items on app startup and process them
                             // NOTE: This is called AFTER loadSettings to ensure syncIngestor can be initialized
                             // This ensures RoomListScreen shows up-to-date data when app opens
@@ -435,15 +525,20 @@ class MainActivity : FragmentActivity() {
                                 delay(500)
                                 appViewModel.checkAndProcessPendingItemsOnStartup(this@MainActivity)
                             }
-                            
+
                             // BATTERY OPTIMIZATION: Combined health check and auto-restart into single worker
                             // (reduces WorkManager wake-ups from 2 workers to 1)
                             WebSocketHealthCheckWorker.schedule(this)
-                            
+
                             if (extractedRoomId != null) {
                                 // CRITICAL FIX #2: Store room navigation and wait for WebSocket connection
                                 // This ensures proper state (spacesLoaded, WebSocket connected) before navigating
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - Storing direct room navigation to: $extractedRoomId (will wait for WebSocket)")
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "MainActivity: onCreate - Storing direct room navigation to: $extractedRoomId (will wait for WebSocket)",
+                                )
+                                }
                                 // Notification tap means the user has acknowledged the cached
                                 // MessagingStyle history for this room — drop it so the next
                                 // notification starts fresh, instead of replaying messages the
@@ -462,7 +557,7 @@ class MainActivity : FragmentActivity() {
                                 appViewModel.setDirectRoomNavigation(
                                     roomId = extractedRoomId,
                                     notificationTimestamp = null,
-                                    targetEventId = notificationEventId
+                                    targetEventId = notificationEventId,
                                 )
                                 // Mirror the onNewIntent (warm-start) FCMOpen breadcrumb for the
                                 // cold-start path so a "tap landed on room_list" report can be
@@ -476,7 +571,7 @@ class MainActivity : FragmentActivity() {
                                         "cached=${appViewModel.getRoomById(extractedRoomId) != null} " +
                                         "wsConn=${WebSocketService.isWebSocketConnected()} stuck=${WebSocketService.isConnectionStuck()} " +
                                         "spacesLoaded=${appViewModel.spacesLoaded} isPrimary=${appViewModel.isPrimaryInstance()} " +
-                                        "eventId=$notificationEventId"
+                                        "eventId=$notificationEventId",
                                 )
                                 if (!shortcutUserId.isNullOrBlank()) {
                                     appViewModel.reportPersonShortcutUsed(shortcutUserId)
@@ -486,10 +581,15 @@ class MainActivity : FragmentActivity() {
                             } else if (extractedUserId != null) {
                                 // Store user info navigation for matrix:u/ URIs
                                 // Navigate to user info screen when WebSocket is connected
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - Storing user info navigation for userId: $extractedUserId (will wait for WebSocket)")
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "MainActivity: onCreate - Storing user info navigation for userId: $extractedUserId (will wait for WebSocket)",
+                                )
+                                }
                                 appViewModel.setPendingUserInfoNavigation(extractedUserId)
                             }
-                            
+
                             // Register broadcast receiver for notification actions
                             registerNotificationBroadcastReceiver()
                             registerNotificationActionReceiver()
@@ -498,19 +598,32 @@ class MainActivity : FragmentActivity() {
                                 processShareIntent(storedIntent)
                                 pendingShareIntent = null
                             }
-                            
+
                             // Process pending reply intent if MainActivity was started from NotificationReplyReceiver
                             pendingReplyIntent?.let { replyIntent ->
                                 val roomId = replyIntent.getStringExtra("room_id")
                                 val replyText = getReplyText(replyIntent)
-                                
+
                                 if (roomId != null && replyText != null) {
-                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Processing pending reply for room: $roomId")
+                                    if (BuildConfig.DEBUG) {
+                                        Log.d(
+                                        "Andromuks",
+                                        "MainActivity: Processing pending reply for room: $roomId",
+                                    )
+                                    }
                                     appViewModel.sendMessageFromNotification(roomId, replyText) {
-                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Pending reply message sent successfully")
+                                        if (BuildConfig.DEBUG) {
+                                            Log.d(
+                                            "Andromuks",
+                                            "MainActivity: Pending reply message sent successfully",
+                                        )
+                                        }
                                     }
                                 } else {
-                                    Log.w("Andromuks", "MainActivity: Pending reply missing data - roomId: $roomId, replyText: $replyText")
+                                    Log.w(
+                                        "Andromuks",
+                                        "MainActivity: Pending reply missing data - roomId: $roomId, replyText: $replyText",
+                                    )
                                 }
                                 pendingReplyIntent = null
                             }
@@ -529,16 +642,21 @@ class MainActivity : FragmentActivity() {
                         if (!viewModelVisibilitySynced) {
                             viewModelVisibilitySynced = true
                             if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: ViewModel created after onResume - forcing visible state")
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "MainActivity: ViewModel created after onResume - forcing visible state",
+                                )
+                                }
                                 viewModel.onAppBecameVisible()
                             }
                         }
-                    }
+                    },
                 )
             }
         }
     }
-    
+
     private fun isShareIntent(intent: Intent?): Boolean {
         if (intent == null) return false
         val action = intent.action ?: return false
@@ -547,7 +665,12 @@ class MainActivity : FragmentActivity() {
 
     private fun processShareIntent(intent: Intent) {
         if (!::appViewModel.isInitialized) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: ViewModel not ready, storing share intent for later processing")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "MainActivity: ViewModel not ready, storing share intent for later processing",
+            )
+            }
             pendingShareIntent = intent
             return
         }
@@ -569,10 +692,12 @@ class MainActivity : FragmentActivity() {
             appViewModel.clearDirectRoomNavigation()
         }
         appViewModel.setPendingShare(shareItems, sharedText, targetRoomId)
-        if (BuildConfig.DEBUG) Log.d(
+        if (BuildConfig.DEBUG) {
+            Log.d(
             "Andromuks",
-            "MainActivity: Share intent processed with ${shareItems.size} media items, targetRoom=$targetRoomId"
+            "MainActivity: Share intent processed with ${shareItems.size} media items, targetRoom=$targetRoomId",
         )
+        }
 
         if (!targetRoomId.isNullOrBlank()) {
             if (!targetUserId.isNullOrBlank()) {
@@ -601,6 +726,7 @@ class MainActivity : FragmentActivity() {
                     items.add(SharedMediaItem(uri, mimeType))
                 }
             }
+
             Intent.ACTION_SEND_MULTIPLE -> {
                 val clipData = intent.clipData
                 if (clipData != null && clipData.itemCount > 0) {
@@ -647,56 +773,101 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun getStreamUri(intent: Intent): Uri? {
-        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+    private fun getStreamUri(intent: Intent): Uri? =
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
         } else {
             @Suppress("DEPRECATION")
             intent.getParcelableExtra(Intent.EXTRA_STREAM)
         }
-    }
 
     private fun registerNotificationBroadcastReceiver() {
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Registering notification broadcast receiver")
         notificationBroadcastReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Broadcast receiver got intent: ${intent?.action}")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "MainActivity: Broadcast receiver got intent: ${intent?.action}",
+                )
+                }
                 when (intent?.action) {
                     "net.vrkknn.andromuks.SEND_MESSAGE" -> {
                         val roomId = intent.getStringExtra("room_id")
                         val messageText = intent.getStringExtra("message_text")
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: SEND_MESSAGE broadcast - roomId: $roomId, messageText: $messageText")
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                            "Andromuks",
+                            "MainActivity: SEND_MESSAGE broadcast - roomId: $roomId, messageText: $messageText",
+                        )
+                        }
                         if (roomId != null && messageText != null) {
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Received send message broadcast for room $roomId: $messageText")
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                "Andromuks",
+                                "MainActivity: Received send message broadcast for room $roomId: $messageText",
+                            )
+                            }
                             appViewModel.sendMessageFromNotification(roomId, messageText) {
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Broadcast send message completed")
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "MainActivity: Broadcast send message completed",
+                                )
+                                }
                                 // Update the notification with the sent message
                                 try {
                                     val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
                                     val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
                                     val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
-                                    
+
                                     if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
-                                        val enhancedNotificationDisplay = EnhancedNotificationDisplay(this@MainActivity, homeserverUrl, authToken)
+                                        val enhancedNotificationDisplay = EnhancedNotificationDisplay(
+                                            this@MainActivity,
+                                            homeserverUrl,
+                                            authToken,
+                                        )
                                         enhancedNotificationDisplay.updateNotificationWithReply(roomId, messageText)
-                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Updated notification with reply for room: $roomId")
+                                        if (BuildConfig.DEBUG) {
+                                            Log.d(
+                                            "Andromuks",
+                                            "MainActivity: Updated notification with reply for room: $roomId",
+                                        )
+                                        }
                                     } else {
-                                        Log.w("Andromuks", "MainActivity: Cannot update notification - missing homeserver or auth token")
+                                        Log.w(
+                                            "Andromuks",
+                                            "MainActivity: Cannot update notification - missing homeserver or auth token",
+                                        )
                                     }
                                 } catch (e: Exception) {
                                     Log.e("Andromuks", "MainActivity: Error updating notification with reply", e)
                                 }
                             }
                         } else {
-                            Log.w("Andromuks", "MainActivity: SEND_MESSAGE broadcast missing data - roomId: $roomId, messageText: $messageText")
+                            Log.w(
+                                "Andromuks",
+                                "MainActivity: SEND_MESSAGE broadcast missing data - roomId: $roomId, messageText: $messageText",
+                            )
                         }
                     }
+
                     "net.vrkknn.andromuks.MARK_READ" -> {
                         val roomId = intent.getStringExtra("room_id")
                         val eventId = intent.getStringExtra("event_id")
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: MARK_READ broadcast - roomId: $roomId, eventId: $eventId")
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                            "Andromuks",
+                            "MainActivity: MARK_READ broadcast - roomId: $roomId, eventId: $eventId",
+                        )
+                        }
                         if (roomId != null) {
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Received mark read broadcast for room $roomId, event: $eventId")
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                "Andromuks",
+                                "MainActivity: Received mark read broadcast for room $roomId, event: $eventId",
+                            )
+                            }
                             appViewModel.markRoomAsReadFromNotification(roomId, eventId ?: "") {
                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Broadcast mark read completed")
                                 // Update the notification to show it's been read
@@ -704,13 +875,25 @@ class MainActivity : FragmentActivity() {
                                     val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
                                     val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
                                     val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
-                                    
+
                                     if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
-                                        val enhancedNotificationDisplay = EnhancedNotificationDisplay(this@MainActivity, homeserverUrl, authToken)
+                                        val enhancedNotificationDisplay = EnhancedNotificationDisplay(
+                                            this@MainActivity,
+                                            homeserverUrl,
+                                            authToken,
+                                        )
                                         enhancedNotificationDisplay.updateNotificationAsRead(roomId)
-                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Updated notification as read for room: $roomId")
+                                        if (BuildConfig.DEBUG) {
+                                            Log.d(
+                                            "Andromuks",
+                                            "MainActivity: Updated notification as read for room: $roomId",
+                                        )
+                                        }
                                     } else {
-                                        Log.w("Andromuks", "MainActivity: Cannot update notification - missing homeserver or auth token")
+                                        Log.w(
+                                            "Andromuks",
+                                            "MainActivity: Cannot update notification - missing homeserver or auth token",
+                                        )
                                     }
                                 } catch (e: Exception) {
                                     Log.e("Andromuks", "MainActivity: Error updating notification as read", e)
@@ -720,11 +903,22 @@ class MainActivity : FragmentActivity() {
                             Log.w("Andromuks", "MainActivity: MARK_READ broadcast missing roomId")
                         }
                     }
+
                     "net.vrkknn.andromuks.PREEMPTIVE_PAGINATE" -> {
                         val roomId = intent.getStringExtra("room_id")
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: PREEMPTIVE_PAGINATE broadcast - roomId: $roomId")
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                            "Andromuks",
+                            "MainActivity: PREEMPTIVE_PAGINATE broadcast - roomId: $roomId",
+                        )
+                        }
                         if (roomId != null) {
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Received preemptive pagination request for room $roomId")
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                "Andromuks",
+                                "MainActivity: Received preemptive pagination request for room $roomId",
+                            )
+                            }
                             appViewModel.triggerPreemptivePagination(roomId)
                         } else {
                             Log.w("Andromuks", "MainActivity: PREEMPTIVE_PAGINATE broadcast missing roomId")
@@ -737,56 +931,84 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
-        
+
         val filter = IntentFilter().apply {
             addAction("net.vrkknn.andromuks.SEND_MESSAGE")
             addAction("net.vrkknn.andromuks.MARK_READ")
             addAction("net.vrkknn.andromuks.PREEMPTIVE_PAGINATE")
-
         }
         registerReceiver(notificationBroadcastReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Notification broadcast receiver registered successfully")
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            "Andromuks",
+            "MainActivity: Notification broadcast receiver registered successfully",
+        )
+        }
     }
-    
+
     private fun registerNotificationActionReceiver() {
         notificationActionReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 when (intent?.action) {
                     "net.vrkknn.andromuks.ACTION_REPLY" -> {
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: ACTION_REPLY received in broadcast receiver")
-                        
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                            "Andromuks",
+                            "MainActivity: ACTION_REPLY received in broadcast receiver",
+                        )
+                        }
+
                         // DEDUPLICATION: Check if this is a duplicate from NotificationReplyReceiver
                         // The receiver forwards via ordered broadcast, which can be received multiple times
                         val fromReplyReceiver = intent.getBooleanExtra("from_reply_receiver", false)
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: ACTION_REPLY from_reply_receiver: $fromReplyReceiver")
-                        
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                            "Andromuks",
+                            "MainActivity: ACTION_REPLY from_reply_receiver: $fromReplyReceiver",
+                        )
+                        }
+
                         val roomId = intent.getStringExtra("room_id")
                         val eventId = intent.getStringExtra("event_id")
                         val replyText = getReplyText(intent)
-                        
+
                         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Reply data extracted - roomId: $roomId, eventId: $eventId, replyText: '$replyText'")
-                        
+
                         if (roomId != null && replyText != null) {
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Calling appViewModel.sendMessageFromNotification for room: $roomId")
-                            
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                "Andromuks",
+                                "MainActivity: Calling appViewModel.sendMessageFromNotification for room: $roomId",
+                            )
+                            }
+
                             // Mark that we're processing a reply to prevent notification updates during Android's processing window
                             // This prevents race conditions that cause duplicate sends
                             try {
                                 val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
                                 val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
                                 val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
-                                
+
                                 if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
-                                    val enhancedNotificationDisplay = EnhancedNotificationDisplay(this@MainActivity, homeserverUrl, authToken)
+                                    val enhancedNotificationDisplay = EnhancedNotificationDisplay(
+                                        this@MainActivity,
+                                        homeserverUrl,
+                                        authToken,
+                                    )
                                     enhancedNotificationDisplay.markReplyProcessing(roomId)
                                 }
                             } catch (e: Exception) {
                                 Log.e("Andromuks", "MainActivity: Error marking reply processing", e)
                             }
-                            
+
                             // Deduplication is handled in sendMessageFromNotification
                             appViewModel.sendMessageFromNotification(roomId, replyText) {
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Reply message sent successfully")
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "MainActivity: Reply message sent successfully",
+                                )
+                                }
                                 // Update the notification with the sent message
                                 // Add a delay to let Android finish processing the reply action first
                                 // This prevents race conditions that cause duplicate sends
@@ -794,84 +1016,137 @@ class MainActivity : FragmentActivity() {
                                     delay(200) // 200ms delay to let Android finish processing
                                     try {
                                         val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-                                        val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
+                                        val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(
+                                            sharedPrefs,
+                                        )
                                         val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
-                                        
+
                                         if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
-                                            val enhancedNotificationDisplay = EnhancedNotificationDisplay(this@MainActivity, homeserverUrl, authToken)
+                                            val enhancedNotificationDisplay = EnhancedNotificationDisplay(
+                                                this@MainActivity,
+                                                homeserverUrl,
+                                                authToken,
+                                            )
                                             enhancedNotificationDisplay.updateNotificationWithReply(roomId, replyText)
-                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Updated notification with reply for room: $roomId (after delay)")
+                                            if (BuildConfig.DEBUG) {
+                                                Log.d(
+                                                "Andromuks",
+                                                "MainActivity: Updated notification with reply for room: $roomId (after delay)",
+                                            )
+                                            }
                                         } else {
-                                            Log.w("Andromuks", "MainActivity: Cannot update notification - missing homeserver or auth token")
+                                            Log.w(
+                                                "Andromuks",
+                                                "MainActivity: Cannot update notification - missing homeserver or auth token",
+                                            )
                                         }
                                     } catch (e: Exception) {
                                         Log.e("Andromuks", "MainActivity: Error updating notification with reply", e)
                                     }
                                 }
                             }
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: sendMessageFromNotification call completed")
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                "Andromuks",
+                                "MainActivity: sendMessageFromNotification call completed",
+                            )
+                            }
                             // Abort broadcast to prevent other receivers from processing this reply
                             abortBroadcast()
                         } else {
-                            Log.w("Andromuks", "MainActivity: Missing required data - roomId: $roomId, replyText: $replyText")
+                            Log.w(
+                                "Andromuks",
+                                "MainActivity: Missing required data - roomId: $roomId, replyText: $replyText",
+                            )
                         }
                     }
+
                     "net.vrkknn.andromuks.ACTION_MARK_READ" -> {
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: ACTION_MARK_READ received in broadcast receiver")
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                            "Andromuks",
+                            "MainActivity: ACTION_MARK_READ received in broadcast receiver",
+                        )
+                        }
                         val roomId = intent.getStringExtra("room_id")
                         val eventId = intent.getStringExtra("event_id")
-                        
+
                         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Mark read data extracted - roomId: $roomId, eventId: '$eventId'")
-                        
+
                         if (roomId != null && eventId != null && eventId.isNotEmpty()) {
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Calling appViewModel.markRoomAsReadFromNotification for room: $roomId, event: $eventId")
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                "Andromuks",
+                                "MainActivity: Calling appViewModel.markRoomAsReadFromNotification for room: $roomId, event: $eventId",
+                            )
+                            }
                             appViewModel.markRoomAsReadFromNotification(roomId, eventId) {
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Mark read completed successfully")
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "MainActivity: Mark read completed successfully",
+                                )
+                                }
                                 // Update the notification to show it's been read
                                 try {
                                     val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
                                     val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
                                     val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
-                                    
+
                                     if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
-                                        val enhancedNotificationDisplay = EnhancedNotificationDisplay(this@MainActivity, homeserverUrl, authToken)
+                                        val enhancedNotificationDisplay = EnhancedNotificationDisplay(
+                                            this@MainActivity,
+                                            homeserverUrl,
+                                            authToken,
+                                        )
                                         enhancedNotificationDisplay.updateNotificationAsRead(roomId)
-                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Updated notification as read for room: $roomId")
+                                        if (BuildConfig.DEBUG) {
+                                            Log.d(
+                                            "Andromuks",
+                                            "MainActivity: Updated notification as read for room: $roomId",
+                                        )
+                                        }
                                     } else {
-                                        Log.w("Andromuks", "MainActivity: Cannot update notification - missing homeserver or auth token")
+                                        Log.w(
+                                            "Andromuks",
+                                            "MainActivity: Cannot update notification - missing homeserver or auth token",
+                                        )
                                     }
                                 } catch (e: Exception) {
                                     Log.e("Andromuks", "MainActivity: Error updating notification as read", e)
                                 }
                             }
                         } else {
-                            Log.w("Andromuks", "MainActivity: Missing required data for mark read - roomId: $roomId, eventId: '$eventId'")
+                            Log.w(
+                                "Andromuks",
+                                "MainActivity: Missing required data for mark read - roomId: $roomId, eventId: '$eventId'",
+                            )
                         }
                     }
                 }
             }
         }
-        
+
         val filter = IntentFilter().apply {
             addAction("net.vrkknn.andromuks.ACTION_REPLY")
             addAction("net.vrkknn.andromuks.ACTION_MARK_READ")
         }
         registerReceiver(notificationActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
     }
-    
+
     private fun getReplyText(intent: Intent): String? {
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: getReplyText called")
         val remoteInputResults = androidx.core.app.RemoteInput.getResultsFromIntent(intent)
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: RemoteInput results: $remoteInputResults")
-        
+
         val replyText = remoteInputResults
             ?.getCharSequence("key_reply_text")
             ?.toString()
-            
+
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Extracted reply text: '$replyText'")
         return replyText
     }
-    
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -887,14 +1162,27 @@ class MainActivity : FragmentActivity() {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - ACTION_REPLY received")
             val roomId = intent.getStringExtra("room_id")
             val replyText = getReplyText(intent)
-            
+
             if (roomId != null && replyText != null && ::appViewModel.isInitialized) {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - Processing reply for room: $roomId")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "MainActivity: onNewIntent - Processing reply for room: $roomId",
+                )
+                }
                 appViewModel.sendMessageFromNotification(roomId, replyText) {
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - Reply message sent successfully")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        "Andromuks",
+                        "MainActivity: onNewIntent - Reply message sent successfully",
+                    )
+                    }
                 }
             } else {
-                Log.w("Andromuks", "MainActivity: onNewIntent - Missing data or ViewModel not initialized - roomId: $roomId, replyText: $replyText")
+                Log.w(
+                    "Andromuks",
+                    "MainActivity: onNewIntent - Missing data or ViewModel not initialized - roomId: $roomId, replyText: $replyText",
+                )
             }
             return
         }
@@ -910,15 +1198,15 @@ class MainActivity : FragmentActivity() {
                     java.net.URLDecoder.decode(encodedUser, Charsets.UTF_8.name())
                 }.getOrDefault(encodedUser)
                 val userId = if (decodedUser.startsWith("@")) decodedUser else "@$decodedUser"
-                
+
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - matrix:u/ URI received for userId: $userId")
-                
+
                 // Store for navigation in the composable (AppNavigation will handle it)
                 appViewModel.setPendingUserInfoNavigation(userId)
                 return
             }
         }
-        
+
         if (isShareIntent(intent)) {
             if (::appViewModel.isInitialized) {
                 processShareIntent(intent)
@@ -927,7 +1215,7 @@ class MainActivity : FragmentActivity() {
             }
             return
         }
-        
+
         // OPTIMIZATION #2: Optimized intent processing for onNewIntent
         val shortcutUserId = intent.getStringExtra(PersonsApi.EXTRA_USER_ID)
         val roomId = intent.getStringExtra("room_id")
@@ -935,12 +1223,17 @@ class MainActivity : FragmentActivity() {
         val fromNotification = intent.getBooleanExtra("from_notification", false)
         // matrixUri already declared above for matrix:u/ URI handling
         val notificationEventId = intent.getStringExtra("event_id")
-        
+
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
-        
+
         val candidateRoomId = if (directNavigation && roomId != null) {
             // OPTIMIZATION #2: Fast path - room ID already extracted
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "MainActivity: onNewIntent - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId",
+            )
+            }
             roomId
         } else {
             // Fallback to URI parsing for legacy intents
@@ -953,24 +1246,43 @@ class MainActivity : FragmentActivity() {
         val extractedRoomId = candidateRoomId?.takeIf { isValidMatrixRoomId(it) }
             ?: run {
                 if (candidateRoomId != null) {
-                    Log.w("Andromuks", "MainActivity: onNewIntent - rejected malformed room_id from intent (length=${candidateRoomId.length})")
-                    Androlog("FCMOpen", "onNewIntent REJECTED malformed room_id (length=${candidateRoomId.length}) directNav=$directNavigation fromNotif=$fromNotification → will stay on current screen")
+                    Log.w(
+                        "Andromuks",
+                        "MainActivity: onNewIntent - rejected malformed room_id from intent (length=${candidateRoomId.length})",
+                    )
+                    Androlog(
+                        "FCMOpen",
+                        "onNewIntent REJECTED malformed room_id (length=${candidateRoomId.length}) directNav=$directNavigation fromNotif=$fromNotification → will stay on current screen",
+                    )
                 }
                 null
             }
-        
+
         extractedRoomId?.let { roomId ->
             if (::appViewModel.isInitialized) {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - Direct navigation to room: $roomId")
-                Androlog("FCMOpen", "onNewIntent room=$roomId fromNotif=$fromNotification stuck=${WebSocketService.isConnectionStuck()} wsConn=${WebSocketService.isWebSocketConnected()}")
-                WebSocketService.logActivity("FCMOpen: onNewIntent room=$roomId fromNotif=$fromNotification stuck=${WebSocketService.isConnectionStuck()} wsConn=${WebSocketService.isWebSocketConnected()}")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "MainActivity: onNewIntent - Direct navigation to room: $roomId",
+                )
+                }
+                Androlog(
+                    "FCMOpen",
+                    "onNewIntent room=$roomId fromNotif=$fromNotification stuck=${WebSocketService.isConnectionStuck()} wsConn=${WebSocketService.isWebSocketConnected()}",
+                )
+                WebSocketService.logActivity(
+                    "FCMOpen: onNewIntent room=$roomId fromNotif=$fromNotification stuck=${WebSocketService.isConnectionStuck()} wsConn=${WebSocketService.isWebSocketConnected()}",
+                )
 
                 // CRITICAL FIX: Check if WebSocket is stuck and trigger recovery
                 // This fixes the issue where FCM notifications don't recover stuck connections
                 // (unlike permanent notification which recreates MainActivity via onCreate)
                 val isStuck = WebSocketService.isConnectionStuck()
                 if (isStuck) {
-                    android.util.Log.w("Andromuks", "MainActivity: onNewIntent - WebSocket stuck detected - triggering recovery")
+                    android.util.Log.w(
+                        "Andromuks",
+                        "MainActivity: onNewIntent - WebSocket stuck detected - triggering recovery",
+                    )
                     // Ensure this instance is primary and callbacks are registered
                     appViewModel.markAsPrimaryInstance()
                     // Get credentials and force reconnection
@@ -980,10 +1292,13 @@ class MainActivity : FragmentActivity() {
                     if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
                         appViewModel.initializeWebSocketConnection(homeserverUrl, authToken)
                     } else {
-                        android.util.Log.w("Andromuks", "MainActivity: onNewIntent - Cannot recover: credentials missing")
+                        android.util.Log.w(
+                            "Andromuks",
+                            "MainActivity: onNewIntent - Cannot recover: credentials missing",
+                        )
                     }
                 }
-                
+
                 // Notification tap means the user has acknowledged the cached
                 // MessagingStyle history for this room — drop it so the next
                 // notification starts fresh, instead of replaying messages the
@@ -998,7 +1313,7 @@ class MainActivity : FragmentActivity() {
                 appViewModel.setDirectRoomNavigation(
                     roomId = roomId,
                     notificationTimestamp = null,
-                    targetEventId = notificationEventId
+                    targetEventId = notificationEventId,
                 )
                 if (!shortcutUserId.isNullOrBlank()) {
                     appViewModel.reportPersonShortcutUsed(shortcutUserId)
@@ -1030,7 +1345,7 @@ class MainActivity : FragmentActivity() {
             Log.w("Andromuks", "MainActivity: Error unregistering broadcast receivers", e)
         }
     }
-    
+
     override fun onStop() {
         super.onStop()
         if (userLeftTask) {
@@ -1047,14 +1362,14 @@ class MainActivity : FragmentActivity() {
             appViewModel.onAppBecameInvisible()
         }
     }
-    
+
     override fun onResume() {
         super.onResume()
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onResume called")
         if (::appViewModel.isInitialized) {
             appViewModel.onAppBecameVisible()
         }
-        
+
         // Broadcast that app is now in foreground so screens can refresh
         val foregroundRefreshIntent = Intent("net.vrkknn.andromuks.FOREGROUND_REFRESH")
         sendBroadcast(foregroundRefreshIntent)
@@ -1087,11 +1402,17 @@ class MainActivity : FragmentActivity() {
         flagsMask: Int,
         flagsValues: Int,
         extraFlags: Int,
-        options: Bundle?
+        options: Bundle?,
     ) {
         if (::appViewModel.isInitialized) appViewModel.suppressNextAutoLock = true
         super.startIntentSenderForResult(
-            intent, requestCode, fillInIntent, flagsMask, flagsValues, extraFlags, options
+            intent,
+            requestCode,
+            fillInIntent,
+            flagsMask,
+            flagsValues,
+            extraFlags,
+            options,
         )
     }
 
@@ -1119,7 +1440,7 @@ class MainActivity : FragmentActivity() {
         }
 
         val uriString = uri.toString()
-        
+
         // Handle custom MIME type from contacts (content:// URI)
         // Extract Matrix URI from contact data
         if (uriString.startsWith("content://")) {
@@ -1129,13 +1450,18 @@ class MainActivity : FragmentActivity() {
                     arrayOf(android.provider.ContactsContract.Data.DATA1), // Matrix URI is in DATA1
                     null,
                     null,
-                    null
+                    null,
                 )
                 cursor?.use {
                     if (it.moveToFirst()) {
                         val matrixUriString = it.getString(0)
                         if (matrixUriString != null && matrixUriString.startsWith("matrix:u/")) {
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Extracted Matrix URI from contact: $matrixUriString")
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                "Andromuks",
+                                "MainActivity: Extracted Matrix URI from contact: $matrixUriString",
+                            )
+                            }
                             // Recursively call with the extracted Matrix URI
                             return extractRoomIdFromMatrixUri(android.net.Uri.parse(matrixUriString))
                         }
@@ -1150,10 +1476,12 @@ class MainActivity : FragmentActivity() {
             // matrix:u/ URIs should navigate to user info screen, not resolve to rooms
             // This function is for room navigation, so return null for user URIs
             // The actual navigation to user info is handled in onCreate/onNewIntent
-            if (BuildConfig.DEBUG) Log.d(
+            if (BuildConfig.DEBUG) {
+                Log.d(
                 "Andromuks",
-                "MainActivity: extractRoomIdFromMatrixUri - matrix:u/ URI detected, returning null (user info navigation handled separately)"
+                "MainActivity: extractRoomIdFromMatrixUri - matrix:u/ URI detected, returning null (user info navigation handled separately)",
             )
+            }
             return null
         }
 
@@ -1163,7 +1491,7 @@ class MainActivity : FragmentActivity() {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Extracted room link: ${roomLink.roomIdOrAlias}")
             return roomLink.roomIdOrAlias
         }
-        
+
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Could not extract room link from URI")
         return null
     }
@@ -1171,10 +1499,7 @@ class MainActivity : FragmentActivity() {
 
 @OptIn(ExperimentalAnimationApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
-fun AppNavigation(
-    modifier: Modifier,
-    onViewModelCreated: (AppViewModel) -> Unit = {}
-) {
+fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit = {}) {
     val navController = rememberNavController()
     val appViewModel: AppViewModel = viewModel()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -1299,7 +1624,7 @@ fun AppNavigation(
             }
         }
     }
-    
+
     // Handle pending user info navigation (from matrix:u/ URIs)
     // Check both the trigger and directly check for pending navigation
     val pendingUserInfoTrigger = appViewModel.pendingUserInfoNavigationTrigger
@@ -1309,7 +1634,12 @@ fun AppNavigation(
             // Wait for navigation to be ready (not on auth_check screen)
             val currentRoute = navController.currentBackStackEntry?.destination?.route
             if (currentRoute != null && currentRoute != "auth_check") {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppNavigation: Navigating to user info for: $pendingUserId (currentRoute=$currentRoute)")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "AppNavigation: Navigating to user info for: $pendingUserId (currentRoute=$currentRoute)",
+                )
+                }
                 appViewModel.clearPendingUserInfoNavigation()
                 val encodedUserId = java.net.URLEncoder.encode(pendingUserId, "UTF-8")
                 navController.navigate("user_info/$encodedUserId") {
@@ -1317,11 +1647,16 @@ fun AppNavigation(
                 }
             } else if (pendingUserInfoTrigger > 0) {
                 // Trigger is set but we're still on auth_check, navigation will happen in AuthCheck
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppNavigation: Pending user info navigation will be handled by AuthCheck (currentRoute=$currentRoute)")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "AppNavigation: Pending user info navigation will be handled by AuthCheck (currentRoute=$currentRoute)",
+                )
+                }
             }
         }
     }
-    
+
     // Centralised notification/shortcut room navigation. Lives at the NavHost scope so it
     // works regardless of which screen is on top — previously this collector lived inside
     // RoomListScreen, so opening a room from FCM while sitting on RoomInfoScreen (or any
@@ -1338,15 +1673,26 @@ fun AppNavigation(
             // SHORTCUT/RESTORE do NOT bump the trigger, so RT cannot handle them — these
             // proceed even when room_timeline is the active route.
             if (request.source == RoomNavigationRequest.Source.NOTIFICATION &&
-                navController.currentBackStackEntry?.destination?.route?.startsWith("room_timeline/") == true) {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "AppNavigation: NOTIFICATION to ${request.roomId} while room_timeline active — deferring to RoomTimelineScreen navTrigger handler")
+                navController.currentBackStackEntry?.destination?.route?.startsWith("room_timeline/") == true
+            ) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "AppNavigation: NOTIFICATION to ${request.roomId} while room_timeline active — deferring to RoomTimelineScreen navTrigger handler",
+                )
+                }
                 return@collectLatest
             }
 
             // Same-room guard: if the target room is the one currentRoomId points at,
             // defer to RT's same-room handler so it can scroll-to-event without reloading.
             if (request.roomId == appViewModel.currentRoomId) {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "AppNavigation: Same room already current (${request.roomId}), deferring to RoomTimelineScreen same-room handler")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "AppNavigation: Same room already current (${request.roomId}), deferring to RoomTimelineScreen same-room handler",
+                )
+                }
                 return@collectLatest
             }
 
@@ -1354,7 +1700,12 @@ fun AppNavigation(
             val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
             val isRoomCached = cachedEventCount >= 10 || RoomTimelineCache.isRoomActivelyCached(roomId)
 
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "AppNavigation: channel navigation request — room=$roomId source=${request.source} cached=$isRoomCached ($cachedEventCount events)")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "AppNavigation: channel navigation request — room=$roomId source=${request.source} cached=$isRoomCached ($cachedEventCount events)",
+            )
+            }
 
             // Poll until both WS and (for uncached rooms) spacesLoaded are ready, or 10s elapses.
             val deadlineMs = System.currentTimeMillis() + 10_000L
@@ -1370,10 +1721,16 @@ fun AppNavigation(
                 // Deadline expired without readiness — executeRoomNavigation runs anyway
                 // below, but against a half-ready state, so the open can stall or fall back
                 // to room_list. Record it (release-visible).
-                Androlog("FCMOpen", "AppNavigation poll TIMEOUT (10s) room=$roomId source=${request.source} cached=$isRoomCached wsConn=${appViewModel.isWebSocketConnected()} spacesLoaded=${appViewModel.spacesLoaded}")
+                Androlog(
+                    "FCMOpen",
+                    "AppNavigation poll TIMEOUT (10s) room=$roomId source=${request.source} cached=$isRoomCached wsConn=${appViewModel.isWebSocketConnected()} spacesLoaded=${appViewModel.spacesLoaded}",
+                )
             }
             if (BuildConfig.DEBUG) {
-                Log.d("Andromuks", "AppNavigation: poll done for $roomId (ws=${appViewModel.isWebSocketConnected()} spaces=${appViewModel.spacesLoaded} currentRoom=${appViewModel.currentRoomId})")
+                Log.d(
+                    "Andromuks",
+                    "AppNavigation: poll done for $roomId (ws=${appViewModel.isWebSocketConnected()} spaces=${appViewModel.spacesLoaded} currentRoom=${appViewModel.currentRoomId})",
+                )
             }
 
             // Post-poll guard: for FCM cold-start, AuthCheck's navigation callback fires
@@ -1383,7 +1740,12 @@ fun AppNavigation(
             // avoid a second navigateToRoomWithCache + popUpTo that re-composes the timeline
             // and causes the "timeline renders then vanishes" symptom.
             if (request.roomId == appViewModel.currentRoomId) {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "AppNavigation: $roomId is already current after poll — AuthCheck handled it, bailing")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "AppNavigation: $roomId is already current after poll — AuthCheck handled it, bailing",
+                )
+                }
                 return@collectLatest
             }
 
@@ -1401,729 +1763,787 @@ fun AppNavigation(
     // BiometricLockGate optionally overlays an app-lock and drives biometric re-auth (no-op unless
     // the user enabled "Require biometric"); it does not wrap chat-bubble windows.
     Box(modifier = modifier) {
-    BiometricLockGate(appViewModel) {
-    SharedTransitionLayout {
-        NavHost(
-        navController = navController,
-        startDestination = "auth_check",
-        modifier = Modifier
-            .fillMaxSize()
-            .background(androidx.compose.material3.MaterialTheme.colorScheme.background)
-    ) {
-        composable(
-            route = "login?url={url}&username={username}",
-            arguments = listOf(
-                navArgument("url") { defaultValue = "https://"; type = NavType.StringType },
-                navArgument("username") { defaultValue = ""; type = NavType.StringType },
-            )
-        ) { backStackEntry ->
-            LoginScreen(
-                navController = navController,
-                modifier = modifier,
-                appViewModel = appViewModel,
-                initialUrl = backStackEntry.arguments?.getString("url") ?: "https://",
-                initialUsername = backStackEntry.arguments?.getString("username") ?: "",
-            )
-        }
-        composable("room_maker") {
-            RoomMakerScreen(
-                appViewModel = appViewModel,
-                navController = navController,
-                modifier = modifier
-            )
-        }
-        composable(
-            "auth_check",
-            // Instant exit — AuthCheck is now a logic-only blank screen so there's no
-            // shared-element avatar flight to wait on. Letting it disappear immediately
-            // unblocks the room_list paint by ~600ms.
-            exitTransition = { androidx.compose.animation.ExitTransition.None },
-            popExitTransition = { androidx.compose.animation.ExitTransition.None }
-        ) {
-            AuthCheckScreen(
-                navController = navController,
-                modifier = modifier,
-                appViewModel = appViewModel,
-            )
-        }
-        composable("permissions") {
-            PermissionsScreen(
-                onPermissionsGranted = {
-                    // Navigate to auth_check after permissions are granted
-                    // This will trigger WebSocket connection
-                    navController.navigate("auth_check") {
-                        popUpTo("permissions") { inclusive = true }
-                    }
-                },
-                modifier = modifier
-            )
-        }
-        composable(
-            route = "room_list",
-            enterTransition = {
-                // Instant entry from auth_check — AuthCheck is now a logic-only blank screen,
-                // there's no shared avatar to fly, so we want room_list visible the moment the
-                // route swaps. Other entry paths (from room_timeline etc.) keep the default.
-                if (initialState.destination.route == "auth_check") {
-                    androidx.compose.animation.EnterTransition.None
-                } else {
-                    null
-                }
-            },
-            exitTransition = {
-                // Opening a room: no fade — the list stays solid behind the flying avatar so the
-                // shared-element flight is the only motion. Fade only for other exits.
-                if (targetState.destination.route?.startsWith("room_timeline") == true) null
-                else fadeOut(tween(scaledTweenMs(200)))
-            },
-            popEnterTransition = {
-                // Returning from a room: appear instantly under the avatar (shared-element flight only).
-                if (initialState.destination.route?.startsWith("room_timeline") == true) null
-                else fadeIn(tween(scaledTweenMs(200)))
-            },
-            popExitTransition = { fadeOut(tween(scaledTweenMs(200))) }
-        ) { backStackEntry ->
-            val navigationScope = this
-            // CRITICAL FIX: Always show StartupLoadingScreen initially to prevent white flash during navigation
-            // Use Box with background to ensure no white flash even during transition
-            androidx.compose.foundation.layout.Box(
-                modifier = modifier
-                    .fillMaxSize()
-                    .background(androidx.compose.material3.MaterialTheme.colorScheme.background)
-            ) {
-                // Show startup loading screen until startup is complete
-                val isStartupComplete = appViewModel.isStartupComplete
-                val progressMessages = appViewModel.startupProgressMessages
-                val initialSyncComplete = appViewModel.initialSyncComplete
-                val spacesLoaded = appViewModel.spacesLoaded
-                
-                
-                // Periodically check if startup is complete (when state changes)
-                // CRITICAL: Also check initialSyncProcessingComplete to ensure all queued messages are processed
-                val initialSyncProcessingComplete = appViewModel.initialSyncProcessingComplete
-                val currentUserProfile = appViewModel.currentUserProfile
-                val currentUserId = appViewModel.currentUserId
-                val context = androidx.compose.ui.platform.LocalContext.current
-                val sharedPrefs = remember(context) {
-                    context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-                }
-                val startupAvatarMxc = remember(currentUserProfile?.avatarUrl, currentUserId) {
-                    currentUserProfile?.avatarUrl?.takeIf { it.isNotBlank() }
-                        ?: currentUserId
-                            .takeIf { it.isNotBlank() }
-                            ?.let { appViewModel.getUserProfile(it, null)?.avatarUrl?.takeIf { avatar -> avatar.isNotBlank() } }
-                        ?: sharedPrefs.getString("current_user_avatar_mxc", null)?.takeIf { it.isNotBlank() }
-                }
-                val startupDisplayName = currentUserProfile?.displayName ?: currentUserId
-                val startupHomeserverUrl =
-                    appViewModel.homeserverUrl.takeIf { it.isNotBlank() }
-                        ?: sharedPrefs.getString("homeserver_url", "").orEmpty()
-                val startupAuthToken =
-                    appViewModel.authToken.takeIf { it.isNotBlank() }
-                        ?: net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
-                var showStartupMorphOverlay by remember(startupAvatarMxc) { mutableStateOf(false) }
-                LaunchedEffect(startupAvatarMxc) {
-                    if (startupAvatarMxc != null) {
-                        showStartupMorphOverlay = false
-                        delay(220)
-                        showStartupMorphOverlay = true
-                    } else {
-                        showStartupMorphOverlay = false
-                    }
-                }
-                
-                androidx.compose.runtime.LaunchedEffect(
-                    initialSyncComplete, 
-                    initialSyncProcessingComplete, 
-                    spacesLoaded, 
-                    appViewModel.roomListUpdateCounter,
-                    currentUserProfile,
-                    currentUserId
+        BiometricLockGate(appViewModel) {
+            SharedTransitionLayout {
+                NavHost(
+                    navController = navController,
+                    startDestination = "auth_check",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(androidx.compose.material3.MaterialTheme.colorScheme.background),
                 ) {
-                    appViewModel.checkStartupComplete()
-                }
-                
-                // SAFETY: Timeout fallback - if startup takes too long (30 seconds), log warning
-                // This helps diagnose infinite stalls (but doesn't force completion - let checkStartupComplete handle it)
-                androidx.compose.runtime.LaunchedEffect(Unit) {
-                    kotlinx.coroutines.delay(30000) // 30 second timeout
-                    if (!appViewModel.isStartupComplete) {
-                        android.util.Log.w("Andromuks", "🟦 MainActivity: Startup timeout (30s) - still waiting for startup to complete. Check logs for missing conditions.")
+                    composable(
+                        route = "login?url={url}&username={username}",
+                        arguments = listOf(
+                            navArgument("url") {
+                                defaultValue = "https://";
+                                type = NavType.StringType
+                            },
+                            navArgument("username") {
+                                defaultValue = "";
+                                type = NavType.StringType
+                            },
+                        ),
+                    ) { backStackEntry ->
+                        LoginScreen(
+                            navController = navController,
+                            modifier = modifier,
+                            appViewModel = appViewModel,
+                            initialUrl = backStackEntry.arguments?.getString("url") ?: "https://",
+                            initialUsername = backStackEntry.arguments?.getString("username") ?: "",
+                        )
                     }
-                }
-                
-                // CRITICAL FIX: Initialize showRoomList based on isStartupComplete to prevent flash when navigating back
-                // If startup is already complete, show room list immediately (no delay needed)
-                var showRoomList by remember(isStartupComplete) { 
-                    mutableStateOf(isStartupComplete) // If already complete, show immediately
-                }
-                var hasAppliedDelay by remember(isStartupComplete) { 
-                    mutableStateOf(isStartupComplete) // If already complete, skip delay
-                }
-                
-                // CRITICAL FIX: When isStartupComplete becomes true, immediately show room list
-                // Only apply delay on FIRST startup (when composable is created with isStartupComplete=false)
-                androidx.compose.runtime.LaunchedEffect(isStartupComplete) {
-                    if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "🟦 MainActivity: LaunchedEffect(isStartupComplete=$isStartupComplete) - showRoomList=$showRoomList, hasAppliedDelay=$hasAppliedDelay")
+                    composable("room_maker") {
+                        RoomMakerScreen(
+                            appViewModel = appViewModel,
+                            navController = navController,
+                            modifier = modifier,
+                        )
                     }
-                    if (isStartupComplete) {
-                        // CRITICAL: If startup was already complete when composable was created,
-                        // hasAppliedDelay will be true, so we skip the delay
-                        // If startup just completed, hasAppliedDelay will be false, so we apply delay
-                        if (!hasAppliedDelay) {
-                            // First time startup - wait 300ms for background work to settle
-                            if (BuildConfig.DEBUG) {
-                                android.util.Log.d("Andromuks", "🟦 MainActivity: First time startup - applying 300ms delay")
+                    composable(
+                        "auth_check",
+                        // Instant exit — AuthCheck is now a logic-only blank screen so there's no
+                        // shared-element avatar flight to wait on. Letting it disappear immediately
+                        // unblocks the room_list paint by ~600ms.
+                        exitTransition = { androidx.compose.animation.ExitTransition.None },
+                        popExitTransition = { androidx.compose.animation.ExitTransition.None },
+                    ) {
+                        AuthCheckScreen(
+                            navController = navController,
+                            modifier = modifier,
+                            appViewModel = appViewModel,
+                        )
+                    }
+                    composable("permissions") {
+                        PermissionsScreen(
+                            onPermissionsGranted = {
+                                // Navigate to auth_check after permissions are granted
+                                // This will trigger WebSocket connection
+                                navController.navigate("auth_check") {
+                                    popUpTo("permissions") { inclusive = true }
+                                }
+                            },
+                            modifier = modifier,
+                        )
+                    }
+                    composable(
+                        route = "room_list",
+                        enterTransition = {
+                            // Instant entry from auth_check — AuthCheck is now a logic-only blank screen,
+                            // there's no shared avatar to fly, so we want room_list visible the moment the
+                            // route swaps. Other entry paths (from room_timeline etc.) keep the default.
+                            if (initialState.destination.route == "auth_check") {
+                                androidx.compose.animation.EnterTransition.None
+                            } else {
+                                null
                             }
-                            delay(300)
-                            hasAppliedDelay = true
-                        }
-                        // Show room list (immediately if navigating back, after delay if first startup)
-                        showRoomList = true
-                        if (BuildConfig.DEBUG) {
-                            android.util.Log.d("Andromuks", "🟦 MainActivity: Set showRoomList=true (isStartupComplete=$isStartupComplete, hadDelay=$hasAppliedDelay)")
-                        }
-                    } else {
-                        showRoomList = false
-                        hasAppliedDelay = false // Reset delay flag if startup resets
-                        if (BuildConfig.DEBUG) {
-                            android.util.Log.d("Andromuks", "🟦 MainActivity: Reset showRoomList=false (isStartupComplete=$isStartupComplete)")
-                        }
-                    }
-                }
-                
-                // DEBUG: Log when conditions change to diagnose stalls
-                androidx.compose.runtime.LaunchedEffect(isStartupComplete, showRoomList) {
-                    if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "🟦 MainActivity: State check - isStartupComplete=$isStartupComplete, showRoomList=$showRoomList, willShowLoading=${!isStartupComplete || !showRoomList}")
-                    }
-                }
-                
-                // ─── StartupLoadingScreen (visible while loading, fades out when done) ───
-                // During cold start: its avatar carries the shared element tag so the
-                // auth_check→room_list nav transition matches center→center (invisible
-                // flight — same position / size).
-                // During pull-to-refresh: startup completes quickly so this is already
-                // hidden; the shared element tag lives on RoomListScreen's header instead.
-                // Because AnimatedVisibility makes the two mutually exclusive, only ONE
-                // instance of the key exists at any moment → no ambiguity.
-                // Fast-path dismissal: as soon as populateRoomMapFromCache flips
-                // spacesLoaded=true (which only happens when roomMap also has rooms — see
-                // SyncRoomsCoordinator.populateRoomMapFromCache), hide this overlay so the
-                // room_list route becomes visible. spacesLoaded is a Compose-observable
-                // MutableState, so this recomposes immediately when the cache populates —
-                // no need to also read the non-observable roomMap.
-                val cacheReady = spacesLoaded
-                AnimatedVisibility(
-                    visible = (!isStartupComplete || !showRoomList) && !cacheReady,
-                    // Instant exit when cacheReady flips — no fade so RoomListScreen becomes
-                    // visible immediately. The 300ms fade only matters when isStartupComplete
-                    // completes the normal way (no cache), keeping the original feel.
-                    exit = fadeOut(animationSpec = tween(durationMillis = scaledTweenMs(0)))
-                ) {
-                    net.vrkknn.andromuks.ui.components.StartupLoadingScreen(
-                        progressMessages = emptyList(),
-                        modifier = Modifier.fillMaxSize(),
-                        topContent = {
-                            if (startupAvatarMxc != null) {
-                                val morphMaskModifier = rememberMorphingStartupAvatarMaskModifier()
-                                Box {
-                                    with(this@SharedTransitionLayout) {
-                                        net.vrkknn.andromuks.ui.components.AvatarImage(
-                                            mxcUrl = startupAvatarMxc,
-                                            homeserverUrl = startupHomeserverUrl,
-                                            authToken = startupAuthToken,
-                                            fallbackText = startupDisplayName,
-                                            size = 72.dp,
-                                            userId = currentUserId,
-                                            displayName = startupDisplayName,
-                                            modifier = Modifier
-                                                .sharedElement(
-                                                    rememberSharedContentState(key = "startup-current-user-avatar"),
-                                                    animatedVisibilityScope = navigationScope,
-                                                    boundsTransform = { _, _ ->
-                                                        tween(
-                                                            durationMillis = scaledTweenMs(380),
-                                                            easing = LinearEasing
-                                                        )
-                                                    },
-                                                    renderInOverlayDuringTransition = true,
-                                                    zIndexInOverlay = 1f
-                                                )
-                                                .graphicsLayer {
-                                                    alpha = if (showStartupMorphOverlay) 0f else 1f
-                                                }
+                        },
+                        exitTransition = {
+                            // Opening a room: no fade — the list stays solid behind the flying avatar so the
+                            // shared-element flight is the only motion. Fade only for other exits.
+                            if (targetState.destination.route?.startsWith("room_timeline") == true) {
+                                null
+                            } else {
+                                fadeOut(tween(scaledTweenMs(200)))
+                            }
+                        },
+                        popEnterTransition = {
+                            // Returning from a room: appear instantly under the avatar (shared-element flight only).
+                            if (initialState.destination.route?.startsWith("room_timeline") == true) {
+                                null
+                            } else {
+                                fadeIn(tween(scaledTweenMs(200)))
+                            }
+                        },
+                        popExitTransition = { fadeOut(tween(scaledTweenMs(200))) },
+                    ) { backStackEntry ->
+                        val navigationScope = this
+                        // CRITICAL FIX: Always show StartupLoadingScreen initially to prevent white flash during navigation
+                        // Use Box with background to ensure no white flash even during transition
+                        androidx.compose.foundation.layout.Box(
+                            modifier = modifier
+                                .fillMaxSize()
+                                .background(androidx.compose.material3.MaterialTheme.colorScheme.background),
+                        ) {
+                            // Show startup loading screen until startup is complete
+                            val isStartupComplete = appViewModel.isStartupComplete
+                            val progressMessages = appViewModel.startupProgressMessages
+                            val initialSyncComplete = appViewModel.initialSyncComplete
+                            val spacesLoaded = appViewModel.spacesLoaded
+
+                            // Periodically check if startup is complete (when state changes)
+                            // CRITICAL: Also check initialSyncProcessingComplete to ensure all queued messages are processed
+                            val initialSyncProcessingComplete = appViewModel.initialSyncProcessingComplete
+                            val currentUserProfile = appViewModel.currentUserProfile
+                            val currentUserId = appViewModel.currentUserId
+                            val context = androidx.compose.ui.platform.LocalContext.current
+                            val sharedPrefs = remember(context) {
+                                context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+                            }
+                            val startupAvatarMxc = remember(currentUserProfile?.avatarUrl, currentUserId) {
+                                currentUserProfile?.avatarUrl?.takeIf { it.isNotBlank() }
+                                    ?: currentUserId
+                                        .takeIf { it.isNotBlank() }
+                                        ?.let {
+                                            appViewModel.getUserProfile(
+                                                it,
+                                                null,
+                                            )?.avatarUrl?.takeIf { avatar -> avatar.isNotBlank() }
+                                        }
+                                    ?: sharedPrefs.getString("current_user_avatar_mxc", null)?.takeIf { it.isNotBlank() }
+                            }
+                            val startupDisplayName = currentUserProfile?.displayName ?: currentUserId
+                            val startupHomeserverUrl =
+                                appViewModel.homeserverUrl.takeIf { it.isNotBlank() }
+                                    ?: sharedPrefs.getString("homeserver_url", "").orEmpty()
+                            val startupAuthToken =
+                                appViewModel.authToken.takeIf { it.isNotBlank() }
+                                    ?: net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
+                            var showStartupMorphOverlay by remember(startupAvatarMxc) { mutableStateOf(false) }
+                            LaunchedEffect(startupAvatarMxc) {
+                                if (startupAvatarMxc != null) {
+                                    showStartupMorphOverlay = false
+                                    delay(220)
+                                    showStartupMorphOverlay = true
+                                } else {
+                                    showStartupMorphOverlay = false
+                                }
+                            }
+
+                            androidx.compose.runtime.LaunchedEffect(
+                                initialSyncComplete,
+                                initialSyncProcessingComplete,
+                                spacesLoaded,
+                                appViewModel.roomListUpdateCounter,
+                                currentUserProfile,
+                                currentUserId,
+                            ) {
+                                appViewModel.checkStartupComplete()
+                            }
+
+                            // SAFETY: Timeout fallback - if startup takes too long (30 seconds), log warning
+                            // This helps diagnose infinite stalls (but doesn't force completion - let checkStartupComplete handle it)
+                            androidx.compose.runtime.LaunchedEffect(Unit) {
+                                kotlinx.coroutines.delay(30000) // 30 second timeout
+                                if (!appViewModel.isStartupComplete) {
+                                    android.util.Log.w(
+                                        "Andromuks",
+                                        "🟦 MainActivity: Startup timeout (30s) - still waiting for startup to complete. Check logs for missing conditions.",
+                                    )
+                                }
+                            }
+
+                            // CRITICAL FIX: Initialize showRoomList based on isStartupComplete to prevent flash when navigating back
+                            // If startup is already complete, show room list immediately (no delay needed)
+                            var showRoomList by remember(isStartupComplete) {
+                                mutableStateOf(isStartupComplete) // If already complete, show immediately
+                            }
+                            var hasAppliedDelay by remember(isStartupComplete) {
+                                mutableStateOf(isStartupComplete) // If already complete, skip delay
+                            }
+
+                            // CRITICAL FIX: When isStartupComplete becomes true, immediately show room list
+                            // Only apply delay on FIRST startup (when composable is created with isStartupComplete=false)
+                            androidx.compose.runtime.LaunchedEffect(isStartupComplete) {
+                                if (BuildConfig.DEBUG) {
+                                    android.util.Log.d(
+                                        "Andromuks",
+                                        "🟦 MainActivity: LaunchedEffect(isStartupComplete=$isStartupComplete) - showRoomList=$showRoomList, hasAppliedDelay=$hasAppliedDelay",
+                                    )
+                                }
+                                if (isStartupComplete) {
+                                    // CRITICAL: If startup was already complete when composable was created,
+                                    // hasAppliedDelay will be true, so we skip the delay
+                                    // If startup just completed, hasAppliedDelay will be false, so we apply delay
+                                    if (!hasAppliedDelay) {
+                                        // First time startup - wait 300ms for background work to settle
+                                        if (BuildConfig.DEBUG) {
+                                            android.util.Log.d(
+                                                "Andromuks",
+                                                "🟦 MainActivity: First time startup - applying 300ms delay",
+                                            )
+                                        }
+                                        delay(300)
+                                        hasAppliedDelay = true
+                                    }
+                                    // Show room list (immediately if navigating back, after delay if first startup)
+                                    showRoomList = true
+                                    if (BuildConfig.DEBUG) {
+                                        android.util.Log.d(
+                                            "Andromuks",
+                                            "🟦 MainActivity: Set showRoomList=true (isStartupComplete=$isStartupComplete, hadDelay=$hasAppliedDelay)",
                                         )
                                     }
-                                    if (showStartupMorphOverlay) {
-                                        net.vrkknn.andromuks.ui.components.AvatarImage(
-                                            mxcUrl = startupAvatarMxc,
-                                            homeserverUrl = startupHomeserverUrl,
-                                            authToken = startupAuthToken,
-                                            fallbackText = startupDisplayName,
-                                            size = 72.dp,
-                                            userId = currentUserId,
-                                            displayName = startupDisplayName,
-                                            modifier = Modifier.then(morphMaskModifier)
+                                } else {
+                                    showRoomList = false
+                                    hasAppliedDelay = false // Reset delay flag if startup resets
+                                    if (BuildConfig.DEBUG) {
+                                        android.util.Log.d(
+                                            "Andromuks",
+                                            "🟦 MainActivity: Reset showRoomList=false (isStartupComplete=$isStartupComplete)",
                                         )
                                     }
                                 }
-                            } else {
-                                net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator(
-                                    modifier = Modifier.size(72.dp)
+                            }
+
+                            // DEBUG: Log when conditions change to diagnose stalls
+                            androidx.compose.runtime.LaunchedEffect(isStartupComplete, showRoomList) {
+                                if (BuildConfig.DEBUG) {
+                                    android.util.Log.d(
+                                        "Andromuks",
+                                        "🟦 MainActivity: State check - isStartupComplete=$isStartupComplete, showRoomList=$showRoomList, willShowLoading=${!isStartupComplete || !showRoomList}",
+                                    )
+                                }
+                            }
+
+                            // ─── StartupLoadingScreen (visible while loading, fades out when done) ───
+                            // During cold start: its avatar carries the shared element tag so the
+                            // auth_check→room_list nav transition matches center→center (invisible
+                            // flight — same position / size).
+                            // During pull-to-refresh: startup completes quickly so this is already
+                            // hidden; the shared element tag lives on RoomListScreen's header instead.
+                            // Because AnimatedVisibility makes the two mutually exclusive, only ONE
+                            // instance of the key exists at any moment → no ambiguity.
+                            // Fast-path dismissal: as soon as populateRoomMapFromCache flips
+                            // spacesLoaded=true (which only happens when roomMap also has rooms — see
+                            // SyncRoomsCoordinator.populateRoomMapFromCache), hide this overlay so the
+                            // room_list route becomes visible. spacesLoaded is a Compose-observable
+                            // MutableState, so this recomposes immediately when the cache populates —
+                            // no need to also read the non-observable roomMap.
+                            val cacheReady = spacesLoaded
+                            AnimatedVisibility(
+                                visible = (!isStartupComplete || !showRoomList) && !cacheReady,
+                                // Instant exit when cacheReady flips — no fade so RoomListScreen becomes
+                                // visible immediately. The 300ms fade only matters when isStartupComplete
+                                // completes the normal way (no cache), keeping the original feel.
+                                exit = fadeOut(animationSpec = tween(durationMillis = scaledTweenMs(0))),
+                            ) {
+                                net.vrkknn.andromuks.ui.components.StartupLoadingScreen(
+                                    progressMessages = emptyList(),
+                                    modifier = Modifier.fillMaxSize(),
+                                    topContent = {
+                                        if (startupAvatarMxc != null) {
+                                            val morphMaskModifier = rememberMorphingStartupAvatarMaskModifier()
+                                            Box {
+                                                with(this@SharedTransitionLayout) {
+                                                    net.vrkknn.andromuks.ui.components.AvatarImage(
+                                                        mxcUrl = startupAvatarMxc,
+                                                        homeserverUrl = startupHomeserverUrl,
+                                                        authToken = startupAuthToken,
+                                                        fallbackText = startupDisplayName,
+                                                        size = 72.dp,
+                                                        userId = currentUserId,
+                                                        displayName = startupDisplayName,
+                                                        modifier = Modifier
+                                                            .sharedElement(
+                                                                rememberSharedContentState(key = "startup-current-user-avatar"),
+                                                                animatedVisibilityScope = navigationScope,
+                                                                boundsTransform = { _, _ ->
+                                                                    tween(
+                                                                        durationMillis = scaledTweenMs(380),
+                                                                        easing = LinearEasing,
+                                                                    )
+                                                                },
+                                                                renderInOverlayDuringTransition = true,
+                                                                zIndexInOverlay = 1f,
+                                                            )
+                                                            .graphicsLayer {
+                                                                alpha = if (showStartupMorphOverlay) 0f else 1f
+                                                            },
+                                                    )
+                                                }
+                                                if (showStartupMorphOverlay) {
+                                                    net.vrkknn.andromuks.ui.components.AvatarImage(
+                                                        mxcUrl = startupAvatarMxc,
+                                                        homeserverUrl = startupHomeserverUrl,
+                                                        authToken = startupAuthToken,
+                                                        fallbackText = startupDisplayName,
+                                                        size = 72.dp,
+                                                        userId = currentUserId,
+                                                        displayName = startupDisplayName,
+                                                        modifier = Modifier.then(morphMaskModifier),
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator(
+                                                modifier = Modifier.size(72.dp),
+                                            )
+                                        }
+                                    },
+                                )
+                            }
+
+                            // ─── RoomListScreen (visible after startup) ──────────────────────
+                            // Its header avatar carries the shared element tag so that
+                            // pull-to-refresh (room_list → auth_check → room_list) gives a
+                            // visible header↔center flight animation.
+                            // Visible whenever the cache is populated (spacesLoaded via cacheReady) OR
+                            // the normal startup gate has completed. The cache path lets the cached room
+                            // list paint immediately on cold start without waiting for the WebSocket sync.
+                            AnimatedVisibility(
+                                visible = cacheReady || (isStartupComplete && showRoomList),
+                                enter = fadeIn(animationSpec = tween(durationMillis = scaledTweenMs(0))),
+                            ) {
+                                RoomListScreen(
+                                    navController = navController,
+                                    modifier = Modifier.fillMaxSize(),
+                                    appViewModel = appViewModel,
+                                    sharedTransitionScope = this@SharedTransitionLayout,
+                                    animatedVisibilityScope = navigationScope,
                                 )
                             }
                         }
-                    )
-                }
+                    }
+                    composable("simple_room_list") {
+                        SimplerRoomListScreen(
+                            navController = navController,
+                            modifier = modifier,
+                            appViewModel = appViewModel,
+                        )
+                    }
+                    composable(
+                        route = "room_timeline/{roomId}",
+                        arguments = listOf(
+                            navArgument("roomId") { type = NavType.StringType },
+                        ),
+                        // Fades only = Smooth Shared Element flight
+                        // IMPORTANT: When transitioning to/from user_info or room_info, disable route fades so
+                        // shared-element avatar motion remains the only animation.
+                        // A null transition means "no route fade — let the shared-element avatar flight be the
+                        // only animation". We do this for user_info/room_info (as before) AND for room_list, so
+                        // closing/opening a room no longer overlays a 500ms full-screen fade that steals taps
+                        // (see exitInputBlocker below, which also guards the shared-flight overlap window).
+                        // Routes that still fade are shortened 500→200ms to shrink any remaining overlap.
+                        enterTransition = {
+                            val from = initialState.destination.route
+                            val noFade = from?.startsWith("user_info") == true ||
+                                from?.startsWith("room_info") == true ||
+                                from == "room_list"
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                    "Andromuks",
+                                    "MainActivity room_timeline enterTransition: initial=$from, target=${targetState.destination.route}, noFade=$noFade",
+                                )
+                            }
+                            if (noFade) null else fadeIn(tween(scaledTweenMs(200)))
+                        },
+                        exitTransition = {
+                            val to = targetState.destination.route
+                            val noFade = to?.startsWith("user_info") == true ||
+                                to?.startsWith("room_info") == true ||
+                                to == "room_list"
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                    "Andromuks",
+                                    "MainActivity room_timeline exitTransition: initial=${initialState.destination.route}, target=$to, noFade=$noFade",
+                                )
+                            }
+                            if (noFade) null else fadeOut(tween(scaledTweenMs(200)))
+                        },
+                        popEnterTransition = {
+                            val from = initialState.destination.route
+                            val noFade = from?.startsWith("user_info") == true ||
+                                from?.startsWith("room_info") == true ||
+                                from == "room_list"
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                    "Andromuks",
+                                    "MainActivity room_timeline popEnterTransition: initial=$from, target=${targetState.destination.route}, noFade=$noFade",
+                                )
+                            }
+                            if (noFade) null else fadeIn(tween(scaledTweenMs(200)))
+                        },
+                        popExitTransition = {
+                            val to = targetState.destination.route
+                            val noFade = to?.startsWith("user_info") == true ||
+                                to?.startsWith("room_info") == true ||
+                                to == "room_list"
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                    "Andromuks",
+                                    "MainActivity room_timeline popExitTransition: initial=${initialState.destination.route}, target=$to, noFade=$noFade",
+                                )
+                            }
+                            if (noFade) null else fadeOut(tween(scaledTweenMs(200)))
+                        },
+                    ) { backStackEntry ->
+                        val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+                        val roomName = appViewModel.getRoomById(roomId)?.name ?: ""
 
-                // ─── RoomListScreen (visible after startup) ──────────────────────
-                // Its header avatar carries the shared element tag so that
-                // pull-to-refresh (room_list → auth_check → room_list) gives a
-                // visible header↔center flight animation.
-                // Visible whenever the cache is populated (spacesLoaded via cacheReady) OR
-                // the normal startup gate has completed. The cache path lets the cached room
-                // list paint immediately on cold start without waiting for the WebSocket sync.
-                AnimatedVisibility(
-                    visible = cacheReady || (isStartupComplete && showRoomList),
-                    enter = fadeIn(animationSpec = tween(durationMillis = scaledTweenMs(0)))
-                ) {
-                    RoomListScreen(
-                        navController = navController,
-                        modifier = Modifier.fillMaxSize(),
-                        appViewModel = appViewModel,
-                        sharedTransitionScope = this@SharedTransitionLayout,
-                        animatedVisibilityScope = navigationScope
-                    )
-                }
-            }
-        }
-        composable("simple_room_list") {
-            SimplerRoomListScreen(
-                navController = navController,
-                modifier = modifier,
-                appViewModel = appViewModel
-            )
-        }
-        composable(
-            route = "room_timeline/{roomId}",
-            arguments = listOf(
-                navArgument("roomId") { type = NavType.StringType }
-            ),
-            // Fades only = Smooth Shared Element flight
-            // IMPORTANT: When transitioning to/from user_info or room_info, disable route fades so
-            // shared-element avatar motion remains the only animation.
-            // A null transition means "no route fade — let the shared-element avatar flight be the
-            // only animation". We do this for user_info/room_info (as before) AND for room_list, so
-            // closing/opening a room no longer overlays a 500ms full-screen fade that steals taps
-            // (see exitInputBlocker below, which also guards the shared-flight overlap window).
-            // Routes that still fade are shortened 500→200ms to shrink any remaining overlap.
-            enterTransition = {
-                val from = initialState.destination.route
-                val noFade = from?.startsWith("user_info") == true ||
-                    from?.startsWith("room_info") == true ||
-                    from == "room_list"
-                if (BuildConfig.DEBUG) {
-                    Log.d("Andromuks", "MainActivity room_timeline enterTransition: initial=$from, target=${targetState.destination.route}, noFade=$noFade")
-                }
-                if (noFade) null else fadeIn(tween(scaledTweenMs(200)))
-            },
-            exitTransition = {
-                val to = targetState.destination.route
-                val noFade = to?.startsWith("user_info") == true ||
-                    to?.startsWith("room_info") == true ||
-                    to == "room_list"
-                if (BuildConfig.DEBUG) {
-                    Log.d("Andromuks", "MainActivity room_timeline exitTransition: initial=${initialState.destination.route}, target=$to, noFade=$noFade")
-                }
-                if (noFade) null else fadeOut(tween(scaledTweenMs(200)))
-            },
-            popEnterTransition = {
-                val from = initialState.destination.route
-                val noFade = from?.startsWith("user_info") == true ||
-                    from?.startsWith("room_info") == true ||
-                    from == "room_list"
-                if (BuildConfig.DEBUG) {
-                    Log.d("Andromuks", "MainActivity room_timeline popEnterTransition: initial=$from, target=${targetState.destination.route}, noFade=$noFade")
-                }
-                if (noFade) null else fadeIn(tween(scaledTweenMs(200)))
-            },
-            popExitTransition = {
-                val to = targetState.destination.route
-                val noFade = to?.startsWith("user_info") == true ||
-                    to?.startsWith("room_info") == true ||
-                    to == "room_list"
-                if (BuildConfig.DEBUG) {
-                    Log.d("Andromuks", "MainActivity room_timeline popExitTransition: initial=${initialState.destination.route}, target=$to, noFade=$noFade")
-                }
-                if (noFade) null else fadeOut(tween(scaledTweenMs(200)))
-            }
-        ) { backStackEntry ->
-            val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
-            val roomName = appViewModel.getRoomById(roomId)?.name ?: ""
-            
-            // While this timeline is animating OUT (popping back to the room list), it stays
-            // composed and on top — fully or partially transparent — for the duration of the
-            // shared-element avatar flight. Without this guard its full-screen hit targets would
-            // swallow taps meant for the room list underneath. Consume all pointer events on the
-            // Initial pass during PostExit so input falls through to the entering list instead.
-            val exitInputBlocker = if (transition.targetState == EnterExitState.PostExit) {
-                Modifier.pointerInput(Unit) {
-                    awaitPointerEventScope {
-                        while (true) {
-                            awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                        // While this timeline is animating OUT (popping back to the room list), it stays
+                        // composed and on top — fully or partially transparent — for the duration of the
+                        // shared-element avatar flight. Without this guard its full-screen hit targets would
+                        // swallow taps meant for the room list underneath. Consume all pointer events on the
+                        // Initial pass during PostExit so input falls through to the entering list instead.
+                        val exitInputBlocker = if (transition.targetState == EnterExitState.PostExit) {
+                            Modifier.pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                                    }
+                                }
+                            }
+                        } else {
+                            Modifier
                         }
+
+                        RoomTimelineScreen(
+                            roomId = roomId,
+                            roomName = roomName,
+                            navController = navController,
+                            modifier = modifier.then(exitInputBlocker),
+                            appViewModel = appViewModel,
+                            sharedTransitionScope = this@SharedTransitionLayout,
+                            animatedVisibilityScope = this, // ✓ Correct scope - matches RoomListScreen
+                        )
+                    }
+                    composable(
+                        route = "element_call/{roomId}",
+                        arguments = listOf(navArgument("roomId") { type = NavType.StringType }),
+                    ) { backStackEntry: NavBackStackEntry ->
+                        val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+                        ElementCallScreen(
+                            roomId = roomId,
+                            navController = navController,
+                            appViewModel = appViewModel,
+                            modifier = modifier,
+                        )
+                    }
+                    composable(
+                        route = "thread_viewer/{roomId}/{threadRootId}",
+                        arguments = listOf(
+                            navArgument("roomId") { type = NavType.StringType },
+                            navArgument("threadRootId") { type = NavType.StringType },
+                        ),
+                        enterTransition = {
+                            slideInHorizontally(
+                                initialOffsetX = { it },
+                                animationSpec = tween(durationMillis = scaledTweenMs(300), easing = FastOutSlowInEasing),
+                            )
+                        },
+                        popExitTransition = {
+                            slideOutHorizontally(
+                                targetOffsetX = { it },
+                                animationSpec = tween(durationMillis = scaledTweenMs(300), easing = FastOutSlowInEasing),
+                            )
+                        },
+                    ) { backStackEntry: NavBackStackEntry ->
+                        val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+                        val threadRootId = backStackEntry.arguments?.getString("threadRootId") ?: ""
+                        ThreadViewerScreen(
+                            roomId = roomId,
+                            threadRootEventId = threadRootId,
+                            navController = navController,
+                            modifier = modifier,
+                            appViewModel = appViewModel,
+                        )
+                    }
+                    composable(
+                        route = "event_context/{roomId}/{eventId}",
+                        arguments = listOf(
+                            navArgument("roomId") { type = NavType.StringType },
+                            navArgument("eventId") { type = NavType.StringType },
+                        ),
+                        enterTransition = {
+                            slideInHorizontally(
+                                initialOffsetX = { it },
+                                animationSpec = tween(durationMillis = scaledTweenMs(300), easing = FastOutSlowInEasing),
+                            )
+                        },
+                        popExitTransition = {
+                            slideOutHorizontally(
+                                targetOffsetX = { it },
+                                animationSpec = tween(durationMillis = scaledTweenMs(300), easing = FastOutSlowInEasing),
+                            )
+                        },
+                    ) { backStackEntry: NavBackStackEntry ->
+                        val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+                        val eventId = backStackEntry.arguments?.getString("eventId") ?: ""
+                        EventContextScreen(
+                            roomId = roomId,
+                            eventId = eventId,
+                            navController = navController,
+                            modifier = modifier,
+                            appViewModel = appViewModel,
+                        )
+                    }
+                    composable(
+                        route = "invite_detail/{roomId}",
+                        arguments = listOf(navArgument("roomId") { type = NavType.StringType }),
+                    ) { backStackEntry: NavBackStackEntry ->
+                        val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+                        InviteDetailScreen(
+                            roomId = roomId,
+                            navController = navController,
+                            modifier = modifier,
+                            appViewModel = appViewModel,
+                        )
+                    }
+                    composable("settings") {
+                        SettingsScreen(
+                            appViewModel = appViewModel,
+                            navController = navController,
+                        )
+                    }
+                    composable("client_preferences") {
+                        ClientPreferencesScreen(
+                            appViewModel = appViewModel,
+                            navController = navController,
+                        )
+                    }
+                    composable("push_rules") {
+                        PushRulesScreen(
+                            appViewModel = appViewModel,
+                            navController = navController,
+                        )
+                    }
+                    composable(
+                        route = "room_preferences/{roomId}",
+                        arguments = listOf(
+                            androidx.navigation.navArgument("roomId") { type = androidx.navigation.NavType.StringType },
+                        ),
+                    ) { backStackEntry ->
+                        val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+                        RoomPreferencesScreen(
+                            roomId = roomId,
+                            appViewModel = appViewModel,
+                            navController = navController,
+                        )
+                    }
+                    composable("push_notifications_debug") {
+                        PushNotificationsDebugScreen(
+                            appViewModel = appViewModel,
+                            navController = navController,
+                        )
+                    }
+                    composable("cache_memory_stats") {
+                        CacheMemoryStatsScreen(
+                            appViewModel = appViewModel,
+                            navController = navController,
+                        )
+                    }
+                    composable("account_data_visualizer") {
+                        AccountDataVisualizerScreen(appViewModel = appViewModel, navController = navController)
+                    }
+                    composable("reconnection_log") {
+                        ReconnectionLogScreen(
+                            appViewModel = appViewModel,
+                            navController = navController,
+                        )
+                    }
+                    composable("androlog") {
+                        AndrologScreen(
+                            navController = navController,
+                        )
+                    }
+                    composable(
+                        route = "mentions?roomId={roomId}",
+                        arguments = listOf(
+                            navArgument("roomId") {
+                            type = NavType.StringType
+                            nullable = true
+                            defaultValue = null
+                        }
+                        ),
+                    ) { backStackEntry ->
+                        MentionsScreen(
+                            appViewModel = appViewModel,
+                            navController = navController,
+                            modifier = modifier,
+                            roomId = backStackEntry.arguments?.getString("roomId"),
+                        )
+                    }
+                    composable(
+                        route = "search?roomId={roomId}",
+                        arguments = listOf(
+                            navArgument("roomId") {
+                            type = NavType.StringType
+                            nullable = true
+                            defaultValue = null
+                        }
+                        ),
+                    ) { backStackEntry ->
+                        SearchResultsScreen(
+                            appViewModel = appViewModel,
+                            navController = navController,
+                            modifier = modifier,
+                            roomId = backStackEntry.arguments?.getString("roomId"),
+                        )
+                    }
+                    composable(
+                        route = "cached_profiles/{cacheType}",
+                        arguments = listOf(navArgument("cacheType") { type = NavType.StringType }),
+                    ) { backStackEntry: NavBackStackEntry ->
+                        val cacheType = backStackEntry.arguments?.getString("cacheType") ?: "memory"
+                        CachedProfilesScreen(
+                            cacheType = cacheType,
+                            appViewModel = appViewModel,
+                            navController = navController,
+                        )
+                    }
+                    composable(
+                        route = "cached_media/{cacheType}",
+                        arguments = listOf(navArgument("cacheType") { type = NavType.StringType }),
+                    ) { backStackEntry: NavBackStackEntry ->
+                        val cacheType = backStackEntry.arguments?.getString("cacheType") ?: "memory"
+                        CachedMediaScreen(
+                            cacheType = cacheType,
+                            appViewModel = appViewModel,
+                            navController = navController,
+                        )
+                    }
+                    composable(
+                        route = "room_info/{roomId}",
+                        arguments = listOf(navArgument("roomId") { type = NavType.StringType }),
+                        enterTransition = {
+                            // Disable fade/scale when coming from room_timeline to allow shared element transition
+                            val fromRoomTimeline = initialState.destination.route?.startsWith("room_timeline") == true
+                            if (fromRoomTimeline) {
+                                null
+                            } else {
+                                fadeIn(animationSpec = tween(durationMillis = scaledTweenMs(220), easing = FastOutSlowInEasing)) +
+                                    scaleIn(
+                                        initialScale = 0.85f,
+                                        animationSpec = tween(durationMillis = scaledTweenMs(220), easing = FastOutSlowInEasing),
+                                        transformOrigin = TransformOrigin.Center,
+                                    )
+                            }
+                        },
+                        exitTransition = {
+                            // Disable fade/scale when going to room_timeline to allow shared element transition
+                            val toRoomTimeline = targetState.destination.route?.startsWith("room_timeline") == true
+                            if (toRoomTimeline) {
+                                null
+                            } else {
+                                fadeOut(animationSpec = tween(durationMillis = scaledTweenMs(160), easing = FastOutSlowInEasing)) +
+                                    scaleOut(
+                                        targetScale = 0.85f,
+                                        animationSpec = tween(durationMillis = scaledTweenMs(160), easing = FastOutSlowInEasing),
+                                        transformOrigin = TransformOrigin.Center,
+                                    )
+                            }
+                        },
+                        popEnterTransition = {
+                            // Disable fade/scale when coming from room_timeline to allow shared element transition
+                            val fromRoomTimeline = initialState.destination.route?.startsWith("room_timeline") == true
+                            if (fromRoomTimeline) {
+                                null
+                            } else {
+                                fadeIn(animationSpec = tween(durationMillis = scaledTweenMs(220), easing = FastOutSlowInEasing)) +
+                                    scaleIn(
+                                        initialScale = 0.85f,
+                                        animationSpec = tween(durationMillis = scaledTweenMs(220), easing = FastOutSlowInEasing),
+                                        transformOrigin = TransformOrigin.Center,
+                                    )
+                            }
+                        },
+                        popExitTransition = {
+                            // Disable fade/scale when going to room_timeline to allow shared element transition
+                            val toRoomTimeline = targetState.destination.route?.startsWith("room_timeline") == true
+                            if (toRoomTimeline) {
+                                null
+                            } else {
+                                fadeOut(animationSpec = tween(durationMillis = scaledTweenMs(160), easing = FastOutSlowInEasing)) +
+                                    scaleOut(
+                                        targetScale = 0.85f,
+                                        animationSpec = tween(durationMillis = scaledTweenMs(160), easing = FastOutSlowInEasing),
+                                        transformOrigin = TransformOrigin.Center,
+                                    )
+                            }
+                        },
+                    ) { backStackEntry: NavBackStackEntry ->
+                        val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+                        net.vrkknn.andromuks.utils.RoomInfoScreen(
+                            roomId = roomId,
+                            navController = navController,
+                            appViewModel = appViewModel,
+                            modifier = modifier,
+                            sharedTransitionScope = this@SharedTransitionLayout,
+                            animatedVisibilityScope = this@composable,
+                        )
+                    }
+                    composable(
+                        route = "room_media_gallery/{roomId}",
+                        arguments = listOf(navArgument("roomId") { type = NavType.StringType }),
+                    ) { backStackEntry: NavBackStackEntry ->
+                        val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+                        net.vrkknn.andromuks.utils.RoomMediaGalleryScreen(
+                            roomId = roomId,
+                            navController = navController,
+                            appViewModel = appViewModel,
+                        )
+                    }
+                    // Route with eventId (for shared transitions)
+                    composable(
+                        route = "user_info/{userId}/{eventId}",
+                        arguments = listOf(
+                            navArgument("userId") { type = NavType.StringType },
+                            navArgument("eventId") { type = NavType.StringType },
+                        ),
+                        enterTransition = null, // Let shared element handle it
+                        exitTransition = null,
+                        popEnterTransition = null,
+                        popExitTransition = null,
+                    ) { backStackEntry: NavBackStackEntry ->
+                        val userId = backStackEntry.arguments?.getString("userId") ?: ""
+                        val eventId = backStackEntry.arguments?.getString("eventId")?.takeIf { it.isNotBlank() }
+                        // Extract roomId from savedStateHandle (set during navigation)
+                        val roomId = backStackEntry.savedStateHandle.get<String>("roomId")?.takeIf { it.isNotBlank() }
+                            ?: backStackEntry.savedStateHandle.get<String>("user_info_roomId")?.takeIf { it.isNotBlank() }
+
+                        net.vrkknn.andromuks.utils.UserInfoScreen(
+                            userId = userId,
+                            navController = navController,
+                            appViewModel = appViewModel,
+                            roomId = roomId,
+                            eventId = eventId, // Pass eventId from route
+                            modifier = modifier,
+                            sharedTransitionScope = this@SharedTransitionLayout,
+                            animatedVisibilityScope = this@composable,
+                        )
+                    }
+                    // Route without eventId (fallback for other navigation paths)
+                    composable(
+                        route = "user_info/{userId}",
+                        arguments = listOf(
+                            navArgument("userId") { type = NavType.StringType },
+                        ),
+                        enterTransition = null, // Let shared element handle it
+                        exitTransition = null,
+                        popEnterTransition = null,
+                        popExitTransition = null,
+                    ) { backStackEntry: NavBackStackEntry ->
+                        val userId = backStackEntry.arguments?.getString("userId") ?: ""
+                        // Extract roomId from savedStateHandle (set during navigation)
+                        val roomId = backStackEntry.savedStateHandle.get<String>("roomId")?.takeIf { it.isNotBlank() }
+                            ?: backStackEntry.savedStateHandle.get<String>("user_info_roomId")?.takeIf { it.isNotBlank() }
+
+                        net.vrkknn.andromuks.utils.UserInfoScreen(
+                            userId = userId,
+                            navController = navController,
+                            appViewModel = appViewModel,
+                            roomId = roomId,
+                            eventId = null, // No eventId for this route
+                            modifier = modifier,
+                            sharedTransitionScope = this@SharedTransitionLayout,
+                            animatedVisibilityScope = this@composable,
+                        )
+                    }
+                    composable(route = "per_message_profile_editor") {
+                        net.vrkknn.andromuks.utils.PerMessageProfileEditorScreen(
+                            navController = navController,
+                            appViewModel = appViewModel,
+                        )
                     }
                 }
-            } else {
-                Modifier
-            }
+            } // End of SharedTransitionLayout
 
-            RoomTimelineScreen(
-                roomId = roomId,
-                roomName = roomName,
-                navController = navController,
-                modifier = modifier.then(exitInputBlocker),
-                appViewModel = appViewModel,
-                sharedTransitionScope = this@SharedTransitionLayout,
-                animatedVisibilityScope = this  // ✓ Correct scope - matches RoomListScreen
-            )
-        }
-        composable(
-            route = "element_call/{roomId}",
-            arguments = listOf(navArgument("roomId") { type = NavType.StringType })
-        ) { backStackEntry: NavBackStackEntry ->
-            val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
-            ElementCallScreen(
-                roomId = roomId,
-                navController = navController,
-                appViewModel = appViewModel,
-                modifier = modifier
-            )
-        }
-        composable(
-            route = "thread_viewer/{roomId}/{threadRootId}",
-            arguments = listOf(
-                navArgument("roomId") { type = NavType.StringType },
-                navArgument("threadRootId") { type = NavType.StringType }
-            ),
-            enterTransition = {
-                slideInHorizontally(
-                    initialOffsetX = { it },
-                    animationSpec = tween(durationMillis = scaledTweenMs(300), easing = FastOutSlowInEasing)
-                )
-            },
-            popExitTransition = {
-                slideOutHorizontally(
-                    targetOffsetX = { it },
-                    animationSpec = tween(durationMillis = scaledTweenMs(300), easing = FastOutSlowInEasing)
-                )
-            }
-        ) { backStackEntry: NavBackStackEntry ->
-            val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
-            val threadRootId = backStackEntry.arguments?.getString("threadRootId") ?: ""
-            ThreadViewerScreen(
-                roomId = roomId,
-                threadRootEventId = threadRootId,
-                navController = navController,
-                modifier = modifier,
-                appViewModel = appViewModel
-            )
-        }
-        composable(
-            route = "event_context/{roomId}/{eventId}",
-            arguments = listOf(
-                navArgument("roomId") { type = NavType.StringType },
-                navArgument("eventId") { type = NavType.StringType }
-            ),
-            enterTransition = {
-                slideInHorizontally(
-                    initialOffsetX = { it },
-                    animationSpec = tween(durationMillis = scaledTweenMs(300), easing = FastOutSlowInEasing)
-                )
-            },
-            popExitTransition = {
-                slideOutHorizontally(
-                    targetOffsetX = { it },
-                    animationSpec = tween(durationMillis = scaledTweenMs(300), easing = FastOutSlowInEasing)
-                )
-            }
-        ) { backStackEntry: NavBackStackEntry ->
-            val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
-            val eventId = backStackEntry.arguments?.getString("eventId") ?: ""
-            EventContextScreen(
-                roomId = roomId,
-                eventId = eventId,
-                navController = navController,
-                modifier = modifier,
-                appViewModel = appViewModel
-            )
-        }
-        composable(
-            route = "invite_detail/{roomId}",
-            arguments = listOf(navArgument("roomId") { type = NavType.StringType })
-        ) { backStackEntry: NavBackStackEntry ->
-            val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
-            InviteDetailScreen(
-                roomId = roomId,
-                navController = navController,
-                modifier = modifier,
-                appViewModel = appViewModel
-            )
-        }
-        composable("settings") {
-            SettingsScreen(
-                appViewModel = appViewModel,
-                navController = navController
-            )
-        }
-        composable("client_preferences") {
-            ClientPreferencesScreen(
-                appViewModel = appViewModel,
-                navController = navController
-            )
-        }
-        composable("push_rules") {
-            PushRulesScreen(
-                appViewModel = appViewModel,
-                navController = navController
-            )
-        }
-        composable(
-            route = "room_preferences/{roomId}",
-            arguments = listOf(androidx.navigation.navArgument("roomId") { type = androidx.navigation.NavType.StringType })
-        ) { backStackEntry ->
-            val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
-            RoomPreferencesScreen(
-                roomId = roomId,
-                appViewModel = appViewModel,
-                navController = navController
-            )
-        }
-        composable("push_notifications_debug") {
-            PushNotificationsDebugScreen(
-                appViewModel = appViewModel,
-                navController = navController
-            )
-        }
-        composable("cache_memory_stats") {
-            CacheMemoryStatsScreen(
-                appViewModel = appViewModel,
-                navController = navController
-            )
-        }
-        composable("account_data_visualizer") {
-            AccountDataVisualizerScreen(appViewModel = appViewModel, navController = navController)
-        }
-        composable("reconnection_log") {
-            ReconnectionLogScreen(
-                appViewModel = appViewModel,
-                navController = navController
-            )
-        }
-        composable("androlog") {
-            AndrologScreen(
-                navController = navController
-            )
-        }
-        composable(
-            route = "mentions?roomId={roomId}",
-            arguments = listOf(navArgument("roomId") {
-                type = NavType.StringType
-                nullable = true
-                defaultValue = null
-            })
-        ) { backStackEntry ->
-            MentionsScreen(
-                appViewModel = appViewModel,
-                navController = navController,
-                modifier = modifier,
-                roomId = backStackEntry.arguments?.getString("roomId")
-            )
-        }
-        composable(
-            route = "search?roomId={roomId}",
-            arguments = listOf(navArgument("roomId") {
-                type = NavType.StringType
-                nullable = true
-                defaultValue = null
-            })
-        ) { backStackEntry ->
-            SearchResultsScreen(
-                appViewModel = appViewModel,
-                navController = navController,
-                modifier = modifier,
-                roomId = backStackEntry.arguments?.getString("roomId")
-            )
-        }
-        composable(
-            route = "cached_profiles/{cacheType}",
-            arguments = listOf(navArgument("cacheType") { type = NavType.StringType })
-        ) { backStackEntry: NavBackStackEntry ->
-            val cacheType = backStackEntry.arguments?.getString("cacheType") ?: "memory"
-            CachedProfilesScreen(
-                cacheType = cacheType,
-                appViewModel = appViewModel,
-                navController = navController
-            )
-        }
-        composable(
-            route = "cached_media/{cacheType}",
-            arguments = listOf(navArgument("cacheType") { type = NavType.StringType })
-        ) { backStackEntry: NavBackStackEntry ->
-            val cacheType = backStackEntry.arguments?.getString("cacheType") ?: "memory"
-            CachedMediaScreen(
-                cacheType = cacheType,
-                appViewModel = appViewModel,
-                navController = navController
-            )
-        }
-        composable(
-            route = "room_info/{roomId}",
-            arguments = listOf(navArgument("roomId") { type = NavType.StringType }),
-            enterTransition = {
-                // Disable fade/scale when coming from room_timeline to allow shared element transition
-                val fromRoomTimeline = initialState.destination.route?.startsWith("room_timeline") == true
-                if (fromRoomTimeline) null else {
-                    fadeIn(animationSpec = tween(durationMillis = scaledTweenMs(220), easing = FastOutSlowInEasing)) +
-                        scaleIn(
-                            initialScale = 0.85f,
-                            animationSpec = tween(durationMillis = scaledTweenMs(220), easing = FastOutSlowInEasing),
-                            transformOrigin = TransformOrigin.Center
-                        )
-                }
-            },
-            exitTransition = {
-                // Disable fade/scale when going to room_timeline to allow shared element transition
-                val toRoomTimeline = targetState.destination.route?.startsWith("room_timeline") == true
-                if (toRoomTimeline) null else {
-                    fadeOut(animationSpec = tween(durationMillis = scaledTweenMs(160), easing = FastOutSlowInEasing)) +
-                        scaleOut(
-                            targetScale = 0.85f,
-                            animationSpec = tween(durationMillis = scaledTweenMs(160), easing = FastOutSlowInEasing),
-                            transformOrigin = TransformOrigin.Center
-                        )
-                }
-            },
-            popEnterTransition = {
-                // Disable fade/scale when coming from room_timeline to allow shared element transition
-                val fromRoomTimeline = initialState.destination.route?.startsWith("room_timeline") == true
-                if (fromRoomTimeline) null else {
-                    fadeIn(animationSpec = tween(durationMillis = scaledTweenMs(220), easing = FastOutSlowInEasing)) +
-                        scaleIn(
-                            initialScale = 0.85f,
-                            animationSpec = tween(durationMillis = scaledTweenMs(220), easing = FastOutSlowInEasing),
-                            transformOrigin = TransformOrigin.Center
-                        )
-                }
-            },
-            popExitTransition = {
-                // Disable fade/scale when going to room_timeline to allow shared element transition
-                val toRoomTimeline = targetState.destination.route?.startsWith("room_timeline") == true
-                if (toRoomTimeline) null else {
-                    fadeOut(animationSpec = tween(durationMillis = scaledTweenMs(160), easing = FastOutSlowInEasing)) +
-                        scaleOut(
-                            targetScale = 0.85f,
-                            animationSpec = tween(durationMillis = scaledTweenMs(160), easing = FastOutSlowInEasing),
-                            transformOrigin = TransformOrigin.Center
-                        )
-                }
-            }
-        ) { backStackEntry: NavBackStackEntry ->
-            val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
-            net.vrkknn.andromuks.utils.RoomInfoScreen(
-                roomId = roomId,
-                navController = navController,
-                appViewModel = appViewModel,
-                modifier = modifier,
-                sharedTransitionScope = this@SharedTransitionLayout,
-                animatedVisibilityScope = this@composable
-            )
-        }
-        composable(
-            route = "room_media_gallery/{roomId}",
-            arguments = listOf(navArgument("roomId") { type = NavType.StringType })
-        ) { backStackEntry: NavBackStackEntry ->
-            val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
-            net.vrkknn.andromuks.utils.RoomMediaGalleryScreen(
-                roomId = roomId,
-                navController = navController,
-                appViewModel = appViewModel
-            )
-        }
-        // Route with eventId (for shared transitions)
-        composable(
-            route = "user_info/{userId}/{eventId}",
-            arguments = listOf(
-                navArgument("userId") { type = NavType.StringType },
-                navArgument("eventId") { type = NavType.StringType }
-            ),
-            enterTransition = null,  // Let shared element handle it
-            exitTransition = null,
-            popEnterTransition = null,
-            popExitTransition = null
-        ) { backStackEntry: NavBackStackEntry ->
-            val userId = backStackEntry.arguments?.getString("userId") ?: ""
-            val eventId = backStackEntry.arguments?.getString("eventId")?.takeIf { it.isNotBlank() }
-            // Extract roomId from savedStateHandle (set during navigation)
-            val roomId = backStackEntry.savedStateHandle.get<String>("roomId")?.takeIf { it.isNotBlank() }
-                ?: backStackEntry.savedStateHandle.get<String>("user_info_roomId")?.takeIf { it.isNotBlank() }
-
-            net.vrkknn.andromuks.utils.UserInfoScreen(
-                userId = userId,
-                navController = navController,
-                appViewModel = appViewModel,
-                roomId = roomId,
-                eventId = eventId,  // Pass eventId from route
-                modifier = modifier,
-                sharedTransitionScope = this@SharedTransitionLayout,
-                animatedVisibilityScope = this@composable
-            )
-        }
-        // Route without eventId (fallback for other navigation paths)
-        composable(
-            route = "user_info/{userId}",
-            arguments = listOf(
-                navArgument("userId") { type = NavType.StringType }
-            ),
-            enterTransition = null,  // Let shared element handle it
-            exitTransition = null,
-            popEnterTransition = null,
-            popExitTransition = null
-        ) { backStackEntry: NavBackStackEntry ->
-            val userId = backStackEntry.arguments?.getString("userId") ?: ""
-            // Extract roomId from savedStateHandle (set during navigation)
-            val roomId = backStackEntry.savedStateHandle.get<String>("roomId")?.takeIf { it.isNotBlank() }
-                ?: backStackEntry.savedStateHandle.get<String>("user_info_roomId")?.takeIf { it.isNotBlank() }
-
-            net.vrkknn.andromuks.utils.UserInfoScreen(
-                userId = userId,
-                navController = navController,
-                appViewModel = appViewModel,
-                roomId = roomId,
-                eventId = null,  // No eventId for this route
-                modifier = modifier,
-                sharedTransitionScope = this@SharedTransitionLayout,
-                animatedVisibilityScope = this@composable
-            )
-            
-
-        }
-        composable(route = "per_message_profile_editor") {
-            net.vrkknn.andromuks.utils.PerMessageProfileEditorScreen(
-                navController = navController,
-                appViewModel = appViewModel
-            )
-        }
-    }
-    } // End of SharedTransitionLayout
-
-    // Call overlay: full-screen when active, hidden behind NavHost when backgrounded.
-    // Always rendered here so the WebView never changes parent ViewGroup (avoids WebRTC crash).
-    CallOverlay(appViewModel = appViewModel)
-    // Incoming call banner (zIndex 20, above the call overlay's 10).
-    IncomingCallBanner(appViewModel = appViewModel)
-    } // End of BiometricLockGate content
+            // Call overlay: full-screen when active, hidden behind NavHost when backgrounded.
+            // Always rendered here so the WebView never changes parent ViewGroup (avoids WebRTC crash).
+            CallOverlay(appViewModel = appViewModel)
+            // Incoming call banner (zIndex 20, above the call overlay's 10).
+            IncomingCallBanner(appViewModel = appViewModel)
+        } // End of BiometricLockGate content
     } // End of outer Box
 }

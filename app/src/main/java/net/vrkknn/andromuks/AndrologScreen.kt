@@ -24,9 +24,7 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AndrologScreen(
-    navController: NavController
-) {
+fun AndrologScreen(navController: NavController) {
     // refreshTrigger forces re-read of the in-memory log (e.g. after clearing).
     var refreshTrigger by remember { mutableStateOf(0) }
     val entries = remember(refreshTrigger) { Androlog.getEntries() }
@@ -35,7 +33,7 @@ fun AndrologScreen(
     val scope = rememberCoroutineScope()
 
     val exportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("text/plain")
+        contract = ActivityResultContracts.CreateDocument("text/plain"),
     ) { uri ->
         if (uri == null) {
             scope.launch { snackbarHostState.showSnackbar("Export cancelled") }
@@ -60,7 +58,7 @@ fun AndrologScreen(
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = "Back",
                         )
                     }
                 },
@@ -71,11 +69,11 @@ fun AndrologScreen(
                             Androlog.clear()
                             refreshTrigger++
                             scope.launch { snackbarHostState.showSnackbar("Androlog cleared") }
-                        }
+                        },
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Delete,
-                            contentDescription = "Clear log"
+                            contentDescription = "Clear log",
                         )
                     }
                     TextButton(
@@ -83,38 +81,38 @@ fun AndrologScreen(
                         onClick = {
                             val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
                             exportLauncher.launch("andromuks_androlog_$stamp.txt")
-                        }
+                        },
                     ) {
                         Text("Export")
                     }
-                }
+                },
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(innerPadding),
         ) {
             if (entries.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
                             text = "No Androlog entries yet",
                             style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
                             text = "Cherry-picked events logged via Androlog(...) will appear here",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -122,7 +120,7 @@ fun AndrologScreen(
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(entries.reversed()) { entry ->
                         AndrologEntryCard(entry = entry)
@@ -158,34 +156,34 @@ fun AndrologEntryCard(entry: Androlog.Entry) {
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = formattedTime,
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (entry.category.isNotEmpty()) {
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = MaterialTheme.shapes.small
+                        shape = MaterialTheme.shapes.small,
                     ) {
                         Text(
                             text = entry.category,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         )
                     }
                 }
@@ -194,7 +192,7 @@ fun AndrologEntryCard(entry: Androlog.Entry) {
             Text(
                 text = entry.text,
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
             )
         }
     }

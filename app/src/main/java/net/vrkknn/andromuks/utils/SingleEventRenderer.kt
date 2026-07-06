@@ -12,8 +12,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -33,8 +33,8 @@ fun SingleEventRendererDialog(
     homeserverUrl: String,
     authToken: String,
     onDismiss: () -> Unit,
-    error: String? = null
- ) {
+    error: String? = null,
+) {
     if (event == null && error == null) {
         return
     }
@@ -79,7 +79,7 @@ fun SingleEventRendererDialog(
             tonalElevation = 8.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .wrapContentHeight()
+                .wrapContentHeight(),
         ) {
             if (error != null || event == null) {
                 AlertDialog(
@@ -88,22 +88,22 @@ fun SingleEventRendererDialog(
                         TextButton(onClick = onDismiss) { Text("Close") }
                     },
                     title = { Text("Unable to load") },
-                    text = { Text(error ?: "Original message not found") }
+                    text = { Text(error ?: "Original message not found") },
                 )
             } else {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
                         text = "Original message",
-                        style = MaterialTheme.typography.titleMedium
+                        style = MaterialTheme.typography.titleMedium,
                     )
                     Card(
                         elevation = androidx.compose.material3.CardDefaults.cardElevation(defaultElevation = 2.dp),
-                        shape = MaterialTheme.shapes.medium
+                        shape = MaterialTheme.shapes.medium,
                     ) {
                         TimelineEventItem(
                             event = event,
@@ -123,7 +123,7 @@ fun SingleEventRendererDialog(
                             onUserClick = {},
                             onRoomLinkClick = {},
                             onThreadClick = {},
-                            onNewBubbleAnimationStart = null
+                            onNewBubbleAnimationStart = null,
                         )
                     }
                     TextButton(onClick = onDismiss) {
@@ -134,4 +134,3 @@ fun SingleEventRendererDialog(
         }
     }
 }
-

@@ -1,8 +1,5 @@
 package net.vrkknn.andromuks
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -21,7 +18,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -31,13 +27,13 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -61,16 +57,12 @@ import kotlin.math.roundToInt
 enum class RoomPreset(val value: String, val displayName: String) {
     PUBLIC_CHAT("public_chat", "Public"),
     PRIVATE_CHAT("private_chat", "Private"),
-    TRUSTED_PRIVATE_CHAT("trusted_private_chat", "Trusted Private Chat")
+    TRUSTED_PRIVATE_CHAT("trusted_private_chat", "Trusted Private Chat"),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RoomMakerScreen(
-    appViewModel: AppViewModel,
-    navController: NavController,
-    modifier: Modifier = Modifier
-) {
+fun RoomMakerScreen(appViewModel: AppViewModel, navController: NavController, modifier: Modifier = Modifier) {
     val serverName = remember(appViewModel.currentUserId) {
         appViewModel.currentUserId.substringAfter(":", "").takeIf { it.isNotBlank() } ?: "server.com"
     }
@@ -98,9 +90,9 @@ fun RoomMakerScreen(
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
             )
-        }
+        },
     ) { paddingValues ->
         LazyColumn(
             modifier = modifier
@@ -109,7 +101,7 @@ fun RoomMakerScreen(
                 .padding(horizontal = 16.dp)
                 .imePadding(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(vertical = 16.dp)
+            contentPadding = PaddingValues(vertical = 16.dp),
         ) {
             item {
                 OutlinedTextField(
@@ -117,7 +109,7 @@ fun RoomMakerScreen(
                     onValueChange = { name = it },
                     label = { Text("Name") },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    singleLine = true,
                 )
             }
             item {
@@ -126,7 +118,7 @@ fun RoomMakerScreen(
                     onValueChange = { topic = it },
                     label = { Text("Topic") },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    singleLine = true,
                 )
             }
             item {
@@ -137,14 +129,14 @@ fun RoomMakerScreen(
                     prefix = { Text("#") },
                     suffix = { Text(":$serverName") },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    singleLine = true,
                 )
             }
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("Encrypted", style = MaterialTheme.typography.bodyLarge)
                     Switch(checked = encrypted, onCheckedChange = { encrypted = it })
@@ -153,7 +145,7 @@ fun RoomMakerScreen(
             item {
                 ExposedDropdownMenuBox(
                     expanded = presetExpanded,
-                    onExpandedChange = { presetExpanded = it }
+                    onExpandedChange = { presetExpanded = it },
                 ) {
                     OutlinedTextField(
                         value = preset.displayName,
@@ -163,16 +155,19 @@ fun RoomMakerScreen(
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = presetExpanded) },
                         modifier = Modifier
                             .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                            .fillMaxWidth()
+                            .fillMaxWidth(),
                     )
                     ExposedDropdownMenu(
                         expanded = presetExpanded,
-                        onDismissRequest = { presetExpanded = false }
+                        onDismissRequest = { presetExpanded = false },
                     ) {
                         RoomPreset.entries.forEach { p ->
                             DropdownMenuItem(
                                 text = { Text(p.displayName) },
-                                onClick = { preset = p; presetExpanded = false }
+                                onClick = {
+                                    preset = p;
+                                    presetExpanded = false
+                                },
                             )
                         }
                     }
@@ -182,12 +177,12 @@ fun RoomMakerScreen(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
                         "Invite Users",
                         style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     IconButton(onClick = { inviteUsers = inviteUsers + "" }) {
                         Icon(Icons.Filled.PersonAdd, contentDescription = "Add User")
@@ -197,7 +192,7 @@ fun RoomMakerScreen(
             itemsIndexed(inviteUsers) { index, user ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     OutlinedTextField(
                         value = user,
@@ -206,7 +201,7 @@ fun RoomMakerScreen(
                         },
                         placeholder = { Text("@user:server.com") },
                         modifier = Modifier.weight(1f),
-                        singleLine = true
+                        singleLine = true,
                     )
                     IconButton(onClick = {
                         inviteUsers = inviteUsers.toMutableList().also { it.removeAt(index) }
@@ -223,12 +218,12 @@ fun RoomMakerScreen(
                         .clickable { advancedExpanded = !advancedExpanded }
                         .padding(vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("Advanced", style = MaterialTheme.typography.titleSmall)
                     Icon(
                         if (advancedExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                        contentDescription = null
+                        contentDescription = null,
                     )
                 }
             }
@@ -237,7 +232,7 @@ fun RoomMakerScreen(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text("Direct Chat", style = MaterialTheme.typography.bodyLarge)
                         Switch(checked = isDirect, onCheckedChange = { isDirect = it })
@@ -252,7 +247,7 @@ fun RoomMakerScreen(
                             onValueChange = { roomVersion = it },
                             valueRange = 1f..12f,
                             steps = 10,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
                 }
@@ -267,8 +262,11 @@ fun RoomMakerScreen(
                         },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        keyboardOptions = if (isV12) KeyboardOptions(keyboardType = KeyboardType.Number)
-                        else KeyboardOptions.Default
+                        keyboardOptions = if (isV12) {
+                            KeyboardOptions(keyboardType = KeyboardType.Number)
+                        } else {
+                            KeyboardOptions.Default
+                        },
                     )
                 }
             }
@@ -286,8 +284,8 @@ fun RoomMakerScreen(
                             initialState.add(
                                 mapOf(
                                     "type" to "m.room.encryption",
-                                    "content" to mapOf("algorithm" to "m.megolm.v1.aes-sha2")
-                                )
+                                    "content" to mapOf("algorithm" to "m.megolm.v1.aes-sha2"),
+                                ),
                             )
                         }
                         appViewModel.createRoom(
@@ -300,7 +298,13 @@ fun RoomMakerScreen(
                             initialState = initialState,
                             roomVersion = versionInt.toString(),
                             roomId = if (!isV12 && roomIdOrTs.isNotBlank()) roomIdOrTs.trim() else null,
-                            originServerTs = if (isV12 && roomIdOrTs.isNotBlank()) roomIdOrTs.trim().toLongOrNull() else null
+                            originServerTs = if (isV12 &&
+                                roomIdOrTs.isNotBlank()
+                            ) {
+                                    roomIdOrTs.trim().toLongOrNull()
+                                } else {
+                                    null
+                                },
                         ) { roomId, error ->
                             isCreating = false
                             if (error != null) {
@@ -311,13 +315,13 @@ fun RoomMakerScreen(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !isCreating
+                    enabled = !isCreating,
                 ) {
                     if (isCreating) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp),
                             strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary
+                            color = MaterialTheme.colorScheme.onPrimary,
                         )
                         Spacer(Modifier.width(8.dp))
                     }
@@ -334,7 +338,7 @@ fun RoomMakerScreen(
             text = { Text(err) },
             confirmButton = {
                 TextButton(onClick = { errorMessage = null }) { Text("OK") }
-            }
+            },
         )
     }
 
@@ -351,7 +355,7 @@ fun RoomMakerScreen(
                     successRoomId = null
                     navController.popBackStack()
                 }) { Text("OK") }
-            }
+            },
         )
     }
 }
