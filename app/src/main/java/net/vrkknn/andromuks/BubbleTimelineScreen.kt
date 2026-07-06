@@ -92,6 +92,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -739,24 +741,24 @@ fun BubbleTimelineScreen(
     // Mention state
     var showMentionList by remember { mutableStateOf(false) }
     var mentionQuery by remember { mutableStateOf("") }
-    var mentionStartIndex by remember { mutableStateOf(-1) }
+    var mentionStartIndex by remember { mutableIntStateOf(-1) }
     var isWaitingForFullMemberList by remember { mutableStateOf(false) }
-    var lastMemberUpdateCounterBeforeMention by remember { mutableStateOf(appViewModel.memberUpdateCounter) }
+    var lastMemberUpdateCounterBeforeMention by remember { mutableIntStateOf(appViewModel.memberUpdateCounter) }
 
     // Emoji shortcode ( :shortname: ) state
     var showEmojiSuggestionList by remember { mutableStateOf(false) }
     var emojiQuery by remember { mutableStateOf("") }
-    var emojiStartIndex by remember { mutableStateOf(-1) }
+    var emojiStartIndex by remember { mutableIntStateOf(-1) }
 
     // Room mention ( #roomalias ) state
     var showRoomSuggestionList by remember { mutableStateOf(false) }
     var roomQuery by remember { mutableStateOf("") }
-    var roomStartIndex by remember { mutableStateOf(-1) }
+    var roomStartIndex by remember { mutableIntStateOf(-1) }
 
     // Command ( /command ) state
     var showCommandSuggestionList by remember { mutableStateOf(false) }
     var commandQuery by remember { mutableStateOf("") }
-    var commandStartIndex by remember { mutableStateOf(-1) }
+    var commandStartIndex by remember { mutableIntStateOf(-1) }
 
     // Per-message profile picker state
     var showPmpProfilePicker by remember { mutableStateOf(false) }
@@ -768,7 +770,7 @@ fun BubbleTimelineScreen(
 
     // Scroll highlight state for jump-to-message interactions
     var highlightedEventId by remember(roomId) { mutableStateOf<String?>(null) }
-    var highlightRequestId by remember(roomId) { mutableStateOf(0) }
+    var highlightRequestId by remember(roomId) { mutableIntStateOf(0) }
     // Back-stack for reply jumps: each entry is (firstVisibleItemIndex, scrollOffset)
     val jumpBackStack = remember(roomId) { ArrayDeque<Pair<Int, Int>>() }
     // Scroll position to restore when returning from EventContextScreen
@@ -790,7 +792,7 @@ fun BubbleTimelineScreen(
     // Text input state (moved here to be accessible by mention handler)
     val urlPreviewController = remember { UrlPreviewController() }
     var draft by remember { mutableStateOf("") }
-    var lastTypingTime by remember { mutableStateOf(0L) }
+    var lastTypingTime by remember { mutableLongStateOf(0L) }
     var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
 
     // Focus requester for text field (to focus when replying)
@@ -798,7 +800,7 @@ fun BubbleTimelineScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
 
     // Track text field height to match button heights
-    var textFieldHeight by remember { mutableStateOf(0) }
+    var textFieldHeight by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val buttonHeight = remember(textFieldHeight) {
         if (textFieldHeight > 0) {
@@ -1638,7 +1640,7 @@ fun BubbleTimelineScreen(
             items
         }
     }
-    var lastInitialScrollSize by remember(roomId) { mutableStateOf(0) }
+    var lastInitialScrollSize by remember(roomId) { mutableIntStateOf(0) }
 
     // Get member map that observes memberUpdateCounter and includes global cache fallback for TimelineEventItem profile updates
     val baseMemberMap = remember(roomId, appViewModel.memberUpdateCounter, sortedEvents) {
@@ -1793,7 +1795,7 @@ fun BubbleTimelineScreen(
     // With reverseLayout, we capture the highest visible index (oldest message at top)
     // After pagination adds older events, we scroll so that index is at the bottom of view
     var highestVisibleIndexBeforePagination by remember { mutableStateOf<Int?>(null) }
-    var anchorScrollOffsetForRestore by remember { mutableStateOf(0) }
+    var anchorScrollOffsetForRestore by remember { mutableIntStateOf(0) }
     var pendingScrollRestoration by remember { mutableStateOf(false) }
     var expectedTimelineSizeBeforePagination by remember { mutableStateOf<Int?>(null) }
 
@@ -1802,8 +1804,8 @@ fun BubbleTimelineScreen(
     // prevItemsAbove gives the falling-edge detection that prevents a capped burst from
     // immediately re-arming itself while still below the trigger threshold.
     var isRefillingBuffer by remember(roomId) { mutableStateOf(false) }
-    var refillRoundCount by remember(roomId) { mutableStateOf(0) }
-    var prevItemsAbove by remember(roomId) { mutableStateOf(Int.MAX_VALUE) }
+    var refillRoundCount by remember(roomId) { mutableIntStateOf(0) }
+    var prevItemsAbove by remember(roomId) { mutableIntStateOf(Int.MAX_VALUE) }
 
     // Pull-to-refresh state
     var isRefreshingPull by remember { mutableStateOf(false) }
@@ -1924,7 +1926,7 @@ fun BubbleTimelineScreen(
 
     // Track loading more state
     var isLoadingMore by remember { mutableStateOf(false) }
-    var previousItemCount by remember { mutableStateOf(timelineItems.size) }
+    var previousItemCount by remember { mutableIntStateOf(timelineItems.size) }
     var hasLoadedInitialBatch by remember { mutableStateOf(false) }
     var hasInitialSnapCompleted by remember { mutableStateOf(false) }
     var lastKnownTimelineEventId by remember { mutableStateOf<String?>(null) }
@@ -2558,7 +2560,7 @@ fun BubbleTimelineScreen(
     }
 
     // Track last known refresh trigger to detect when app resumes
-    var lastKnownRefreshTrigger by remember { mutableStateOf(appViewModel.timelineRefreshTrigger) }
+    var lastKnownRefreshTrigger by remember { mutableIntStateOf(appViewModel.timelineRefreshTrigger) }
     var isInitialLoadComplete by remember(roomId) { mutableStateOf(false) }
 
     // Mark initial load as complete after a short delay to distinguish from app resume

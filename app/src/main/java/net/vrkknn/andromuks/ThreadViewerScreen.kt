@@ -71,6 +71,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -551,24 +553,24 @@ fun ThreadViewerScreen(
     // Mention state
     var showMentionList by remember { mutableStateOf(false) }
     var mentionQuery by remember { mutableStateOf("") }
-    var mentionStartIndex by remember { mutableStateOf(-1) }
+    var mentionStartIndex by remember { mutableIntStateOf(-1) }
     var isWaitingForFullMemberList by remember { mutableStateOf(false) }
-    var lastMemberUpdateCounterBeforeMention by remember { mutableStateOf(appViewModel.memberUpdateCounter) }
+    var lastMemberUpdateCounterBeforeMention by remember { mutableIntStateOf(appViewModel.memberUpdateCounter) }
 
     // Emoji shortcode ( :shortname: ) state
     var showEmojiSuggestionList by remember { mutableStateOf(false) }
     var emojiQuery by remember { mutableStateOf("") }
-    var emojiStartIndex by remember { mutableStateOf(-1) }
+    var emojiStartIndex by remember { mutableIntStateOf(-1) }
 
     // Room mention ( #roomalias ) state
     var showRoomSuggestionList by remember { mutableStateOf(false) }
     var roomQuery by remember { mutableStateOf("") }
-    var roomStartIndex by remember { mutableStateOf(-1) }
+    var roomStartIndex by remember { mutableIntStateOf(-1) }
 
     // Command ( /command ) state
     var showCommandSuggestionList by remember { mutableStateOf(false) }
     var commandQuery by remember { mutableStateOf("") }
-    var commandStartIndex by remember { mutableStateOf(-1) }
+    var commandStartIndex by remember { mutableIntStateOf(-1) }
 
     // Per-message profile picker state
     var showPmpProfilePicker by remember { mutableStateOf(false) }
@@ -599,7 +601,7 @@ fun ThreadViewerScreen(
     // Text input state (moved here to be accessible by mention handler)
     val urlPreviewController = remember { UrlPreviewController() }
     var draft by remember { mutableStateOf("") }
-    var lastTypingTime by remember { mutableStateOf(0L) }
+    var lastTypingTime by remember { mutableLongStateOf(0L) }
     var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
 
     // Focus requester for text field (to focus when replying)
@@ -607,7 +609,7 @@ fun ThreadViewerScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
 
     // Track text field height to size the send button
-    var textFieldHeight by remember { mutableStateOf(0) }
+    var textFieldHeight by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val buttonHeight = remember(textFieldHeight, density) {
         if (textFieldHeight > 0) {

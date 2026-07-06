@@ -41,7 +41,7 @@ fun StickerSelectionDialog(
     onDismiss: () -> Unit,
     stickerPacks: List<net.vrkknn.andromuks.AppViewModel.StickerPack> = emptyList(),
 ) {
-    var selectedPackIndex by remember { mutableStateOf(0) }
+    var selectedPackIndex by remember { mutableIntStateOf(0) }
     var searchText by remember { mutableStateOf("") }
 
     Dialog(

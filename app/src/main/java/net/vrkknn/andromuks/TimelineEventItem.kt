@@ -53,6 +53,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -2018,7 +2020,7 @@ private fun RoomTextMessageContent(
     val hasReceipts = readReceipts.isNotEmpty()
 
     // Track rendered bubble width so reactions wrap at the same width as the bubble.
-    var bubbleWidthPx by remember { mutableStateOf(0) }
+    var bubbleWidthPx by remember { mutableIntStateOf(0) }
 
     @Composable
     fun MessageBubble() {
@@ -4020,7 +4022,7 @@ fun TimelineEventItem(
     val coroutineScope = rememberCoroutineScope()
     val swipeThreshold = with(density) { 100.dp.toPx() } // 100dp threshold for full reply icon
     val profileTapUserId = event.sender.ifBlank { myUserId.orEmpty() }
-    var dragOffsetPx by remember { mutableStateOf(0f) } // Use mutable state for immediate updates during drag
+    var dragOffsetPx by remember { mutableFloatStateOf(0f) } // Use mutable state for immediate updates during drag
     val dragOffsetAnimatable = remember { Animatable(0f) } // Use Animatable only for return animation
     var shouldTriggerReply by remember { mutableStateOf(false) }
     var isDragging by remember { mutableStateOf(false) }

@@ -990,9 +990,9 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
     val context = LocalContext.current
     var showSnackbar by remember { mutableStateOf(false) }
     var snackbarMessage by remember { mutableStateOf("") }
-    var lastReceivedRequestId by remember { mutableStateOf(0) }
-    var lastRegistration by remember { mutableStateOf(0L) }
-    var refreshTrigger by remember { mutableStateOf(0) }
+    var lastReceivedRequestId by remember { mutableIntStateOf(0) }
+    var lastRegistration by remember { mutableLongStateOf(0L) }
+    var refreshTrigger by remember { mutableIntStateOf(0) }
 
     // Load persisted values when section is first shown
     LaunchedEffect(Unit) {

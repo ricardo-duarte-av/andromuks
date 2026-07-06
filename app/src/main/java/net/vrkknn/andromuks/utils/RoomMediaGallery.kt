@@ -215,12 +215,12 @@ fun RoomMediaGalleryScreen(roomId: String, navController: NavController, appView
     var hasMore by remember { mutableStateOf(true) }
     // Starts at 0 (= latest); updated to the lowest positive timelineRowid seen so far
     // so each subsequent request paginates further back in history.
-    var nextMaxTimelineId by remember { mutableStateOf(0L) }
+    var nextMaxTimelineId by remember { mutableLongStateOf(0L) }
 
     var selectedItem by remember { mutableStateOf<GalleryMediaItem?>(null) }
 
     // Pinch-to-zoom column count: fewer columns = larger thumbnails, more columns = smaller.
-    var columns by rememberSaveable { mutableStateOf(GALLERY_DEFAULT_COLUMNS) }
+    var columns by rememberSaveable { mutableIntStateOf(GALLERY_DEFAULT_COLUMNS) }
 
     val gridState = rememberLazyGridState()
     val homeserverUrl = appViewModel.homeserverUrl
